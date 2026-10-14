@@ -83,7 +83,7 @@ const needsYou = {
   count: 2,
 }
 
-function stubApi(userName: string | null, captureDays: number | null = null, links: { label: string; url: string }[] = []) {
+function stubApi(userName: string | null, captureDays: number | null = null, links: { label: string; url: string }[] = [], entries: { label: string; url: string; detail?: string; current: boolean }[] = [], role = "administrator") {
   return {
     GET: vi.fn(async (path: string) => {
       if (path === '/api/v1/channels') return { data: { items: channels } }
@@ -99,7 +99,7 @@ function stubApi(userName: string | null, captureDays: number | null = null, lin
         }
       }
       if (path === '/api/v1/user') {
-        return { data: { name: userName, model_request_capture_days: captureDays, product_app_links: links } }
+        return { data: { name: userName, role, org: { name: "Acme", entries }, model_request_capture_days: captureDays, product_app_links: links } }
       }
       if (path === '/api/v1/needs-you') return { data: needsYou }
       return { data: { items: [] } }
@@ -126,6 +126,8 @@ function mount(props: {
   userName?: string | null
   /** The retention of Model Request Capture, or `null` while it is off. */
   captureDays?: number | null
+  entries?: { label: string; url: string; detail?: string; current: boolean }[]
+  role?: string
   links?: { label: string; url: string }[]
 }) {
   const onSelectPlace = vi.fn()
@@ -136,7 +138,7 @@ function mount(props: {
   render(
     <QueryClientProvider client={queryClient}>
       <Sidebar
-        api={stubApi(props.userName ?? null, props.captureDays ?? null, props.links ?? []) as unknown as ApiClient}
+        api={stubApi(props.userName ?? null, props.captureDays ?? null, props.links ?? [], props.entries ?? [], props.role) as unknown as ApiClient}
         pathname={props.pathname}
         selectedId={props.selectedId}
         onSelectPlace={onSelectPlace}
@@ -396,5 +398,35 @@ describe('the account menu', () => {
     expect(screen.queryByRole('button', { name: 'Account menu' })).toBeNull()
     expect(screen.queryByRole('menuitem')).toBeNull()
     for (const link of links) expect(screen.queryByText(link.label)).toBeNull()
+  })
+})
+
+ describe('the Org head', () => {
+  it.each(['administrator', 'member'])('shows the Org and the %s role without a button', async (role) => {
+    mount({ pathname: '/', selectedId: null, role })
+    const name = await screen.findByText('Acme')
+    expect(screen.getByText(role === 'administrator' ? 'Administrator' : 'Member')).toBeTruthy()
+    expect(name.closest('button')).toBeNull()
+    expect(name.closest('.org-head')?.querySelector('.ui-initial-tile')?.textContent).toBe('A')
+  })
+
+  it('opens the server entries and marks the current Org', async () => {
+    const user = userEvent.setup()
+    const entries = [
+      { label: 'Acme', url: 'https://acme.example.com', detail: 'Administrator', current: true },
+      { label: 'Invite people', url: 'https://acme.example.com/invite', current: false },
+    ]
+    mount({ pathname: '/', selectedId: null, entries })
+    await user.click(await screen.findByRole('button', { name: 'Acme Administrator' }))
+    const menu = screen.getByRole('menu')
+    const items = within(menu).getAllByRole('menuitem')
+    expect(items.map(item => item.getAttribute('href'))).toEqual(entries.map(entry => entry.url))
+    expect(items[0].getAttribute('aria-current')).toBe('true')
+    expect(items[0].querySelector('svg')).not.toBeNull()
+    expect(items[1].getAttribute('aria-current')).toBeNull()
+    for (const item of items) expect(item.getAttribute('target')).toBeNull()
+    await user.keyboard('{Escape}')
+    expect(screen.getByRole('button', { name: 'Sign out' }).closest('.sidebar-profile')).toBeTruthy()
+    expect(screen.queryByRole('menu')).toBeNull()
   })
 })

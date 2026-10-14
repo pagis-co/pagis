@@ -15,11 +15,13 @@ import {
 import { errorMessage, useSchedules, useSignOut, useUser, useUserName } from '../../queries'
 import { PagisShell } from '../../mobileShell'
 import { NotificationSwitch } from '../settings/Notifications'
+import { OrgHead } from '../OrgHead'
 import { nearMoment } from '../when'
 
 export function You({ api }: { api: ApiClient }) {
   const name = useUserName(api)
-  const links = useUser(api).data?.product_app_links ?? []
+  const user = useUser(api).data
+  const links = user?.product_app_links ?? []
   const navigate = useNavigate()
   const schedules = useSchedules(api)
   const signOut = useSignOut(api)
@@ -75,6 +77,7 @@ export function You({ api }: { api: ApiClient }) {
           <p className="phone-hint you-phone-address">{window.location.host}</p>
         </div>
       </header>
+      {user?.org && <OrgHead org={user.org} role={user.role} />}
       <Frame>
         {places.map(({ title, hint, icon: Icon, to }) => (
           <Row key={to} chevron onClick={() => void navigate({ to })}>

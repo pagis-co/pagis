@@ -1,3 +1,4 @@
+import { Check } from 'lucide-react'
 import type { ReactNode } from 'react'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 
@@ -5,6 +6,8 @@ import './menu.css'
 
 export type MenuItem = {
   label: string
+  detail?: string
+  current?: boolean
   disabled?: boolean
   /** A destructive item is drawn in the failed hue. */
   danger?: boolean
@@ -31,9 +34,18 @@ export function Menu({ trigger, items, label }: MenuProps) {
               asChild={item.href !== undefined}
               disabled={item.disabled}
               onSelect={item.onSelect}
+              aria-current={item.current ? 'true' : undefined}
               className={item.danger ? 'ui-menu-item ui-menu-item-danger' : 'ui-menu-item'}
             >
-              {item.href !== undefined ? <a href={item.href}>{item.label}</a> : item.label}
+              {item.href !== undefined ? (
+                <a href={item.href}>
+                  <span className="ui-menu-copy">
+                    <span>{item.label}</span>{item.detail && ' '}
+                    {item.detail && <span className="ui-menu-detail">{item.detail}</span>}
+                  </span>
+                  {item.current && <Check className="ui-menu-check" aria-hidden />}
+                </a>
+              ) : item.label}
             </DropdownMenu.Item>
           ))}
         </DropdownMenu.Content>

@@ -5596,6 +5596,19 @@ export interface components {
         OnboardingStep: "welcome" | "model" | "profile" | "computer";
         /** @enum {string} */
         Operator: "contains" | "not_contains" | "is" | "is_not" | "starts_with" | "after" | "before" | "within_last" | "older_than" | "at_least" | "at_most" | "in" | "not_in" | "has" | "lacks";
+        /** @description The Org that the Product App shows in its head. */
+        OrgDto: {
+            entries: components["schemas"]["OrgMenuEntry"][];
+            name: string;
+        };
+        /** @description One link in the Org menu, supplied by the server or an Embedder. */
+        OrgMenuEntry: {
+            current: boolean;
+            detail?: string | null;
+            label: string;
+            /** @description The link opens in the same tab. */
+            url: string;
+        };
         /**
          * @description One address that is owner because the user holds the account it
          *     belongs to (ADR-0019). It is not a row, so it has no id and the user
@@ -7292,6 +7305,8 @@ export interface components {
              *     records one.
              */
             name?: string | null;
+            /** @description The Org name and the menu entries the server supplies. */
+            org: components["schemas"]["OrgDto"];
             /** @description The links the operator names in the Server configuration. */
             product_app_links: components["schemas"]["ConfiguredLink"][];
             /** @description `administrator` or `member`. */

@@ -6,9 +6,10 @@
 
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use axum::Json;
 use axum::extract::State;
-use pagis_core::{User, UserRole};
+use pagis_core::{StoreError, User, UserRole};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -52,6 +53,8 @@ pub struct UserDto {
     pub model_request_capture_days: Option<u32>,
     /// The links the operator names in the Server configuration.
     pub product_app_links: Vec<ConfiguredLink>,
+    /// The Org name and the menu entries the server supplies.
+    pub org: OrgDto,
 }
 
 impl UserDto {
@@ -62,6 +65,7 @@ impl UserDto {
         administration: &AdministrationAddress,
         capture: &pagis_core::CaptureSetting,
         product_app_links: &[ConfiguredLink],
+        org: OrgDto,
     ) -> Self {
         UserDto {
             id: user.id.to_string(),
@@ -71,8 +75,63 @@ impl UserDto {
             administration: (user.role == UserRole::Administrator).then(|| administration.clone()),
             model_request_capture_days: capture.is_enabled().then(|| capture.retention_days()),
             product_app_links: product_app_links.to_vec(),
+            org,
         }
     }
+}
+
+/// The Org that the Product App shows in its head.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct OrgDto {
+    pub name: String,
+    pub entries: Vec<OrgMenuEntry>,
+}
+
+/// One link in the Org menu, supplied by the server or an Embedder.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct OrgMenuEntry {
+    pub label: String,
+    /// The link opens in the same tab.
+    pub url: String,
+    pub detail: Option<String>,
+    pub current: bool,
+}
+
+/// The Org menu entries for a Person, read on each request.
+#[async_trait]
+pub trait OrgMenu: Send + Sync {
+    async fn entries(&self, person: &User) -> Result<Vec<OrgMenuEntry>, StoreError>;
+}
+
+/// The daemon supplies no Org menu entries.
+pub struct NoOrgMenu;
+
+#[async_trait]
+impl OrgMenu for NoOrgMenu {
+    async fn entries(&self, _person: &User) -> Result<Vec<OrgMenuEntry>, StoreError> {
+        Ok(Vec::new())
+    }
+}
+
+/// Read the Person's Org for the user and sign-in answers.
+pub(crate) async fn user_dto(state: &AppState, user: &User) -> Result<UserDto, ApiError> {
+    let org = state
+        .orgs
+        .list()
+        .await?
+        .into_iter()
+        .find(|org| org.id == user.org_id)
+        .ok_or_else(|| ApiError::not_found("the Org"))?;
+    Ok(UserDto::new(
+        user,
+        &state.administration,
+        &state.capture,
+        &state.product_app_links,
+        OrgDto {
+            name: org.name,
+            entries: state.org_menu.entries(user).await?,
+        },
+    ))
 }
 
 /// One link that the Server configuration names: in the account menu of
@@ -142,12 +201,7 @@ pub async fn get_user(
         .get(&tenant.user_id)
         .await?
         .ok_or_else(|| ApiError::not_found("the person"))?;
-    Ok(Json(UserDto::new(
-        &user,
-        &state.administration,
-        &state.capture,
-        &state.product_app_links,
-    )))
+    Ok(Json(user_dto(&state, &user).await?))
 }
 
 #[cfg(test)]
@@ -219,7 +273,11 @@ mod tests {
                 &person,
                 &address,
                 &pagis_core::CaptureSetting::default(),
-                &[]
+                &[],
+                OrgDto {
+                    name: "Acme".into(),
+                    entries: Vec::new()
+                },
             )
             .administration,
             Some(address.clone())
@@ -230,10 +288,40 @@ mod tests {
                 &person,
                 &address,
                 &pagis_core::CaptureSetting::default(),
-                &[]
+                &[],
+                OrgDto {
+                    name: "Acme".into(),
+                    entries: Vec::new()
+                },
             )
             .administration,
             None
+        );
+    }
+
+    #[test]
+    fn the_user_answer_carries_the_org() {
+        let person = User::new(
+            pagis_core::OrgId::from("o".to_string()),
+            UserRole::Member,
+            0,
+        );
+        let address =
+            AdministrationAddress::of("127.0.0.1:4401".parse().unwrap(), "http://localhost", "");
+        let answer = UserDto::new(
+            &person,
+            &address,
+            &pagis_core::CaptureSetting::default(),
+            &[],
+            OrgDto {
+                name: "Acme".into(),
+                entries: Vec::new(),
+            },
+        );
+        let value = serde_json::to_value(answer).unwrap();
+        assert_eq!(
+            value["org"],
+            serde_json::json!({"name": "Acme", "entries": []})
         );
     }
 

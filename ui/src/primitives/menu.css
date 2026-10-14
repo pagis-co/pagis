@@ -42,3 +42,21 @@
   background: var(--failed-soft);
   color: var(--failed-ink);
 }
+
+.ui-menu-copy {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+}
+
+.ui-menu-detail {
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+
+.ui-menu-check {
+  margin-left: auto;
+  width: var(--space-4);
+  height: var(--space-4);
+  flex: none;
+}

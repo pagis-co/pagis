@@ -42,3 +42,16 @@ describe('Menu', () => {
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Actions' }))
   })
 })
+
+it('shows link details and a check mark for the current entry', async () => {
+  const user = userEvent.setup()
+  render(<Menu trigger={<Button>Org</Button>} items={[
+    { label: 'Acme', detail: 'Member', current: true, href: '/acme' },
+    { label: 'Invite people', href: '/invite' },
+  ]} />)
+  await user.click(screen.getByRole('button', { name: 'Org' }))
+  const current = screen.getByRole('menuitem', { name: 'Acme Member' })
+  expect(current.getAttribute('aria-current')).toBe('true')
+  expect(current.querySelector('svg')).not.toBeNull()
+  expect(screen.getByRole('menuitem', { name: 'Invite people' }).querySelector('svg')).toBeNull()
+})

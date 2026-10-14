@@ -94,6 +94,7 @@ async fn setup(
         source.clone(),
         Arc::new(NoStdioServers),
         http.clone(),
+        Arc::new(pagis_server::NoOrgMenu),
     )
     .await;
     e.stores
