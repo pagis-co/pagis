@@ -209,6 +209,18 @@ Product App state. `avatars/Avatar` belongs to the Product App: it reads
 saved Agent appearance and live motion. It is outside the package entry.
 OwnerAvatar and AvatarGroup stay in the primitives entry.
 
+An Embedder page imports `SidebarFrame`, `SettingsNav` and their prop types
+from `pagis-ui/shell`, and on a phone the `NavBar` and `LargeTitle` of the
+phone shell. The Product App and the Administration Interface use
+these same components. Each component imports its own CSS. The Embedder
+supplies Person data, navigation callbacks and URLs. `SettingsNav` marks an
+Org link as the open page when its URL equals `currentUrl`.
+
+The shell entry imports only modules in `src/` and listed package
+dependencies. Its modules read no API, query or Product App state. The
+Settings groups, section types and section list are in
+`src/components/settings/groups.ts`, which has no imports.
+
 ## Motion and sound
 
 Motion is 150 ms for a state change, 250 ms for a panel, 400 ms for a

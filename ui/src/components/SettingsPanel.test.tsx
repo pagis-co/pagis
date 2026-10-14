@@ -12,9 +12,9 @@ import type { ApiClient } from '../api/client'
 import {
   SETTINGS_GROUPS,
   SETTINGS_SECTIONS,
-  SettingsPanel,
   type SettingsSection,
-} from './SettingsPanel'
+} from './settings/groups'
+import { SettingsPanel } from './SettingsPanel'
 
 const CONNECTION = {
   id: 'conn-1',

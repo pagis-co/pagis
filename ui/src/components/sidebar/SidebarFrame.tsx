@@ -7,6 +7,23 @@ import { PersonNotice } from '../PersonNotice'
 import { PLACES, type PlaceId } from './places'
 import './Sidebar.css'
 
+export interface SidebarFrameProps {
+  userName: string
+  org?: components['schemas']['OrgDto']
+  role: string
+  links?: { label: string; url: string }[]
+  captureDays?: number | null
+  notice?: components['schemas']['PersonNoticeDto'] | null
+  currentPlace: PlaceId | null
+  needsYou?: number
+  publicOrigin?: string
+  onSelectPlace?: (place: PlaceId) => void
+  onSearch?: () => void
+  onSignOut: () => void
+  signOutPending?: boolean
+  children?: ReactNode
+}
+
 /** The shared sidebar takes Person data and navigation targets. */
 export function SidebarFrame({
   userName,
@@ -23,22 +40,7 @@ export function SidebarFrame({
   onSignOut,
   signOutPending = false,
   children,
-}: {
-  userName: string
-  org?: components['schemas']['OrgDto']
-  role: string
-  links?: { label: string; url: string }[]
-  captureDays?: number | null
-  notice?: components['schemas']['PersonNoticeDto'] | null
-  currentPlace: PlaceId | null
-  needsYou?: number
-  publicOrigin?: string
-  onSelectPlace?: (place: PlaceId) => void
-  onSearch?: () => void
-  onSignOut: () => void
-  signOutPending?: boolean
-  children?: ReactNode
-}) {
+}: SidebarFrameProps) {
   const profile = (
     <>
       <OwnerAvatar name={userName} size="md" />

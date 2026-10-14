@@ -49,6 +49,60 @@ describe('the UI package entries', () => {
     expect([...modules].filter((id) => !id.startsWith(`${primitives}/`))).toEqual([])
   })
 
+  it('exports the shell components with no API client, query or app state in the full module graph', async () => {
+    const modules = new Set<string>()
+    const result = await build({
+      root,
+      configFile: false,
+      logLevel: 'silent',
+      plugins: [{
+        name: 'inspect-shell',
+        moduleParsed(module) { modules.add(module.id) },
+      }],
+      build: {
+        write: false,
+        minify: false,
+        rollupOptions: {
+          input: 'pagis-ui/shell',
+          external: dependency,
+          treeshake: false,
+          preserveEntrySignatures: 'strict',
+        },
+      },
+    })
+    expect(modules.size).toBeGreaterThan(1)
+    expect([...modules].filter((id) => !id.startsWith(`${root}/src/`))).toEqual([])
+    expect([...modules].filter((id) => /\/api\/client|\/queries(?:[./])|\/state(?:[./])/.test(id))).toEqual([])
+    if (Array.isArray(result) || !('output' in result)) throw new Error('expected one build')
+    const entry = result.output.find((item) => item.type === 'chunk' && item.isEntry)
+    expect(entry?.type === 'chunk' && entry.exports).toEqual(['LargeTitle', 'NavBar', 'SettingsNav', 'SidebarFrame'])
+  })
+
+  it('builds another app with the shell components, prop types and styles', async () => {
+    const app = mkdtempSync(join(root, '.package-entry-'))
+    copyFileSync(join(root, 'src/test/package-entry/shell.ts'), join(app, 'main.ts'))
+    writeFileSync(join(app, 'package.json'), JSON.stringify({ name: 'shell-app', type: 'module' }))
+    mkdirSync(join(app, 'node_modules'))
+    symlinkSync(root, join(app, 'node_modules/pagis-ui'), 'dir')
+    try {
+      const result = await build({
+        root,
+        configFile: false,
+        logLevel: 'silent',
+        build: { write: false, rollupOptions: { input: join(app, 'main.ts') } },
+      })
+      if (Array.isArray(result) || !('output' in result)) throw new Error('expected one build')
+      const css = result.output.flatMap((item) =>
+        item.type === 'asset' && item.fileName.endsWith('.css') ? [String(item.source)] : [],
+      ).join('\n')
+      for (const selector of ['.sidebar', '.org-head', '.person-notice', '.settings-nav-item', '.org-settings-tunnel', '.nav-bar', '.large-title']) {
+        expect(css).toContain(selector)
+      }
+    } finally {
+      rmSync(app, { recursive: true, force: true })
+    }
+  })
+
   it('defines every property the primitives read in both themes', () => {
     const sheets = readdirSync(primitives).filter((name) => name.endsWith('.css'))
     const reads = sheets.flatMap((name) => {

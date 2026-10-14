@@ -65,6 +65,20 @@ describe('SettingsNav', () => {
     expect(org.getAllByRole('link').every((link) => !link.hasAttribute('aria-current'))).toBe(true)
   })
 
+  it.each([
+    'https://team.example.com/help',
+    'https://pagis.example.net/admin/people',
+    'https://team.example.com/help/',
+  ])('marks only the Org link with the exact open-page URL %s as current', (currentUrl) => {
+    render(<SettingsNav isAdministrator administration={address} currentUrl={currentUrl} />)
+    const links = within(screen.getByRole('group', { name: 'Org' })).getAllByRole('link')
+    for (const link of links) {
+      const current = link.getAttribute('href') === currentUrl
+      expect(link.getAttribute('aria-current')).toBe(current ? 'page' : null)
+      expect(link.classList.contains('settings-nav-item-active')).toBe(current)
+    }
+  })
+
   it('shows no Org group to a Member, even with an address', () => {
     render(<SettingsNav section="vault" onSelectSection={() => {}} isAdministrator={false} administration={address} />)
     expect(screen.queryByRole('group', { name: 'Org' })).toBeNull()

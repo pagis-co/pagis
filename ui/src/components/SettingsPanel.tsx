@@ -21,67 +21,10 @@ import { SoundSection } from './SoundSection'
 import { TimezoneSection } from './settings/Timezone'
 import { TrustedContacts } from './TrustedContacts'
 
+import type { SettingsSection } from './settings/groups'
+
 import './SettingsPanel.css'
 import './settings.css'
-
-/** Each section is a URL: `/settings/:section`. Agents are
- *  not here: the sprites have a page of their own. */
-export type SettingsSection =
-  | 'connections'
-  | 'hosts'
-  | 'sessions'
-  | 'vault'
-  | 'trusted-contacts'
-  | 'models'
-  | 'usage'
-  | 'retention'
-  | 'timezone'
-  | 'sound'
-  | 'notifications'
-
-export interface SettingsGroup {
-  label: string
-  sections: { value: SettingsSection; label: string }[]
-}
-
-/** Three groups: who reaches the Workspace and whom the agents reach,
- *  what they think with, and the machine they run on. */
-export const SETTINGS_GROUPS: SettingsGroup[] = [
-  {
-    label: 'Access',
-    sections: [
-      { value: 'connections', label: 'Connections' },
-      { value: 'hosts', label: 'Hosts' },
-      { value: 'sessions', label: 'Sessions' },
-      { value: 'vault', label: 'Vault' },
-      { value: 'trusted-contacts', label: 'Trusted contacts' },
-    ],
-  },
-  {
-    label: 'Models',
-    sections: [
-      { value: 'models', label: 'Models' },
-      { value: 'usage', label: 'Usage' },
-    ],
-  },
-  {
-    label: 'System',
-    sections: [
-      { value: 'retention', label: 'Retention' },
-      { value: 'timezone', label: 'Timezone' },
-      { value: 'sound', label: 'Sound' },
-      { value: 'notifications', label: 'Notifications' },
-    ],
-  },
-]
-
-/** The sections in list order, for the palette. */
-export const SETTINGS_SECTIONS: { value: SettingsSection; label: string }[] =
-  SETTINGS_GROUPS.flatMap((group) => group.sections)
-
-export function isSettingsSection(value: string): value is SettingsSection {
-  return SETTINGS_SECTIONS.some((section) => section.value === value)
-}
 
 /** The frame every settings address draws in: the section nav and the
  *  content of the open section. A connection page is a content

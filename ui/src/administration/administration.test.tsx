@@ -7,7 +7,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { PLACES } from '../components/sidebar/places'
-import { SETTINGS_GROUPS } from '../components/SettingsPanel'
+import { SETTINGS_GROUPS } from '../components/settings/groups'
 import type { ApiClient, SystemSettingsDto } from '../api/client'
 import { Administration, viewOfPath } from './Administration'
 import { Health } from './Health'

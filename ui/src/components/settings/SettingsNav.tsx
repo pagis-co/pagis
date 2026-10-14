@@ -1,11 +1,24 @@
 
 import { Button, ButtonLink, SectionLabel, SettingsNav as Shell, cx } from '../../primitives'
 import type { AdministrationView } from '../../administration/views'
-import { type SettingsSection, SETTINGS_GROUPS } from '../SettingsPanel'
+import { type SettingsSection, SETTINGS_GROUPS } from './groups'
 
 import { OrgSettingsGroup, type AdministrationAddress } from './OrgSettingsGroup'
 
 import './SettingsNav.css'
+
+export interface SettingsNavProps {
+  section?: SettingsSection
+  onSelectSection?: (section: SettingsSection) => void
+  /** A Member sees no Org group. */
+  isAdministrator: boolean
+  administration?: AdministrationAddress | null
+  publicOrigin?: string
+  /** The URL of the open page. Org links use an exact match. */
+  currentUrl?: string
+  currentView?: AdministrationView
+  onSelectView?: (view: AdministrationView) => void
+}
 
 /** The 220 px settings nav: the Settings title, then the
  * sections and the Org links in their groups. The open section is the page. */
@@ -15,18 +28,10 @@ export function SettingsNav({
   isAdministrator,
   administration,
   publicOrigin,
+  currentUrl,
   currentView,
   onSelectView,
-}: {
-  section?: SettingsSection
-  onSelectSection?: (section: SettingsSection) => void
-  /** A Member sees no Org group. */
-  isAdministrator: boolean
-  administration?: AdministrationAddress | null
-  publicOrigin?: string
-  currentView?: AdministrationView
-  onSelectView?: (view: AdministrationView) => void
-}) {
+}: SettingsNavProps) {
 
   return (
     <Shell>
@@ -59,7 +64,7 @@ export function SettingsNav({
           ))}
         </div>
       ))}
-      <OrgSettingsGroup administration={administration} isAdministrator={isAdministrator} currentView={currentView} onSelectView={onSelectView} />
+      <OrgSettingsGroup administration={administration} isAdministrator={isAdministrator} currentUrl={currentUrl} currentView={currentView} onSelectView={onSelectView} />
     </Shell>
   )
 }
