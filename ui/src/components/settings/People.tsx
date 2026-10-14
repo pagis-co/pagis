@@ -232,7 +232,7 @@ function PersonRow({
 
   return (
     <div className="people-row">
-      <Row>
+      <Row className="people-line">
         <span className="people-name">{label}</span>
         <span className="people-email">{person.email ?? 'Signs in on this machine'}</span>
         <Select
@@ -275,7 +275,7 @@ function PersonRow({
           {person.disabled ? 'Enable' : 'Disable'}
         </Button>
       </Row>
-      <Row className="people-controls">
+      <Row className="people-line people-controls">
         <Input
           type="number"
           min={1}
