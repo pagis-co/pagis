@@ -31,7 +31,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     cp target/release/pagis-push-relay /usr/local/bin/pagis-push-relay; \
     cargo run --locked -p xtask -- notices relay /usr/local/share/doc/pagis-push-relay/THIRD_PARTY_NOTICES
 
-FROM debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a
+FROM debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f
 # ca-certificates: the TLS connections to APNs, to FCM and to the token
 #   endpoint of Google, which `gcp_auth` verifies with the root
 #   certificates of the system.
