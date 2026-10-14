@@ -4,6 +4,9 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { ApiClient } from '../../api/client'
@@ -383,5 +386,22 @@ describe('the roster labels', () => {
     expect(money(0)).toBe('$0.00')
     expect(money(1.5)).toBe('$1.50')
     expect(money(12.345)).toBe('$12.35')
+  })
+})
+
+// At a phone width, one line of a roster row holds more than the width:
+// the name, the email, the role, the spend and two buttons. The line
+// wraps, so no control runs past the edge or covers another.
+describe('a roster row on a narrow screen', () => {
+  it('lets each line of the row wrap', async () => {
+    mount(stubApi())
+
+    const grace = (await screen.findByText('Grace')).closest('.people-row') as HTMLElement
+    const lines = [...grace.children].filter((child) => child.classList.contains('ui-row'))
+    expect(lines.length).toBe(2)
+    for (const line of lines) expect(line.classList.contains('people-line')).toBe(true)
+
+    const css = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'People.css'), 'utf8')
+    expect(css).toMatch(/\.people-line\s*\{[^}]*flex-wrap:\s*wrap/)
   })
 })

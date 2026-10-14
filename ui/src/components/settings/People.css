@@ -41,8 +41,19 @@
   border-top: 1px solid var(--border);
 }
 
+/* Each line of a row wraps, so at a phone width no control runs
+ * past the edge of the screen. */
+.people-line {
+  flex-wrap: wrap;
+  row-gap: var(--space-2);
+}
+
 .people-name {
   font-weight: var(--weight-medium);
+}
+
+.people-email {
+  overflow-wrap: anywhere;
 }
 
 .people-email,
@@ -60,6 +71,14 @@
 
 .people-trailing {
   margin-left: var(--space-2-5);
+}
+
+/* On a phone the buttons wrap to the start of a new line, so they take
+ * no extra space before them. */
+@media (max-width: 760px) {
+  .people-trailing {
+    margin-left: 0;
+  }
 }
 
 .people-controls {
