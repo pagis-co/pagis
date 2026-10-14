@@ -20,7 +20,7 @@ import {
   useTimeline,
 } from '../queries'
 import { createSpeaker } from '../speech'
-import { useIsMobile } from '../state/useIsMobile'
+import { useIsMobile } from '../primitives/useMediaQuery'
 import { useComposerDraft } from '../state/composerDraft'
 import {
   selectLiveStreams,

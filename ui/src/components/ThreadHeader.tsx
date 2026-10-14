@@ -23,7 +23,7 @@ import {
 import { activityWord } from './stateWords'
 
 import './ThreadHeader.css'
-import { useIsMobile } from '../state/useIsMobile'
+import { useIsMobile } from '../primitives/useMediaQuery'
 import { NavBar } from './phone/TopBar'
 
 export type ThreadPanel = 'desk'

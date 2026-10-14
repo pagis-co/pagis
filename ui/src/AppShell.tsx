@@ -85,7 +85,7 @@ import {
   useWidgetTeardowns,
 } from './state/stores'
 import { cueForFrame, playCue } from './state/sound'
-import { useIsCompact, useIsMobile } from './state/useIsMobile'
+import { useIsCompact, useIsMobile } from './primitives/useMediaQuery'
 import { usePresence, usePresenceSeed } from './state/presence'
 import { threadScope } from './timeline'
 import { watchActivity } from './ws/activity'

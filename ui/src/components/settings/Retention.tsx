@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useIsMobile } from '../../state/useIsMobile'
+import { useIsMobile } from '../../primitives/useMediaQuery'
 
 import type { ApiClient, RetentionPolicyDto } from '../../api/client'
 import { Button, Frame, Input, Row } from '../../primitives'

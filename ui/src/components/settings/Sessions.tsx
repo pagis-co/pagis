@@ -21,7 +21,7 @@ import { SettingsSection } from './SettingsSection'
 import { SignInLinkCard } from './SignInLinkCard'
 
 import './Sessions.css'
-import { useIsMobile } from '../../state/useIsMobile'
+import { useIsMobile } from '../../primitives/useMediaQuery'
 import { sinceWhen } from '../when'
 
 /** A time the person reads, in their own browser's zone. */

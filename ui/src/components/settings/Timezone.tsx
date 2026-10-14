@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Check } from 'lucide-react'
-import { useIsMobile } from '../../state/useIsMobile'
+import { useIsMobile } from '../../primitives/useMediaQuery'
 
 import type { ApiClient } from '../../api/client'
 import { Button, Frame, Row, Select } from '../../primitives'

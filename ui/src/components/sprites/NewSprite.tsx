@@ -39,7 +39,7 @@ import { defaultAppearance, type SpriteAppearance } from '../../avatars/catalog'
 import '../agent.css'
 import '../settings.css'
 import './sprites.css'
-import { useIsMobile } from '../../state/useIsMobile'
+import { useIsMobile } from '../../primitives/useMediaQuery'
 import { NewSpriteSheet } from '../phone/NewSpriteSheet'
 
 const STEPS = ['face', 'job', 'voice', 'access'] as const

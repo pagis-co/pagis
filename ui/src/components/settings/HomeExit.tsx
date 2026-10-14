@@ -15,7 +15,7 @@ import { useState } from 'react'
 
 import type { ApiClient, HomeExitDto, HomeExitHostDto, SwitchedHomeExitDto } from '../../api/client'
 import { Badge, Button, Frame, Row, Select, SectionLabel, Switch } from '../../primitives'
-import { useIsMobile } from '../../state/useIsMobile'
+import { useIsMobile } from '../../primitives/useMediaQuery'
 import {
   errorMessage,
   useChooseHomeExit,

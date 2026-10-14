@@ -7,7 +7,7 @@ import { useNavigate } from '@tanstack/react-router'
 import { useEffect } from 'react'
 import { App } from '@capacitor/app'
 import { useLocation, useSearch } from '@tanstack/react-router'
-import { useIsMobile, useMediaQuery } from './state/useIsMobile'
+import { useIsMobile, useMediaQuery } from './primitives/useMediaQuery'
 
 /** The event of a tap on a Notification while the page is open: the
  *  path, the query and the fragment of the place of its item. */

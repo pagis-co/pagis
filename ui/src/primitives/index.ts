@@ -46,3 +46,4 @@ export type { SwitchProps } from './switch'
 export { cx } from './cx'
 
 export { InitialTile } from './initial-tile'
+export { COMPACT_QUERY, MOBILE_QUERY, useIsCompact, useIsMobile, useMediaQuery } from './useMediaQuery'

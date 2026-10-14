@@ -24,7 +24,7 @@ import {
 import type { ApiClient } from '../api/client'
 import { Keyboard } from 'lucide-react'
 import { Button, Textarea } from '../primitives'
-import { useMediaQuery } from '../state/useIsMobile'
+import { useMediaQuery } from '../primitives/useMediaQuery'
 import {
   type GestureEvent,
   type GestureOutput,

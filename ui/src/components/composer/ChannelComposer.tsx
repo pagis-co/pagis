@@ -6,7 +6,7 @@
 
 import type { ApiClient } from '../../api/client'
 import { useAgentNames, useChannels } from '../../queries'
-import { useIsMobile } from '../../state/useIsMobile'
+import { useIsMobile } from '../../primitives/useMediaQuery'
 import { Composer } from '../Composer'
 
 import './ChannelComposer.css'
