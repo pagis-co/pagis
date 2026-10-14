@@ -136,7 +136,7 @@ pub use system::{
 };
 pub use user::{
     AdministrationAddress, ConfiguredLink, NoOrgMenu, NoPersonNotice, NoticeText, NoticeTone,
-    OrgMenu, OrgMenuEntry, PersonNotice, PersonNoticeDto,
+    OrgDto, OrgMenu, OrgMenuEntry, PersonNotice, PersonNoticeDto,
 };
 
 /// The daemon's version. `/api/v1/health` reports it so the desktop
@@ -339,7 +339,8 @@ pub struct AppState {
     pub administration: user::AdministrationAddress,
     /// The links the Server configuration names for the Product App.
     pub product_app_links: Vec<ConfiguredLink>,
-    /// The provider reads the Org menu entries for each Person on each request.
+    /// The provider reads the Org name and the Org menu entries for each
+    /// Person on each request.
     pub org_menu: Arc<dyn OrgMenu>,
     /// The notice the server resolves for each Person on each request.
     pub person_notice: Arc<dyn PersonNotice>,

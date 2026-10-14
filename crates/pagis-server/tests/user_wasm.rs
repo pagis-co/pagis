@@ -13,8 +13,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use pagis_core::{StoreError, User};
-use pagis_server::{OrgMenu, OrgMenuEntry};
+use pagis_core::{Org, StoreError, User};
+use pagis_server::{OrgDto, OrgMenu, OrgMenuEntry};
 use serde_json::{Value, json};
 use support::agents::Embedder;
 use tower::ServiceExt;
@@ -46,24 +46,24 @@ struct PersonOrgMenu {
 
 #[async_trait]
 impl OrgMenu for PersonOrgMenu {
-    async fn entries(&self, person: &User) -> Result<Vec<OrgMenuEntry>, StoreError> {
+    async fn org(&self, person: &User, org: Org) -> Result<OrgDto, StoreError> {
         self.people.lock().unwrap().push(person.clone());
-        Ok(vec![OrgMenuEntry {
-            label: format!(
-                "{} revision {}",
-                person.id,
-                self.revision.load(Ordering::SeqCst)
-            ),
-            url: format!("https://org.example.com/{}", person.id),
-            detail: Some(person.role.as_str().into()),
-            current: true,
-        }])
+        let revision = self.revision.load(Ordering::SeqCst);
+        Ok(OrgDto {
+            name: format!("{} revision {revision}", org.name),
+            entries: vec![OrgMenuEntry {
+                label: format!("{} revision {revision}", person.id),
+                url: format!("https://org.example.com/{}", person.id),
+                detail: Some(person.role.as_str().into()),
+                current: true,
+            }],
+        })
     }
 }
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-async fn the_embedder_resolves_org_entries_for_each_person_on_each_request() {
+async fn the_embedder_resolves_the_org_name_and_entries_for_each_person_on_each_request() {
     let menu = Arc::new(PersonOrgMenu::default());
     let embedder = Embedder::with_org_menu(menu.clone()).await;
     let mut people = Vec::new();
@@ -89,7 +89,7 @@ async fn the_embedder_resolves_org_entries_for_each_person_on_each_request() {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(
             body["org"],
-            json!({"name": "Org", "entries": [{
+            json!({"name": "Org revision 0", "entries": [{
                 "label": format!("{} revision 0", person.id),
                 "url": format!("https://org.example.com/{}", person.id),
                 "detail": person.role.as_str(),
@@ -104,6 +104,7 @@ async fn the_embedder_resolves_org_entries_for_each_person_on_each_request() {
     menu.revision.store(1, Ordering::SeqCst);
     let (status, body) = user(&embedder, Some(&embedder.cookie)).await;
     assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["org"]["name"], "Org revision 1");
     assert_eq!(
         body["org"]["entries"][0]["label"],
         format!("{} revision 1", people[0].id)
@@ -117,7 +118,7 @@ async fn the_embedder_resolves_org_entries_for_each_person_on_each_request() {
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
-async fn an_org_without_entries_has_an_empty_list() {
+async fn the_daemon_shows_the_store_name_and_no_entries() {
     let embedder = Embedder::new().await;
     let (status, body) = user(&embedder, Some(&embedder.cookie)).await;
     assert_eq!(status, StatusCode::OK);
