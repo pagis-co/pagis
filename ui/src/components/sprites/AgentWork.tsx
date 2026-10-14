@@ -1,6 +1,6 @@
 import type { ApiClient } from '../../api/client'
 import { Badge, Button, Frame, Row, SectionLabel } from '../../primitives'
-import { useIsMobile } from '../../state/useIsMobile'
+import { useIsMobile } from '../../primitives/useMediaQuery'
 import { useRuns } from '../../queries'
 import { groupByDay, runDuration, runStateBadge, triggerText } from '../runs/runs'
 import './sprites.css'

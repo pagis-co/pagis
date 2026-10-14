@@ -11,7 +11,7 @@
 // the broker approves at the tool call, before any row exists.
 
 import { useMemo, useState, type ReactNode } from 'react'
-import { useIsMobile } from '../state/useIsMobile'
+import { useIsMobile } from '../primitives/useMediaQuery'
 import { NavBar } from './phone/TopBar'
 
 import { X } from 'lucide-react'

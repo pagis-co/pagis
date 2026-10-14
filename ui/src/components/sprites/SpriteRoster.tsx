@@ -20,7 +20,7 @@ import { lastActiveAt, lastActiveLabel } from './labels'
 import '../agent.css'
 import '../settings.css'
 import './sprites.css'
-import { useIsMobile } from '../../state/useIsMobile'
+import { useIsMobile } from '../../primitives/useMediaQuery'
 import { changeTimeLabel } from '../memory/pages'
 import { LargeTitle } from '../phone/TopBar'
 

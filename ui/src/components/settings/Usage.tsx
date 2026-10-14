@@ -10,7 +10,7 @@ import type { ApiClient, RunSpendDto } from '../../api/client'
 import { Badge, Frame, Row, SectionLabel } from '../../primitives'
 import { useMyUsage } from '../../queries'
 import { nearMoment } from '../when'
-import { useIsMobile } from '../../state/useIsMobile'
+import { useIsMobile } from '../../primitives/useMediaQuery'
 
 import './Usage.css'
 

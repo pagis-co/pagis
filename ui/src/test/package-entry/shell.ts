@@ -1,6 +1,7 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { LargeTitle, NavBar, SidebarFrame, SettingsNav, type SidebarFrameProps, type SettingsNavProps } from 'pagis-ui/shell'
+import 'pagis-ui/base.css'
 import 'pagis-ui/tokens.css'
 import 'pagis-ui/fonts'
 

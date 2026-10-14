@@ -209,7 +209,9 @@ Product App state. `avatars/Avatar` belongs to the Product App: it reads
 saved Agent appearance and live motion. It is outside the package entry.
 OwnerAvatar and AvatarGroup stay in the primitives entry.
 
-An Embedder page imports `SidebarFrame`, `SettingsNav` and their prop types
+An Embedder page imports `pagis-ui/base.css` once: the base layer sets the
+root colors and font, the box model, the scrollbars, the focus ring and the
+document height. It imports `SidebarFrame`, `SettingsNav` and their prop types
 from `pagis-ui/shell`, and on a phone the `NavBar` and `LargeTitle` of the
 phone shell. The Product App and the Administration Interface use
 these same components. Each component imports its own CSS. The Embedder

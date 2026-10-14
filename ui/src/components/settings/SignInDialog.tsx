@@ -2,7 +2,7 @@ import { useState } from 'react'
 
 import type { ApiClient, CredentialDto } from '../../api/client'
 import { Button, Dialog, Input, Sheet } from '../../primitives'
-import { useIsMobile } from '../../state/useIsMobile'
+import { useIsMobile } from '../../primitives/useMediaQuery'
 import { errorMessage, useAddCredential, useDeleteCredential } from '../../queries'
 
 import './SignInDialog.css'

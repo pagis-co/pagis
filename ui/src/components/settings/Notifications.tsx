@@ -36,7 +36,7 @@ import { sessionLabel } from './Sessions'
 import { SettingsSection } from './SettingsSection'
 
 import './Notifications.css'
-import { useIsMobile } from '../../state/useIsMobile'
+import { useIsMobile } from '../../primitives/useMediaQuery'
 
 /** The documentation page of Notifications. */
 export const NOTIFICATIONS_GUIDE = 'https://docs.pagis.co/notifications'

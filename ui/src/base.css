@@ -1,0 +1,56 @@
+/* The base layer: the root colors and font, the box model, the
+ * scrollbars, the focus ring and the document height. The Product App,
+ * the Administration Interface and an Embedder page that draws the shell
+ * import it once, through `pagis-ui/base.css`. Every value comes from
+ * `tokens.css`. */
+
+:root {
+  font-family: var(--font-sans);
+  color: var(--text);
+  background: var(--ground);
+  /* A checkbox and a radio stay native, and their checked fill takes
+   * the accent, the one selection color. The browser picks the check
+   * mark that reads on it. */
+  accent-color: var(--accent);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Scrollbars. The product is a set of columns that scroll, and the
+ * platform's own bar is a wide slab that reads as chrome: three of
+ * them around one panel make the panel look broken. The bar is a
+ * hairline over the ground it sits on instead, so a column that
+ * scrolls says so quietly. `scrollbar-width` is not inherited, so
+ * every element carries it, not the document alone. */
+html {
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+* {
+  scrollbar-width: thin;
+}
+
+/* One focus ring for the whole product. It answers the keyboard only,
+ * so a pointer press never draws it. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+/* Body text is 15 px. The root keeps the browser default so the rem
+ * type tokens stay at their intended pixel sizes. */
+body {
+  font-size: var(--text-md);
+  line-height: var(--leading-normal);
+  -webkit-font-smoothing: antialiased;
+}

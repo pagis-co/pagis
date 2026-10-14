@@ -43,7 +43,7 @@ import { briefLine, homeDate, workRecord } from './report'
 import { callBackDraft, isDismissible, queueAction, queueDetail, type QueueItem } from './queue'
 
 import './home.css'
-import { useIsMobile } from '../../state/useIsMobile'
+import { useIsMobile } from '../../primitives/useMediaQuery'
 import { HomePhone } from './HomePhone'
 
 /** One row of the queue. The row is one card frame: a dot in the

@@ -21,7 +21,7 @@ import {
 import type { MemoryLocation } from '../memory/MemoryPage'
 import { changeTimeLabel } from '../memory/pages'
 
-import { useIsMobile } from '../../state/useIsMobile'
+import { useIsMobile } from '../../primitives/useMediaQuery'
 import './sprites.css'
 
 /** The number of changes the tab shows. */

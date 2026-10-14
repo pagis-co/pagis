@@ -13,7 +13,7 @@ import { CommandMenu, matchCommands, type Command } from './composer/CommandMenu
 import { voiceLook, voiceState } from './composer/voice'
 
 import './Composer.css'
-import { useIsMobile } from '../state/useIsMobile'
+import { useIsMobile } from '../primitives/useMediaQuery'
 
 /** One uploaded attachment waiting in the composer. */
 interface Attachment {

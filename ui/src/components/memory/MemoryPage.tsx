@@ -7,7 +7,7 @@
 
 import { BookOpen } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { useIsMobile } from '../../state/useIsMobile'
+import { useIsMobile } from '../../primitives/useMediaQuery'
 
 import type { AgentDto, ApiClient } from '../../api/client'
 import {

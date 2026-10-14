@@ -5,7 +5,7 @@ import { ActionSheet, Badge, Button, Frame, IconButton, Row } from '../../primit
 import { Avatar } from '../../avatars/Avatar'
 import { PhoneHeaderAction } from '../phone/TopBar'
 import { Lock, Plus } from 'lucide-react'
-import { useIsMobile } from '../../state/useIsMobile'
+import { useIsMobile } from '../../primitives/useMediaQuery'
 import { errorMessage, useAgents, useCredentials, useDeleteCredential } from '../../queries'
 import { SettingsSection } from './SettingsSection'
 import { SignInDialog } from './SignInDialog'

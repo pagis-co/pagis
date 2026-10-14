@@ -8,7 +8,7 @@ import { useState } from 'react'
 
 import type { ApiClient, ModelAliasDto } from '../api/client'
 import { Badge, IconButton, Button, Combobox, Dialog, Frame, Input, Row, SectionLabel, Sheet, Textarea } from '../primitives'
-import { useIsMobile } from '../state/useIsMobile'
+import { useIsMobile } from '../primitives/useMediaQuery'
 import { providersOr } from '../providers'
 import {
   errorMessage,

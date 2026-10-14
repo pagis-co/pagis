@@ -5,7 +5,7 @@
 // collapses to one line that names the chosen option and the state.
 
 import { useState } from 'react'
-import { useIsMobile } from '../state/useIsMobile'
+import { useIsMobile } from '../primitives/useMediaQuery'
 import { ListChecks } from 'lucide-react'
 
 import type { ApiClient } from '../api/client'

@@ -78,7 +78,7 @@ describe('the UI package entries', () => {
     expect(entry?.type === 'chunk' && entry.exports).toEqual(['LargeTitle', 'NavBar', 'SettingsNav', 'SidebarFrame'])
   })
 
-  it('builds another app with the shell components, prop types and styles', async () => {
+  it('builds another app with the base layer, the shell components, prop types and styles', async () => {
     const app = mkdtempSync(join(root, '.package-entry-'))
     copyFileSync(join(root, 'src/test/package-entry/shell.ts'), join(app, 'main.ts'))
     writeFileSync(join(app, 'package.json'), JSON.stringify({ name: 'shell-app', type: 'module' }))
@@ -95,6 +95,8 @@ describe('the UI package entries', () => {
       const css = result.output.flatMap((item) =>
         item.type === 'asset' && item.fileName.endsWith('.css') ? [String(item.source)] : [],
       ).join('\n')
+      // The base layer sets the box model that the shell sizes depend on.
+      expect(css).toMatch(/\*\s*\{[^}]*box-sizing:\s*border-box/)
       for (const selector of ['.sidebar', '.org-head', '.person-notice', '.settings-nav-item', '.org-settings-tunnel', '.nav-bar', '.large-title']) {
         expect(css).toContain(selector)
       }

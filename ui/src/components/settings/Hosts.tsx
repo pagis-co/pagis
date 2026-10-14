@@ -13,7 +13,7 @@ import { Monitor } from 'lucide-react'
 import type { ApiClient, HostDto } from '../../api/client'
 import { Badge, Frame, Row, SectionLabel } from '../../primitives'
 import { useHosts } from '../../queries'
-import { useIsMobile } from '../../state/useIsMobile'
+import { useIsMobile } from '../../primitives/useMediaQuery'
 import { sinceWhen } from '../when'
 import { HostHarnesses } from './HostHarnesses'
 

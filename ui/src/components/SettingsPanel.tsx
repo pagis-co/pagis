@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { useLocation, useNavigate } from '@tanstack/react-router'
-import { useIsMobile } from '../state/useIsMobile'
+import { useIsMobile } from '../primitives/useMediaQuery'
 import { HeaderActions, NavBar } from './phone/TopBar'
 import { ConnectionsPhone } from './phone/ConnectionsPhone'
 

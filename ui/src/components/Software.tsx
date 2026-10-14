@@ -11,7 +11,7 @@
 // patch collapsed.
 
 import { useState } from 'react'
-import { useIsMobile } from '../state/useIsMobile'
+import { useIsMobile } from '../primitives/useMediaQuery'
 import { NavBar } from './phone/TopBar'
 import { Package, X } from 'lucide-react'
 

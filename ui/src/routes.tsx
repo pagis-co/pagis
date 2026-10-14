@@ -68,7 +68,7 @@ import {
 import { openDocument } from './navigation'
 import { appPath, phoneParent, useIsPhoneDevice } from './mobileShell'
 import { useCallInspector, useMailInspector } from './state/stores'
-import { useIsCompact, useIsMobile } from './state/useIsMobile'
+import { useIsCompact, useIsMobile } from './primitives/useMediaQuery'
 
 export interface RouterContext {
   api: ApiClient

@@ -4,7 +4,7 @@
 
 import { Button, Frame, IconButton, Row, SectionLabel, Switch } from '../primitives'
 import { CirclePlay } from 'lucide-react'
-import { useIsMobile } from '../state/useIsMobile'
+import { useIsMobile } from '../primitives/useMediaQuery'
 import { CuePlayer, type CueName } from '../sound/cues'
 import { useSound } from '../state/sound'
 

@@ -12,7 +12,7 @@
 // the settings grammar wraps it.
 
 import { useState } from "react";
-import { useIsMobile } from '../state/useIsMobile'
+import { useIsMobile } from '../primitives/useMediaQuery'
 import { TrustedContactsPhone } from './phone/TrustedContactsPhone'
 
 import type { ApiClient } from "../api/client";

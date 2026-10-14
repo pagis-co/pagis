@@ -9,7 +9,7 @@ import { useState } from 'react'
 
 import type { ApiClient } from '../../api/client'
 import { ActionSheet, Button, Dialog } from '../../primitives'
-import { useIsMobile } from '../../state/useIsMobile'
+import { useIsMobile } from '../../primitives/useMediaQuery'
 import { ForgetControl } from '../ForgetControl'
 import { parseSourceReference, type TimelineEntry } from './subjectPage'
 
