@@ -345,6 +345,32 @@ export function formatMoment(at: number, now: number = Date.now()): string {
 }
 
 /**
+ * A restart fails the live line of the attempt it cuts off, and the line
+ * keeps its last text. A resumed attempt writes a line of its own, so
+ * the cut line goes. A cut line that stays the last of its Run says
+ * `Failed`, the state the restart left the Run in.
+ */
+function settleCutLines(rows: TimelineRow[]): TimelineRow[] {
+  const lastLine = new Map<string, string>()
+  for (const row of rows) {
+    if (isProgressRow(row) && row.runId !== null) lastLine.set(row.runId, row.key)
+  }
+  return rows.flatMap((row) => {
+    if (
+      !isProgressRow(row) ||
+      row.runId === null ||
+      row.status !== 'failed' ||
+      row.text === SILENT_OUTCOME ||
+      runOutcome(row.text) !== null
+    ) {
+      return [row]
+    }
+    if (lastLine.get(row.runId) !== row.key) return []
+    return [{ ...row, text: 'Failed' }]
+  })
+}
+
+/**
  * Fold the merged rows into the conversation the timeline renders.
  *
  * A progress row is plumbing once its run ends: it joins the reply of
@@ -358,9 +384,10 @@ export function formatMoment(at: number, now: number = Date.now()): string {
  * it; no marker shows when every row is read.
  */
 export function buildConversation(
-  rows: TimelineRow[],
+  input: TimelineRow[],
   options: { lastReadAt?: number | null } = {},
 ): ConversationItem[] {
+  const rows = settleCutLines(input)
   const replyOfRun = new Map<string, TimelineRow>()
   const lastReplyOfRun = new Map<string, TimelineRow>()
   for (const row of rows) {

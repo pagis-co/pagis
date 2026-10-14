@@ -170,6 +170,35 @@ describe('buildConversation', () => {
     expect(items.map((item) => item.key)).toEqual(['day-' + new Date(Date.parse('2026-09-05T10:00:00Z')).toDateString(), 'p2', 'p3'])
   })
 
+  it('drops the line of an attempt that a restart cut off when the Run went on', () => {
+    const at = Date.parse('2026-09-05T10:00:00Z')
+    // A restart failed the first line; the resumed attempt wrote its own
+    // line and the reply.
+    const items = buildConversation([
+      progressRow({ key: 'p1', runId: 'run-1', text: 'Thinking\u2026', status: 'failed', createdAt: at }),
+      progressRow({ key: 'p2', runId: 'run-1', text: 'Done', createdAt: at + 60_000, completedAt: at + 90_000 }),
+      row({ key: 'm1', runId: 'run-1', createdAt: at + 80_000, completedAt: at + 90_000 }),
+      progressRow({ key: 'p3', runId: 'run-2', text: 'Thinking\u2026', status: 'failed', createdAt: at + 100_000 }),
+      progressRow({ key: 'p4', runId: 'run-2', text: 'Done', createdAt: at + 110_000 }),
+    ])
+
+    expect(items.map((item) => [item.kind, item.key])).toEqual([
+      ['day', 'day-' + new Date(at).toDateString()],
+      ['message', 'm1'],
+    ])
+    expect(messages(items)[0].work?.outcome).toBe('Done')
+  })
+
+  it('says Failed for a line that a restart cut off as the last of its Run', () => {
+    const items = buildConversation([
+      progressRow({ key: 'p1', runId: 'run-1', text: 'Thinking\u2026', status: 'failed' }),
+    ])
+
+    const outcome = items.find((item) => item.kind === 'outcome')
+    expect(outcome?.kind === 'outcome' && outcome.outcome).toBe('Failed')
+    expect(items.some((item) => item.kind === 'working')).toBe(false)
+  })
+
   it('says a run the user stopped in a quiet line of its own', () => {
     const items = buildConversation([
       progressRow({ key: 'p1', runId: 'run-1', text: 'Stopped' }),
