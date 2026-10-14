@@ -83,12 +83,6 @@ pub struct AdministrationSections {
     links: Vec<crate::ConfiguredLink>,
 }
 
-impl FromRef<Arc<AppState>> for AdministrationSections {
-    fn from_ref(state: &Arc<AppState>) -> Self {
-        state.administration_sections.clone()
-    }
-}
-
 impl Default for AdministrationSections {
     fn default() -> Self {
         Self::without(&[])
@@ -150,8 +144,25 @@ impl AdministrationSections {
     }
 }
 
+#[derive(Clone)]
+pub struct AdministrationSectionsState {
+    pub sections: AdministrationSections,
+    pub public_origin: String,
+}
+
+impl FromRef<Arc<AppState>> for AdministrationSectionsState {
+    fn from_ref(state: &Arc<AppState>) -> Self {
+        Self {
+            sections: state.administration_sections.clone(),
+            public_origin: state.public_origin.clone(),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, ToSchema)]
 pub struct AdministrationSectionsDto {
+    /// The origin where the Product App opens.
+    pub public_origin: String,
     /// The offered sections, in navigation order. Restart has no view.
     pub sections: Vec<&'static str>,
     /// The links the Server configuration names, in navigation order.
@@ -169,12 +180,13 @@ pub struct AdministrationSectionsDto {
     )
 )]
 pub async fn get_sections(
-    State(sections): State<AdministrationSections>,
+    State(state): State<AdministrationSectionsState>,
     _administrator: Administrator,
 ) -> Json<AdministrationSectionsDto> {
     Json(AdministrationSectionsDto {
-        sections: sections.offered(),
-        links: sections.links,
+        sections: state.sections.offered(),
+        links: state.sections.links,
+        public_origin: state.public_origin,
     })
 }
 

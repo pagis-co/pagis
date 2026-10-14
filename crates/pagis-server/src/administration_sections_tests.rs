@@ -6,7 +6,10 @@ use tower::ServiceExt;
 async fn read_sections(sections: AdministrationSections) -> serde_json::Value {
     let router = Router::new()
         .route("/api/v1/administration/sections", get(get_sections))
-        .with_state(sections);
+        .with_state(AdministrationSectionsState {
+            sections,
+            public_origin: "https://pagis.example.com".into(),
+        });
     let mut request = Request::builder()
         .uri("/api/v1/administration/sections")
         .body(Body::empty())
@@ -42,4 +45,10 @@ async fn hidden_hosts_are_absent_from_the_sections_route() {
     let sections = body["sections"].as_array().unwrap();
     assert!(!sections.contains(&serde_json::json!("hosts")), "{body}");
     assert!(sections.contains(&serde_json::json!("sessions")));
+}
+
+#[tokio::test]
+async fn sections_name_the_public_origin() {
+    let body = read_sections(AdministrationSections::default()).await;
+    assert_eq!(body["public_origin"], "https://pagis.example.com");
 }

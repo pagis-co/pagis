@@ -1,6 +1,6 @@
 import type { components } from '../../api/schema'
-import { ADMINISTRATION_VIEWS } from '../../administration/views'
-import { ButtonLink, Frame, Row, SectionLabel } from '../../primitives'
+import { ADMINISTRATION_VIEWS, type AdministrationView } from '../../administration/views'
+import { Button, ButtonLink, cx, Frame, Row, SectionLabel } from '../../primitives'
 import './OrgSettingsGroup.css'
 
 export type AdministrationAddress = components['schemas']['AdministrationAddress']
@@ -10,16 +10,21 @@ export function OrgSettingsGroup({
   administration,
   isAdministrator,
   phone = false,
+  currentView,
+  onSelectView,
 }: {
   administration?: AdministrationAddress | null
   isAdministrator: boolean
   phone?: boolean
+  currentView?: AdministrationView
+  onSelectView?: (view: AdministrationView) => void
 }) {
   if (!isAdministrator || !administration) return null
-  const items = [
+  const items: { view?: AdministrationView; label: string; url: string }[] = [
     ...administration.sections.flatMap((section) => {
       const view = ADMINISTRATION_VIEWS.find((view) => view.value === section)
       return view ? [{
+        view: view.value,
         label: view.label,
         url: `${administration.origin}${administration.path_prefix}/${section}`,
       }] : []
@@ -30,6 +35,12 @@ export function OrgSettingsGroup({
   const port = url.port || (url.protocol === 'https:' ? '443' : '80')
   const links = items.map((item, index) => phone ? (
     <Row key={index} externalHref={item.url} chevron>{item.label}</Row>
+  ) : (item.view && onSelectView ? (
+    <Button key={index} variant="ghost" shape="nav"
+      className={cx('settings-nav-item', item.view === currentView && 'settings-nav-item-active')}
+      aria-current={item.view === currentView ? 'page' : undefined}
+      onClick={() => onSelectView(item.view!)}
+    >{item.label}</Button>
   ) : (
     <ButtonLink
       key={index}
@@ -40,7 +51,7 @@ export function OrgSettingsGroup({
     >
       {item.label}
     </ButtonLink>
-  ))
+  )))
   return (
     <div
       className={phone ? 'phone-section' : 'settings-nav-group'}

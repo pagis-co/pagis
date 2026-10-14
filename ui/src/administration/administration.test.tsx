@@ -1,4 +1,4 @@
-// The Administration Interface: the three states of the page, the
+// The Administration Interface: the four states of the page, the
 // views, and what each view shows from the daemon's answers.
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -6,6 +6,8 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { PLACES } from '../components/sidebar/places'
+import { SETTINGS_GROUPS } from '../components/SettingsPanel'
 import type { ApiClient, SystemSettingsDto } from '../api/client'
 import { Administration, viewOfPath } from './Administration'
 import { Health } from './Health'
@@ -62,9 +64,13 @@ function total(costUsd: number) {
  *  throws the daemon's error shape for a path it was given none for. */
 function apiOf(answers: Record<string, unknown>, errors: Record<string, unknown> = {}) {
   answers = {
-    '/api/v1/administration/sections': { sections: SECTIONS, links: [] },
+    '/api/v1/administration/sections': { sections: SECTIONS, links: [], public_origin: 'https://pagis.example.com' },
     '/api/v1/administration/usage': { from: 0, to: 1, items: [], total: total(0) },
     ...answers,
+  }
+  answers['/api/v1/administration/sections'] = {
+    public_origin: 'https://pagis.example.com',
+    ...answers['/api/v1/administration/sections'] as object,
   }
   // A set-up installation answers the first-run read with `410 Gone`,
   // which is what says it is set up. A test that wants the setup page
@@ -91,7 +97,62 @@ function mount(node: React.ReactElement) {
 }
 
 describe('the administration page', () => {
-  afterEach(() => window.history.replaceState(null, '', '/'))
+  afterEach(() => {
+    window.history.replaceState(null, '', '/')
+    vi.unstubAllGlobals()
+  })
+  it('shares the shell, marks the open Org view and links to the Public Origin', async () => {
+    window.history.replaceState(null, '', '/admin/spend')
+    const api = apiOf({ '/api/v1/user': {
+      ...ADMINISTRATOR,
+      org: { name: 'Acme', entries: [] },
+      administration: { ...ADMINISTRATOR.administration, path_prefix: '/admin' },
+    } })
+    mount(<Administration api={api} />)
+    const nav = await screen.findByRole('navigation', { name: 'Settings' })
+    const org = within(nav).getByRole('group', { name: 'Org' })
+    expect(within(org).getByRole('button', { name: 'Spend' }).getAttribute('aria-current')).toBe('page')
+    expect(within(nav).getByRole('link', { name: 'Vault' }).getAttribute('href')).toBe('https://pagis.example.com/settings/vault')
+    const sidebar = screen.getByRole('complementary', { name: 'Sidebar' })
+    expect(within(sidebar).getByText('Acme')).toBeTruthy()
+    expect(within(sidebar).getByRole('link', { name: 'Home' }).getAttribute('href')).toBe('https://pagis.example.com/')
+    expect(within(sidebar).getByRole('link', { name: 'Ada' }).getAttribute('href')).toBe('https://pagis.example.com/settings')
+    for (const place of PLACES) {
+      expect(within(sidebar).getByRole('link', { name: place.label }).getAttribute('href'))
+        .toBe(`https://pagis.example.com${place.id === 'home' ? '/' : `/${place.id}`}`)
+    }
+    for (const group of SETTINGS_GROUPS) {
+      for (const item of group.sections) {
+        expect(within(within(nav).getByRole('group', { name: group.label })).getByRole('link', { name: item.label }).getAttribute('href'))
+          .toBe(`https://pagis.example.com/settings/${item.value}`)
+      }
+    }
+    // The Person is in the Administration Interface already, so the loopback address shows no tunnel command.
+    expect(within(org).queryByText(/SSH tunnel/)).toBeNull()
+    expect(screen.queryByRole('navigation', { name: 'Conversations' })).toBeNull()
+    expect(api.GET).not.toHaveBeenCalledWith('/api/v1/workspace')
+    expect(api.GET).not.toHaveBeenCalledWith('/api/v1/channels')
+    expect(api.GET).not.toHaveBeenCalledWith('/api/v1/agents')
+    await userEvent.click(within(org).getByRole('button', { name: 'People' }))
+    expect(window.location.pathname).toBe('/admin/people')
+    expect(within(org).getByRole('button', { name: 'People' }).getAttribute('aria-current')).toBe('page')
+    window.history.replaceState(null, '', '/admin/spend')
+    fireEvent.popState(window)
+    await waitFor(() => expect(within(org).getByRole('button', { name: 'Spend' }).getAttribute('aria-current')).toBe('page'))
+    await userEvent.click(within(sidebar).getByRole('button', { name: 'Sign out' }))
+    await waitFor(() => expect(api.DELETE).toHaveBeenCalledWith('/api/v1/sessions/current'))
+  })
+
+  it('uses the phone shell with a Settings back control and no desktop nav', async () => {
+    vi.stubGlobal('matchMedia', () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }))
+    const api = apiOf({ '/api/v1/user': ADMINISTRATOR })
+    mount(<Administration api={api} />)
+    expect(await screen.findByRole('heading', { name: 'Spend' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Settings' })).toBeTruthy()
+    expect(screen.queryByRole('complementary', { name: 'Sidebar' })).toBeNull()
+    expect(screen.queryByRole('navigation', { name: 'Settings' })).toBeNull()
+  })
+
   it.each([false, true])('shows Hosts in Sessions only when offered: %s', async (offered) => {
     window.history.replaceState(null, '', '/sessions')
     const api = apiOf({
@@ -107,7 +168,7 @@ describe('the administration page', () => {
     mount(<Administration api={api} />)
 
     expect(await screen.findByRole('heading', { name: 'Sessions' })).toBeTruthy()
-    const navigation = screen.getByRole('navigation', { name: 'Administration' })
+    const navigation = screen.getByRole('group', { name: 'Org' })
     expect(within(navigation).queryByRole('button', { name: 'Hosts' })).toBeNull()
     if (offered) {
       expect(await screen.findByText('No computer is registered.')).toBeTruthy()
@@ -121,6 +182,15 @@ describe('the administration page', () => {
     }
   })
 
+  it('shows the notice of the Person in the sidebar', async () => {
+    window.history.replaceState(null, '', '/')
+    const notice = { tone: 'waiting' as const, label: 'Balance', text: 'Your balance is low.', link: null }
+    mount(<Administration api={apiOf({ '/api/v1/user': { ...ADMINISTRATOR, notice } })} />)
+    await screen.findByRole('group', { name: 'Org' })
+    const sidebar = screen.getByRole('complementary', { name: 'Sidebar' })
+    expect(within(within(sidebar).getByRole('note')).getByText(notice.text)).toBeTruthy()
+  })
+
   it('shows only the views the server offers, in the offered order', async () => {
     window.history.replaceState(null, '', '/')
     const api = apiOf({
@@ -128,7 +198,7 @@ describe('the administration page', () => {
       '/api/v1/administration/sections': { sections: ['spend', 'people', 'sessions', 'resources', 'plugins', 'health'], links: [] },
     })
     mount(<Administration api={api} />)
-    const navigation = await screen.findByRole('navigation', { name: 'Administration' })
+    const navigation = await screen.findByRole('group', { name: 'Org' })
     expect(within(navigation).getAllByRole('button').map((button) => button.textContent))
       .toEqual(['Spend', 'People', 'Sessions', 'Resources', 'Plugins', 'Health'])
     expect(api.GET).toHaveBeenCalledWith('/api/v1/administration/sections')
@@ -147,7 +217,7 @@ describe('the administration page', () => {
       '/api/v1/administration/sections': { sections: SECTIONS, links },
     })
     mount(<Administration api={api} />)
-    const navigation = await screen.findByRole('navigation', { name: 'Administration' })
+    const navigation = await screen.findByRole('group', { name: 'Org' })
     const anchors = within(navigation).getAllByRole('link')
     expect(anchors.map((anchor) => anchor.textContent)).toEqual(links.map((link) => link.label))
     for (const [index, anchor] of anchors.entries()) {
@@ -159,10 +229,10 @@ describe('the administration page', () => {
   it('shows no extra navigation entry when links are empty', async () => {
     const api = apiOf({
       '/api/v1/user': ADMINISTRATOR,
-      '/api/v1/administration/sections': { sections: SECTIONS, links: [] },
+      '/api/v1/administration/sections': { sections: SECTIONS, links: [], public_origin: 'https://pagis.example.com' },
     })
     mount(<Administration api={api} />)
-    const navigation = await screen.findByRole('navigation', { name: 'Administration' })
+    const navigation = await screen.findByRole('group', { name: 'Org' })
     expect(within(navigation).queryAllByRole('link')).toEqual([])
     expect(within(navigation).getAllByRole('button').map((button) => button.textContent))
       .toEqual(['Spend', 'People', 'Sessions', 'Resources', 'Providers', 'Settings', 'Plugins', 'Health'])
@@ -176,7 +246,7 @@ describe('the administration page', () => {
     })
     mount(<Administration api={api} />)
     expect(await screen.findByRole('heading', { name: 'Health' })).toBeTruthy()
-    expect(screen.queryByRole('button', { name: view === 'settings' ? 'Settings' : 'Providers' })).toBeNull()
+    expect(within(screen.getByRole('group', { name: 'Org' })).queryByRole('button', { name: view === 'settings' ? 'Settings' : 'Providers' })).toBeNull()
     expect(window.location.pathname).toBe('/health')
     window.history.replaceState(null, '', '/')
   })
@@ -191,8 +261,8 @@ describe('the administration page', () => {
     await waitFor(() => expect(api.GET).toHaveBeenCalledWith('/api/v1/administration/sections'))
     expect(screen.queryByRole('navigation')).toBeNull()
     expect(api.GET).not.toHaveBeenCalledWith('/api/v1/administration/usage', expect.anything())
-    answer({ data: { sections: SECTIONS, links: [] } })
-    expect(await screen.findByRole('navigation')).toBeTruthy()
+    answer({ data: { sections: SECTIONS, links: [], public_origin: 'https://pagis.example.com' } })
+    expect(await screen.findByRole('navigation', { name: 'Settings' })).toBeTruthy()
   })
 
   it('says when the offered sections cannot be read', async () => {
@@ -245,7 +315,8 @@ describe('the administration page', () => {
 
     const refusal = await screen.findByRole('alert')
     expect(refusal.textContent).toContain('member')
-    expect(screen.queryByRole('navigation', { name: 'Administration' })).toBeNull()
+    expect(screen.queryByRole('complementary', { name: 'Sidebar' })).toBeNull()
+    expect(screen.queryByRole('navigation', { name: 'Settings' })).toBeNull()
   })
 
   it('opens on the spend of the installation and moves between views', async () => {
@@ -310,7 +381,7 @@ describe('the administration page', () => {
     expect(screen.getByLabelText('Anthropic key')).toBeTruthy()
     // A provider the deployment already configured is not asked for again.
     expect(screen.queryByLabelText('OpenAI key')).toBeNull()
-    expect(screen.queryByRole('navigation', { name: 'Administration' })).toBeNull()
+    expect(screen.queryByRole('navigation', { name: 'Settings' })).toBeNull()
   })
 
   it('takes the first administrator and the installation keys', async () => {
@@ -355,7 +426,7 @@ describe('the administration page', () => {
             ? { data: ADMINISTRATOR }
             : { error: { error: { code: 'unauthorized', message: 'no' } } }
         }
-        if (path === '/api/v1/administration/sections') return { data: { sections: SECTIONS, links: [] } }
+        if (path === '/api/v1/administration/sections') return { data: { sections: SECTIONS, links: [], public_origin: 'https://pagis.example.com' } }
         if (path === '/api/v1/administration/usage') return { data: { from: 0, to: 1, items: [], total: total(0) } }
         return { data: {} }
       }),
@@ -373,7 +444,7 @@ describe('the administration page', () => {
     await userEvent.type(screen.getByLabelText('Password'), 'correct horse battery')
     await userEvent.click(screen.getByRole('button', { name: 'Make this administrator' }))
 
-    expect(await screen.findByRole('navigation', { name: 'Administration' })).toBeTruthy()
+    expect(await screen.findByRole('navigation', { name: 'Settings' })).toBeTruthy()
     expect(screen.queryByLabelText('Set up this installation')).toBeNull()
   })
 

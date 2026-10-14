@@ -45,7 +45,11 @@ async fn the_sections_read_names_all_sections_in_navigation_order() {
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(
         response.json::<serde_json::Value>().await.unwrap(),
-        serde_json::json!({ "sections": SECTIONS, "links": [] })
+        serde_json::json!({
+            "public_origin": daemon.public_origin,
+            "sections": SECTIONS,
+            "links": []
+        })
     );
 }
 
@@ -186,7 +190,11 @@ async fn hidden_sections_have_no_routes(hidden: &[&str]) {
         .collect();
     assert_eq!(
         response.json::<serde_json::Value>().await.unwrap(),
-        serde_json::json!({ "sections": offered, "links": [] })
+        serde_json::json!({
+            "public_origin": daemon.public_origin,
+            "sections": offered,
+            "links": []
+        })
     );
 }
 

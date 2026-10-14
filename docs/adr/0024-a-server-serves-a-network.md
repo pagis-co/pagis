@@ -198,6 +198,11 @@ other groups, and each place of the sidebar, opens at the Public Origin, which
 the administration sections answer gives. The operator links of
 `[administration] links` are items of the Org group.
 
+The shared sidebar and Settings nav take navigation items and Person data.
+The Product App supplies Workspace conversations. The Administration Interface
+supplies places with links to the Public Origin and reads no Workspace.
+Sign out stays in the profile row on both pages.
+
 The shell is shared, and the origins stay separate. No page calls the API of
 the other origin. The Product App shows text from Agents, mail and the web, so
 a cross-site script flaw runs on the product origin. That script cannot call
@@ -345,9 +350,3 @@ one-way (ADR-0025).
 - The `sqlx` Postgres driver carries rustls, so a managed Postgres that
   requires TLS works.
 - One daemon serves everyone, so a restart interrupts every person.
-
-## Not built
-
-The shared sidebar and Settings nav of the Administration Interface are not
-built. The Administration Interface draws a nav of its own in its header.
-The administration sections answer does not give the Public Origin.

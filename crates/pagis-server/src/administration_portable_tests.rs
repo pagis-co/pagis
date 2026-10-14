@@ -10,7 +10,10 @@ async fn sections_name_neither_settings_nor_restart() {
     assert!(!sections.contains(AdministrationSection::Restart));
     let router = Router::new()
         .route("/api/v1/administration/sections", get(get_sections))
-        .with_state(sections);
+        .with_state(AdministrationSectionsState {
+            sections,
+            public_origin: "https://pagis.example.com".into(),
+        });
     let mut request = Request::builder()
         .uri("/api/v1/administration/sections")
         .body(Body::empty())
