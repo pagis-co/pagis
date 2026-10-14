@@ -17,8 +17,10 @@ section has no routes, and the Administration Interface shows no control
 for it: without Hosts, the Sessions section shows no Hosts list. A server
 without the Native Parts does not offer Hosts.
 The configuration can name a page path prefix under the Public Origin.
-The API routes keep their root paths. The Product App carries one link to
-the full address, and the Client App opens it from its menu (ADR-0024).
+The API routes keep their root paths. The Product App shows an Administrator
+an Org group in Settings, with links to the offered views and the configured
+links. The user answer supplies the sections and links. The Client App opens
+the Administration Interface from its menu (ADR-0024).
 The operator can name up to three links in `[administration] links` of
 the configuration. The navigation shows each link, and each link opens in
 the same tab.

@@ -40,9 +40,7 @@ import { RunsList } from './components/runs/RunsList'
 import {
   SettingsPanel,
   SettingsShell,
-  isAdministratorSection,
   isSettingsSection,
-  visibleSettingsSections,
 } from './components/SettingsPanel'
 import { ConnectionPage } from './components/connection/ConnectionPage'
 import { MissingConversation } from './components/MissingConversation'
@@ -61,6 +59,7 @@ import {
   useAgents,
   useChannels,
   useIsAdministrator,
+  useUser,
   useThread,
   useTimeline,
   useTrustList,
@@ -610,28 +609,13 @@ function SettingsView() {
   const { section } = settingsRoute.useParams()
   const navigate = useNavigate()
   const known = isSettingsSection(section) ? section : null
-  const phone = useIsMobile()
   const isAdministrator = useIsAdministrator(api)
-  // A member who types the address of an administrator section lands on
-  // the first section they may open.
-  const forbidden = known !== null && isAdministratorSection(known) && (!isAdministrator || phone)
 
   useEffect(() => {
-    if (known === null) {
-      void navigate({ to: '/sprites', search: {}, replace: true })
-      return
-    }
-    if (forbidden && phone) { void navigate({ to: '/settings', replace: true }); return }
-    if (forbidden) {
-      void navigate({
-        to: '/settings/$section',
-        params: { section: visibleSettingsSections(false)[0].value },
-        replace: true,
-      })
-    }
-  }, [forbidden, known, navigate, phone])
+    if (known === null) void navigate({ to: '/sprites', search: {}, replace: true })
+  }, [known, navigate])
 
-  if (known === null || forbidden) return null
+  if (known === null) return null
   return (
     <SettingsPanel
       api={api}
@@ -657,11 +641,13 @@ function ConnectionView() {
   const { connectionId } = connectionRoute.useParams()
   const navigate = useNavigate()
   const isAdministrator = useIsAdministrator(api)
+  const administration = useUser(api).data?.administration
   const openConnections = () =>
     void navigate({ to: '/settings/$section', params: { section: 'connections' } })
   return (
     <SettingsShell
       section="connections"
+      administration={administration}
       isAdministrator={isAdministrator}
       onSelectSection={(next) =>
         void navigate({ to: '/settings/$section', params: { section: next } })

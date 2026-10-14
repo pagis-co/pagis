@@ -121,11 +121,15 @@ impl AdministrationSections {
         self
     }
 
+    pub(crate) fn links(&self) -> Vec<crate::ConfiguredLink> {
+        self.links.clone()
+    }
+
     pub fn contains(&self, section: AdministrationSection) -> bool {
         self.sections.contains(&section)
     }
 
-    fn offered(&self) -> Vec<&'static str> {
+    pub(crate) fn offered(&self) -> Vec<&'static str> {
         use AdministrationSection::{Hosts, Providers, Restart, Settings};
         [
             ("spend", None),

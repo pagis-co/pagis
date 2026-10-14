@@ -8,7 +8,7 @@ These images and HTML files are the visual reference for the Settings nav with t
 - Build every screen from the primitives in `ui/src/primitives` and the tokens in `ui/src/tokens.css`. Do not write a raw color, size, radius, shadow or duration. When a token or a primitive that the screen needs does not exist, add it to `tokens.css` or to the primitives, with a test, and use it from there.
 - `html/` holds the screen as a static HTML file. Open it in a browser to read the exact structure and copy. `html/shell.css` holds the shell classes of the design. Its token values are the same as the values in `ui/src/tokens.css`; read the tokens from `ui/src/tokens.css`.
 - The names and the roster are placeholder data. Show the real data.
-- The Org group lists the views of `ADMINISTRATION_VIEWS` in `ui/src/administration/Administration.tsx`, and only the views that the administration sections route returns. A Member sees no Org group.
+- The Org group lists the views of `ADMINISTRATION_VIEWS` in `ui/src/administration/views.ts`, and only the views that the administration sections route returns. A Member sees no Org group.
 
 ## How to compare during testing
 

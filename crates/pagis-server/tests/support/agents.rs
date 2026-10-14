@@ -53,6 +53,7 @@ impl Embedder {
             Arc::new(pagis_plugins::NoStdioServers),
             Arc::new(pagis_plugins::ReqwestMcpHttp::default()),
             Arc::new(pagis_server::NoOrgMenu),
+            Default::default(),
         )
         .await
     }
@@ -72,6 +73,7 @@ impl Embedder {
             stdio,
             http,
             Arc::new(pagis_server::NoOrgMenu),
+            Default::default(),
         )
         .await
     }
@@ -89,10 +91,32 @@ impl Embedder {
             Arc::new(pagis_plugins::NoStdioServers),
             Arc::new(pagis_plugins::ReqwestMcpHttp::default()),
             org_menu,
+            Default::default(),
         )
         .await
     }
 
+    #[allow(dead_code)]
+    pub async fn with_administration_sections(
+        sections: pagis_server::AdministrationSections,
+    ) -> Self {
+        let services = Arc::new(UnusedServices);
+        Self::with_services(
+            services.clone(),
+            services.clone(),
+            services,
+            Arc::new(pagis_plugin::fake::FixedPackageSource::new(
+                Default::default(),
+            )),
+            Arc::new(pagis_plugins::NoStdioServers),
+            Arc::new(pagis_plugins::ReqwestMcpHttp::default()),
+            Arc::new(pagis_server::NoOrgMenu),
+            sections,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
     pub async fn with_services(
         brain: Arc<dyn pagis_agent::Brain>,
         executor: Arc<dyn ToolExecutor>,
@@ -101,6 +125,7 @@ impl Embedder {
         stdio: Arc<dyn pagis_plugins::StdioServers>,
         http: Arc<dyn pagis_plugins::McpHttp>,
         org_menu: Arc<dyn pagis_server::OrgMenu>,
+        administration_sections: pagis_server::AdministrationSections,
     ) -> Self {
         let database = FakeDatabase::default();
         let stores = database.stores();
@@ -388,7 +413,7 @@ impl Embedder {
             ),
             product_app_links: Vec::new(),
             org_menu,
-            administration_sections: Default::default(),
+            administration_sections,
             proxy: pagis_server::TrustedProxy::none(),
             ring,
             hub: deps.hub.clone(),

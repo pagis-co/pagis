@@ -61,7 +61,7 @@ const ADMINISTRATOR = {
   name: 'Ada',
   email: null,
   role: 'administrator',
-  administration: { origin: 'http://127.0.0.1:4401', path_prefix: '', loopback: true },
+  administration: { origin: 'http://127.0.0.1:4401', path_prefix: '', loopback: true, sections: ['people', 'spend'], links: [] },
 }
 
 const TRUST_LIST = {
@@ -315,51 +315,14 @@ describe('SettingsPanel', () => {
   })
 })
 
-describe('Administration section', () => {
-  // The installation's settings answer on the administration port, so
-  // the product draws one link to it and none of them.
-  it('links an administrator to the Administration Interface and says how to reach a loopback port', async () => {
+describe('Org group', () => {
+  it('reads the links from the user answer and calls no Administration Port route', async () => {
     const api = stubApi()
-    mount(api, 'administration')
-
-    const link = await screen.findByRole('link', { name: 'Open the Administration Interface' })
-    expect(link.getAttribute('href')).toBe('http://127.0.0.1:4401/')
-    expect(screen.getByText('ssh -L 4401:127.0.0.1:4401 you@your-server')).toBeTruthy()
-    for (const path of ['/api/v1/settings/system', '/api/v1/administration/providers']) {
-      expect(api.GET.mock.calls.some((call: unknown[]) => call[0] === path)).toBe(false)
-    }
-  })
-
-  it('links to the full address under the prefix', async () => {
-    const api = stubApi()
-    const read = api.GET.getMockImplementation()!
-    api.GET.mockImplementation(async (path: string) => path === '/api/v1/user'
-      ? { data: { ...ADMINISTRATOR, administration: { origin: 'https://pagis.example.net', path_prefix: '/admin', loopback: false } } }
-      : read(path))
-    mount(api, 'administration')
-    const link = await screen.findByRole('link', { name: 'Open the Administration Interface' })
-    expect(link.getAttribute('href')).toBe('https://pagis.example.net/admin/')
-    expect(screen.getByText('https://pagis.example.net/admin')).toBeTruthy()
-  })
-
-  it('names no tunnel where the port binds a private address', async () => {
-    const api = stubApi()
-    const read = api.GET.getMockImplementation()!
-    api.GET.mockImplementation(async (path: string) =>
-      path === '/api/v1/user'
-        ? {
-            data: {
-              ...ADMINISTRATOR,
-              administration: { origin: 'http://10.0.0.5:4401', path_prefix: '', loopback: false },
-            },
-          }
-        : read(path),
-    )
-    mount(api, 'administration')
-
-    const link = await screen.findByRole('link', { name: 'Open the Administration Interface' })
-    expect(link.getAttribute('href')).toBe('http://10.0.0.5:4401/')
-    expect(screen.queryByText(/ssh -L/)).toBeNull()
+    mount(api)
+    const org = within(await screen.findByRole('group', { name: 'Org' }))
+    expect(org.getByRole('link', { name: 'People' }).getAttribute('href')).toBe('http://127.0.0.1:4401/people')
+    expect(org.getByText('ssh -L 4401:127.0.0.1:4401 you@your-server')).toBeTruthy()
+    expect(api.GET.mock.calls.some(([path]) => path.startsWith('/api/v1/administration/') || path === '/api/v1/settings/system')).toBe(false)
   })
 })
 

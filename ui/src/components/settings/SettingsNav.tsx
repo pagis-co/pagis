@@ -1,20 +1,24 @@
 
 import { Button, SectionLabel, SettingsNav as Shell, cx } from '../../primitives'
-import { type SettingsSection, visibleSettingsGroups } from '../SettingsPanel'
+import { type SettingsSection, SETTINGS_GROUPS } from '../SettingsPanel'
+
+import { OrgSettingsGroup, type AdministrationAddress } from './OrgSettingsGroup'
 
 import './SettingsNav.css'
 
 /** The 220 px settings nav: the Settings title, then the
- * sections in their three groups. The open section is the page. */
+ * sections and the Org links in their groups. The open section is the page. */
 export function SettingsNav({
   section,
   onSelectSection,
   isAdministrator,
+  administration,
 }: {
   section: SettingsSection
   onSelectSection: (section: SettingsSection) => void
-  /** A member sees no administrator section. */
+  /** A Member sees no Org group. */
   isAdministrator: boolean
+  administration?: AdministrationAddress | null
 }) {
 
   return (
@@ -22,7 +26,7 @@ export function SettingsNav({
       <div className="settings-nav-header">
         <h2 className="settings-nav-title">Settings</h2>
       </div>
-      {visibleSettingsGroups(isAdministrator).map((group) => (
+      {SETTINGS_GROUPS.map((group) => (
         <div
           key={group.label}
           className="settings-nav-group"
@@ -34,6 +38,7 @@ export function SettingsNav({
             <Button
               key={item.value}
               variant="ghost"
+              shape="nav"
               className={cx(
                 'settings-nav-item',
                 item.value === section && 'settings-nav-item-active',
@@ -46,6 +51,7 @@ export function SettingsNav({
           ))}
         </div>
       ))}
+      <OrgSettingsGroup administration={administration} isAdministrator={isAdministrator} />
     </Shell>
   )
 }

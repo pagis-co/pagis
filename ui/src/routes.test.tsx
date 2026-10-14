@@ -297,25 +297,10 @@ describe('deep URLs', () => {
     await waitFor(() => expect(history.location.pathname).toBe('/c/channel-9'))
   })
 
-  // The installation's settings answer on the administration port, so
-  // an administrator's one section is the link to it.
-  it('opens the Administration section for an administrator', async () => {
-    signedInAs('administrator')
-
+  it.each(['administrator', 'member'] as const)('removes the Administration settings address for a %s', async (role) => {
+    signedInAs(role)
     const history = mount('/settings/administration')
-
-    expect(await screen.findByRole('button', { name: 'Administration' })).toBeTruthy()
-    expect(history.location.pathname).toBe('/settings/administration')
-  })
-
-  it('sends a member away from the Administration section and hides it', async () => {
-    signedInAs('member')
-
-    const history = mount('/settings/administration')
-
-    await waitFor(() =>
-      expect(history.location.pathname).toBe('/settings/connections'),
-    )
+    await waitFor(() => expect(history.location.pathname).toBe('/sprites'))
     expect(screen.queryByRole('button', { name: 'Administration' })).toBeNull()
   })
 

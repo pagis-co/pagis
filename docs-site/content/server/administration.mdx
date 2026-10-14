@@ -9,8 +9,11 @@ same process: the spend of each Person, the People, who is signed in, the
 Hosts, the containers and disk of each Person, the provider setup, the
 System Settings, the Plugins, the restart and the health of the daemon.
 These answer on the Administration Port alone. The product port serves each
-Person's own settings, and an Administrator reads one link to the
-Administration Interface in the Product App's Settings.
+Person's own settings. An Administrator sees an Org group after System in
+the Product App's Settings, with links to each offered view and each
+configured link. The phone settings list shows the same group. A Member
+sees no Org group. A loopback address shows the SSH tunnel command below
+the items.
 
 Every route on the port needs a signed-in Administrator, and a Member gets
 nothing. Two routes answer without one: the first-run setup and the password
@@ -44,7 +47,8 @@ Name the path in `config.toml`:
 path_prefix = "/admin"
 ```
 
-The Product App link then opens `<public_origin>/admin/`. The Administration
+The Product App links then open section paths such as
+`<public_origin>/admin/people`. The Administration
 Interface reads section paths such as `/admin/sessions` and keeps navigation
 under `/admin`. With no prefix, it uses the Administration Port origin and
 paths such as `/sessions`.
@@ -63,7 +67,10 @@ the page.
 ## The offered sections
 
 The Administration Interface reads `GET /api/v1/administration/sections`
-before it draws the navigation. The route needs a signed-in Administrator.
+before it draws the navigation. The Product App reads the same sections and
+links from the Administration Address in `GET /api/v1/user` and calls no
+route of the Administration Port. A Member receives no Administration
+Address. The sections route needs a signed-in Administrator.
 It names the offered sections in display order:
 
 ```json
@@ -110,7 +117,8 @@ links = [
 Each label has at most 40 characters, and each URL uses `https`. An invalid
 link stops the start, and the error names the setting. The Administration
 Interface reads the links with the offered sections and shows them in the
-navigation, in configuration order. Each link opens in the same tab. With
+navigation, in configuration order. The Product App shows them after the
+section links in the Org group. Each link opens in the same tab. With
 no links, the navigation shows no extra entry.
 
 ## The role of a Person

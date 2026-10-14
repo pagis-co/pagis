@@ -159,7 +159,8 @@ An empty prefix uses the Administration Port origin and root page paths.
 A nonempty prefix starts with `/`, has no final slash, and has nonempty
 segments made of letters, digits, `-`, `.`, `_` or `~`. A segment cannot
 be `.` or `..`. The Server gives the prefix to the page in the signed-in
-Person's Administration Address. The address holds the origin and prefix.
+Person's Administration Address. The address holds the origin, the prefix,
+the offered sections and the configured links.
 Section paths stay under that prefix, including browser history and links
 from the Product App. Built assets use absolute root paths. API routes keep
 their root paths; the proxy routes the administration API to the
@@ -347,9 +348,6 @@ one-way (ADR-0025).
 
 ## Not built
 
-The Org group of the Settings nav, and the shared sidebar and Settings nav of
-the Administration Interface, are not built. The Product App shows an
-Administrator one Administration section with one link to the Administration
-Interface, and the Administration Interface draws a nav of its own in its
-header. The `/api/v1/user` answer does not give the sections, and the
-administration sections answer does not give the Public Origin.
+The shared sidebar and Settings nav of the Administration Interface are not
+built. The Administration Interface draws a nav of its own in its header.
+The administration sections answer does not give the Public Origin.
