@@ -19,7 +19,7 @@
 # pins --check` holds the base image rule, and Dependabot opens the pull
 # requests that move the digests.
 
-FROM debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a AS compositor
+FROM debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f AS compositor
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential meson ninja-build pkg-config git ca-certificates \
     wayland-protocols libwayland-dev libpixman-1-dev libdrm-dev \
@@ -90,7 +90,7 @@ RUN cd /src/screend && cargo auditable build --release --locked
 # /usr/local/bin, lib, include and share. So each extraction takes
 # `--no-same-owner`, and root owns the runtimes and those directories
 # (ADR-0013).
-FROM debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a AS runtimes
+FROM debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f AS runtimes
 # buildx sets TARGETARCH; a plain `docker build` does not, so the steps
 # below fall back to the build host's own architecture.
 ARG TARGETARCH
@@ -253,7 +253,7 @@ RUN set -eux; \
 # The extension is one tree of JavaScript and rule data for every
 # architecture, so this stage runs on the build host and not under
 # emulation in the arm64 half of the two-architecture build.
-FROM --platform=$BUILDPLATFORM debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a AS blocker
+FROM --platform=$BUILDPLATFORM debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f AS blocker
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl unzip \
     && rm -rf /var/lib/apt/lists/*
@@ -266,7 +266,7 @@ RUN set -eux; \
     echo "$UBOL_SHA256  /tmp/ubol.zip" | sha256sum -c -; \
     unzip -q /tmp/ubol.zip -d /opt/pagis/ublock-origin-lite
 
-FROM debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a
+FROM debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f
 LABEL co.pagis.computer.version="0.22.1"
 # GHCR reads the OCI source label to link the package to the
 # repository, which is where a reader of the package page goes for the
