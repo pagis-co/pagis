@@ -340,7 +340,12 @@ impl Pipeline {
                                 }
                             }
                         }
-                        Event::KeyframeRequest(_) => self.force_intra = true,
+                        // A still screen brings no damage, so the stored
+                        // frame answers the request.
+                        Event::KeyframeRequest(_) => {
+                            self.force_intra = true;
+                            self.refresh = true;
+                        }
                         Event::IceConnectionStateChange(IceConnectionState::Disconnected) => {
                             viewer.rtc.disconnect();
                         }
