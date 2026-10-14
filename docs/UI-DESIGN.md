@@ -180,7 +180,7 @@ that is not a token.
 
 `src/primitives/` holds the controls every screen renders through:
 Button, IconButton, TooltipButton, Input, Textarea, Combobox, Select, Tabs, Menu,
-Dialog, Toast, Badge, Avatar, Switch, LogoMark, and the layout frames.
+Dialog, Toast, Badge, OwnerAvatar, AvatarGroup, Switch, LogoMark, and the layout frames.
 Behaviour comes from Radix Primitives, which gives focus, keyboard and portal
 handling; the look comes from the tokens. The Combobox, a field that
 also offers a list of choices, takes its keyboard and ARIA behaviour from
@@ -193,6 +193,21 @@ A screen does not write its own control. A control that is missing is
 added to the primitives. A screen writes an inline style only for a
 value it computes at run time, such as a height or a position; a fixed
 look goes in its stylesheet.
+
+## Package entries
+
+An app that builds from a pinned repository checkout imports the controls
+from `pagis-ui/primitives`, the tokens from `pagis-ui/tokens.css`, and the
+Inter font from `pagis-ui/fonts`. These entries need no registry release.
+The app loads the tokens and fonts once. Each primitive imports its own CSS.
+A page that the server renders can load the tokens and primitive CSS with
+no JavaScript. The tokens define the full look in light and dark themes.
+
+The primitives entry imports only files in `src/primitives/` and the
+listed package dependencies. It holds no query, router, API client or
+Product App state. `avatars/Avatar` belongs to the Product App: it reads
+saved Agent appearance and live motion. It is outside the package entry.
+OwnerAvatar and AvatarGroup stay in the primitives entry.
 
 ## Motion and sound
 

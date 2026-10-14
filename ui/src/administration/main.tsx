@@ -9,7 +9,7 @@ import { createRoot } from 'react-dom/client'
 
 import { createQueryClient } from '../queries'
 import { Administration } from './Administration'
-import '@fontsource-variable/inter'
+import '../fonts'
 import '../tokens.css'
 import '../styles.css'
 import './administration.css'

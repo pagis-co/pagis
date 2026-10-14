@@ -9,7 +9,8 @@ import { Copy, MessageSquare, SquareArrowOutUpRight, Volume2 } from 'lucide-reac
 import { useState } from 'react'
 
 import type { ApiClient } from '../api/client'
-import { Avatar, Button, IconButton } from '../primitives'
+import { Button, IconButton } from '../primitives'
+import { Avatar } from '../avatars/Avatar'
 import { Blocks } from '../blocks/BlockView'
 import { useSpeaking } from '../state/stores'
 import { formatClock, type TimelineRow, type WorkSummary } from '../timeline'

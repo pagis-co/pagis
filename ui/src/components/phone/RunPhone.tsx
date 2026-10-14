@@ -1,7 +1,8 @@
 import { useNavigate, useSearch } from '@tanstack/react-router'
 import { AlertCircle, Check, Monitor, RotateCcw, X } from 'lucide-react'
 import type { ApiClient } from '../../api/client'
-import { Avatar, Badge, Button, Frame, Row, SectionLabel } from '../../primitives'
+import { Badge, Button, Frame, Row, SectionLabel } from '../../primitives'
+import { Avatar } from '../../avatars/Avatar'
 import {
   errorMessage,
   useAgents,

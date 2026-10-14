@@ -10,7 +10,8 @@ import {
   Volume2,
 } from 'lucide-react'
 import type { ApiClient } from '../../api/client'
-import { ActionSheet, Avatar, Badge, Button, Frame, Row, SectionLabel } from '../../primitives'
+import { ActionSheet, Badge, Button, Frame, Row, SectionLabel } from '../../primitives'
+import { Avatar } from '../../avatars/Avatar'
 import {
   useAgents,
   useCall,

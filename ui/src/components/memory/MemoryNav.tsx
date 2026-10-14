@@ -3,7 +3,8 @@
 
 import { MessageSquare, Search } from 'lucide-react'
 import type { AgentDto } from '../../api/client'
-import { Avatar, Button, Frame, Input, Row, SectionLabel, Segmented, cx } from '../../primitives'
+import { Button, Frame, Input, Row, SectionLabel, Segmented, cx } from '../../primitives'
+import { Avatar } from '../../avatars/Avatar'
 import { useIsMobile } from '../../state/useIsMobile'
 import type { MemoryLocation } from './MemoryPage'
 import { changeTimeLabel, phoneTimeLabel, groupPages, type MemoryPageDto, type MemoryView } from './pages'

@@ -8,7 +8,8 @@
 import { Link } from '@tanstack/react-router'
 
 import type { ApiClient } from '../api/client'
-import { Avatar, Badge, Button } from '../primitives'
+import { Badge, Button } from '../primitives'
+import { Avatar } from '../avatars/Avatar'
 import { useRunSteps } from '../queries'
 import { formatClock, formatDuration, type RunOutcome, type TimelineRow } from '../timeline'
 

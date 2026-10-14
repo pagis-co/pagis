@@ -9,7 +9,8 @@
 // (ADR-0022), so it lights up while an Agent writes in it.
 
 import type { AgentDto } from '../../api/client'
-import { Avatar, AvatarGroup, Button, cx } from '../../primitives'
+import { AvatarGroup, Button, cx } from '../../primitives'
+import { Avatar } from '../../avatars/Avatar'
 import {
   agentPresence,
   channelCaption,

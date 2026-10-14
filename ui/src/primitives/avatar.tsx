@@ -1,8 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { SpriteAvatar } from '../avatars/SpriteAvatar'
-import { defaultAppearance, type SpriteAppearance } from '../avatars/catalog'
-import { useAgentAppearance } from '../avatars/AvatarRoster'
-import { useLiveAvatarMotion } from '../avatars/liveMotion'
+import type { ReactNode } from 'react'
 
 import { cx } from './cx'
 import './avatar.css'
@@ -14,72 +10,6 @@ export type AvatarSize = 'sm' | 'md' | 'lg' | 'xl' | 'face' | 'portrait'
 export function avatarInitial(name: string): string {
   const first = [...name.trim()][0]
   return first === undefined ? '?' : first.toUpperCase()
-}
-
-export interface AvatarProps {
-  id: string
-  name: string
-  appearance?: SpriteAppearance
-  size?: AvatarSize
-  presence?: Presence
-  playful?: boolean
-  active?: boolean
-  className?: string
-}
-
-/** Every surface reads the same saved Agent appearance. */
-export function Avatar({
-  id,
-  name,
-  appearance,
-  size = 'md',
-  presence = 'none',
-  playful = false,
-  active = false,
-  className,
-}: AvatarProps) {
-  const saved = useAgentAppearance(id)
-  const [hover, setHover] = useState(false)
-  const host = useRef<HTMLSpanElement>(null)
-  useEffect(() => {
-    if (!playful) return
-    const button = host.current?.closest('button, a')
-    const enter = () => setHover(true)
-    const leave = () => setHover(false)
-    button?.addEventListener('focus', enter)
-    button?.addEventListener('blur', leave)
-    return () => {
-      button?.removeEventListener('focus', enter)
-      button?.removeEventListener('blur', leave)
-    }
-  }, [playful])
-  const motion = useLiveAvatarMotion(id, presence, hover)
-  return (
-    <span
-      ref={host}
-      className={cx(
-        'ui-avatar',
-        `ui-avatar-${size}`,
-        presence === 'none' ? null : `ui-avatar-presence-${presence}`,
-        !motion.animate && 'ui-avatar-static',
-        className,
-      )}
-      data-presence={presence}
-      aria-hidden
-      onPointerEnter={() => {
-        if (playful) setHover(true)
-      }}
-      onPointerLeave={() => setHover(false)}
-    >
-      <SpriteAvatar
-        name={name}
-        appearance={appearance ?? saved ?? defaultAppearance()}
-        {...motion}
-        animate={motion.animate && (active || hover)}
-        hover={hover}
-      />
-    </span>
-  )
 }
 
 /** The user's own face. The user is not an Agent, so it takes none of

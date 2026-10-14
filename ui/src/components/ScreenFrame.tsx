@@ -6,7 +6,7 @@
 
 import type { ReactNode } from 'react'
 
-import { Avatar } from '../primitives'
+import { Avatar } from '../avatars/Avatar'
 import { controlWord } from './stateWords'
 
 import './ScreenFrame.css'

@@ -15,7 +15,8 @@ import {
   type RunEventDto,
   type RunModelRequestCaptureDto,
 } from '../../api/client'
-import { Avatar, Badge, Button } from '../../primitives'
+import { Badge, Button } from '../../primitives'
+import { Avatar } from '../../avatars/Avatar'
 import {
   errorMessage,
   useAgents,

@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { FileText } from 'lucide-react'
 import type { ApiClient } from '../../api/client'
-import { Avatar, Badge, Button, Frame, Row, SectionLabel, Sheet, Switch } from '../../primitives'
+import { Badge, Button, Frame, Row, SectionLabel, Sheet, Switch } from '../../primitives'
+import { Avatar } from '../../avatars/Avatar'
 import {
   errorMessage,
   useAgents,

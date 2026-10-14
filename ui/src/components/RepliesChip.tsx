@@ -3,7 +3,8 @@
 // reply. A click opens the reply thread in the right panel.
 
 import type { ApiClient } from '../api/client'
-import { Avatar, AvatarGroup, Button, OwnerAvatar } from '../primitives'
+import { AvatarGroup, Button, OwnerAvatar } from '../primitives'
+import { Avatar } from '../avatars/Avatar'
 import { useAgents, useUserName } from '../queries'
 import { formatClock, type ReplyAuthor, type TimelineRow } from '../timeline'
 

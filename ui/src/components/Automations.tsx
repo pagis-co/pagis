@@ -19,7 +19,8 @@ import { useNavigate } from '@tanstack/react-router'
 
 import type { ApiClient } from '../api/client'
 import { ApprovalCard } from '../blocks/ApprovalCard'
-import { ActionSheet, Avatar, Badge, Button, Frame, IconButton, Input, Row, SectionLabel, Textarea } from '../primitives'
+import { ActionSheet, Badge, Button, Frame, IconButton, Input, Row, SectionLabel, Textarea } from '../primitives'
+import { Avatar } from '../avatars/Avatar'
 import {
   errorMessage,
   useAgents,

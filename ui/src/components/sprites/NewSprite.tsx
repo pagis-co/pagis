@@ -11,7 +11,8 @@
 import { useEffect, useState } from 'react'
 
 import type { ApiClient } from '../../api/client'
-import { Avatar, Button, Dialog, Input, Textarea } from '../../primitives'
+import { Button, Dialog, Input, Textarea } from '../../primitives'
+import { Avatar } from '../../avatars/Avatar'
 import {
   errorMessage,
   useConnections,

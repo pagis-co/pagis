@@ -6,7 +6,8 @@ import type { LucideIcon } from 'lucide-react'
 
 import type { AgentDto, ApiClient } from '../../api/client'
 import { errorMessage, useUpdateAgent } from '../../queries'
-import { Avatar, Button, Input } from '../../primitives'
+import { Button, Input } from '../../primitives'
+import { Avatar } from '../../avatars/Avatar'
 
 import { StepLayout } from './StepLayout'
 

@@ -7,7 +7,8 @@
 import { useMemo, useState } from 'react'
 
 import type { ApiClient, RunDto } from '../../api/client'
-import { Avatar, Badge, Button } from '../../primitives'
+import { Badge, Button } from '../../primitives'
+import { Avatar } from '../../avatars/Avatar'
 import { useAgents, useChannels, useRuns } from '../../queries'
 import {
   NO_FILTERS,

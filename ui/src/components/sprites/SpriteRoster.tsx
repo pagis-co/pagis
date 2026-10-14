@@ -7,7 +7,8 @@
 
 import type { AgentDto, ApiClient } from '../../api/client'
 import { ChevronRight, Plus, Users } from 'lucide-react'
-import { Avatar, Badge, Button, Frame, IconButton, Row } from '../../primitives'
+import { Badge, Button, Frame, IconButton, Row } from '../../primitives'
+import { Avatar } from '../../avatars/Avatar'
 import { useAgents, usePhoneNumbers, useRuns, useWorkspace } from '../../queries'
 import { agentPresence, usePresence } from '../../state/presence'
 import { formatE164 } from '../AgentPhoneNumber'

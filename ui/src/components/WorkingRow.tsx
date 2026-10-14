@@ -7,7 +7,8 @@ import { useEffect, useState } from 'react'
 import { Square } from 'lucide-react'
 
 import type { ApiClient } from '../api/client'
-import { Avatar, Button } from '../primitives'
+import { Button } from '../primitives'
+import { Avatar } from '../avatars/Avatar'
 import { useCancelRun, useRunSteps, useScreenPreviewUrl } from '../queries'
 import type { TimelineRow } from '../timeline'
 

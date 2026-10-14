@@ -3,7 +3,6 @@ import { useNavigate, useSearch } from '@tanstack/react-router'
 import { Search, SquarePen } from 'lucide-react'
 import type { ApiClient } from '../../api/client'
 import {
-  Avatar,
   AvatarGroup,
   Badge,
   Frame,
@@ -12,6 +11,7 @@ import {
   Row,
   SectionLabel,
 } from '../../primitives'
+import { Avatar } from '../../avatars/Avatar'
 import { useAgents, useChannels, useWorkspace } from '../../queries'
 import { agentPresence, channelCaption, usePresence } from '../../state/presence'
 import { activityTone, activityWord } from '../stateWords'

@@ -9,7 +9,8 @@ import { MoreHorizontal, Monitor, Phone, Search, Volume2, VolumeX } from 'lucide
 import { useState } from 'react'
 
 import type { ApiClient } from '../api/client'
-import { Avatar, IconButton, Input, Menu } from '../primitives'
+import { IconButton, Input, Menu } from '../primitives'
+import { Avatar } from '../avatars/Avatar'
 import { useAgentNames, useAgents, useChannels } from '../queries'
 import { agentPresence, channelCaption, liveCallOf, usePresence } from '../state/presence'
 import {
