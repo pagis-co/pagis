@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { BookOpen, Clock3, Lock, MessageSquare, Moon, Phone } from 'lucide-react'
 import type { AgentDto, ApiClient } from '../../api/client'
-import { Avatar, Badge, Button, Frame, Row, Sheet } from '../../primitives'
+import { Badge, Button, Frame, Row, Sheet } from '../../primitives'
+import { Avatar } from '../../avatars/Avatar'
 import {
   useChannels,
   useComputer,

@@ -7,7 +7,7 @@ import { registerServiceWorker } from './push/register'
 import { createQueryClient } from './queries'
 // The self-hosted variable face, then the tokens that name it, then the
 // application styles that read the tokens.
-import '@fontsource-variable/inter'
+import './fonts'
 import './tokens.css'
 import './styles.css'
 

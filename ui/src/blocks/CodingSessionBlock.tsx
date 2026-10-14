@@ -30,7 +30,8 @@ import {
   sessionStateBadge,
   usageText,
 } from '../components/coding/words'
-import { Avatar, Badge } from '../primitives'
+import { Badge } from '../primitives'
+import { Avatar } from '../avatars/Avatar'
 import { useAgents, useCodingSession } from '../queries'
 import { formatMoment } from '../timeline'
 import { Card, CardBody, CardFooter } from './Card'

@@ -5,7 +5,8 @@
 import { useState } from 'react'
 
 import type { ApiClient, MemoryFeedItem } from '../../api/client'
-import { Avatar, Badge, Button, Row } from '../../primitives'
+import { Badge, Button, Row } from '../../primitives'
+import { Avatar } from '../../avatars/Avatar'
 import { useRevertCommit } from '../../queries'
 import { CommitDiff } from './CommitDiff'
 import { authorName, changePaths, sentence, sourceLabel } from './changes'

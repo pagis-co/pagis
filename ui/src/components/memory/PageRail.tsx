@@ -4,7 +4,8 @@
 
 import type { AgentDto, ApiClient, MemoryFeedItem } from '../../api/client'
 import { useMemoryFile, usePageHistory, useRevertCommit } from '../../queries'
-import { Avatar, Badge, Button, Frame, Row, SectionLabel } from '../../primitives'
+import { Badge, Button, Frame, Row, SectionLabel } from '../../primitives'
+import { Avatar } from '../../avatars/Avatar'
 import { changeTimeLabel } from './pages'
 
 export function PageRail({

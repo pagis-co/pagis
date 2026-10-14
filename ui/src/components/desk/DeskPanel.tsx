@@ -12,7 +12,8 @@
 import { MonitorPlay, UserPlus } from 'lucide-react'
 
 import type { AgentDto, ApiClient } from '../../api/client'
-import { Avatar, Badge, Button } from '../../primitives'
+import { Badge, Button } from '../../primitives'
+import { Avatar } from '../../avatars/Avatar'
 import {
   useAgents,
   useAwakeCount,

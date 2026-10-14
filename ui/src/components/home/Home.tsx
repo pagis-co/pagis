@@ -16,7 +16,8 @@ import type { ApiClient } from '../../api/client'
 import { ApprovalCard, decidedClock } from '../../blocks/ApprovalCard'
 import { Blocks } from '../../blocks/BlockView'
 import { Card, CardBody, CardFooter } from '../../blocks/Card'
-import { Avatar, Badge, Button, IconButton } from '../../primitives'
+import { Badge, Button, IconButton } from '../../primitives'
+import { Avatar } from '../../avatars/Avatar'
 import {
   useAgentNames,
   useAgents,

@@ -8,7 +8,8 @@ import { ChevronRight, MessageSquare, Phone } from 'lucide-react'
 
 import type { AgentDto, ApiClient, MemoryFeedItem } from '../../api/client'
 import { formatE164 } from '../../blocks/call'
-import { Avatar, Badge, Button, Frame, Row, SectionLabel } from '../../primitives'
+import { Badge, Button, Frame, Row, SectionLabel } from '../../primitives'
+import { Avatar } from '../../avatars/Avatar'
 import {
   useAgentSyncConnections,
   useAgents,

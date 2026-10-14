@@ -16,7 +16,8 @@ import { NavBar } from './phone/TopBar'
 import { Package, X } from 'lucide-react'
 
 import type { ApiClient } from '../api/client'
-import { Avatar, Button, Frame, IconButton, Row, SectionLabel, Segmented } from '../primitives'
+import { Button, Frame, IconButton, Row, SectionLabel, Segmented } from '../primitives'
+import { Avatar } from '../avatars/Avatar'
 import {
   useAgents,
   useChannels,

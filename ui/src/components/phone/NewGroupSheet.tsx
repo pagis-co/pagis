@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { Info } from 'lucide-react'
 import type { ApiClient } from '../../api/client'
-import { Avatar, Frame, Input, Row, SectionLabel, Sheet } from '../../primitives'
+import { Frame, Input, Row, SectionLabel, Sheet } from '../../primitives'
+import { Avatar } from '../../avatars/Avatar'
 import { errorMessage, useAgents, useCreateChannel } from '../../queries'
 
 export function NewGroupSheet({

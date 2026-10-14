@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { ChevronLeft } from 'lucide-react'
 import type { ApiClient } from '../../api/client'
 import {
-  Avatar,
   Button,
   Frame,
   Input,
@@ -12,6 +11,7 @@ import {
   Switch,
   Textarea,
 } from '../../primitives'
+import { Avatar } from '../../avatars/Avatar'
 import { defaultAppearance, spriteCatalog } from '../../avatars/catalog'
 import { errorMessage, useConnections } from '../../queries'
 import type { NewSpriteDraft } from '../sprites/NewSprite'

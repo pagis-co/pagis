@@ -1,7 +1,8 @@
 import { useState } from 'react'
 
 import type { ApiClient, CredentialDto } from '../../api/client'
-import { ActionSheet, Avatar, Badge, Button, Frame, IconButton, Row } from '../../primitives'
+import { ActionSheet, Badge, Button, Frame, IconButton, Row } from '../../primitives'
+import { Avatar } from '../../avatars/Avatar'
 import { PhoneHeaderAction } from '../phone/TopBar'
 import { Lock, Plus } from 'lucide-react'
 import { useIsMobile } from '../../state/useIsMobile'
