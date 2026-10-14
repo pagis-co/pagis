@@ -5574,6 +5574,11 @@ export interface components {
             invite: components["schemas"]["SignInLinkDto"];
             person: components["schemas"]["PersonDto"];
         };
+        /**
+         * @description The Badge tone of a Person notice. No tone uses neutral.
+         * @enum {string}
+         */
+        NoticeTone: "neutral" | "waiting";
         /** @description Everything the onboarding wizard needs in one read. */
         OnboardingDto: {
             /** @description Only an Administrator on a Local Installation enters provider keys. */
@@ -5679,6 +5684,13 @@ export interface components {
              *     carries it.
              */
             workspace_id?: string | null;
+        };
+        /** @description The one notice the server chooses for a Person. */
+        PersonNoticeDto: {
+            label: string;
+            link?: null | components["schemas"]["ConfiguredLink"];
+            text: string;
+            tone?: null | components["schemas"]["NoticeTone"];
         };
         /** @description What one Person's Computers take of the host. */
         PersonResourcesDto: {
@@ -7309,6 +7321,7 @@ export interface components {
              *     records one.
              */
             name?: string | null;
+            notice?: null | components["schemas"]["PersonNoticeDto"];
             /** @description The Org name and the menu entries the server supplies. */
             org: components["schemas"]["OrgDto"];
             /** @description The links the operator names in the Server configuration. */

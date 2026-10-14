@@ -54,6 +54,7 @@ impl Embedder {
             Arc::new(pagis_plugins::ReqwestMcpHttp::default()),
             Arc::new(pagis_server::NoOrgMenu),
             Default::default(),
+            Arc::new(pagis_server::NoPersonNotice),
         )
         .await
     }
@@ -74,6 +75,7 @@ impl Embedder {
             http,
             Arc::new(pagis_server::NoOrgMenu),
             Default::default(),
+            Arc::new(pagis_server::NoPersonNotice),
         )
         .await
     }
@@ -92,6 +94,7 @@ impl Embedder {
             Arc::new(pagis_plugins::ReqwestMcpHttp::default()),
             org_menu,
             Default::default(),
+            Arc::new(pagis_server::NoPersonNotice),
         )
         .await
     }
@@ -112,6 +115,26 @@ impl Embedder {
             Arc::new(pagis_plugins::ReqwestMcpHttp::default()),
             Arc::new(pagis_server::NoOrgMenu),
             sections,
+            Arc::new(pagis_server::NoPersonNotice),
+        )
+        .await
+    }
+
+    #[allow(dead_code)]
+    pub async fn with_person_notice(notice: Arc<dyn pagis_server::PersonNotice>) -> Self {
+        let services = Arc::new(UnusedServices);
+        Self::with_services(
+            services.clone(),
+            services.clone(),
+            services,
+            Arc::new(pagis_plugin::fake::FixedPackageSource::new(
+                Default::default(),
+            )),
+            Arc::new(pagis_plugins::NoStdioServers),
+            Arc::new(pagis_plugins::ReqwestMcpHttp::default()),
+            Arc::new(pagis_server::NoOrgMenu),
+            Default::default(),
+            notice,
         )
         .await
     }
@@ -126,6 +149,7 @@ impl Embedder {
         http: Arc<dyn pagis_plugins::McpHttp>,
         org_menu: Arc<dyn pagis_server::OrgMenu>,
         administration_sections: pagis_server::AdministrationSections,
+        person_notice: Arc<dyn pagis_server::PersonNotice>,
     ) -> Self {
         let database = FakeDatabase::default();
         let stores = database.stores();
@@ -413,6 +437,7 @@ impl Embedder {
             ),
             product_app_links: Vec::new(),
             org_menu,
+            person_notice,
             administration_sections,
             proxy: pagis_server::TrustedProxy::none(),
             ring,

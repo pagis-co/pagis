@@ -17340,6 +17340,14 @@
           }
         }
       },
+      "NoticeTone": {
+        "type": "string",
+        "description": "The Badge tone of a Person notice. No tone uses neutral.",
+        "enum": [
+          "neutral",
+          "waiting"
+        ]
+      },
       "OnboardingDto": {
         "type": "object",
         "description": "Everything the onboarding wizard needs in one read.",
@@ -17608,6 +17616,44 @@
               "null"
             ],
             "description": "The Workspace this Person owns, or `null` where the seed has not\nwritten one. The usage read names the Workspace, so the roster\ncarries it."
+          }
+        }
+      },
+      "PersonNoticeDto": {
+        "type": "object",
+        "description": "The one notice the server chooses for a Person.",
+        "required": [
+          "label",
+          "text"
+        ],
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "link": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ConfiguredLink",
+                "description": "The link opens in the same tab."
+              }
+            ]
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "tone": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/NoticeTone"
+              }
+            ]
           }
         }
       },
@@ -22008,6 +22054,17 @@
               "null"
             ],
             "description": "The name the agents call the person by; `null` until onboarding\nrecords one."
+          },
+          "notice": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PersonNoticeDto",
+                "description": "The one notice the server chooses for this Person."
+              }
+            ]
           },
           "org": {
             "$ref": "#/components/schemas/OrgDto",

@@ -6,6 +6,7 @@ import { Capacitor } from '@capacitor/core'
 import userEvent from '@testing-library/user-event'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { components } from '../../api/schema'
 import type { ApiClient } from '../../api/client'
 import { renderInRouter } from '../../test/router'
 import { formatClock } from '../../timeline'
@@ -25,10 +26,10 @@ vi.mock('../../mobileShell', async () => ({
 
 const DAY = 86_400_000
 
-function stubApi(schedules: unknown[] = [], links: { label: string; url: string }[] = [], entries: { label: string; url: string; detail?: string; current: boolean }[] = []) {
+function stubApi(schedules: unknown[] = [], links: { label: string; url: string }[] = [], entries: { label: string; url: string; detail?: string; current: boolean }[] = [], notice: components['schemas']['PersonNoticeDto'] | null = null) {
   return {
     GET: vi.fn(async (path: string) => {
-      if (path === '/api/v1/user') return { data: { org: { name: 'Acme', entries }, role: 'member', id: 'u1', name: 'Ajay', email: 'a@example.com', product_app_links: links } }
+      if (path === '/api/v1/user') return { data: { notice, org: { name: 'Acme', entries }, role: 'member', id: 'u1', name: 'Ajay', email: 'a@example.com', product_app_links: links } }
       if (path === '/api/v1/schedules') return { data: { items: schedules } }
       return { data: { items: [] } }
     }),
@@ -157,4 +158,29 @@ it('opens the same Org entries in You', async () => {
   expect(entry.getAttribute('href')).toBe('https://acme.example.com')
   expect(entry.getAttribute('aria-current')).toBe('true')
   expect(entry.getAttribute('target')).toBeNull()
+})
+
+describe('the Person Notice', () => {
+  it.each([null, 'neutral', 'waiting'] as const)('shows the notice with tone %s', async (tone) => {
+    const notice = { tone, label: 'Balance', text: 'Your balance is low.', link: { label: 'Add funds', url: 'https://org.example.com/balance' } }
+    mount(stubApi([], [], [], notice))
+    const note = await screen.findByRole('note')
+    expect(within(note).getByText('Balance').className).toContain(`ui-badge-${tone ?? 'neutral'}`)
+    expect(within(note).getByText(notice.text)).toBeTruthy()
+    const link = within(note).getByRole('link', { name: 'Add funds' })
+    expect(link.getAttribute('href')).toBe(notice.link.url)
+    expect(link.getAttribute('target')).toBeNull()
+    expect(note.parentElement?.firstElementChild).toBe(note)
+  })
+  it('shows nothing when the server supplies no notice', async () => {
+    mount(stubApi())
+    await screen.findByText('Acme')
+    expect(screen.queryByRole('note')).toBeNull()
+  })
+  it('shows no link when the notice has none', async () => {
+    const notice = { tone: null, label: 'Balance', text: 'Your balance is low.', link: null }
+    mount(stubApi([], [], [], notice))
+    const note = await screen.findByRole('note')
+    expect(within(note).queryByRole('link')).toBeNull()
+  })
 })

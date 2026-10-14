@@ -96,6 +96,7 @@ async fn setup(
         http.clone(),
         Arc::new(pagis_server::NoOrgMenu),
         Default::default(),
+        Arc::new(pagis_server::NoPersonNotice),
     )
     .await;
     e.stores

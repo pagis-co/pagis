@@ -28,6 +28,7 @@ import {
   useUserName,
   useWorkspace,
 } from '../../queries'
+import { PersonNotice } from '../PersonNotice'
 import { OrgHead } from '../OrgHead'
 import { ConversationRow } from './ConversationRow'
 import { conversationRows } from './conversations'
@@ -144,6 +145,8 @@ export function Sidebar({
           Pagis keeps a copy of your model requests for {captureDays} days.
         </p>
       )}
+
+      <PersonNotice notice={user?.notice} />
 
       <div className="sidebar-profile">
         <Button

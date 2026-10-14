@@ -122,6 +122,65 @@ async fn an_org_without_entries_has_an_empty_list() {
     let (status, body) = user(&embedder, Some(&embedder.cookie)).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["org"], json!({"name": "Org", "entries": []}));
+    assert_eq!(body["notice"], Value::Null);
+}
+
+#[derive(Default)]
+struct NoticeProvider {
+    people: Mutex<Vec<User>>,
+    revision: AtomicUsize,
+}
+
+#[async_trait]
+impl pagis_server::PersonNotice for NoticeProvider {
+    async fn notice(
+        &self,
+        person: &User,
+    ) -> Result<Option<pagis_server::PersonNoticeDto>, StoreError> {
+        self.people.lock().unwrap().push(person.clone());
+        Ok(Some(pagis_server::PersonNoticeDto {
+            tone: Some(pagis_server::NoticeTone::Waiting),
+            label: "Balance".into(),
+            text: pagis_server::NoticeText::try_from(format!(
+                "{} revision {}",
+                person.id,
+                self.revision.load(Ordering::SeqCst)
+            ))
+            .unwrap(),
+            link: Some(pagis_server::ConfiguredLink {
+                label: "Add funds".into(),
+                url: "https://org.example.com/balance".into(),
+            }),
+        }))
+    }
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+async fn the_embedder_resolves_the_notice_for_each_person_on_each_request() {
+    let provider = Arc::new(NoticeProvider::default());
+    let embedder = Embedder::with_person_notice(provider.clone()).await;
+    for (revision, cookie) in [&embedder.cookie, &embedder.other_cookie, &embedder.cookie]
+        .into_iter()
+        .enumerate()
+    {
+        provider.revision.store(revision, Ordering::SeqCst);
+        let (status, body) = user(&embedder, Some(cookie)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            body["notice"],
+            json!({
+                "tone": "waiting", "label": "Balance",
+                "text": format!("{} revision {revision}", body["id"].as_str().unwrap()),
+                "link": { "label": "Add funds", "url": "https://org.example.com/balance" }
+            })
+        );
+    }
+    let people = provider.people.lock().unwrap().clone();
+    assert_ne!(people[0].id, people[1].id);
+    assert_eq!(people[0], people[2]);
+    assert_eq!(user(&embedder, None).await.0, StatusCode::UNAUTHORIZED);
+    assert_eq!(*provider.people.lock().unwrap(), people);
 }
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]

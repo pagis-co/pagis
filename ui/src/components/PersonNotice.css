@@ -1,0 +1,25 @@
+.person-notice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1-5);
+  color: var(--muted);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  overflow-wrap: anywhere;
+}
+
+.person-notice p {
+  margin: 0;
+}
+
+.person-notice a {
+  color: var(--accent-ink);
+}
+
+.you-phone .person-notice a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--space-11);
+  font-size: var(--text-md);
+}
