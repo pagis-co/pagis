@@ -134,7 +134,7 @@ pub use system::{
     MediaRelayKind, RESTART_EXIT_CODE, RestartSwitch, ScreenRelay, SystemConfig, SystemConfigFile,
     origin_host_is_loopback,
 };
-pub use user::{AdministrationAddress, ConfiguredLink};
+pub use user::{AdministrationAddress, ConfiguredLink, NoOrgMenu, OrgMenu, OrgMenuEntry};
 
 /// The daemon's version. `/api/v1/health` reports it so the desktop
 /// shell knows whether it may attach to a daemon it did not start
@@ -336,6 +336,8 @@ pub struct AppState {
     pub administration: user::AdministrationAddress,
     /// The links the Server configuration names for the Product App.
     pub product_app_links: Vec<ConfiguredLink>,
+    /// The provider reads the Org menu entries for each Person on each request.
+    pub org_menu: Arc<dyn OrgMenu>,
     /// The optional sections this server offers on the Administration Port.
     pub administration_sections: AdministrationSections,
     /// The one address whose `X-Forwarded-*` headers the daemon believes.

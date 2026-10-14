@@ -17411,6 +17411,52 @@
           "lacks"
         ]
       },
+      "OrgDto": {
+        "type": "object",
+        "description": "The Org that the Product App shows in its head.",
+        "required": [
+          "name",
+          "entries"
+        ],
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrgMenuEntry"
+            }
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "OrgMenuEntry": {
+        "type": "object",
+        "description": "One link in the Org menu, supplied by the server or an Embedder.",
+        "required": [
+          "label",
+          "url",
+          "current"
+        ],
+        "properties": {
+          "current": {
+            "type": "boolean"
+          },
+          "detail": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string",
+            "description": "The link opens in the same tab."
+          }
+        }
+      },
       "OwnAddressDto": {
         "type": "object",
         "description": "One address that is owner because the user holds the account it\nbelongs to (ADR-0019). It is not a row, so it has no id and the user\ncannot remove it.",
@@ -21905,7 +21951,8 @@
         "required": [
           "id",
           "role",
-          "product_app_links"
+          "product_app_links",
+          "org"
         ],
         "properties": {
           "administration": {
@@ -21944,6 +21991,10 @@
               "null"
             ],
             "description": "The name the agents call the person by; `null` until onboarding\nrecords one."
+          },
+          "org": {
+            "$ref": "#/components/schemas/OrgDto",
+            "description": "The Org name and the menu entries the server supplies."
           },
           "product_app_links": {
             "type": "array",

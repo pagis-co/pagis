@@ -28,6 +28,7 @@ import {
   useUserName,
   useWorkspace,
 } from '../../queries'
+import { OrgHead } from '../OrgHead'
 import { ConversationRow } from './ConversationRow'
 import { conversationRows } from './conversations'
 import { NewGroupForm } from './NewGroupForm'
@@ -80,6 +81,8 @@ export function Sidebar({
         </span>
         <IconButton icon={Search} label="Search" variant="ghost" size="sm" onClick={onSearch} />
       </div>
+
+      {user?.org && <OrgHead org={user.org} role={user.role} />}
 
       <nav className="sidebar-places" aria-label="Places">
         {PLACES.map((place) => (

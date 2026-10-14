@@ -159,3 +159,21 @@ async fn product_app_links_are_empty_without_configuration() {
     let body: serde_json::Value = response.json().await.unwrap();
     assert_eq!(body["product_app_links"], serde_json::json!([]));
 }
+
+#[tokio::test]
+async fn the_daemon_names_the_org_without_menu_entries() {
+    let daemon = TestDaemon::start().await;
+    let org = daemon.booted.stores.orgs.list().await.unwrap().remove(0);
+    let response = reqwest::Client::new()
+        .get(format!("{}/api/v1/user", daemon.base_url))
+        .header("cookie", daemon.cookie())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(
+        body["org"],
+        serde_json::json!({"name": org.name, "entries": []})
+    );
+}

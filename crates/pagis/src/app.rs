@@ -1555,6 +1555,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         remote_access: options.remote_access,
         administration: options.administration,
         product_app_links: booted.config.product_app.links.clone(),
+        org_menu: Arc::new(pagis_server::NoOrgMenu),
         administration_sections: pagis_server::AdministrationSections::without(
             &booted.config.administration.hide,
         )

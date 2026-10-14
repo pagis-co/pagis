@@ -180,7 +180,10 @@ Person. It holds no Client App privilege and no installation-wide route
 (ADR-0025, ADR-0024). The operator can name up to three links in
 `[product_app] links` of the configuration. A signed-in Person sees the
 links in the account menu, or in You on a phone. Each link opens in the
-same tab.
+same tab. The sidebar head and You on a phone show the Org name and the
+Person's role. The server names the Org menu entries. Each entry is a
+link with a label, an optional detail and a current Org flag. The daemon
+gives no Org menu entries.
 _Avoid_: product interface, web UI
 
 ### Public Origin
@@ -353,7 +356,7 @@ matches the live revision needs no new approval (ADR-0005).
 
 ### Member
 The role of a Person who changes only their own Workspace. A Member reads
-nothing of the Org and gets nothing on the Administration Port (ADR-0023).
+no Org settings and gets nothing on the Administration Port (ADR-0023).
 
 ### Org
 The installation, as the People in it share it. One installation is one

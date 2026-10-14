@@ -42,3 +42,5 @@ export type { PanelProps, ShellProps } from './layout'
 export { Switch } from './switch'
 export type { SwitchProps } from './switch'
 export { cx } from './cx'
+
+export { InitialTile } from './initial-tile'

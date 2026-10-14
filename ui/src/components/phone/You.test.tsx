@@ -3,6 +3,7 @@
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Capacitor } from '@capacitor/core'
+import userEvent from '@testing-library/user-event'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ApiClient } from '../../api/client'
@@ -24,10 +25,10 @@ vi.mock('../../mobileShell', async () => ({
 
 const DAY = 86_400_000
 
-function stubApi(schedules: unknown[] = [], links: { label: string; url: string }[] = []) {
+function stubApi(schedules: unknown[] = [], links: { label: string; url: string }[] = [], entries: { label: string; url: string; detail?: string; current: boolean }[] = []) {
   return {
     GET: vi.fn(async (path: string) => {
-      if (path === '/api/v1/user') return { data: { id: 'u1', name: 'Ajay', email: 'a@example.com', product_app_links: links } }
+      if (path === '/api/v1/user') return { data: { org: { name: 'Acme', entries }, role: 'member', id: 'u1', name: 'Ajay', email: 'a@example.com', product_app_links: links } }
       if (path === '/api/v1/schedules') return { data: { items: schedules } }
       return { data: { items: [] } }
     }),
@@ -140,4 +141,20 @@ describe('the Server links in You', () => {
     expect(screen.queryByRole('navigation', { name: 'Server links' })).toBeNull()
     expect(screen.queryByRole('link')).toBeNull()
   })
+})
+
+it('shows the Org in You without a button when entries are empty', async () => {
+  mount(stubApi())
+  const name = await screen.findByText('Acme')
+  expect(screen.getByText('Member')).toBeTruthy()
+  expect(name.closest('button')).toBeNull()
+})
+it('opens the same Org entries in You', async () => {
+  const user = userEvent.setup()
+  mount(stubApi([], [], [{ label: 'Acme', url: 'https://acme.example.com', detail: 'Member', current: true }]))
+  await user.click(await screen.findByRole('button', { name: 'Acme Member' }))
+  const entry = screen.getByRole('menuitem', { name: 'Acme Member' })
+  expect(entry.getAttribute('href')).toBe('https://acme.example.com')
+  expect(entry.getAttribute('aria-current')).toBe('true')
+  expect(entry.getAttribute('target')).toBeNull()
 })
