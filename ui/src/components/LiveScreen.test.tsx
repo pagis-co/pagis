@@ -18,10 +18,14 @@ class FakeDataChannel {
 
 class FakePeerConnection {
   static instances: FakePeerConnection[] = []
+  /** The gathering state of each new connection. */
+  static gathering: RTCIceGatheringState = 'complete'
   configuration: RTCConfiguration | undefined
   ontrack: ((event: unknown) => void) | null = null
   onconnectionstatechange: (() => void) | null = null
+  onicegatheringstatechange: (() => void) | null = null
   connectionState: RTCPeerConnectionState = 'new'
+  iceGatheringState: RTCIceGatheringState = FakePeerConnection.gathering
   closed = false
   localDescription: unknown = null
   remoteDescription: unknown = null
@@ -71,6 +75,7 @@ function stubApi(
 
 beforeEach(() => {
   FakePeerConnection.instances = []
+  FakePeerConnection.gathering = 'complete'
   vi.stubGlobal('RTCPeerConnection', FakePeerConnection)
 })
 
@@ -140,6 +145,35 @@ describe('LiveScreen', () => {
       }),
     )
     expect(screen.getByLabelText("Sage's live screen")).toBeTruthy()
+  })
+
+  it('offers the candidates the browser gathers, since the daemon takes no trickle', async () => {
+    const api = stubApi(async () => ({ data: { sdp: 'v=0 answer' } }))
+    FakePeerConnection.gathering = 'gathering'
+    render(
+      <LiveScreen api={api} agentId="ag1" agentName="Sage"
+        mode="compact" fallback={<span>fallback</span>} />,
+    )
+    await waitFor(() => expect(FakePeerConnection.instances).toHaveLength(1))
+    const pc = FakePeerConnection.instances[0]!
+    await waitFor(() => expect(pc.localDescription).not.toBeNull())
+    expect(api.POST).not.toHaveBeenCalled()
+
+    act(() => {
+      pc.localDescription = { type: 'offer', sdp: 'v=0 offer a=candidate:relay' }
+      pc.iceGatheringState = 'complete'
+      pc.onicegatheringstatechange?.()
+    })
+
+    await waitFor(() =>
+      expect(api.POST).toHaveBeenCalledWith(
+        '/api/v1/agents/{agent_id}/screen/offer',
+        {
+          params: { path: { agent_id: 'ag1' } },
+          body: { sdp: 'v=0 offer a=candidate:relay' },
+        },
+      ),
+    )
   })
 
   it("configures the relay's ICE servers before it offers", async () => {

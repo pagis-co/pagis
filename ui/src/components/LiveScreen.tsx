@@ -111,6 +111,29 @@ async function iceServers(api: ApiClient): Promise<RTCIceServer[]> {
   }))
 }
 
+/** The longest wait for the browser's ICE candidates. An offer after it
+ * carries the candidates gathered so far. */
+const GATHER_MS = 3000
+
+/** Wait until the browser gathers its ICE candidates. The daemon takes no
+ * trickled candidate, so the offer carries them all. Behind a NAT the
+ * daemon's TURN relay admits only a peer it sends to, and it knows each
+ * peer from the candidates of the offer. */
+function gathered(pc: RTCPeerConnection): Promise<void> {
+  if (pc.iceGatheringState === 'complete') return Promise.resolve()
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer)
+      pc.onicegatheringstatechange = null
+      resolve()
+    }
+    const timer = setTimeout(done, GATHER_MS)
+    pc.onicegatheringstatechange = () => {
+      if (pc.iceGatheringState === 'complete') done()
+    }
+  })
+}
+
 async function connect(
   api: ApiClient,
   agentId: string,
@@ -119,11 +142,12 @@ async function connect(
   pc.addTransceiver('video', { direction: 'recvonly' })
   const offer = await pc.createOffer()
   await pc.setLocalDescription(offer)
+  await gathered(pc)
   const { data, error } = await api.POST(
     '/api/v1/agents/{agent_id}/screen/offer',
     {
       params: { path: { agent_id: agentId } },
-      body: { sdp: offer.sdp ?? '' },
+      body: { sdp: pc.localDescription?.sdp ?? offer.sdp ?? '' },
     },
   )
   if (data === undefined) {
@@ -291,6 +315,7 @@ export function LiveScreen({
       if (pc !== null) {
         pc.ontrack = null
         pc.onconnectionstatechange = null
+        pc.onicegatheringstatechange = null
         pc.close()
       }
     }
