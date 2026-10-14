@@ -1,5 +1,6 @@
 use super::*;
 use std::sync::Arc;
+use str0m::media::KeyframeRequestKind;
 use turn::auth::{AuthHandler, generate_auth_key};
 use turn::relay::relay_static::RelayAddressGeneratorStatic;
 use turn::server::{
@@ -104,64 +105,131 @@ fn a_session_gathers_host_server_reflexive_and_relay_candidates() {
     runtime.block_on(server.close()).unwrap();
 }
 
+/// A viewer on a local socket that answers the pipeline's offer.
+struct Answerer {
+    rtc: Rtc,
+    socket: UdpSocket,
+    address: SocketAddr,
+    connected: bool,
+}
+
+impl Answerer {
+    fn connect(pipeline: &mut Pipeline) -> Self {
+        let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+        socket.set_nonblocking(true).unwrap();
+        let address = socket.local_addr().unwrap();
+        let mut rtc = Rtc::builder().clear_codecs().enable_h264(true).build();
+        rtc.add_local_candidate(Candidate::host(address, Protocol::Udp).unwrap());
+        let offer = pipeline
+            .make_offer(&request(String::new(), vec![]))
+            .unwrap();
+        let answer = rtc
+            .sdp_api()
+            .accept_offer(SdpOffer::from_sdp_string(&offer).unwrap())
+            .unwrap();
+        pipeline
+            .accept_answer("session", &answer.to_sdp_string())
+            .unwrap();
+        let mut answerer = Answerer {
+            rtc,
+            socket,
+            address,
+            connected: false,
+        };
+        let connected = answerer.exchange_until(pipeline, |answerer, pipeline| {
+            answerer.connected && pipeline.viewers[0].connected
+        });
+        assert!(
+            connected,
+            "the pipeline offer did not connect to its answering peer"
+        );
+        answerer
+    }
+
+    /// Move packets both ways until `done` holds, for at most ten seconds.
+    fn exchange_until(
+        &mut self,
+        pipeline: &mut Pipeline,
+        mut done: impl FnMut(&mut Self, &Pipeline) -> bool,
+    ) -> bool {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while Instant::now() < deadline {
+            pipeline.drive();
+            self.rtc
+                .handle_input(Input::Timeout(Instant::now()))
+                .unwrap();
+            let mut buffer = [0; 2048];
+            while let Ok((n, source)) = self.socket.recv_from(&mut buffer) {
+                if let Ok(contents) = (&buffer[..n]).try_into() {
+                    self.rtc
+                        .handle_input(Input::Receive(
+                            Instant::now(),
+                            Receive {
+                                proto: Protocol::Udp,
+                                source,
+                                destination: self.address,
+                                contents,
+                            },
+                        ))
+                        .unwrap();
+                }
+            }
+            loop {
+                match self.rtc.poll_output().unwrap() {
+                    Output::Transmit(t) => {
+                        self.socket.send_to(&t.contents, t.destination).unwrap();
+                    }
+                    Output::Event(Event::Connected) => self.connected = true,
+                    Output::Timeout(_) => break,
+                    _ => {}
+                }
+            }
+            if done(self, pipeline) {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        false
+    }
+}
+
 #[test]
 fn a_pipeline_offer_connects_to_a_peer_that_answers() {
     let mut pipeline = pipeline();
-    let peer_socket = UdpSocket::bind("127.0.0.1:0").unwrap();
-    peer_socket.set_nonblocking(true).unwrap();
-    let peer_address = peer_socket.local_addr().unwrap();
-    let mut peer = Rtc::builder().clear_codecs().enable_h264(true).build();
-    peer.add_local_candidate(Candidate::host(peer_address, Protocol::Udp).unwrap());
-    let offer = pipeline
-        .make_offer(&request(String::new(), vec![]))
+    Answerer::connect(&mut pipeline);
+    assert!(
+        pipeline.viewers[0].mid.is_some(),
+        "the offer has no video writer"
+    );
+}
+
+#[test]
+fn a_keyframe_request_on_a_still_screen_pushes_the_stored_frame() {
+    let mut pipeline = pipeline();
+    let mut viewer = Answerer::connect(&mut pipeline);
+    pipeline.send_frame(&[0; 16 * 16 * 3], 16, 16);
+    assert!(!pipeline.needs_refresh());
+    // The viewer lost the first frame and asks for a new one. No damage
+    // comes from a still screen, so the stored frame must go out.
+    let mid = pipeline.viewers[0].mid.unwrap();
+    let received = viewer.exchange_until(&mut pipeline, |viewer, _| {
+        viewer
+            .rtc
+            .direct_api()
+            .stream_rx_by_mid(mid, None)
+            .is_some()
+    });
+    assert!(received, "the viewer received no video");
+    viewer
+        .rtc
+        .writer(mid)
+        .unwrap()
+        .request_keyframe(None, KeyframeRequestKind::Pli)
         .unwrap();
-    let answer = peer
-        .sdp_api()
-        .accept_offer(SdpOffer::from_sdp_string(&offer).unwrap())
-        .unwrap();
-    pipeline
-        .accept_answer("session", &answer.to_sdp_string())
-        .unwrap();
-    let deadline = Instant::now() + Duration::from_secs(10);
-    let mut connected = false;
-    while Instant::now() < deadline {
-        pipeline.drive();
-        peer.handle_input(Input::Timeout(Instant::now())).unwrap();
-        let mut buffer = [0; 2048];
-        while let Ok((n, source)) = peer_socket.recv_from(&mut buffer) {
-            if let Ok(contents) = (&buffer[..n]).try_into() {
-                peer.handle_input(Input::Receive(
-                    Instant::now(),
-                    Receive {
-                        proto: Protocol::Udp,
-                        source,
-                        destination: peer_address,
-                        contents,
-                    },
-                ))
-                .unwrap();
-            }
-        }
-        loop {
-            match peer.poll_output().unwrap() {
-                Output::Transmit(t) => {
-                    peer_socket.send_to(&t.contents, t.destination).unwrap();
-                }
-                Output::Event(Event::Connected) => connected = true,
-                Output::Timeout(_) => break,
-                _ => {}
-            }
-        }
-        if connected && pipeline.viewers[0].connected {
-            assert!(
-                pipeline.viewers[0].mid.is_some(),
-                "the offer has no video writer"
-            );
-            return;
-        }
-        std::thread::sleep(Duration::from_millis(2));
-    }
-    panic!("the pipeline offer did not connect to its answering peer");
+    assert!(
+        viewer.exchange_until(&mut pipeline, |_, pipeline| pipeline.needs_refresh()),
+        "the keyframe request asks for no frame"
+    );
 }
 
 #[test]
