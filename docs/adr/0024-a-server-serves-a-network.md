@@ -151,9 +151,7 @@ router has no installation-wide route, and a test holds that.
 `crate::routes::SHARED_ROUTES` names the routes both ports answer, each with
 its reason: `/api/v1/user`, `/api/v1/sessions`, `/api/v1/sessions/current`,
 `GET /api/v1/setup`, `GET /api/v1/plugins` and
-`GET /api/v1/plugins/{plugin_id}`. The Product App shows an Administrator one
-link to the Administration Interface, with the SSH tunnel command where the
-port binds loopback.
+`GET /api/v1/plugins/{plugin_id}`.
 
 The operator can name `[administration] path_prefix`, such as `/admin`,
 for a proxy that serves the Administration Interface under the Public Origin.
@@ -173,6 +171,41 @@ Local onboarding has two product-port routes,
 and answer `409` once the Workspace finished onboarding. A local installation
 also serves the Administration Port on loopback, and the Client App opens it
 from its menu.
+
+### One product on two origins
+
+The Product App and the Administration Interface are one product on two
+origins. The Settings nav of the Product App shows an Administrator an **Org**
+group after its own groups. The group lists the sections that the server
+offers: People, Spend, Sessions, Resources, Providers, Settings, Plugins and
+Health, without each section that the deployment hides. Each item opens its
+section at the Administration Address, so the section path of the
+Administration Interface is the target of the item. The `/api/v1/user` answer
+gives an Administrator the Administration Address and the sections that the
+server offers, so the Product App calls no route of the Administration Port.
+A Member sees no Org group. On a phone, the settings list shows the same Org
+group (ADR-0034).
+
+Where the Administration Port binds loopback, only the machine that runs Pagis
+reaches it. There, the Org group shows the SSH tunnel command for the port
+below its items.
+
+The Administration Interface draws the same sidebar and the same Settings nav
+as the Product App, from the same primitives, so the two read as one product.
+In its Settings nav the Org group holds the open section. Each item of the
+other groups, and each place of the sidebar, opens at the Public Origin, which
+the administration sections answer gives. The operator links of
+`[administration] links` are items of the Org group.
+
+The shell is shared, and the origins stay separate. No page calls the API of
+the other origin. The Product App shows text from Agents, mail and the web, so
+a cross-site script flaw runs on the product origin. That script cannot call
+the Administration Port: the port answers no CORS, and it refuses a browser
+request from another origin on socket upgrades and unsafe methods. One origin
+with a role check would give that script the authority of an Administrator.
+Okta and SharePoint serve their administration at a host of its own
+(`<org>-admin.okta.com`, `<tenant>-admin.sharepoint.com`) and link to it from
+the product nav for the same reason.
 
 ### Provider setup is the installation's, and provider use is the person's
 
@@ -297,6 +330,12 @@ one-way (ADR-0025).
 - A network deployment is a bind address, a reverse proxy and three settings.
 - A deployment that exposes the Administration Port puts a proxy in front of
   it and controls access there. Direct loopback access uses an SSH tunnel.
+- A page path prefix under the Public Origin puts the Administration
+  Interface on the product origin, so script on that origin can call the
+  administration API. A deployment that keeps the isolation of the port gives
+  the Administration Interface a host of its own.
+- An Administrator moves between two origins with one look and one nav, and
+  each move between them is a page load.
 - Every store trait has two implementations kept in step by one suite, with
   the same module layout and file names in both storage crates, so a reviewer
   diffs a file against its sibling and sees only the SQL dialect.
@@ -305,3 +344,12 @@ one-way (ADR-0025).
 - The `sqlx` Postgres driver carries rustls, so a managed Postgres that
   requires TLS works.
 - One daemon serves everyone, so a restart interrupts every person.
+
+## Not built
+
+The Org group of the Settings nav, and the shared sidebar and Settings nav of
+the Administration Interface, are not built. The Product App shows an
+Administrator one Administration section with one link to the Administration
+Interface, and the Administration Interface draws a nav of its own in its
+header. The `/api/v1/user` answer does not give the sections, and the
+administration sections answer does not give the Public Origin.

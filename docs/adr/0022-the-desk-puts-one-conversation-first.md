@@ -60,7 +60,8 @@ Home shows the last one with its time and a line for every Run since.
 
 ### Configuration is settings; a durable rule is a destination
 
-Settings holds the person's own Workspace settings in three groups:
+Settings holds the person's own Workspace settings in three groups, and an
+Administrator also sees the Org group:
 
 - **Access.** Connections: one card for each, with the alias, the provider,
   the account, the auth mode, the connect time, the absent capabilities, the
@@ -77,9 +78,11 @@ Settings holds the person's own Workspace settings in three groups:
   recording.
 - **Models.** The Model Aliases and their ordered candidates, and the person's
   own Usage.
-- **System.** Retention, Sound, and, for an Administrator, one link to the
-  Administration Interface (ADR-0024). Installation settings are not in the
+- **System.** Retention and Sound. Installation settings are not in the
   Product App.
+- **Org.** For an Administrator only, the sections of the Administration
+  Interface. Each item opens its section at the Administration Address
+  (ADR-0024).
 
 The Sprites place opens one Agent's page, with the About, Appearance, Desk,
 Contact, Access, Memory and Work tabs. Contact holds the phone number card and
