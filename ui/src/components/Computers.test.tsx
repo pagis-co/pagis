@@ -49,6 +49,7 @@ function stubApi(options: {
 
 class FakePeerConnection {
   ontrack: ((event: unknown) => void) | null = null
+  iceGatheringState = 'complete'
   addTransceiver = vi.fn()
   createDataChannel = vi.fn(() => ({ readyState: 'connecting', send: vi.fn() }))
   createOffer = vi.fn(async () => ({ type: 'offer', sdp: 'v=0 offer' }))
