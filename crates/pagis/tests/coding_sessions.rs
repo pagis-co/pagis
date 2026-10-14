@@ -2176,11 +2176,13 @@ async fn a_lost_host_interrupts_the_session_and_the_agent_resumes_it_when_the_ho
     // fails, and then the Person writes there. The end of the turn
     // before woke the Agent in the session's Thread.
     let woken = wait_for_event_runs(&daemon, RunState::Failed, 2).await;
-    let places: Vec<_> = woken
+    // The two Runs can list in either order.
+    let mut places: Vec<_> = woken
         .iter()
         .map(|run| run.root_message_id.is_some())
         .collect();
-    assert_eq!(places, [true, false], "{woken:?}");
+    places.sort();
+    assert_eq!(places, [false, true], "{woken:?}");
     let client_app = FakeClientApp::running(WORKTREE, {
         let harnesses = Arc::clone(&harnesses);
         move |stream| {
