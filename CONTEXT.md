@@ -183,9 +183,10 @@ Person. It holds no Client App privilege and no installation-wide route
 `[product_app] links` of the configuration. A signed-in Person sees the
 links in the account menu, or in You on a phone. Each link opens in the
 same tab. The sidebar head and You on a phone show the Org name and the
-Person's role. The server names the Org menu entries. Each entry is a
-link with a label, an optional detail and a current Org flag. The daemon
-gives no Org menu entries. The server chooses one Person Notice for each
+Person's role. The server gives the Org name and the Org menu entries.
+Each entry is a link with a label, an optional detail and a current Org
+flag. The daemon gives the Org name from the store and no Org menu
+entries. The server chooses one Person Notice for each
 Person, and the daemon gives none.
 _Avoid_: product interface, web UI
 

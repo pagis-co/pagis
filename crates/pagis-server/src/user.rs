@@ -9,7 +9,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use axum::Json;
 use axum::extract::State;
-use pagis_core::{StoreError, User, UserRole};
+use pagis_core::{Org, StoreError, User, UserRole};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -153,19 +153,23 @@ pub struct OrgMenuEntry {
     pub current: bool,
 }
 
-/// The Org menu entries for a Person, read on each request.
+/// The Org name and the Org menu entries for a Person, read on each
+/// request. `org` is the Person's Org as the store holds it.
 #[async_trait]
 pub trait OrgMenu: Send + Sync {
-    async fn entries(&self, person: &User) -> Result<Vec<OrgMenuEntry>, StoreError>;
+    async fn org(&self, person: &User, org: Org) -> Result<OrgDto, StoreError>;
 }
 
-/// The daemon supplies no Org menu entries.
+/// The daemon shows the store name and supplies no Org menu entries.
 pub struct NoOrgMenu;
 
 #[async_trait]
 impl OrgMenu for NoOrgMenu {
-    async fn entries(&self, _person: &User) -> Result<Vec<OrgMenuEntry>, StoreError> {
-        Ok(Vec::new())
+    async fn org(&self, _person: &User, org: Org) -> Result<OrgDto, StoreError> {
+        Ok(OrgDto {
+            name: org.name,
+            entries: Vec::new(),
+        })
     }
 }
 
@@ -188,10 +192,7 @@ pub(crate) async fn user_dto(state: &AppState, user: &User) -> Result<UserDto, A
         &administration,
         &state.capture,
         &state.product_app_links,
-        OrgDto {
-            name: org.name,
-            entries: state.org_menu.entries(user).await?,
-        },
+        state.org_menu.org(user, org).await?,
         state.person_notice.notice(user).await?,
     ))
 }
