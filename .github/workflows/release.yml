@@ -125,7 +125,7 @@ jobs:
           PLATFORM: ${{ matrix.platform }}
 
       # A published Computer image writes no digest.
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: image-digest-computer-${{ matrix.platform }}
           path: dist/image-digests/
@@ -182,7 +182,7 @@ jobs:
           subject-digest: ${{ steps.digest.outputs.computer }}
           push-to-registry: true
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: computer-image
           path: dist/computer-image.txt
@@ -239,7 +239,7 @@ jobs:
         env:
           PLATFORM: ${{ matrix.platform }}
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: image-digest-server-${{ matrix.platform }}
           path: dist/image-digests/
@@ -346,7 +346,7 @@ jobs:
         env:
           PLATFORM: ${{ matrix.platform }}
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: server-linux-${{ matrix.platform }}
           path: |
@@ -410,7 +410,7 @@ jobs:
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: server-macos
           path: |
@@ -528,7 +528,7 @@ jobs:
 
       # The ZIP, its blockmap and the feed that names it are the Update
       # that electron-updater installs (ADR-0027).
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: client-macos
           path: |
@@ -597,7 +597,7 @@ jobs:
 
       # The feed of each architecture names its AppImage and its deb for
       # electron-updater (ADR-0027).
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: client-linux
           path: |
