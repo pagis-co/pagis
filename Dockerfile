@@ -23,7 +23,7 @@
 # `packageManager` of the root `package.json` names and by the sha512 of
 # the registry's `integrity` field. Neither curl nor the binary reaches
 # the final image.
-FROM debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a AS pnpm
+FROM debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f AS pnpm
 ARG TARGETARCH
 ARG PNPM_VERSION=12.11.2
 ARG PNPM_SHA512_amd64=14aed029edb8018829a49c0ede6a68a18a6d76ebaf206a8a24f8b969cecc7675a48d4cb8e8905f621096d20ae7916282f1839fd31faf1af8ae42a2448f74a941
@@ -94,7 +94,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
 # `gog` is the Google Connection runner, and the daemon starts it as a
 # sibling of its own executable (ADR-0024). The release downloads the
 # same pinned build and checks the same hash.
-FROM debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a AS gog
+FROM debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f AS gog
 ARG TARGETARCH
 ARG GOG_VERSION=0.42.0
 ARG GOG_SHA256_amd64=1967a962a57d689958c408dd0abc784792c3712da9d0a90650bb76ab7e3de388
@@ -113,7 +113,7 @@ RUN set -eux; \
     tar -xzf /tmp/gog.tar.gz -C /out ./gog; \
     chmod 755 /out/gog
 
-FROM debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a
+FROM debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f
 # ca-certificates: the model providers and every other HTTPS call.
 # git: best-effort memory repacks and git Plugin installs.
 # postgresql-client-18: pg_dump and pg_restore, which `pagis backup` and
