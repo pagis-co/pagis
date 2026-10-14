@@ -199,3 +199,16 @@
   font-size: var(--text-md);
   font-weight: var(--weight-regular);
 }
+
+.sidebar > .person-notice {
+  margin-top: auto;
+  padding: var(--space-2);
+}
+
+.sidebar-capture-notice + .person-notice {
+  margin-top: var(--space-2);
+}
+
+.sidebar > .person-notice + .sidebar-profile {
+  margin-top: var(--space-2);
+}

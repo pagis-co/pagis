@@ -7,6 +7,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import type { components } from '../../api/schema'
 import type { ApiClient } from '../../api/client'
 import { usePresence } from '../../state/presence'
 import { Sidebar } from './Sidebar'
@@ -83,7 +84,7 @@ const needsYou = {
   count: 2,
 }
 
-function stubApi(userName: string | null, captureDays: number | null = null, links: { label: string; url: string }[] = [], entries: { label: string; url: string; detail?: string; current: boolean }[] = [], role = "administrator") {
+function stubApi(userName: string | null, captureDays: number | null = null, links: { label: string; url: string }[] = [], entries: { label: string; url: string; detail?: string; current: boolean }[] = [], role = "administrator", notice: components['schemas']['PersonNoticeDto'] | null = null) {
   return {
     GET: vi.fn(async (path: string) => {
       if (path === '/api/v1/channels') return { data: { items: channels } }
@@ -99,7 +100,7 @@ function stubApi(userName: string | null, captureDays: number | null = null, lin
         }
       }
       if (path === '/api/v1/user') {
-        return { data: { name: userName, role, org: { name: "Acme", entries }, model_request_capture_days: captureDays, product_app_links: links } }
+        return { data: { name: userName, notice, role, org: { name: "Acme", entries }, model_request_capture_days: captureDays, product_app_links: links } }
       }
       if (path === '/api/v1/needs-you') return { data: needsYou }
       return { data: { items: [] } }
@@ -124,6 +125,7 @@ function mount(props: {
   selectedId: string | null
   /** The name the wizard recorded, or `null` for a wizard that took none. */
   userName?: string | null
+  notice?: components['schemas']['PersonNoticeDto'] | null
   /** The retention of Model Request Capture, or `null` while it is off. */
   captureDays?: number | null
   entries?: { label: string; url: string; detail?: string; current: boolean }[]
@@ -138,7 +140,7 @@ function mount(props: {
   render(
     <QueryClientProvider client={queryClient}>
       <Sidebar
-        api={stubApi(props.userName ?? null, props.captureDays ?? null, props.links ?? [], props.entries ?? [], props.role) as unknown as ApiClient}
+        api={stubApi(props.userName ?? null, props.captureDays ?? null, props.links ?? [], props.entries ?? [], props.role, props.notice) as unknown as ApiClient}
         pathname={props.pathname}
         selectedId={props.selectedId}
         onSelectPlace={onSelectPlace}
@@ -428,5 +430,30 @@ describe('the account menu', () => {
     await user.keyboard('{Escape}')
     expect(screen.getByRole('button', { name: 'Sign out' }).closest('.sidebar-profile')).toBeTruthy()
     expect(screen.queryByRole('menu')).toBeNull()
+  })
+})
+
+describe('the Person Notice', () => {
+  it.each([null, 'neutral', 'waiting'] as const)('shows the notice with tone %s', async (tone) => {
+    const notice = { tone, label: 'Balance', text: 'Your balance is low.', link: { label: 'Add funds', url: 'https://org.example.com/balance' } }
+    mount({ pathname: '/', selectedId: null, notice })
+    const note = await screen.findByRole('note')
+    expect(within(note).getByText('Balance').className).toContain(`ui-badge-${tone ?? 'neutral'}`)
+    expect(within(note).getByText(notice.text)).toBeTruthy()
+    const link = within(note).getByRole('link', { name: 'Add funds' })
+    expect(link.getAttribute('href')).toBe(notice.link.url)
+    expect(link.getAttribute('target')).toBeNull()
+    expect(note.nextElementSibling?.className).toBe('sidebar-profile')
+  })
+  it('shows nothing when the server supplies no notice', async () => {
+    mount({ pathname: '/', selectedId: null })
+    await screen.findByText('Acme')
+    expect(screen.queryByRole('note')).toBeNull()
+  })
+  it('shows no link when the notice has none', async () => {
+    const notice = { tone: null, label: 'Balance', text: 'Your balance is low.', link: null }
+    mount({ pathname: '/', selectedId: null, notice })
+    const note = await screen.findByRole('note')
+    expect(within(note).queryByRole('link')).toBeNull()
   })
 })

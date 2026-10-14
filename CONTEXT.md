@@ -185,7 +185,8 @@ links in the account menu, or in You on a phone. Each link opens in the
 same tab. The sidebar head and You on a phone show the Org name and the
 Person's role. The server names the Org menu entries. Each entry is a
 link with a label, an optional detail and a current Org flag. The daemon
-gives no Org menu entries.
+gives no Org menu entries. The server chooses one Person Notice for each
+Person, and the daemon gives none.
 _Avoid_: product interface, web UI
 
 ### Public Origin
@@ -1411,6 +1412,13 @@ One of the three core tools to send a text, read one Text Conversation, or
 list recent ones. Not built (ADR-0020).
 
 ## Messages and UI
+
+### Person Notice
+The one notice a server or an Embedder chooses for a Person on each user
+answer: an optional neutral or waiting tone, a short label, text of at
+most 120 characters, and an optional link with a label. The sidebar shows
+it above the profile row, and the phone layout shows it at the top of You.
+The daemon gives none.
 
 ### Phone layout
 The layout of the Product App at 760 px and below: a tab bar of four places,

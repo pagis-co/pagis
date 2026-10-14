@@ -15,6 +15,7 @@ import {
 import { errorMessage, useSchedules, useSignOut, useUser, useUserName } from '../../queries'
 import { PagisShell } from '../../mobileShell'
 import { NotificationSwitch } from '../settings/Notifications'
+import { PersonNotice } from '../PersonNotice'
 import { OrgHead } from '../OrgHead'
 import { nearMoment } from '../when'
 
@@ -70,6 +71,7 @@ export function You({ api }: { api: ApiClient }) {
   ] as const
   return (
     <div className="you-phone">
+      <PersonNotice notice={user?.notice} />
       <header className="you-phone-head">
         <OwnerAvatar name={name} size="xl" outlined />
         <div>

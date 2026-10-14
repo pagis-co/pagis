@@ -55,6 +55,8 @@ pub struct UserDto {
     pub product_app_links: Vec<ConfiguredLink>,
     /// The Org name and the menu entries the server supplies.
     pub org: OrgDto,
+    /// The one notice the server chooses for this Person.
+    pub notice: Option<PersonNoticeDto>,
 }
 
 impl UserDto {
@@ -66,6 +68,7 @@ impl UserDto {
         capture: &pagis_core::CaptureSetting,
         product_app_links: &[ConfiguredLink],
         org: OrgDto,
+        notice: Option<PersonNoticeDto>,
     ) -> Self {
         UserDto {
             id: user.id.to_string(),
@@ -76,7 +79,60 @@ impl UserDto {
             model_request_capture_days: capture.is_enabled().then(|| capture.retention_days()),
             product_app_links: product_app_links.to_vec(),
             org,
+            notice,
         }
+    }
+}
+
+/// The one notice the server chooses for a Person.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct PersonNoticeDto {
+    pub tone: Option<NoticeTone>,
+    pub label: String,
+    #[schema(value_type = String, max_length = 120)]
+    pub text: NoticeText,
+    /// The link opens in the same tab.
+    pub link: Option<ConfiguredLink>,
+}
+
+/// The Badge tone of a Person notice. No tone uses neutral.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum NoticeTone {
+    Neutral,
+    Waiting,
+}
+
+/// Notice text holds at most 120 characters.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(try_from = "String")]
+#[schema(value_type = String)]
+pub struct NoticeText(String);
+
+impl TryFrom<String> for NoticeText {
+    type Error = &'static str;
+
+    fn try_from(text: String) -> Result<Self, Self::Error> {
+        if text.chars().count() > 120 {
+            return Err("notice text must hold at most 120 characters");
+        }
+        Ok(Self(text))
+    }
+}
+
+/// The notice for a Person, read on each request.
+#[async_trait]
+pub trait PersonNotice: Send + Sync {
+    async fn notice(&self, person: &User) -> Result<Option<PersonNoticeDto>, StoreError>;
+}
+
+/// The daemon supplies no Person notice.
+pub struct NoPersonNotice;
+
+#[async_trait]
+impl PersonNotice for NoPersonNotice {
+    async fn notice(&self, _person: &User) -> Result<Option<PersonNoticeDto>, StoreError> {
+        Ok(None)
     }
 }
 
@@ -136,6 +192,7 @@ pub(crate) async fn user_dto(state: &AppState, user: &User) -> Result<UserDto, A
             name: org.name,
             entries: state.org_menu.entries(user).await?,
         },
+        state.person_notice.notice(user).await?,
     ))
 }
 
@@ -221,6 +278,14 @@ mod tests {
     use super::*;
 
     #[test]
+    fn notice_text_refuses_more_than_120_characters() {
+        assert!(NoticeText::try_from("x".repeat(121)).is_err());
+        assert!(serde_json::from_value::<NoticeText>(serde_json::json!("x".repeat(121))).is_err());
+        let text = NoticeText::try_from("é".repeat(120)).unwrap();
+        assert_eq!(serde_json::to_value(text).unwrap(), "é".repeat(120));
+    }
+
+    #[test]
     fn a_loopback_listener_is_reached_at_loopback() {
         let address = AdministrationAddress::of(
             "127.0.0.1:4401".parse().unwrap(),
@@ -290,6 +355,7 @@ mod tests {
                     name: "Acme".into(),
                     entries: Vec::new()
                 },
+                None,
             )
             .administration,
             Some(address.clone())
@@ -305,6 +371,7 @@ mod tests {
                     name: "Acme".into(),
                     entries: Vec::new()
                 },
+                None,
             )
             .administration,
             None
@@ -329,6 +396,7 @@ mod tests {
                 name: "Acme".into(),
                 entries: Vec::new(),
             },
+            None,
         );
         let value = serde_json::to_value(answer).unwrap();
         assert_eq!(
