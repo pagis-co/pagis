@@ -1,0 +1,11 @@
+.org-settings-tunnel {
+  margin: var(--space-3) var(--space-2-5);
+  color: var(--muted);
+  font-size: var(--text-xs);
+  line-height: var(--leading-relaxed);
+  overflow-wrap: anywhere;
+}
+
+.org-settings-tunnel code {
+  font-family: var(--font-mono);
+}

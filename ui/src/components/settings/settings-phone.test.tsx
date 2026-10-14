@@ -272,3 +272,28 @@ it('names the provider of a connection by its catalog label', async () => {
   expect(await screen.findByText('CalDAV calendar account')).not.toBeNull()
   expect(screen.queryByText('caldav account')).toBeNull()
 })
+
+it('shows the offered Org links and tunnel in the phone settings list', async () => {
+  responses['/api/v1/user'] = {
+    ...shellResponse('/api/v1/user').data as object,
+    role: 'administrator',
+    administration: { origin: 'http://127.0.0.1:4401', path_prefix: '/admin', loopback: true, sections: ['people', 'spend'], links: [{ label: 'Help', url: 'https://team.example.com/help' }] },
+  }
+  mount('/settings')
+  const org = within(await screen.findByRole('group', { name: 'Org' }))
+  expect(org.getAllByRole('link').map((link) => [link.textContent, link.getAttribute('href')])).toEqual([
+    ['People', 'http://127.0.0.1:4401/admin/people'],
+    ['Spend', 'http://127.0.0.1:4401/admin/spend'],
+    ['Help', 'https://team.example.com/help'],
+  ])
+  expect(org.queryByRole('link', { name: 'Providers' })).toBeNull()
+  expect(org.getByText('ssh -L 4401:127.0.0.1:4401 you@your-server')).toBeTruthy()
+  expect(api.GET.mock.calls.some(([path]) => path.startsWith('/api/v1/administration/'))).toBe(false)
+})
+
+it('shows no Org group in the phone settings list for a Member', async () => {
+  responses['/api/v1/user'] = { ...shellResponse('/api/v1/user').data as object, role: 'member', administration: null }
+  mount('/settings')
+  await screen.findByRole('heading', { name: 'Settings' })
+  expect(screen.queryByRole('group', { name: 'Org' })).toBeNull()
+})

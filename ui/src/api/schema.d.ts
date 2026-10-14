@@ -3269,6 +3269,8 @@ export interface components {
         };
         /** @description Where a browser reaches the Administration Interface (ADR-0024). */
         AdministrationAddress: {
+            /** @description The links the Server configuration names, in navigation order. */
+            links: components["schemas"]["ConfiguredLink"][];
             /**
              * @description True for a direct address whose port binds loopback. A proxy
              *     address needs no SSH tunnel to the Administration Port.
@@ -3281,6 +3283,8 @@ export interface components {
             origin: string;
             /** @description The page path prefix. Empty serves the page at the origin root. */
             path_prefix: string;
+            /** @description The offered sections, in navigation order. Hosts and Restart have no view. */
+            sections: string[];
         };
         /**
          * @description One machine of one Person, for the read that says which clients can

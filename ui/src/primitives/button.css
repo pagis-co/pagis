@@ -12,6 +12,7 @@
   gap: var(--space-1-5);
   border: 1px solid transparent;
   border-radius: var(--radius-md);
+  text-decoration: none;
   font: inherit;
   font-weight: var(--weight-medium);
   line-height: var(--leading-tight);
@@ -176,3 +177,9 @@
 .ui-button-dashed { border: 1px dashed var(--border-control); background: transparent; color: var(--accent); text-align: left; white-space: normal; }
 
 .ui-button-outline.ui-button-pill[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-ink); }
+
+.ui-button-nav {
+  min-height: calc(var(--space-8) + var(--space-0-5));
+  padding: var(--space-1-5) var(--space-2-5);
+  justify-content: flex-start;
+}

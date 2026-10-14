@@ -11,14 +11,17 @@ import {
   usePushSubscriptions,
   useTrustList,
   useWorkspace,
+  useUser,
 } from '../../queries'
-import { visibleSettingsGroups } from '../SettingsPanel'
+import { SETTINGS_GROUPS } from '../SettingsPanel'
+import { OrgSettingsGroup } from '../settings/OrgSettingsGroup'
 import { timezoneName } from '../../timezone'
 import { NavBar } from './TopBar'
 import { useSound } from '../../state/sound'
 
 export function SettingsPhone({ api }: { api: ApiClient }) {
   const navigate = useNavigate()
+  const user = useUser(api)
   const connections = useConnections(api)
   const hosts = useHosts(api)
   const sessions = useMySessions(api)
@@ -46,7 +49,7 @@ export function SettingsPhone({ api }: { api: ApiClient }) {
       <NavBar back={{ label: 'You', onBack: () => void navigate({ to: '/you' }) }} />
       <div className="phone-content">
         <h1 className="phone-heading">Settings</h1>
-        {visibleSettingsGroups(false).map((group) => (
+        {SETTINGS_GROUPS.map((group) => (
           <section className="phone-section" key={group.label}>
             <SectionLabel>{group.label}</SectionLabel>
             <Frame>
@@ -70,6 +73,7 @@ export function SettingsPhone({ api }: { api: ApiClient }) {
             </Frame>
           </section>
         ))}
+        <OrgSettingsGroup administration={user.data?.administration} isAdministrator={user.data?.role === 'administrator'} phone />
       </div>
     </>
   )

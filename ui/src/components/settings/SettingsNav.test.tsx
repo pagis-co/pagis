@@ -7,6 +7,8 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { SettingsNav } from './SettingsNav'
 
+const address = { origin: 'https://pagis.example.net', path_prefix: '/admin', loopback: false, sections: ['people', 'spend', 'hosts', 'restart'], links: [{ label: 'Help', url: 'https://team.example.com/help' }] }
+
 describe('SettingsNav', () => {
   it('lists the sections in three groups under the Settings title', () => {
     render(<SettingsNav section="vault" onSelectSection={() => {}} isAdministrator />)
@@ -34,7 +36,6 @@ describe('SettingsNav', () => {
       'Timezone',
       'Sound',
       'Notifications',
-      'Administration',
     ])
   })
 
@@ -48,33 +49,47 @@ describe('SettingsNav', () => {
     expect(onSelectSection).toHaveBeenCalledWith('sound')
   })
 
-  // The installation's settings answer on the administration port, so
-  // the product holds none of them. An administrator gets one link to
-  // it, and a member not even that.
-  it('leaves the Administration section out for a member', () => {
-    render(
-      <SettingsNav
-        section="vault"
-        onSelectSection={() => {}}
-        isAdministrator={false}
-      />,
-    )
+  it('shows offered views and configured links in Org after System', () => {
+    render(<SettingsNav section="vault" onSelectSection={() => {}} isAdministrator administration={address} />)
+    const groups = screen.getAllByRole('group')
+    expect(groups.map((group) => group.getAttribute('aria-label'))).toEqual(['Access', 'Models', 'System', 'Org'])
+    const org = within(screen.getByRole('group', { name: 'Org' }))
+    expect(org.getAllByRole('link').map((link) => [link.textContent, link.getAttribute('href')])).toEqual([
+      ['People', 'https://pagis.example.net/admin/people'],
+      ['Spend', 'https://pagis.example.net/admin/spend'],
+      ['Help', 'https://team.example.com/help'],
+    ])
+    expect(org.queryByRole('link', { name: 'Providers' })).toBeNull()
+    expect(org.queryByRole('button')).toBeNull()
+    expect(org.getAllByRole('link').every((link) => !link.hasAttribute('target'))).toBe(true)
+    expect(org.getAllByRole('link').every((link) => !link.hasAttribute('aria-current'))).toBe(true)
+  })
 
-    expect(screen.queryByRole('button', { name: 'Administration' })).toBeNull()
-    // The group keeps the sections a member may open.
-    expect(screen.getByRole('group', { name: 'System' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Retention' })).toBeTruthy()
-    // A person always reads what they spent, whatever their role.
+  it('shows no Org group to a Member, even with an address', () => {
+    render(<SettingsNav section="vault" onSelectSection={() => {}} isAdministrator={false} administration={address} />)
+    expect(screen.queryByRole('group', { name: 'Org' })).toBeNull()
     expect(screen.getByRole('button', { name: 'Usage' })).toBeTruthy()
   })
 
-  it('gives an administrator the Administration link', () => {
-    render(
-      <SettingsNav section="administration" onSelectSection={() => {}} isAdministrator />,
-    )
+  it('shows no Org group before the address arrives', () => {
+    render(<SettingsNav section="vault" onSelectSection={() => {}} isAdministrator />)
+    expect(screen.queryByRole('group', { name: 'Org' })).toBeNull()
+  })
 
-    expect(
-      screen.getByRole('button', { name: 'Administration' }).getAttribute('aria-current'),
-    ).toBe('page')
+  it.each([
+    ['http://127.0.0.1:4401', '4401'],
+    ['http://localhost', '80'],
+    ['https://localhost', '443'],
+  ])('shows the SSH tunnel below the items for %s', (origin, port) => {
+    render(<SettingsNav section="vault" onSelectSection={() => {}} isAdministrator administration={{ ...address, origin, loopback: true }} />)
+    const org = screen.getByRole('group', { name: 'Org' })
+    const command = within(org).getByText(`ssh -L ${port}:127.0.0.1:${port} you@your-server`)
+    const links = within(org).getAllByRole('link')
+    expect(links.at(-1)!.compareDocumentPosition(command) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('shows no tunnel for a proxy address', () => {
+    render(<SettingsNav section="vault" onSelectSection={() => {}} isAdministrator administration={address} />)
+    expect(screen.queryByText(/ssh -L/)).toBeNull()
   })
 })

@@ -116,3 +116,11 @@ describe('a disabled Row', () => {
     expect(screen.getByText('Read only').hasAttribute('disabled')).toBe(false)
   })
 })
+
+it('opens an external Row link in the same tab without a router', () => {
+  render(<Frame><Row externalHref="https://team.example.com/help" chevron>Help</Row></Frame>)
+  const link = screen.getByRole('link', { name: 'Help' })
+  expect(link.getAttribute('href')).toBe('https://team.example.com/help')
+  expect(link.hasAttribute('target')).toBe(false)
+  expect(link.className).toContain('ui-row-interactive')
+})

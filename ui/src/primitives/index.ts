@@ -1,6 +1,8 @@
 /* The primitives every screen renders through (docs/UI-DESIGN.md).
  * Behaviour comes from Radix, the look from `tokens.css`. */
 
+export { ButtonLink } from './button-link'
+export type { ButtonLinkProps } from './button-link'
 export { Button } from './button'
 export type { ButtonProps, ButtonShape, ButtonSize, ButtonVariant } from './button'
 export { IconButton } from './icon-button'

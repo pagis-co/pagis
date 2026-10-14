@@ -11283,9 +11283,19 @@
         "required": [
           "origin",
           "path_prefix",
-          "loopback"
+          "loopback",
+          "sections",
+          "links"
         ],
         "properties": {
+          "links": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConfiguredLink"
+            },
+            "description": "The links the Server configuration names, in navigation order.",
+            "maxItems": 3
+          },
           "loopback": {
             "type": "boolean",
             "description": "True for a direct address whose port binds loopback. A proxy\naddress needs no SSH tunnel to the Administration Port."
@@ -11297,6 +11307,13 @@
           "path_prefix": {
             "type": "string",
             "description": "The page path prefix. Empty serves the page at the origin root."
+          },
+          "sections": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The offered sections, in navigation order. Hosts and Restart have no view."
           }
         }
       },

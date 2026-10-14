@@ -351,3 +351,12 @@ describe('the command palette', () => {
     expect(dialog.contains(document.activeElement)).toBe(true)
   })
 })
+
+it('does not offer the removed Administration settings section', async () => {
+  mount()
+  await screen.findByRole('heading', { name: 'Sage' })
+  const results = await openPalette()
+  fireEvent.change(search(), { target: { value: 'Administration' } })
+  expect(await within(results).findByText('No match')).toBeTruthy()
+  expect(within(results).queryByRole('option', { name: /Administration/ })).toBeNull()
+})

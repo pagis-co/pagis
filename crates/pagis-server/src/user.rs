@@ -122,9 +122,14 @@ pub(crate) async fn user_dto(state: &AppState, user: &User) -> Result<UserDto, A
         .into_iter()
         .find(|org| org.id == user.org_id)
         .ok_or_else(|| ApiError::not_found("the Org"))?;
+    let administration = AdministrationAddress {
+        sections: state.administration_sections.offered(),
+        links: state.administration_sections.links(),
+        ..state.administration.clone()
+    };
     Ok(UserDto::new(
         user,
-        &state.administration,
+        &administration,
         &state.capture,
         &state.product_app_links,
         OrgDto {
@@ -156,6 +161,11 @@ pub struct AdministrationAddress {
     /// True for a direct address whose port binds loopback. A proxy
     /// address needs no SSH tunnel to the Administration Port.
     pub loopback: bool,
+    /// The offered sections, in navigation order. Hosts and Restart have no view.
+    pub sections: Vec<&'static str>,
+    /// The links the Server configuration names, in navigation order.
+    #[schema(max_items = 3)]
+    pub links: Vec<ConfiguredLink>,
 }
 
 impl AdministrationAddress {
@@ -175,6 +185,8 @@ impl AdministrationAddress {
             },
             path_prefix: path_prefix.to_string(),
             loopback: path_prefix.is_empty() && addr.ip().is_loopback(),
+            sections: Vec::new(),
+            links: Vec::new(),
         }
     }
 

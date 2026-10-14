@@ -100,3 +100,8 @@ describe('Button', () => {
     )
   })
 })
+
+it('names the shape of a navigation item', () => {
+  render(<Button shape="nav">Vault</Button>)
+  expect(screen.getByRole('button', { name: 'Vault' }).className).toContain('ui-button-nav')
+})

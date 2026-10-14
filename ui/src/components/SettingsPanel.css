@@ -9,6 +9,11 @@
   overflow: hidden;
 }
 
+/* The nav scrolls on its own when its groups are taller than the window. */
+.settings-panel > .ui-settings-nav {
+  overflow: hidden auto;
+}
+
 .settings-content {
   flex: 1 1 auto;
   min-width: 0;
@@ -27,6 +32,7 @@
     width: 100%;
     border-right: none;
     border-bottom: 1px solid var(--border);
+    overflow: visible;
   }
 
   .settings-content {

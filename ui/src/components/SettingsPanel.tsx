@@ -5,7 +5,8 @@ import { HeaderActions, NavBar } from './phone/TopBar'
 import { ConnectionsPhone } from './phone/ConnectionsPhone'
 
 import type { ApiClient } from '../api/client'
-import { AdministrationLink } from './settings/AdministrationLink'
+import { useUser } from '../queries'
+import type { AdministrationAddress } from './settings/OrgSettingsGroup'
 import { Connections } from './Connections'
 import { HomeExit } from './settings/HomeExit'
 import { HOST_HINT, Hosts } from './settings/Hosts'
@@ -37,7 +38,6 @@ export type SettingsSection =
   | 'timezone'
   | 'sound'
   | 'notifications'
-  | 'administration'
 
 export interface SettingsGroup {
   label: string
@@ -71,7 +71,6 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
       { value: 'timezone', label: 'Timezone' },
       { value: 'sound', label: 'Sound' },
       { value: 'notifications', label: 'Notifications' },
-      { value: 'administration', label: 'Administration' },
     ],
   },
 ]
@@ -79,35 +78,6 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
 /** The sections in list order, for the palette. */
 export const SETTINGS_SECTIONS: { value: SettingsSection; label: string }[] =
   SETTINGS_GROUPS.flatMap((group) => group.sections)
-
-/** The sections only an administrator sees. The installation's own
- *  settings, people and Plugins answer on the administration port, so
- *  the product draws none of them: an administrator gets one link to
- *  the Administration Interface. A member's own Usage is not here: a
- *  person may always read what they spent. */
-export const ADMINISTRATOR_SECTIONS: SettingsSection[] = ['administration']
-
-export function isAdministratorSection(section: SettingsSection): boolean {
-  return ADMINISTRATOR_SECTIONS.includes(section)
-}
-
-/** The groups one person sees: every group for an administrator, and
- *  the groups without the administrator sections for a member. A group
- *  that keeps no section is left out. */
-export function visibleSettingsGroups(isAdministrator: boolean): SettingsGroup[] {
-  if (isAdministrator) return SETTINGS_GROUPS
-  return SETTINGS_GROUPS.map((group) => ({
-    ...group,
-    sections: group.sections.filter((section) => !isAdministratorSection(section.value)),
-  })).filter((group) => group.sections.length > 0)
-}
-
-/** The sections one person may open, in list order. */
-export function visibleSettingsSections(
-  isAdministrator: boolean,
-): { value: SettingsSection; label: string }[] {
-  return visibleSettingsGroups(isAdministrator).flatMap((group) => group.sections)
-}
 
 export function isSettingsSection(value: string): value is SettingsSection {
   return SETTINGS_SECTIONS.some((section) => section.value === value)
@@ -120,12 +90,14 @@ export function SettingsShell({
   section,
   onSelectSection,
   isAdministrator,
+  administration,
   children,
 }: {
   section: SettingsSection
   onSelectSection: (section: SettingsSection) => void
-  /** Whether the person may see the administrator sections. */
+  /** Whether the Person sees the Org group. */
   isAdministrator: boolean
+  administration?: AdministrationAddress | null
   children: ReactNode
 }) {
   const phone = useIsMobile()
@@ -136,6 +108,7 @@ export function SettingsShell({
         section={section}
         onSelectSection={onSelectSection}
         isAdministrator={isAdministrator}
+        administration={administration}
       />
       <div className="settings-content">{children}</div>
     </div>
@@ -162,15 +135,17 @@ export function SettingsPanel({
   onSelectSection: (section: SettingsSection) => void
   /** The connection page one card opens. */
   onOpenConnection: (connectionId: string) => void
-  /** Whether the person may see the administrator sections. */
+  /** Whether the Person sees the Org group. */
   isAdministrator: boolean
 }) {
   const phone = useIsMobile()
+  const administration = useUser(api).data?.administration
   return (
     <SettingsShell
       section={section}
       onSelectSection={onSelectSection}
       isAdministrator={isAdministrator}
+      administration={administration}
     >
       {section === 'connections' && (
         phone ? <ConnectionsPhone api={api} onOpen={onOpenConnection} /> : <section className="settings-section">
@@ -194,7 +169,6 @@ export function SettingsPanel({
       {section === 'timezone' && <TimezoneSection api={api} />}
       {section === 'sound' && <SoundSection />}
       {section === 'notifications' && <Notifications api={api} />}
-      {section === 'administration' && isAdministrator && <AdministrationLink api={api} />}
     </SettingsShell>
   )
 }
