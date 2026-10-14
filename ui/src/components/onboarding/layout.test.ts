@@ -67,7 +67,7 @@ describe('one step fills the window', () => {
   // `height: 100%` fills the window only when every box above it has a
   // height. The page is the first child of `#root`.
   it('takes the height of the window, which the document passes down', () => {
-    const root = rule('html,\nbody,\n#root', stylesheet('../../styles.css'))
+    const root = rule('html,\nbody,\n#root', stylesheet('../../base.css'))
     expect(value(root, 'height')).toBe('100%')
     const page = rule('.onboarding')
     expect(value(page, 'height')).toBe('100%')

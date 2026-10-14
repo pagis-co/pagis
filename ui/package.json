@@ -6,7 +6,8 @@
     "./shell": "./src/shell.ts",
     "./primitives": "./src/primitives/index.ts",
     "./tokens.css": "./src/tokens.css",
-    "./fonts": "./src/fonts.ts"
+    "./fonts": "./src/fonts.ts",
+    "./base.css": "./src/base.css"
   },
   "scripts": {
     "dev": "vite",

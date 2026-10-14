@@ -54,7 +54,7 @@ describe('the scrollbar is a hairline', () => {
   // `scrollbar-color` is inherited and `scrollbar-width` is not, so
   // the colour is set once and the width is worn by every element.
   it('sets a thin bar in the border colour', () => {
-    const css = readFileSync(join(srcDir, 'styles.css'), 'utf8')
+    const css = readFileSync(join(srcDir, 'base.css'), 'utf8')
     expect(/html\s*\{[^}]*scrollbar-color:/.test(css)).toBe(true)
     expect(/\*\s*\{[^}]*scrollbar-width:\s*thin/.test(css)).toBe(true)
   })

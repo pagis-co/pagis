@@ -47,7 +47,7 @@ describe('a control draws its boundary with the control border', () => {
 
 describe('a native checkbox and radio take the accent', () => {
   it('sets accent-color from the token on the root', () => {
-    const css = readFileSync(join(here, '..', 'styles.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
+    const css = readFileSync(join(here, '..', 'base.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
     const root = /(?:^|})\s*:root\s*\{([^}]*)\}/.exec(css)
     expect(root?.[1]).toContain('accent-color: var(--accent)')
   })
