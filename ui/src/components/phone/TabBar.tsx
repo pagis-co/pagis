@@ -35,7 +35,7 @@ export function TabBar({ api }: { api: ApiClient }) {
             {Icon ? <Icon size={20} /> : <span className="tab-bar-initial">{initial}</span>}
             {label === 'Home' && count > 0 && <span className="tab-bar-count">{count}</span>}
           </span>
-          <span>{label}</span>
+          <span className="tab-bar-label">{label}</span>
         </Link>
       ))}
     </nav>

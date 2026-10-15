@@ -19,6 +19,13 @@ ends above the home indicator (34 px). The images show no status bar.
 The tab bar holds Home, Conversations, Sprites and You. Home shows the
 count of the Needs-You Queue.
 
+The tab bar follows the iOS tab bar and the Material 3 navigation bar.
+The four places have the same width. Each place shows a 20 px icon over
+a one-line label in the smallest type. The current place uses the
+accent color, and the other places are muted. The bar is 53 px tall above
+the bottom safe area. On a screen with no bottom safe area, the bar adds
+8 px under the labels.
+
 | Screen | Image |
 | --- | --- |
 | Home | [home.png](home.png) |

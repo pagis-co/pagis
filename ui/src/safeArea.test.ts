@@ -9,12 +9,10 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { blocks } from './test/css'
+import { stripComments } from './test/tokens'
 
 const srcDir = resolve(dirname(fileURLToPath(import.meta.url)))
-
-function stripComments(css: string): string {
-  return css.replace(/\/\*[\s\S]*?\*\//g, '')
-}
 
 function stylesheets(dir: string): { name: string; css: string }[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -23,25 +21,6 @@ function stylesheets(dir: string): { name: string; css: string }[] {
     if (!entry.name.endsWith('.css')) return []
     return [{ name: relative(srcDir, path), css: stripComments(readFileSync(path, 'utf8')) }]
   })
-}
-
-/** The bodies of every block that opens with `prelude`, nested blocks
- * included. */
-function blocks(css: string, prelude: string): string {
-  const escaped = prelude.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const opening = new RegExp(`(?:^|\\n)\\s*${escaped}\\s*\\{`, 'g')
-  const bodies = [...css.matchAll(opening)].map((match) => {
-    const open = match.index + match[0].length - 1
-    let depth = 0
-    let end = open
-    for (; end < css.length; end += 1) {
-      if (css[end] === '{') depth += 1
-      else if (css[end] === '}' && (depth -= 1) === 0) break
-    }
-    return css.slice(open + 1, end)
-  })
-  if (bodies.length === 0) throw new Error(`no block opens with ${prelude}`)
-  return bodies.join('\n')
 }
 
 const sides = ['top', 'right', 'bottom', 'left'] as const
@@ -101,6 +80,13 @@ describe('the root and each fixed layer stay inside the safe area', () => {
     expect(body).toMatch(/position:\s*sticky/)
     expect(body).toMatch(/top:\s*0/)
     expect(css).not.toMatch(/\.nav-bar\s*\{[^}]*position:\s*relative/)
+  })
+
+  // The tab bar holds the bottom inset of a tab root, so the content
+  // above the bar ends at its own padding.
+  it('pads no content of a tab root by the bottom inset', () => {
+    const css = stripComments(readFileSync(join(srcDir, 'components/phone/phone.css'), 'utf8'))
+    expect(blocks(css, '.phone-conversations')).toMatch(/padding-bottom:\s*var\(--space-5\)/)
   })
 
   // In a phone browser `100vh` is the height with the browser bars
