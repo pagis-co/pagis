@@ -37,6 +37,11 @@ A tab root has a large title and the tab bar. A pushed screen has a
 navigation bar with a back control that names its parent. Back goes to a
 fixed parent route, so a Notification opens a screen with a usable way
 back. Android's back button closes the top sheet or goes to that parent.
+In the iOS Mobile App a swipe from the left edge of a pushed screen goes
+to the same parent, and the screen follows the finger, as in the iOS
+navigation stack. A control that takes its own touches, such as the live
+screen of a Desk, keeps a swipe that starts on it. A phone browser keeps
+the back gesture of the browser.
 
 Approval, New group, New sprite and Add a connection are bottom sheets.
 Destructive confirmations are action sheets. Radix Dialog and AlertDialog

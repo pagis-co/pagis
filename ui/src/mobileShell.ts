@@ -4,7 +4,7 @@
 
 import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor/core'
 import { useNavigate } from '@tanstack/react-router'
-import { useEffect } from 'react'
+import { useCallback, useEffect } from 'react'
 import { App } from '@capacitor/app'
 import { useLocation, useSearch } from '@tanstack/react-router'
 import { useIsMobile, useMediaQuery } from './primitives/useMediaQuery'
@@ -123,28 +123,38 @@ function placeOf(event: ShellNavigateEvent): string | null {
   return `${url.pathname}${url.search}${url.hash}`
 }
 
+/** One step back on the phone, the same for the Android back button
+ *  and the iOS edge swipe (ADR-0034): close the open dialog, then the
+ *  sheet of the address, or else go to the fixed parent of the screen.
+ *  Home has no parent. */
+export function usePhoneBack(): () => void {
+  const navigate = useNavigate()
+  const location = useLocation()
+  const search = useSearch({ strict: false }) as { request?: string; new?: string; from?: string; rule?: unknown; package?: string; path?: string }
+  return useCallback(() => {
+    if (document.querySelector('[role="dialog"], [role="alertdialog"]')) {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      return
+    }
+    if (search.request || search.new) { void navigate({ to: '.', search: (previous) => ({ ...previous, request: undefined, new: undefined }) }); return }
+    if (search.rule || search.package || search.path) { void navigate({ to: '.', search: (previous) => ({ ...previous, rule: undefined, package: undefined, path: undefined }) }); return }
+    if (location.pathname !== '/') void navigate({ href: phoneParent(location.pathname, search.from).path })
+  }, [location.pathname, search.request, search.new, search.from, search.rule, search.package, search.path, navigate])
+}
+
 /** Move the router to the place that the Mobile App names after a tap on
  *  a Notification. The page does not load again, so it keeps its state.
  *  A browser has no shell, and the hook adds no listener there. */
 export function useShellNavigation(): void {
   const navigate = useNavigate()
-  const location = useLocation()
   const phone = useIsMobile()
-  const search = useSearch({ strict: false }) as { request?: string; new?: string; from?: string; rule?: unknown; package?: string; path?: string }
+  const back = usePhoneBack()
 
   useEffect(() => {
     if (!phone || Capacitor.getPlatform() !== 'android') return
-    const listening = App.addListener('backButton', () => {
-      if (document.querySelector('[role="dialog"], [role="alertdialog"]')) {
-        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
-        return
-      }
-      if (search.request || search.new) { void navigate({ to: '.', search: (previous) => ({ ...previous, request: undefined, new: undefined }) }); return }
-      if (search.rule || search.package || search.path) { void navigate({ to: '.', search: (previous) => ({ ...previous, rule: undefined, package: undefined, path: undefined }) }); return }
-      if (location.pathname !== '/') void navigate({ href: phoneParent(location.pathname, search.from).path })
-    })
+    const listening = App.addListener('backButton', back)
     return () => { void listening.then((handle) => handle.remove()) }
-  }, [phone, location.pathname, search.request, search.new, search.from, search.rule, search.package, search.path, navigate])
+  }, [phone, back])
 
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return

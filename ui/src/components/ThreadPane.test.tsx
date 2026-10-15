@@ -3,6 +3,9 @@
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { ApiClient, MessageDto } from '../api/client'
@@ -141,5 +144,30 @@ describe('ThreadPane', () => {
     mount(api)
 
     expect(await screen.findByText('Yes, Cascade Link on the 900 plan.')).toBeTruthy()
+  })
+})
+
+// On the phone the Thread is a pushed screen and fills it. The phone
+// rule must come after the base rule in the same stylesheet: a rule of
+// the same specificity in another stylesheet loses when that sheet
+// loads first, and the pane keeps the width of the desktop panel.
+describe('the thread pane on the phone', () => {
+  const dir = dirname(fileURLToPath(import.meta.url))
+  const css = (file: string) => readFileSync(join(dir, file), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
+
+  it('fills the screen with a rule after its base rule', () => {
+    const sheet = css('ThreadPane.css')
+    const base = sheet.indexOf('.thread-pane {')
+    const phone = sheet.indexOf('@media (max-width: 760px)')
+    expect(base).toBeGreaterThanOrEqual(0)
+    expect(phone).toBeGreaterThan(base)
+    const rule = sheet.slice(phone).match(/\.thread-pane\s*\{([^}]*)\}/)?.[1] ?? ''
+    expect(rule).toMatch(/width:\s*100%/)
+    expect(rule).toMatch(/flex:\s*1/)
+    expect(rule).toMatch(/border-left:\s*0/)
+  })
+
+  it('has no rule in the phone stylesheet', () => {
+    expect(css('phone/phone.css')).not.toMatch(/\.thread-pane\b/)
   })
 })
