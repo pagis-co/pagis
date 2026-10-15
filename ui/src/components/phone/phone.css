@@ -59,27 +59,39 @@
   display: flex;
   gap: var(--space-1);
 }
+/* The tab bar follows the iOS tab bar and the Material 3 navigation
+ * bar: an icon over a one-line label, about 49 px tall, and the
+ * home indicator inset under it. */
 .tab-bar {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   flex: none;
   border-top: 1px solid var(--border);
   background: var(--panel);
-  padding: var(--space-2-5) 0 calc(var(--space-2-5) + var(--safe-bottom));
+  padding: var(--space-2) 0 max(var(--space-2), var(--safe-bottom));
 }
 .tab-bar-place {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--space-1);
+  gap: var(--space-0-5);
+  min-width: 0;
   min-height: 44px;
-  color: var(--text);
+  padding: 0 var(--space-1);
+  color: var(--muted);
   text-decoration: none;
   font-size: var(--text-xs);
   font-weight: var(--weight-medium);
+  line-height: var(--leading-tight);
 }
 .tab-bar-place[aria-current='page'] {
   color: var(--accent);
+}
+.tab-bar-label {
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .tab-bar-icon {
   position: relative;
@@ -475,6 +487,7 @@
 }
 .phone-conversations {
   padding-top: 0;
+  padding-bottom: var(--space-5);
 }
 .phone-conversation-row {
   min-height: 72px;

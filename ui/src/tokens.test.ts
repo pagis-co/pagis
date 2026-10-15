@@ -267,9 +267,10 @@ describe('the screens hold to the design system', () => {
 })
 
 // Weight, leading, tracking, opacity and spacing come from their scales
-// in `tokens.css` too. A value may compose tokens in a calc(), negate
-// one, or read the platform through env(); it names no length or
-// number of its own.
+// in `tokens.css` too. A value may compose tokens in a calc(), take
+// the larger or smaller of tokens in a max() or min(), negate one, or
+// read the platform through env(); it names no length or number of its
+// own.
 
 /** The part of a value that is not a token, a composition of tokens
  * or a keyword. */
@@ -278,7 +279,7 @@ function ownValue(value: string, keywords: Set<string>): string {
     .replace(/env\([^)]*\)/g, '')
     .replace(/calc\(\s*-1\s*\*\s*var\(--[\w-]+\)\s*\)/g, '')
     .replace(/var\(--[\w-]+\)/g, '')
-    .replace(/calc\(|\)|\s[+-]\s/g, ' ')
+    .replace(/(?:calc|max|min)\(|\)|,|\s[+-]\s/g, ' ')
     .trim()
     .split(/\s+/)
     .filter((part) => part !== '' && part !== '0' && !keywords.has(part.toLowerCase()))

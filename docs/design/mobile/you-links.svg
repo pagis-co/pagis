@@ -47,18 +47,20 @@
     <circle cx="345" cy="665" r="10" fill="#fff"/>
     <text x="106" y="721" text-anchor="middle" font-size="15" fill="#5b49c0">Change server</text>
     <text x="284" y="721" text-anchor="middle" font-size="15" fill="#bb2424">Sign out</text>
-    <rect y="758" width="390" height="86" fill="#fbfaf8"/>
-    <path d="M0 758H390" stroke="#dedbd5"/>
-    <g fill="none" stroke="#272521" stroke-width="1.6" stroke-linejoin="round">
-      <path d="M44 779l7-7 7 7v9H44z M49 788v-6h4v6"/>
-      <path d="M140 773h15v12h-11l-4 4z"/>
-      <circle cx="242" cy="777" r="4"/><path d="M235 788v-3q0-5 7-5t7 5v3 M249 773q5 3 0 7 M251 782q3 0 3 6"/>
+    <rect y="757" width="390" height="87" fill="#fbfaf8"/>
+    <path d="M0 757H390" stroke="#dedbd5"/>
+    <g fill="none" stroke="#625d55" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path transform="translate(0 -2)" d="M44 779l7-7 7 7v9H44z M49 788v-6h4v6"/>
+      <path transform="translate(0 -3)" d="M140 773h15v12h-11l-4 4z"/>
+      <g transform="translate(0 -2)">
+        <circle cx="242" cy="777" r="4"/><path d="M235 788v-3q0-5 7-5t7 5v3 M249 773q5 3 0 7 M251 782q3 0 3 6"/>
+      </g>
     </g>
-    <circle cx="338" cy="780" r="11" fill="#5b49c0"/>
-    <text x="338" y="785" text-anchor="middle" font-size="15" fill="#fff">A</text>
-    <g font-size="12" text-anchor="middle">
-      <text x="51" y="805">Home</text><text x="147" y="805">Conversations</text>
-      <text x="242" y="805">Sprites</text><text x="338" y="805" fill="#5b49c0">You</text>
+    <circle cx="338" cy="778" r="11" fill="#5b49c0"/>
+    <text x="338" y="782" text-anchor="middle" font-size="12" font-weight="600" fill="#fff">A</text>
+    <g font-size="12" font-weight="500" text-anchor="middle" fill="#625d55">
+      <text x="51" y="804">Home</text><text x="147" y="804">Conversations</text>
+      <text x="242" y="804">Sprites</text><text x="338" y="804" fill="#5b49c0">You</text>
     </g>
   </g>
 </svg>
