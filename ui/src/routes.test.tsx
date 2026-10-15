@@ -2,9 +2,10 @@
 // restores the previous one.
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { Capacitor } from '@capacitor/core'
 import { createMemoryHistory, type RouterHistory } from '@tanstack/react-router'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { ApiClient } from './api/client'
 import { App } from './App'
@@ -517,6 +518,56 @@ describe('the phone layout', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Conversation' }))
 
     await waitFor(() => expect(history.location.pathname).toBe('/c/channel-2'))
+  })
+
+  describe('the edge swipe', () => {
+    afterEach(() => vi.restoreAllMocks())
+
+    /** Drag one finger from the left edge across most of the screen. */
+    function swipeFromEdge(): void {
+      const main = screen.getByRole('main')
+      fireEvent.touchStart(main, { touches: [{ clientX: 6, clientY: 300 }] })
+      fireEvent.touchMove(main, { touches: [{ clientX: 120, clientY: 302 }] })
+      fireEvent.touchMove(main, { touches: [{ clientX: 300, clientY: 304 }] })
+      fireEvent.touchEnd(main, { touches: [] })
+    }
+
+    it('goes from a Thread back to its conversation on iOS', async () => {
+      vi.spyOn(Capacitor, 'getPlatform').mockReturnValue('ios')
+      const history = mount('/c/channel-2/t/message-1')
+      await screen.findByText('Ship the launch plan')
+
+      swipeFromEdge()
+
+      await waitFor(() => expect(history.location.pathname).toBe('/c/channel-2'))
+    })
+
+    it('does nothing on a tab root', async () => {
+      vi.spyOn(Capacitor, 'getPlatform').mockReturnValue('ios')
+      const history = mount('/conversations')
+      await screen.findByRole('navigation', { name: 'Places' })
+
+      swipeFromEdge()
+
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
+      expect(history.location.pathname).toBe('/conversations')
+    })
+
+    // A phone browser has its own back swipe, and Android has its own
+    // back gesture.
+    it('does nothing outside the iOS Mobile App', async () => {
+      const history = mount('/c/channel-2/t/message-1')
+      await screen.findByText('Ship the launch plan')
+
+      swipeFromEdge()
+
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
+      expect(history.location.pathname).toBe('/c/channel-2/t/message-1')
+    })
   })
 
   it('says nothing about the sprite while the sprites load', async () => {

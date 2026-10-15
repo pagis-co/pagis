@@ -768,13 +768,6 @@ p.approval-phone-body {
   .home-phone-composer .composer-row > .ui-button:first-of-type {
     display: none;
   }
-  .thread-pane {
-    position: static;
-    width: 100%;
-    min-height: 0;
-    flex: 1;
-    border: 0;
-  }
 }
 .phone-sprite-faces {
   display: flex;
