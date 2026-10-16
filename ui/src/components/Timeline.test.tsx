@@ -64,8 +64,7 @@ function message(id: string, overrides: Record<string, unknown> = {}) {
   return {
     id,
     channel_id: 'ch-1',
-    author_kind: 'agent',
-    author_agent_id: 'agent-1',
+    author: { kind: 'agent', id: 'agent-1', name: 'Sage' },
     status: 'complete',
     blocks: [{ type: 'markdown', text: `line ${id}` }],
     text_content: `line ${id}`,
@@ -166,7 +165,7 @@ describe('Timeline', () => {
       subject: 'Project update', trust_tier: 'unknown',
     }
     mount([message('mail-message', {
-      author_kind: 'system', author_agent_id: null,
+      author: { kind: 'system', id: null, name: 'Pagis' },
       blocks: [block], text_content: '[mail]',
     })])
     fireEvent.click(await screen.findByTestId('mail-strip'))
@@ -177,8 +176,7 @@ describe('Timeline', () => {
   it('keeps a system-authored call interactive in the conversation', async () => {
     useCallInspector.getState().close()
     mount([message('call-message', {
-      author_kind: 'system',
-      author_agent_id: null,
+      author: { kind: 'system', id: null, name: 'Pagis' },
       blocks: [{ type: 'call', call_id: 'call_1' }],
       text_content: '[call]',
     })])
@@ -208,13 +206,12 @@ describe('Timeline', () => {
     const { onOpenThread } = mount(
       [
         message('block-message', {
-          author_kind: 'system',
-          author_agent_id: null,
+          author: { kind: 'system', id: null, name: 'Pagis' },
           blocks: [block],
           text_content: '[block]',
           reply_count: 19,
           last_reply_at: at + 1000,
-          reply_authors: [{ author_kind: 'agent', author_agent_id: 'agent-1' }],
+          reply_authors: [{ author: { kind: 'agent', id: 'agent-1', name: 'Sage' } }],
         }),
       ],
       false,
@@ -230,7 +227,7 @@ describe('Timeline', () => {
     expect(onOpenThread).toHaveBeenCalledWith('block-message')
   })
 
-  it('gives a run of messages by one author one name line', async () => {
+  it('gives a group of messages one author name line', async () => {
     mount()
 
     await screen.findByText('line m1')
@@ -289,8 +286,7 @@ describe('Timeline', () => {
       }),
       message('u1', {
         created_at: at + 2500,
-        author_kind: 'user',
-        author_agent_id: null,
+        author: { kind: 'person', id: 'person-1', name: 'Ajay' },
         text_content: 'Book the Paris one',
         blocks: [{ type: 'markdown', text: 'Book the Paris one' }],
       }),

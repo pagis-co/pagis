@@ -23,8 +23,9 @@ function row(overrides: Partial<TimelineRow>): TimelineRow {
   return {
     key: 'msg-1',
     kind: 'message',
-    authorKind: 'user',
-    authorAgentId: null,
+    authorKind: 'person',
+    authorName: 'Ajay',
+    authorId: null,
     createdAt: Date.parse('2026-09-05T14:58:00Z'),
     sendState: 'sent',
     status: 'complete',
@@ -52,9 +53,33 @@ function withQueries(ui: ReactNode) {
 }
 
 const agentRow = (overrides: Partial<TimelineRow> = {}) =>
-  row({ authorKind: 'agent', authorAgentId: 'ag-1', ...overrides })
+  row({ authorKind: 'agent',
+      authorName: 'Scout', authorId: 'ag-1', ...overrides })
 
 describe('MessageRow', () => {
+  it('omits the Person name on a grouped row', () => {
+    mount(row({ authorName: 'Mira' }), { grouped: true })
+    expect(screen.queryByText('Mira')).toBeNull()
+  })
+
+  it('uses one DTO name line for a Person', () => {
+    const { container } = mount(row({ authorName: 'Mira' }))
+    expect(screen.getByText('Mira')).toBeTruthy()
+    expect(container.querySelectorAll('.message-name')).toHaveLength(1)
+    expect(container.querySelectorAll('.message-author')).toHaveLength(1)
+  })
+
+  it('uses the DTO name before a roster name', () => {
+    mount(agentRow({ authorName: 'Mira' }), { authorName: 'Old name' })
+    expect(screen.getByText('Mira')).toBeTruthy()
+    expect(screen.queryByText('Old name')).toBeNull()
+  })
+
+  it('shows the Person name on their message', () => {
+    mount(row({ authorName: 'Mira' }))
+    expect(screen.getByText('Mira')).toBeTruthy()
+  })
+
   it('draws your message as a bubble with the time under it', () => {
     const at = row({})
     mount(at)
@@ -96,12 +121,12 @@ describe('MessageRow', () => {
   })
 
   it('falls back to the kind when the agent name is unknown', () => {
-    mount(agentRow())
+    mount(agentRow({ authorName: '' }))
 
     expect(screen.getByText('Sprite')).toBeTruthy()
   })
 
-  it('draws no name line on a grouped row', () => {
+  it('omits the author name on a grouped row', () => {
     mount(agentRow(), { authorName: 'Scout', grouped: true })
 
     expect(screen.queryByText('Scout')).toBeNull()
@@ -125,7 +150,7 @@ describe('MessageRow', () => {
       <QueryClientProvider client={new QueryClient()}>
         <MessageRow
           api={client as unknown as ApiClient}
-          row={agentRow({ runId: 'run-1' })}
+          row={agentRow({ runId: 'run-1', authorName: 'Sage' })}
           work={{ runId: 'run-1', startedAt: 0, endedAt: 9_000, outcome: 'Done' }}
           onRetry={() => {}}
         />
@@ -163,7 +188,7 @@ describe('MessageRow', () => {
       withQueries(
         <MessageRow
           api={client as unknown as ApiClient}
-          row={agentRow({ runId: 'run-1' })}
+          row={agentRow({ runId: 'run-1', authorName: 'Sage' })}
           authorName="Sage"
           onRetry={() => {}}
         />,
@@ -206,7 +231,8 @@ describe('MessageRow', () => {
             runId: 'run-1',
             replyCount: 2,
             lastReplyAt: 5000,
-            replyAuthors: [{ authorKind: 'user', agentId: null }],
+            replyAuthors: [{ authorKind: 'person',
+      authorName: 'Ajay', agentId: null }],
           })}
           authorName="Sage"
           onRetry={() => {}}
@@ -231,7 +257,7 @@ describe('MessageRow', () => {
     })
     Object.defineProperty(document, 'execCommand', { configurable: true, value: execCommand })
     renderInRouter(
-      withQueries(<MessageRow api={api} row={agentRow({ runId: 'run-1' })} onRetry={() => {}} />),
+      withQueries(<MessageRow api={api} row={agentRow({ runId: 'run-1', authorName: 'Sage' })} onRetry={() => {}} />),
     )
 
     fireEvent.click(await screen.findByLabelText('Copy'))
@@ -252,7 +278,7 @@ describe('MessageRow', () => {
       withQueries(
         <MessageRow
           api={api}
-          row={agentRow({ runId: 'run-1' })}
+          row={agentRow({ runId: 'run-1', authorName: 'Sage' })}
           onRetry={() => {}}
           onSpeak={onSpeak}
           onOpenThread={onOpenThread}
@@ -280,7 +306,7 @@ describe('MessageRow', () => {
   it('opens the Run through the router, without a full load', async () => {
     const history = renderInRouter(
       withQueries(
-        <MessageRow api={api} row={agentRow({ runId: 'run-1' })} onRetry={() => {}} />,
+        <MessageRow api={api} row={agentRow({ runId: 'run-1', authorName: 'Sage' })} onRetry={() => {}} />,
       ),
     )
     const link = await screen.findByLabelText('Open the Run')
@@ -328,7 +354,8 @@ describe('MessageRow arrival', () => {
 // timeline shows the chip. The thread pane passes no `onOpenThread`,
 // so its rows show none.
 describe('MessageRow replies', () => {
-  const replied = { replyCount: 2, lastReplyAt: 5000, replyAuthors: [{ authorKind: 'user', agentId: null }] }
+  const replied = { replyCount: 2, lastReplyAt: 5000, replyAuthors: [{ authorKind: 'person',
+      authorName: 'Ajay', agentId: null }] }
   const api = {
     GET: vi.fn(async () => ({ data: { items: [] } })),
   } as unknown as ApiClient

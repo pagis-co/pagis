@@ -185,7 +185,7 @@ async fn the_mail_case_carries_the_fixed_rule_before_each_personality() {
             "the mail question reaches the model through mail__get_message"
         );
         let prompt = &requests[0].system;
-        let rule = "When you talk to someone who is not the user, say that you are Pixie, the assistant of Sam.";
+        let rule = "When you talk to someone who is not Sam, say that you are Pixie, the assistant of Sam.";
         let rule_at = prompt
             .find(rule)
             .expect("the mail Run carries the honesty rule");

@@ -29,11 +29,11 @@ export function createAvatarReactions() {
         event.channel_id !== context.channelId
       )
         return null
-      const payload = event.payload as { author_kind?: string; to?: string }
+      const payload = event.payload as { author?: { kind: string; id: string | null; name: string }; to?: string }
       const identity = { agentId: event.agent_id, channelId: event.channel_id }
       if (
         event.event_type === 'message.completed' &&
-        payload.author_kind === 'agent'
+        payload.author?.kind === 'agent'
       )
         return { ...identity, expression: 'Smile', clip: 'Idle', seconds: 1.6 }
       if (

@@ -37,7 +37,7 @@ const schedule = {
   state: 'active',
   revision: 2,
   approved_revision: 2,
-  creator: 'user',
+  created_by: { kind: 'person', id: 'person-1', name: 'Ajay' },
   creating_run_id: null,
   created_at: 1_699_000_000_000,
   updated_at: 1_699_000_000_000,
@@ -56,7 +56,7 @@ const subscription = {
   channel_id: 'ch1',
   root_message_id: null,
   filter: { from: 'billing@example.com' },
-  creator: 'user',
+  created_by: { kind: 'person', id: 'person-1', name: 'Ajay' },
   state: 'active',
   revision: 1,
   approved_revision: 1,
@@ -235,7 +235,7 @@ describe('Automations', () => {
     expect(screen.getByText('mail.message_received')).toBeTruthy()
   })
 
-  it('the detail body carries the revision, creator, Agent, and history', async () => {
+  it('the detail body carries the revision, author, Agent, and history', async () => {
     mount(stubApi())
 
     fireEvent.click(await screen.findByText('Morning briefing'))
@@ -244,7 +244,7 @@ describe('Automations', () => {
     expect(screen.getByText('Sage')).toBeTruthy()
     expect(screen.getByText('Standup')).toBeTruthy()
     expect(screen.getByText('2')).toBeTruthy()
-    expect(screen.getByText('user')).toBeTruthy()
+    expect(screen.getByText('Ajay')).toBeTruthy()
     expect(await screen.findByText(/woke \(revision 2\)/)).toBeTruthy()
     expect(await screen.findByText(/completed \(1 source\)/)).toBeTruthy()
   })

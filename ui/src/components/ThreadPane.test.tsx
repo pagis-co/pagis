@@ -16,7 +16,7 @@ function message(overrides: Partial<MessageDto>): MessageDto {
   const merged = {
     id: 'msg-1',
     channel_id: 'ch-1',
-    author_kind: 'user',
+    author: { kind: 'person', id: 'person-1', name: 'Ajay' },
     status: 'complete',
     text_content: 'hi',
     created_at: 1000,
@@ -35,7 +35,7 @@ function stubApi() {
       message({
         id: 'reply-1',
         parent_message_id: 'root-1',
-        author_kind: 'agent',
+        author: { kind: 'agent', id: 'agent-1', name: 'Scout' },
         text_content: 'first reply',
       }),
     ],

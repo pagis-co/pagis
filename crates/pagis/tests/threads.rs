@@ -106,7 +106,7 @@ async fn subscribed_socket(daemon: &TestDaemon) -> Socket {
 async fn next_agent_completion(socket: &mut Socket) -> serde_json::Value {
     loop {
         let frame = next_frame_of(socket, "message.completed").await;
-        if frame["payload"]["payload"]["author_kind"] == "agent" {
+        if frame["payload"]["payload"]["author"]["kind"] == "agent" {
             return frame;
         }
     }
@@ -245,7 +245,7 @@ async fn reply_rollups_update_in_the_timeline() {
     // Both replies are the user's, so the user is the one author.
     assert_eq!(
         items[0]["reply_authors"],
-        serde_json::json!([{ "author_kind": "user", "author_agent_id": null }])
+        serde_json::json!([{ "author": {"kind": "person", "id": daemon.user_id, "name": "Person"} }])
     );
 }
 
@@ -304,7 +304,7 @@ async fn a_thread_message_triggers_a_thread_bound_run() {
     next_agent_completion(&mut socket).await;
     let items = timeline(&daemon, &channel_id).await;
     let agent_reply_id = items[0]["id"].as_str().unwrap().to_string();
-    assert_eq!(items[0]["author_kind"], "agent");
+    assert_eq!(items[0]["author"]["kind"], "agent");
 
     // A reply in the thread rooted at the agent's message triggers a
     // run bound to that thread.
@@ -378,7 +378,7 @@ async fn a_thread_message_triggers_a_thread_bound_run() {
     assert_eq!(replies[0]["text_content"], "tell me more");
     assert_eq!(replies[1]["blocks"][0]["type"], "progress");
     assert_eq!(replies[1]["blocks"][0]["text"], "Done");
-    assert_eq!(replies[2]["author_kind"], "agent");
+    assert_eq!(replies[2]["author"]["kind"], "agent");
     assert_eq!(replies[2]["text_content"], "Thread answer");
     assert_eq!(replies[2]["parent_message_id"], agent_reply_id);
 }

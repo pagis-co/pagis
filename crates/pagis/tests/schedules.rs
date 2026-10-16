@@ -584,7 +584,7 @@ async fn channel_messages_of_run(daemon: &TestDaemon, run_id: &str) -> Vec<Strin
         .as_array()
         .unwrap()
         .iter()
-        .filter(|item| item["run_id"] == run_id && item["author_kind"] == "agent")
+        .filter(|item| item["run_id"] == run_id && item["author"]["kind"] == "agent")
         .filter_map(|item| item["text_content"].as_str().map(str::to_string))
         .collect()
 }
@@ -655,12 +655,12 @@ async fn a_rest_created_one_shot_fires_once_and_links_public_history() {
     // message rather than over it.
     assert_eq!(items.len(), 3);
     assert!(run["root_message_id"].is_null());
-    assert_eq!(items[0]["author_kind"], "agent");
+    assert_eq!(items[0]["author"]["kind"], "agent");
     assert_eq!(items[0]["text_content"], "Your plan is ready.");
     assert_eq!(items[0]["run_id"], run["id"]);
     assert!(items[0]["parent_message_id"].is_null());
     assert_eq!(items[1]["blocks"][0]["type"], "progress");
-    assert_eq!(items[1]["author_kind"], "system");
+    assert_eq!(items[1]["author"]["kind"], "system");
     assert_eq!(items[1]["run_id"], run["id"]);
 
     let request = brain.requests().into_iter().next().expect("agent request");
@@ -959,7 +959,7 @@ async fn an_agent_created_schedule_starts_only_after_approval() {
     let schedules = get(&daemon, "/api/v1/schedules").await;
     let schedule = &schedules["items"][0];
     assert_eq!(schedule["state"], "active");
-    assert_eq!(schedule["creator"], "agent");
+    assert_eq!(schedule["created_by"]["kind"], "agent");
     assert_eq!(schedule["revision"], 1);
     assert_eq!(schedule["approved_revision"], 1);
     assert_eq!(schedule["creating_run_id"], request["run_id"]);
@@ -1084,7 +1084,7 @@ async fn recurring_schedule_rest_reads_and_controls_round_trip() {
     let id = created["id"].as_str().unwrap();
     assert_eq!(created["kind"], "interval");
     assert_eq!(created["next_due_at"], anchor_at);
-    assert_eq!(created["creator"], "user");
+    assert_eq!(created["created_by"]["kind"], "person");
 
     let paused = client
         .post(format!("{}/api/v1/schedules/{id}", daemon.base_url))

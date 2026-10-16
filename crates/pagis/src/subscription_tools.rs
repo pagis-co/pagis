@@ -15,8 +15,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use pagis_broker::{AuthorizedCall, CoreTool, ToolExecutor, ToolResult, ToolRoute};
 use pagis_core::{
-    AgentId, ChannelId, ChannelStore, Connection, ConnectionStore, CreatorKind,
-    EventSubscriptionId, WorkspaceId, now_ms,
+    AgentId, ChannelId, ChannelStore, Connection, ConnectionStore, EventSubscriptionId,
+    WorkspaceId, now_ms,
 };
 use pagis_trigger::{NewSubscription, SubscriptionAction, Trigger, TriggerError};
 
@@ -87,6 +87,7 @@ impl SubscriptionToolRuntime {
         let created = self
             .trigger
             .create_subscription(NewSubscription {
+                created_by: pagis_core::Author::Agent(call.agent_id.clone()),
                 workspace_id: call.workspace_id.clone(),
                 agent_id: call.agent_id.clone(),
                 source: pagis_core::EventSource::connection(connection.id),
@@ -105,7 +106,6 @@ impl SubscriptionToolRuntime {
                 channel_id,
                 root_message_id: None,
                 filter,
-                creator: CreatorKind::Agent,
                 now: now_ms(),
             })
             .await;
@@ -189,9 +189,9 @@ impl SubscriptionToolRuntime {
                 }
             },
         };
-        // A rule the user wrote is the user's to stop. The Agent may
-        // narrow it with an edit and never take it away (ADR-0019).
-        if owned.creator == CreatorKind::User
+        // Only the Person can stop a rule the Person or daemon supplies.
+        // The Agent may narrow its filter (ADR-0019).
+        if !matches!(owned.created_by, pagis_core::Author::Agent(_))
             && matches!(
                 action,
                 SubscriptionAction::Archive | SubscriptionAction::Pause
@@ -199,7 +199,7 @@ impl SubscriptionToolRuntime {
         {
             return ToolResult::error(
                 "not_allowed",
-                "the user wrote this rule. You may narrow its filter, and only the user pauses or deletes it.",
+                "You may narrow this rule's filter. Only your Person pauses or deletes it.",
             );
         }
         match self
@@ -279,14 +279,14 @@ impl SubscriptionToolRuntime {
             .find_user_dm(workspace_id, agent_id)
             .await
             .map_err(|error| {
-                tracing::error!(%error, "loading the user DM for a subscription failed");
+                tracing::error!(%error, "loading the Person DM for a subscription failed");
                 ToolResult::error("temporarily_unavailable", "the channels are not readable")
             })?
             .map(|channel| channel.id)
             .ok_or_else(|| {
                 ToolResult::error(
                     "invalid_request",
-                    "you have no direct channel with the user",
+                    "you have no direct channel with your Person",
                 )
             })
     }

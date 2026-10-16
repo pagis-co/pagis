@@ -14,7 +14,7 @@ import { shellResponse } from '../test/appStub'
 import { renderInRouter } from '../test/router'
 import { ThreadHeader } from './ThreadHeader'
 
-const lastMessage = { author_kind: 'agent', author_agent_id: 'agent-1', created_at: 1, text_content: 'Hello.' }
+const lastMessage = { author: { kind: 'agent', id: 'agent-1', name: 'Scout' }, created_at: 1, text_content: 'Hello.' }
 
 const channels = [
   { id: 'with-messages', kind: 'dm', title: 'Sage', agent_ids: ['agent-1'], user_member: true, last_message: lastMessage },

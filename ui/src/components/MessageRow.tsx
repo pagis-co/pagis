@@ -22,9 +22,9 @@ import './MessageRow.css'
 
 /** The label of a row whose author has no name of its own. */
 const AUTHOR_LABEL: Record<string, string> = {
-  user: 'You',
+  person: 'Person',
   agent: 'Sprite',
-  system: 'System',
+  system: 'Pagis',
 }
 
 /** How recent a message must be for its row to fade up. */
@@ -65,10 +65,10 @@ export function MessageRow({
 }: {
   api: ApiClient
   row: TimelineRow
-  /** The agent's name; absent until the roster resolves it. */
+  /** The name for a pending send or a live stream. */
   authorName?: string
   authorAppearance?: import('../avatars/catalog').SpriteAppearance
-  /** The author already has a name line above this row. */
+  /** The row follows another message from the same author. */
   grouped?: boolean
   /** The Run behind an agent reply, folded under it. */
   work?: WorkSummary | null
@@ -81,13 +81,13 @@ export function MessageRow({
   /** Scrolls the Desk panel to the screen one step took. */
   onShowScreenshot?: (screenshotId: string) => void
 }) {
-  const mine = row.authorKind === 'user'
+  const mine = row.authorKind === 'person'
   const streaming = row.status === 'streaming'
   const canOpenThread = onOpenThread !== undefined && row.sendState === 'sent'
   // The small mark that says a reply was spoken; the audio
   // itself is never kept.
   const spoken = useSpeaking((state) => state.spoken[row.key] === true)
-  const name = authorName ?? AUTHOR_LABEL[row.authorKind] ?? row.authorKind
+  const name = row.authorName || authorName || AUTHOR_LABEL[row.authorKind] || row.authorKind
   const time = formatClock(row.createdAt)
   // The arrival fade. The row asks once, when it mounts: a row
   // written moments ago arrived while the reader watched, so it fades
@@ -148,6 +148,11 @@ export function MessageRow({
         data-testid="message-row"
         data-grouped={grouped}
       >
+        {!grouped && (
+          <div className="message-name">
+            <span className="message-author">{name}</span>
+          </div>
+        )}
         <div className="message-bubble">
           <Blocks blocks={row.blocks} api={api} />
         </div>
@@ -181,7 +186,7 @@ export function MessageRow({
     >
       {!grouped && (
         <Avatar
-          id={row.authorAgentId ?? row.authorKind}
+          id={row.authorId ?? row.authorKind}
           name={name}
           appearance={authorAppearance}
           size="md"

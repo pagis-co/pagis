@@ -53,6 +53,7 @@ async fn portable_archive_releases_credentials_sleeps_mailbox_and_reports_no_num
     stores
         .credentials
         .create(&Credential {
+            created_by: pagis_core::Author::System,
             id: credential_id.clone(),
             workspace_id: workspace_id.clone(),
             domain: "example.com".into(),

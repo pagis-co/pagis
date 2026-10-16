@@ -18,11 +18,138 @@ use pagis_core::{
 
 use crate::fixture::{
     agent, agent_message, agent_participant, channel, credential_grant, file, host_grant,
-    missed_call, pending_form_request, pending_request, queued_run, software_package,
-    software_version, user_message, user_participant,
+    missed_call, pending_form_request, pending_request, person_message, person_participant,
+    queued_run, software_package, software_version,
 };
 
 use super::Backend;
+
+pub async fn authored_records_keep_person_agent_and_system(backend: &Backend) {
+    let ws = backend.seeded_workspace().await;
+    let stores = backend.stores();
+    let agent = agent(&ws.id);
+    stores.agents.create(&agent).await.unwrap();
+    let channel = channel(&ws.id);
+    stores.channels.create(&channel).await.unwrap();
+    let run = queued_run(&ws.id, &agent.id, &channel.id);
+    stores.runs.create(&run).await.unwrap();
+    for author in [
+        pagis_core::Author::Person(ws.user_id.clone()),
+        pagis_core::Author::Agent(agent.id.clone()),
+        pagis_core::Author::System,
+    ] {
+        let mut message = person_message(&ws.id, &ws.user_id, &channel.id, "Hello");
+        message.author = author.clone();
+        stores.messages.insert(&message).await.unwrap();
+        assert_eq!(
+            stores
+                .messages
+                .get(&ws.id, &message.id)
+                .await
+                .unwrap()
+                .unwrap()
+                .author,
+            author
+        );
+
+        let mut grant = host_grant(&ws.id, &agent.id, &HostId::generate(), &[]);
+        grant.created_by = author.clone();
+        stores.grants.create(&grant).await.unwrap();
+        assert_eq!(
+            stores
+                .grants
+                .get(&ws.id, &grant.id)
+                .await
+                .unwrap()
+                .unwrap()
+                .created_by,
+            author
+        );
+
+        let mut credential = vault_credential(&ws.id, None, "example.com");
+        credential.created_by = author.clone();
+        stores.credentials.create(&credential).await.unwrap();
+        assert_eq!(
+            stores
+                .credentials
+                .get(&ws.id, &credential.id)
+                .await
+                .unwrap()
+                .unwrap()
+                .created_by,
+            author
+        );
+
+        let request = pending_request(&ws.id, &agent.id, &run.id, "echo hello");
+        stores.requests.create(&request).await.unwrap();
+        stores
+            .requests
+            .decide(
+                &ws.id,
+                &request.id,
+                RequestState::Approved,
+                None,
+                author.clone(),
+                10,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            stores
+                .requests
+                .get(&ws.id, &request.id)
+                .await
+                .unwrap()
+                .unwrap()
+                .decided_by,
+            Some(author.clone())
+        );
+
+        let schedule = Schedule {
+            created_by: author.clone(),
+            id: ScheduleId::generate(),
+            workspace_id: ws.id.clone(),
+            agent_id: agent.id.clone(),
+            name: "Reminder".into(),
+            instruction: "Check the plan".into(),
+            subject_page_path: None,
+            channel_id: channel.id.clone(),
+            root_message_id: None,
+            kind: pagis_core::ScheduleKind::OneShot,
+            cron_expression: None,
+            interval_ms: None,
+            anchor_at: None,
+            timezone: "UTC".into(),
+            scheduled_at: 10,
+            next_due_at: Some(10),
+            last_result: None,
+            state: ScheduleState::Active,
+            revision: 1,
+            approved_revision: Some(1),
+            creating_run_id: None,
+            created_at: 1,
+            updated_at: 1,
+            archived_at: None,
+        };
+        stores.schedules.create(&schedule).await.unwrap();
+        assert!(
+            serde_json::to_value(&schedule)
+                .unwrap()
+                .get("creator")
+                .is_none()
+        );
+        assert_eq!(
+            stores
+                .schedules
+                .get(&ws.id, &schedule.id)
+                .await
+                .unwrap()
+                .unwrap()
+                .created_by,
+            author
+        );
+    }
+}
 
 pub async fn set_chief_of_staff_names_an_agent_and_clears_it(backend: &Backend) {
     let ws = backend.seeded_workspace().await;
@@ -73,6 +200,7 @@ pub async fn one_shot_schedule_history_roundtrips_through_the_store(backend: &Ba
     backend.stores().channels.create(&channel).await.unwrap();
     let now = pagis_core::now_ms();
     let schedule = Schedule {
+        created_by: pagis_core::Author::System,
         id: ScheduleId::generate(),
         workspace_id: workspace.id.clone(),
         agent_id: agent.id.clone(),
@@ -92,7 +220,6 @@ pub async fn one_shot_schedule_history_roundtrips_through_the_store(backend: &Ba
         state: ScheduleState::Active,
         revision: 1,
         approved_revision: None,
-        creator: pagis_core::CreatorKind::User,
         creating_run_id: None,
         created_at: now,
         updated_at: now,
@@ -399,10 +526,15 @@ pub async fn message_insert_roundtrips_and_gets(backend: &Backend) {
     backend.stores().channels.create(&ch).await.unwrap();
 
     let store = &backend.stores().messages;
-    let msg = user_message(&ws.id, &ch.id, "hello");
+    let msg = person_message(&ws.id, &ws.user_id, &ch.id, "hello");
 
     let outcome = store.insert(&msg).await.unwrap();
 
+    let stored = store.get(&ws.id, &msg.id).await.unwrap().unwrap();
+    assert_eq!(
+        serde_json::to_value(&stored).unwrap()["author"]["kind"],
+        "person"
+    );
     assert_eq!(outcome, SendOutcome::Created(msg.clone()));
     assert_eq!(store.get(&ws.id, &msg.id).await.unwrap(), Some(msg));
     assert_eq!(
@@ -413,10 +545,12 @@ pub async fn message_insert_roundtrips_and_gets(backend: &Backend) {
 
 pub async fn retained_turn_exposure_is_daemon_stamped_and_round_trips(backend: &Backend) {
     let ws = backend.seeded_workspace().await;
+    let a = agent(&ws.id);
+    backend.stores().agents.create(&a).await.unwrap();
     let ch = channel(&ws.id);
     backend.stores().channels.create(&ch).await.unwrap();
     let store = &backend.stores().messages;
-    let msg = user_message(&ws.id, &ch.id, "source-derived answer");
+    let msg = person_message(&ws.id, &ws.user_id, &ch.id, "source-derived answer");
     store.insert(&msg).await.unwrap();
     assert_eq!(
         store.exposures(&ws.id, &msg.id).await.unwrap(),
@@ -424,11 +558,11 @@ pub async fn retained_turn_exposure_is_daemon_stamped_and_round_trips(backend: &
     );
 
     for author_kind in [
-        pagis_core::AuthorKind::Agent,
-        pagis_core::AuthorKind::System,
+        pagis_core::Author::Agent(a.id.clone()),
+        pagis_core::Author::System,
     ] {
-        let mut unstamped = user_message(&ws.id, &ch.id, "unstamped generated text");
-        unstamped.author_kind = author_kind;
+        let mut unstamped = person_message(&ws.id, &ws.user_id, &ch.id, "unstamped generated text");
+        unstamped.author = author_kind;
         store.insert(&unstamped).await.unwrap();
         assert_eq!(store.exposures(&ws.id, &unstamped.id).await.unwrap(), None);
         store
@@ -457,6 +591,8 @@ pub async fn retained_turn_exposure_is_daemon_stamped_and_round_trips(backend: &
 
 pub async fn a_stamped_insert_writes_the_row_and_its_stamp_together(backend: &Backend) {
     let ws = backend.seeded_workspace().await;
+    let a = agent(&ws.id);
+    backend.stores().agents.create(&a).await.unwrap();
     let ch = channel(&ws.id);
     backend.stores().channels.create(&ch).await.unwrap();
     let store = &backend.stores().messages;
@@ -464,8 +600,8 @@ pub async fn a_stamped_insert_writes_the_row_and_its_stamp_together(backend: &Ba
         grant_id: GrantId::generate(),
         revision: 3,
     };
-    let mut generated = user_message(&ws.id, &ch.id, "a sourced answer");
-    generated.author_kind = pagis_core::AuthorKind::Agent;
+    let mut generated = person_message(&ws.id, &ws.user_id, &ch.id, "a sourced answer");
+    generated.author = pagis_core::Author::Agent(a.id.clone());
 
     let outcome = store
         .insert_stamped(&generated, std::slice::from_ref(&exposure))
@@ -480,8 +616,8 @@ pub async fn a_stamped_insert_writes_the_row_and_its_stamp_together(backend: &Ba
 
     // A stamp that cannot be written takes the row with it, so no
     // reader ever finds a generated message without its stamp.
-    let mut rejected = user_message(&ws.id, &ch.id, "never stored");
-    rejected.author_kind = pagis_core::AuthorKind::Agent;
+    let mut rejected = person_message(&ws.id, &ws.user_id, &ch.id, "never stored");
+    rejected.author = pagis_core::Author::Agent(a.id.clone());
     let repeated = [exposure.clone(), exposure];
     assert!(store.insert_stamped(&rejected, &repeated).await.is_err());
     assert_eq!(store.get(&ws.id, &rejected.id).await.unwrap(), None);
@@ -493,10 +629,10 @@ pub async fn duplicate_pending_id_returns_the_original(backend: &Backend) {
     backend.stores().channels.create(&ch).await.unwrap();
 
     let store = &backend.stores().messages;
-    let original = user_message(&ws.id, &ch.id, "hello");
+    let original = person_message(&ws.id, &ws.user_id, &ch.id, "hello");
     store.insert(&original).await.unwrap();
 
-    let mut retry = user_message(&ws.id, &ch.id, "hello again");
+    let mut retry = person_message(&ws.id, &ws.user_id, &ch.id, "hello again");
     retry.pending_id = original.pending_id.clone();
 
     let outcome = store.insert(&retry).await.unwrap();
@@ -514,10 +650,10 @@ pub async fn same_pending_id_in_another_channel_is_a_new_message(backend: &Backe
     channels.create(&second).await.unwrap();
 
     let store = &backend.stores().messages;
-    let msg = user_message(&ws.id, &first.id, "hello");
+    let msg = person_message(&ws.id, &ws.user_id, &first.id, "hello");
     store.insert(&msg).await.unwrap();
 
-    let mut other = user_message(&ws.id, &second.id, "hello");
+    let mut other = person_message(&ws.id, &ws.user_id, &second.id, "hello");
     other.pending_id = msg.pending_id.clone();
 
     assert_eq!(
@@ -534,12 +670,12 @@ pub async fn timeline_pages_newest_first_with_exclusive_cursor(backend: &Backend
     let store = &backend.stores().messages;
     let mut sent = Vec::new();
     for i in 0..5 {
-        let msg = user_message(&ws.id, &ch.id, &format!("m{i}"));
+        let msg = person_message(&ws.id, &ws.user_id, &ch.id, &format!("m{i}"));
         store.insert(&msg).await.unwrap();
         sent.push(msg);
     }
     // A thread reply must not appear in the timeline.
-    let mut reply = user_message(&ws.id, &ch.id, "reply");
+    let mut reply = person_message(&ws.id, &ws.user_id, &ch.id, "reply");
     reply.parent_message_id = Some(sent[0].id.clone());
     store.insert(&reply).await.unwrap();
 
@@ -564,13 +700,13 @@ pub async fn timeline_entries_carry_thread_rollups(backend: &Backend) {
     backend.stores().channels.create(&ch).await.unwrap();
 
     let store = &backend.stores().messages;
-    let root = user_message(&ws.id, &ch.id, "root");
+    let root = person_message(&ws.id, &ws.user_id, &ch.id, "root");
     store.insert(&root).await.unwrap();
-    let bare = user_message(&ws.id, &ch.id, "no replies");
+    let bare = person_message(&ws.id, &ws.user_id, &ch.id, "no replies");
     store.insert(&bare).await.unwrap();
     let mut last_reply_at = 0;
     for i in 0..2 {
-        let mut reply = user_message(&ws.id, &ch.id, &format!("r{i}"));
+        let mut reply = person_message(&ws.id, &ws.user_id, &ch.id, &format!("r{i}"));
         reply.parent_message_id = Some(root.id.clone());
         store.insert(&reply).await.unwrap();
         last_reply_at = reply.created_at;
@@ -578,7 +714,7 @@ pub async fn timeline_entries_carry_thread_rollups(backend: &Backend) {
 
     // A derived progress row sits in the thread but is not a
     // reply, so the rollup passes it over.
-    let mut progress = user_message(&ws.id, &ch.id, "Done");
+    let mut progress = person_message(&ws.id, &ws.user_id, &ch.id, "Done");
     progress.parent_message_id = Some(root.id.clone());
     progress.blocks = vec![pagis_core::Block::progress("run_1", "Done")];
     store.insert(&progress).await.unwrap();
@@ -610,16 +746,16 @@ pub async fn the_last_message_of_a_channel_skips_replies_and_progress(backend: &
     backend.stores().channels.create(&empty).await.unwrap();
 
     let store = &backend.stores().messages;
-    let older = user_message(&ws.id, &ch.id, "older");
+    let older = person_message(&ws.id, &ws.user_id, &ch.id, "older");
     store.insert(&older).await.unwrap();
-    let newest = user_message(&ws.id, &ch.id, "Book the Austin trip");
+    let newest = person_message(&ws.id, &ws.user_id, &ch.id, "Book the Austin trip");
     store.insert(&newest).await.unwrap();
-    let mut reply = user_message(&ws.id, &ch.id, "a reply");
+    let mut reply = person_message(&ws.id, &ws.user_id, &ch.id, "a reply");
     reply.parent_message_id = Some(newest.id.clone());
     store.insert(&reply).await.unwrap();
     // A scheduled Run speaks at the top level, so its progress row
     // has no parent.
-    let mut progress = user_message(&ws.id, &ch.id, "Failed");
+    let mut progress = person_message(&ws.id, &ws.user_id, &ch.id, "Failed");
     progress.blocks = vec![pagis_core::Block::progress("run_1", "Failed")];
     store.insert(&progress).await.unwrap();
 
@@ -643,7 +779,7 @@ pub async fn timeline_entries_name_the_newest_reply_authors(backend: &Backend) {
     backend.stores().channels.create(&ch).await.unwrap();
 
     let store = &backend.stores().messages;
-    let root = user_message(&ws.id, &ch.id, "root");
+    let root = person_message(&ws.id, &ws.user_id, &ch.id, "root");
     store.insert(&root).await.unwrap();
     // Six replies from four authors. The user writes twice, so the
     // user counts once, at the newest of the two replies.
@@ -657,7 +793,7 @@ pub async fn timeline_entries_name_the_newest_reply_authors(backend: &Backend) {
     ];
     for (i, author) in authors.iter().enumerate() {
         let mut reply = match author {
-            None => user_message(&ws.id, &ch.id, &format!("r{i}")),
+            None => person_message(&ws.id, &ws.user_id, &ch.id, &format!("r{i}")),
             Some(id) => agent_message(&ws.id, &ch.id, id, &format!("r{i}")),
         };
         reply.parent_message_id = Some(root.id.clone());
@@ -669,17 +805,13 @@ pub async fn timeline_entries_name_the_newest_reply_authors(backend: &Backend) {
         .list_top_level(&ws.id, &ch.id, None, 10)
         .await
         .unwrap();
-    let names: Vec<_> = page[0]
-        .reply_authors
-        .iter()
-        .map(|author| (author.kind, author.agent_id.clone()))
-        .collect();
+    let names: Vec<_> = page[0].reply_authors.to_vec();
     assert_eq!(
         names,
         vec![
-            (pagis_core::AuthorKind::Agent, Some(roster[1].clone())),
-            (pagis_core::AuthorKind::Agent, Some(roster[2].clone())),
-            (pagis_core::AuthorKind::User, None),
+            pagis_core::Author::Agent(roster[1].clone()),
+            pagis_core::Author::Agent(roster[2].clone()),
+            pagis_core::Author::Person(ws.user_id.clone()),
         ]
     );
 }
@@ -697,9 +829,9 @@ pub async fn timeline_rollups_count_only_replies_of_their_own_workspace(backend:
     backend.stores().agents.create(&stranger).await.unwrap();
 
     let store = &backend.stores().messages;
-    let root = user_message(&ws.id, &ch.id, "root");
+    let root = person_message(&ws.id, &ws.user_id, &ch.id, "root");
     store.insert(&root).await.unwrap();
-    let mut own = user_message(&ws.id, &ch.id, "own reply");
+    let mut own = person_message(&ws.id, &ws.user_id, &ch.id, "own reply");
     own.parent_message_id = Some(root.id.clone());
     own.created_at = 1_000;
     store.insert(&own).await.unwrap();
@@ -721,10 +853,7 @@ pub async fn timeline_rollups_count_only_replies_of_their_own_workspace(backend:
     assert_eq!(entry.last_reply_at, Some(1_000));
     assert_eq!(
         entry.reply_authors,
-        vec![pagis_core::ReplyAuthor {
-            kind: pagis_core::AuthorKind::User,
-            agent_id: None,
-        }]
+        vec![pagis_core::Author::Person(ws.user_id.clone())]
     );
 }
 
@@ -734,13 +863,13 @@ pub async fn thread_lists_root_and_replies_oldest_first(backend: &Backend) {
     backend.stores().channels.create(&ch).await.unwrap();
 
     let store = &backend.stores().messages;
-    let root = user_message(&ws.id, &ch.id, "root");
+    let root = person_message(&ws.id, &ws.user_id, &ch.id, "root");
     store.insert(&root).await.unwrap();
-    let other = user_message(&ws.id, &ch.id, "other top-level");
+    let other = person_message(&ws.id, &ws.user_id, &ch.id, "other top-level");
     store.insert(&other).await.unwrap();
     let mut replies = Vec::new();
     for i in 0..2 {
-        let mut reply = user_message(&ws.id, &ch.id, &format!("r{i}"));
+        let mut reply = person_message(&ws.id, &ws.user_id, &ch.id, &format!("r{i}"));
         reply.parent_message_id = Some(root.id.clone());
         store.insert(&reply).await.unwrap();
         replies.push(reply);
@@ -756,7 +885,7 @@ pub async fn finalize_settles_a_streaming_message(backend: &Backend) {
     backend.stores().channels.create(&ch).await.unwrap();
 
     let store = &backend.stores().messages;
-    let mut msg = user_message(&ws.id, &ch.id, "");
+    let mut msg = person_message(&ws.id, &ws.user_id, &ch.id, "");
     msg.status = MessageStatus::Streaming;
     msg.completed_at = None;
     store.insert(&msg).await.unwrap();
@@ -787,9 +916,9 @@ pub async fn fail_streaming_marks_only_streaming_messages(backend: &Backend) {
     backend.stores().channels.create(&ch).await.unwrap();
 
     let store = &backend.stores().messages;
-    let complete = user_message(&ws.id, &ch.id, "done");
+    let complete = person_message(&ws.id, &ws.user_id, &ch.id, "done");
     store.insert(&complete).await.unwrap();
-    let mut streaming = user_message(&ws.id, &ch.id, "partial");
+    let mut streaming = person_message(&ws.id, &ws.user_id, &ch.id, "partial");
     streaming.status = MessageStatus::Streaming;
     streaming.completed_at = None;
     store.insert(&streaming).await.unwrap();
@@ -961,7 +1090,7 @@ pub async fn dm_lookups_resolve_user_and_agent_dms(backend: &Backend) {
     let user_dm = channel(&ws.id);
     channels.create(&user_dm).await.unwrap();
     participants
-        .create(&user_participant(&ws.id, &user_dm.id))
+        .create(&person_participant(&ws.id, &ws.user_id, &user_dm.id))
         .await
         .unwrap();
     participants
@@ -1001,7 +1130,7 @@ pub async fn participants_list_for_channel_returns_all_kinds(backend: &Backend) 
     let dm = channel(&ws.id);
     backend.stores().channels.create(&dm).await.unwrap();
     let store = &backend.stores().participants;
-    let user = user_participant(&ws.id, &dm.id);
+    let user = person_participant(&ws.id, &ws.user_id, &dm.id);
     let agent_row = agent_participant(&ws.id, &dm.id, &a.id);
     store.create(&user).await.unwrap();
     store.create(&agent_row).await.unwrap();
@@ -1118,6 +1247,7 @@ pub async fn a_form_decision_stores_its_values(backend: &Backend) {
             &form.id,
             RequestState::Approved,
             Some(values.clone()),
+            pagis_core::Author::System,
             1_000,
         )
         .await
@@ -1150,6 +1280,7 @@ pub async fn list_by_state_narrows_to_one_kind(backend: &Backend) {
             &action.id,
             RequestState::Denied,
             None,
+            pagis_core::Author::System,
             1_000,
         )
         .await
@@ -1200,6 +1331,7 @@ pub async fn a_decision_lands_once_and_conflicts_after(backend: &Backend) {
             &request.id,
             RequestState::Approved,
             None,
+            pagis_core::Author::System,
             1_000,
         )
         .await
@@ -1217,6 +1349,7 @@ pub async fn a_decision_lands_once_and_conflicts_after(backend: &Backend) {
             &request.id,
             RequestState::Denied,
             None,
+            pagis_core::Author::System,
             2_000,
         )
         .await
@@ -1241,6 +1374,7 @@ pub async fn expire_pending_for_run_leaves_decided_rows_alone(backend: &Backend)
             &decided.id,
             RequestState::Denied,
             None,
+            pagis_core::Author::System,
             500,
         )
         .await
@@ -1333,6 +1467,7 @@ pub async fn live_grants_can_be_read_for_one_agent_and_resource(backend: &Backen
     let store = &backend.stores().grants;
     let host = host_grant(&ws.id, &a.id, &HostId::generate(), &[]);
     let connection = Grant {
+        created_by: pagis_core::Author::System,
         id: GrantId::generate(),
         workspace_id: ws.id.clone(),
         agent_id: a.id.clone(),
@@ -1642,6 +1777,7 @@ fn vault_credential(
     domain: &str,
 ) -> pagis_core::Credential {
     pagis_core::Credential {
+        created_by: pagis_core::Author::System,
         id: pagis_core::CredentialId::generate(),
         workspace_id: workspace_id.clone(),
         domain: domain.to_string(),
@@ -2431,6 +2567,7 @@ pub async fn an_uninstall_revokes_the_grants_and_keeps_nothing_else(backend: &Ba
     };
     store.create(&plugin, &[binding]).await.unwrap();
     let grant = Grant {
+        created_by: pagis_core::Author::System,
         id: GrantId::generate(),
         workspace_id: workspace_id.clone(),
         agent_id,
@@ -2458,6 +2595,7 @@ pub async fn an_uninstall_revokes_the_grants_and_keeps_nothing_else(backend: &Ba
     let other_agent = agent(&other.id);
     backend.stores().agents.create(&other_agent).await.unwrap();
     let other_grant = Grant {
+        created_by: pagis_core::Author::System,
         id: GrantId::generate(),
         workspace_id: other.id.clone(),
         agent_id: other_agent.id.clone(),
@@ -2662,6 +2800,7 @@ macro_rules! store_suite_stores {
     ($emit:path) => {
         $emit!(
             stores,
+            authored_records_keep_person_agent_and_system,
             a_google_connection_holds_its_sealed_refresh_token,
             the_org_holds_the_google_web_client_id,
             set_chief_of_staff_names_an_agent_and_clears_it,

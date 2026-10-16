@@ -3,9 +3,7 @@ use std::sync::Arc;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use pagis_core::{
-    AgentId, ChannelId, CreatorKind, MessageId, ScheduleId, ScheduleOccurrenceId, WakeupId,
-};
+use pagis_core::{AgentId, ChannelId, MessageId, ScheduleId, ScheduleOccurrenceId, WakeupId};
 use pagis_trigger::{NewSchedule, ScheduleEdit, ScheduleTiming};
 use serde::{Deserialize, Deserializer, Serialize};
 use utoipa::{IntoParams, ToSchema};
@@ -64,6 +62,7 @@ pub struct UpdateScheduleRequest {
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ScheduleDto {
+    pub created_by: pagis_core::AuthorDto,
     pub id: String,
     pub workspace_id: String,
     pub agent_id: String,
@@ -83,16 +82,24 @@ pub struct ScheduleDto {
     pub state: String,
     pub revision: u32,
     pub approved_revision: Option<u32>,
-    pub creator: String,
     pub creating_run_id: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
     pub archived_at: Option<i64>,
 }
 
-impl From<pagis_core::Schedule> for ScheduleDto {
-    fn from(value: pagis_core::Schedule) -> Self {
-        Self {
+impl ScheduleDto {
+    async fn read(state: &AppState, value: pagis_core::Schedule) -> Result<Self, ApiError> {
+        let created_by = value
+            .created_by
+            .resolve(
+                &value.workspace_id,
+                state.users.as_ref(),
+                state.agent_store.as_ref(),
+            )
+            .await?;
+        Ok(Self {
+            created_by,
             id: value.id.to_string(),
             workspace_id: value.workspace_id.to_string(),
             agent_id: value.agent_id.to_string(),
@@ -112,12 +119,11 @@ impl From<pagis_core::Schedule> for ScheduleDto {
             state: value.state.as_str().to_string(),
             revision: value.revision,
             approved_revision: value.approved_revision,
-            creator: value.creator.as_str().to_string(),
             creating_run_id: value.creating_run_id.map(|id| id.to_string()),
             created_at: value.created_at,
             updated_at: value.updated_at,
             archived_at: value.archived_at,
-        }
+        })
     }
 }
 
@@ -296,6 +302,7 @@ pub async fn create_schedule(
     let schedule = state
         .trigger
         .create_schedule(NewSchedule {
+            created_by: pagis_core::Author::Person(tenant.user_id.clone()),
             workspace_id: tenant.workspace_id.clone(),
             agent_id: AgentId::from(request.agent_id),
             name: request.name,
@@ -304,13 +311,15 @@ pub async fn create_schedule(
             channel_id: ChannelId::from(request.channel_id),
             root_message_id: request.root_message_id.map(MessageId::from),
             timing,
-            creator: CreatorKind::User,
             creating_run_id: None,
             now: state.clock.now_ms(),
         })
         .await
         .map_err(trigger_error)?;
-    Ok((StatusCode::CREATED, Json(schedule.into())))
+    Ok((
+        StatusCode::CREATED,
+        Json(ScheduleDto::read(&state, schedule).await?),
+    ))
 }
 
 #[utoipa::path(post, path = "/api/v1/schedules/{schedule_id}", request_body = UpdateScheduleRequest, params(("schedule_id" = String, Path)), responses(
@@ -357,7 +366,9 @@ pub async fn update_schedule(
                 .skip_next(&tenant.workspace_id, &id, expected, at)
                 .await
                 .map_err(trigger_error)?;
-            return Ok(Json(owned_schedule(&state, &tenant, id).await?.into()));
+            return Ok(Json(
+                ScheduleDto::read(&state, owned_schedule(&state, &tenant, id).await?).await?,
+            ));
         }
         "edit" => {
             let timing = schedule_timing(
@@ -400,7 +411,7 @@ pub async fn update_schedule(
     }
     .map_err(trigger_error)?
     .ok_or_else(|| ApiError::not_found("schedule"))?;
-    Ok(Json(schedule.into()))
+    Ok(Json(ScheduleDto::read(&state, schedule).await?))
 }
 
 #[utoipa::path(get, path = "/api/v1/schedules", params(PageQuery), responses(
@@ -423,8 +434,12 @@ pub async fn list_schedules(
         .await
         .map_err(trigger_error)?;
     let (items, next_cursor) = page(schedules, limit, |item| item.id.to_string());
+    let mut records = Vec::new();
+    for item in items {
+        records.push(ScheduleDto::read(&state, item).await?);
+    }
     Ok(Json(SchedulePage {
-        items: items.into_iter().map(Into::into).collect(),
+        items: records,
         next_cursor,
     }))
 }
@@ -439,7 +454,7 @@ pub async fn get_schedule(
     Path(schedule_id): Path<String>,
 ) -> Result<Json<ScheduleDto>, ApiError> {
     let schedule = owned_schedule(&state, &tenant, ScheduleId::from(schedule_id)).await?;
-    Ok(Json(schedule.into()))
+    Ok(Json(ScheduleDto::read(&state, schedule).await?))
 }
 
 #[utoipa::path(get, path = "/api/v1/schedules/{schedule_id}/revisions", params(("schedule_id" = String, Path)), responses(
@@ -481,7 +496,7 @@ pub async fn archive_schedule(
         .await
         .map_err(trigger_error)?
         .ok_or_else(|| ApiError::not_found("schedule"))?;
-    Ok(Json(schedule.into()))
+    Ok(Json(ScheduleDto::read(&state, schedule).await?))
 }
 
 /// Wake a Schedule now, ahead of its cadence (ADR-0022). Home

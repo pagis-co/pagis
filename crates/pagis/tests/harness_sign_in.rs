@@ -486,7 +486,7 @@ async fn person_b_cannot_check_the_sign_in_on_person_as_host() {
 }
 
 const SIGN_IN_SENTENCE: &str =
-    "Claude Code is not signed in on your Air. Ask the user to sign in: Settings › Hosts › Air.";
+    "Claude Code is not signed in on your Air. Ask your Person to sign in: Settings › Hosts › Air.";
 
 /// The next frame of `frame_type` on an event socket.
 async fn next_frame_of(socket: &mut Socket, frame_type: &str) -> Value {

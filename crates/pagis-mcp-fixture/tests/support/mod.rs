@@ -391,6 +391,7 @@ impl Harness {
                 &self.workspace_id,
                 &installed.plugin.id,
                 &self.agent_id,
+                pagis_core::Author::System,
             )
             .await
             .expect("the plugin grant");

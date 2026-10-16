@@ -799,10 +799,9 @@ async fn a_server_with_only_an_openai_key_answers_the_first_message() {
             None,
         )
         .await;
-        let answered =
-            timeline["items"].as_array().unwrap().iter().any(|message| {
-                message["author_kind"] == "agent" && message["text_content"] == "ready"
-            });
+        let answered = timeline["items"].as_array().unwrap().iter().any(|message| {
+            message["author"]["kind"] == "agent" && message["text_content"] == "ready"
+        });
         if answered {
             break;
         }

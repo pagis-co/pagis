@@ -53,8 +53,9 @@ export interface TimelineRow {
     channelTitle: string | null
   }
   authorKind: string
-  /** The agent who wrote it; the row names the speaker with it. */
-  authorAgentId: string | null
+  authorName: string
+  /** The Person or Agent who wrote it. */
+  authorId: string | null
   createdAt: number
   sendState: SendState
   /** The message status: `complete`, `streaming`, or `failed`. */
@@ -75,6 +76,7 @@ export interface TimelineRow {
 
 /** One author of a thread's replies: the user, or one Agent. */
 export interface ReplyAuthor {
+  authorName: string
   authorKind: string
   agentId: string | null
 }
@@ -129,7 +131,8 @@ export function mergeTimeline(
             channelTitle: item.channel_title ?? null,
           },
           authorKind: 'agent',
-          authorAgentId: item.agent_id,
+          authorName: '',
+          authorId: item.agent_id,
           createdAt: item.created_at,
           sendState: 'sent' as SendState,
           status: 'complete',
@@ -150,8 +153,9 @@ export function mergeTimeline(
       return {
         key: item.id,
         kind: 'message' as const,
-        authorKind: item.author_kind,
-        authorAgentId: item.author_agent_id ?? null,
+        authorKind: item.author.kind,
+        authorName: item.author.name,
+        authorId: item.author.id ?? null,
         createdAt: item.created_at,
         sendState: 'sent' as SendState,
         status: item.status,
@@ -165,8 +169,9 @@ export function mergeTimeline(
         replyCount: item.reply_count ?? 0,
         lastReplyAt: item.last_reply_at ?? null,
         replyAuthors: (item.reply_authors ?? []).map((author) => ({
-          authorKind: author.author_kind,
-          agentId: author.author_agent_id ?? null,
+          authorKind: author.author.kind,
+          authorName: author.author.name,
+          agentId: author.author.kind === 'agent' ? author.author.id ?? null : null,
         })),
       }
     })
@@ -177,8 +182,9 @@ export function mergeTimeline(
     rows.push({
       key: send.pending_id,
       kind: 'message',
-      authorKind: 'user',
-      authorAgentId: null,
+      authorKind: 'person',
+      authorName: '',
+      authorId: null,
       createdAt: send.created_at,
       sendState: send.state,
       status: 'complete',
@@ -201,7 +207,8 @@ export function mergeTimeline(
       key: progress.message_id,
       kind: 'message',
       authorKind: 'agent',
-      authorAgentId: progress.agent_id,
+      authorName: '',
+      authorId: progress.agent_id,
       createdAt: Date.now(),
       sendState: 'sent',
       status: 'streaming',
@@ -225,7 +232,8 @@ export function mergeTimeline(
       key: live.message_id,
       kind: 'message',
       authorKind: 'agent',
-      authorAgentId: live.agent_id,
+      authorName: '',
+      authorId: live.agent_id,
       createdAt: Date.now(),
       sendState: 'sent',
       status: 'streaming',
@@ -311,7 +319,7 @@ export function runOutcome(text: string): RunOutcome | null {
 
 /** The identity one group header stands for. */
 function authorOf(row: TimelineRow): string {
-  return `${row.authorKind}:${row.authorAgentId ?? ''}`
+  return `${row.authorKind}:${row.authorId ?? ''}`
 }
 
 /** The local calendar day the divider groups by. */

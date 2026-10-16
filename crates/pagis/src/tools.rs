@@ -209,7 +209,7 @@ impl pagis_telephony::InboundRuns for BrokerInboundRuns {
             .find_user_dm(workspace_id, agent_id)
             .await
             .map_err(|error| error.to_string())?
-            .ok_or_else(|| "that Agent has no thread with the user".to_string())?;
+            .ok_or_else(|| "that Agent has no thread with your Person".to_string())?;
         let now = self.clock.now_ms();
         let run = Run {
             id: RunId::generate(),

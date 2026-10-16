@@ -8,9 +8,7 @@
 
 use crate::common;
 
-use pagis_core::{
-    AgentId, ChannelId, CreatorKind, EventSubscription, MessageId, Schedule, WorkspaceId,
-};
+use pagis_core::{AgentId, ChannelId, EventSubscription, MessageId, Schedule, WorkspaceId};
 use pagis_trigger::{
     NewSchedule, NewSubscription, ScheduleEdit, ScheduleTiming, SubscriptionAction, TriggerError,
 };
@@ -24,6 +22,7 @@ fn new_schedule(
     root_message_id: Option<&MessageId>,
 ) -> NewSchedule {
     NewSchedule {
+        created_by: pagis_core::Author::System,
         workspace_id: world.workspace_id.clone(),
         agent_id: agent_id.clone(),
         name: "Morning plan".to_string(),
@@ -32,7 +31,6 @@ fn new_schedule(
         channel_id: channel_id.clone(),
         root_message_id: root_message_id.cloned(),
         timing: cron(),
-        creator: CreatorKind::User,
         creating_run_id: None,
         now: NOW,
     }
@@ -70,6 +68,7 @@ fn new_subscription(
     root_message_id: Option<&MessageId>,
 ) -> NewSubscription {
     NewSubscription {
+        created_by: pagis_core::Author::System,
         workspace_id: world.workspace_id.clone(),
         agent_id: agent_id.clone(),
         source: pagis_core::EventSource::connection(world.connection_id.clone()),
@@ -79,7 +78,6 @@ fn new_subscription(
         channel_id: channel_id.clone(),
         root_message_id: root_message_id.cloned(),
         filter: serde_json::json!({}),
-        creator: CreatorKind::User,
         now: NOW,
     }
 }

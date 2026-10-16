@@ -121,7 +121,7 @@ fn complete_agent_messages(messages: &[serde_json::Value]) -> Vec<serde_json::Va
     messages
         .iter()
         .filter(|m| {
-            m["author_kind"] == "agent"
+            m["author"]["kind"] == "agent"
                 && m["status"] == "complete"
                 && m["blocks"][0]["type"] != "progress"
         })
@@ -165,7 +165,7 @@ async fn only_a_mention_triggers_an_agent_in_a_group_channel() {
     send(&daemon, &group, "p2", "@Rex can you take this?").await;
 
     let replies = await_agent_messages(|| timeline(&daemon, &group), 1).await;
-    assert_eq!(replies[0]["author_agent_id"], serde_json::json!(rex));
+    assert_eq!(replies[0]["author"]["id"], serde_json::json!(rex));
     // Exactly one run: the un-mentioned message and the un-mentioned
     // agent (Pixie) never triggered.
     assert_eq!(run_count(&daemon).await, 1);
@@ -223,7 +223,7 @@ async fn an_in_thread_follow_up_triggers_without_a_re_mention() {
     assert!(
         replies
             .iter()
-            .all(|m| m["author_agent_id"] == serde_json::json!(rex.as_str()))
+            .all(|m| m["author"]["id"] == serde_json::json!(rex.as_str()))
     );
     // Two runs: the mention and the follow-up. The root message
     // triggered nothing.

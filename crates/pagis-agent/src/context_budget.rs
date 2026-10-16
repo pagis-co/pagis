@@ -237,7 +237,7 @@ mod tests {
             person_id: Some(pagis_core::UserId::from("person-one".to_string())),
             model_alias: "default".into(),
             model_candidates: vec![candidate.into()],
-            system: "Follow the user's request.".into(),
+            system: "Follow your Person's request.".into(),
             messages: vec![TurnMessage {
                 role: crate::TurnRole::User,
                 text: "Inspect this image.".into(),

@@ -4,7 +4,7 @@ use async_trait::async_trait;
 
 use crate::block::Block;
 use crate::domain::{
-    Agent, AgentMailbox, AgentMailboxState, AuthorKind, Call, CapabilitySnapshotRecord, Channel,
+    Agent, AgentMailbox, AgentMailboxState, Author, Call, CapabilitySnapshotRecord, Channel,
     ChannelParticipant, Connection, Contribution, ContributionStatus, Credential, EventDeclaration,
     EventSubscription, File, FileKind, Grant, IncomingEvent, MailboxCursor, Message, MessageStatus,
     MessagingReadiness, ModelAlias, OnboardingModelVerification, PhoneNumber, Plugin,
@@ -781,18 +781,11 @@ pub struct TimelineEntry {
     pub last_reply_at: Option<UnixMillis>,
     /// The different authors of the replies, the newest reply first,
     /// at most [`REPLY_AUTHORS_MAX`].
-    pub reply_authors: Vec<ReplyAuthor>,
+    pub reply_authors: Vec<Author>,
 }
 
 /// The number of reply authors a timeline entry names.
 pub const REPLY_AUTHORS_MAX: usize = 3;
-
-/// One author of the replies in a thread: the user, or one Agent.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ReplyAuthor {
-    pub kind: AuthorKind,
-    pub agent_id: Option<AgentId>,
-}
 
 #[async_trait]
 pub trait MessageStore: Send + Sync {
@@ -990,6 +983,7 @@ pub trait RequestStore: Send + Sync {
         id: &RequestId,
         state: RequestState,
         values: Option<serde_json::Value>,
+        decided_by: crate::Author,
         decided_at: UnixMillis,
     ) -> Result<DecideOutcome, StoreError>;
     /// Mark every pending request of one run `expired`. The run

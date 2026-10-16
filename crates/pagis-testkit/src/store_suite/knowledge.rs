@@ -46,6 +46,7 @@ async fn authorize(backend: &Backend, workspace: &WorkspaceId, agent: &AgentId, 
         .stores()
         .grants
         .create(&Grant {
+            created_by: pagis_core::Author::System,
             id: GrantId::generate(),
             workspace_id: workspace.clone(),
             agent_id: agent.clone(),
@@ -1103,6 +1104,7 @@ pub async fn a_forget_purge_leaves_no_value_of_the_forgotten_item_in_any_table(b
         .stores()
         .schedules
         .create(&pagis_core::Schedule {
+            created_by: pagis_core::Author::Agent(state.config.agent_id.clone()),
             id: pagis_core::ScheduleId::generate(),
             workspace_id: key.workspace_id.clone(),
             agent_id: state.config.agent_id.clone(),
@@ -1122,7 +1124,6 @@ pub async fn a_forget_purge_leaves_no_value_of_the_forgotten_item_in_any_table(b
             state: pagis_core::ScheduleState::Active,
             revision: 1,
             approved_revision: None,
-            creator: pagis_core::CreatorKind::Agent,
             creating_run_id: None,
             created_at: 15,
             updated_at: 15,
@@ -1477,6 +1478,7 @@ async fn mail_rule(backend: &Backend, state: &SyncStatus) -> pagis_core::EventSu
     let channel = crate::fixture::channel(&state.config.workspace_id);
     backend.stores().channels.create(&channel).await.unwrap();
     let rule = pagis_core::EventSubscription {
+        created_by: pagis_core::Author::System,
         id: pagis_core::EventSubscriptionId::generate(),
         workspace_id: state.config.workspace_id.clone(),
         agent_id: state.config.agent_id.clone(),
@@ -1488,7 +1490,6 @@ async fn mail_rule(backend: &Backend, state: &SyncStatus) -> pagis_core::EventSu
         channel_id: channel.id,
         root_message_id: None,
         filter: serde_json::json!({}),
-        creator: pagis_core::CreatorKind::User,
         state: pagis_core::EventSubscriptionState::Active,
         revision: 1,
         approved_revision: Some(1),
@@ -1954,6 +1955,7 @@ pub async fn a_forget_leaves_no_path_or_title_of_the_purged_page_in_the_feed_or_
     .await;
     // Reflection set a Schedule on the page.
     let schedule = pagis_core::Schedule {
+        created_by: pagis_core::Author::Agent(page.agent.clone()),
         id: pagis_core::ScheduleId::generate(),
         workspace_id: workspace.clone(),
         agent_id: page.agent.clone(),
@@ -1973,7 +1975,6 @@ pub async fn a_forget_leaves_no_path_or_title_of_the_purged_page_in_the_feed_or_
         state: pagis_core::ScheduleState::Active,
         revision: 1,
         approved_revision: None,
-        creator: pagis_core::CreatorKind::Agent,
         creating_run_id: None,
         created_at: 15,
         updated_at: 15,
@@ -1989,7 +1990,7 @@ pub async fn a_forget_leaves_no_path_or_title_of_the_purged_page_in_the_feed_or_
             "schedule_id": schedule.id.as_str(),
             "state": "active",
             "next_due_at": 60_000,
-            "creator": "agent",
+            "created_by": {"kind": "agent", "agent_id": schedule.agent_id},
             "name": schedule.name,
             "instruction": schedule.instruction,
             "subject_page_path": forgotten_page(),
@@ -2204,7 +2205,19 @@ async fn quoting_run(
     let stores = backend.stores();
     let channel = crate::fixture::channel(&key.workspace_id);
     stores.channels.create(&channel).await.unwrap();
-    let question = crate::fixture::user_message(&key.workspace_id, &channel.id, QUESTION);
+    let question = crate::fixture::person_message(
+        &key.workspace_id,
+        &backend
+            .stores()
+            .workspaces
+            .get(&key.workspace_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .user_id,
+        &channel.id,
+        QUESTION,
+    );
     stores.messages.insert(&question).await.unwrap();
     let run = pagis_core::Run {
         title: pagis_core::run_title(pagis_core::RunTitleSource::Message(QUESTION)),
@@ -2877,6 +2890,7 @@ pub async fn a_forget_forgets_the_reply_of_the_run_that_the_item_woke(backend: &
     let channel = crate::fixture::channel(&key.workspace_id);
     backend.stores().channels.create(&channel).await.unwrap();
     let subscription = pagis_core::EventSubscription {
+        created_by: pagis_core::Author::System,
         id: pagis_core::EventSubscriptionId::generate(),
         workspace_id: key.workspace_id.clone(),
         agent_id: state.config.agent_id.clone(),
@@ -2888,7 +2902,6 @@ pub async fn a_forget_forgets_the_reply_of_the_run_that_the_item_woke(backend: &
         channel_id: channel.id.clone(),
         root_message_id: None,
         filter: serde_json::json!({}),
-        creator: pagis_core::CreatorKind::User,
         state: pagis_core::EventSubscriptionState::Active,
         revision: 1,
         approved_revision: Some(1),

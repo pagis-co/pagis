@@ -16,7 +16,7 @@
 use std::sync::Arc;
 
 use pagis_core::{
-    AgentMailbox, AuthorKind, Block, EventBus, MailDirection, Message, MessageId, MessageStatus,
+    AgentMailbox, Author, Block, EventBus, MailDirection, Message, MessageId, MessageStatus,
     MessageStore, NewEvent, Run, TriggerKind, TriggerStore, TrustTier, WakeupId, blocks_text,
     now_ms,
 };
@@ -180,8 +180,7 @@ impl MailBlocks {
             workspace_id: run.workspace_id.clone(),
             channel_id: channel_id.clone(),
             parent_message_id: run.root_message_id.clone(),
-            author_kind: AuthorKind::System,
-            author_agent_id: None,
+            author: Author::System,
             run_id: Some(run.id.clone()),
             status: MessageStatus::Complete,
             text_content: blocks_text(&blocks),
@@ -212,7 +211,7 @@ impl MailBlocks {
                 payload: serde_json::json!({
                     "message_id": message.id.as_str(),
                     "parent_message_id": message.parent_message_id.as_ref().map(MessageId::as_str),
-                    "author_kind": AuthorKind::System,
+                    "author": {"kind": "system", "id": null, "name": "Pagis"},
                 }),
             })
             .await;

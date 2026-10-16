@@ -11,7 +11,7 @@
 //! hides every word one Agent says to another, which is the opposite
 //! of the delegation the Agent channel exists for (ADR-0003).
 
-use crate::{AuthorKind, GrantStore, Message, MessageStore, StoreError};
+use crate::{GrantStore, Message, MessageStore, StoreError};
 
 /// True when the source scope behind this message is still live.
 ///
@@ -22,7 +22,7 @@ pub async fn message_source_is_live(
     grants: &dyn GrantStore,
     message: &Message,
 ) -> Result<bool, StoreError> {
-    if message.author_kind == AuthorKind::User {
+    if message.author.person_id().is_some() {
         return Ok(true);
     }
     let Some(exposures) = messages
@@ -34,7 +34,7 @@ pub async fn message_source_is_live(
     if exposures.is_empty() {
         return Ok(true);
     }
-    let Some(author) = &message.author_agent_id else {
+    let Some(author) = &message.author.agent_id() else {
         return Ok(false);
     };
     let live = grants

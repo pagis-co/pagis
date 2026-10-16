@@ -48,8 +48,7 @@ export function shellResponse(path: string): { data: unknown } {
         root: {
           id: 'message-1',
           channel_id: 'channel-2',
-          author_kind: 'user',
-          author_agent_id: null,
+          author: { kind: 'person', id: 'person-1', name: 'Ajay' },
           created_at: 1,
           status: 'completed',
           run_id: null,

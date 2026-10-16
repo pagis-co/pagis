@@ -472,6 +472,7 @@ async fn two_present_candidates_get_the_choice_card_and_none_is_not_connected(po
             &question.request.id,
             RequestState::Approved,
             Some(serde_json::json!({"value": studio.id.as_str()})),
+            pagis_core::Author::System,
             pagis_core::now_ms(),
         )
         .await
@@ -563,6 +564,7 @@ async fn the_card_names_the_harness_and_the_machine(pool: SqlitePool) {
             &card.request.id,
             RequestState::Approved,
             None,
+            pagis_core::Author::System,
             pagis_core::now_ms(),
         )
         .await

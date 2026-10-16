@@ -21,7 +21,7 @@ pub(crate) enum Vocabulary {
 }
 
 /// One parsed computer call: its normalized actions and any safety
-/// checks the user must approve before execution.
+/// checks the Person must approve before execution.
 pub(crate) struct ComputerCall {
     pub vocabulary: Vocabulary,
     pub actions: Vec<Action>,

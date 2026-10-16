@@ -342,7 +342,7 @@ async fn a_restart_while_parked_fails_the_run_and_notifies_on_the_next_trigger()
     let items = timeline(&daemon).await;
     let note = items
         .iter()
-        .find(|m| m["author_kind"] == "system")
+        .find(|m| m["author"]["kind"] == "system")
         .expect("system restart note");
     assert!(note["text_content"].as_str().unwrap().contains("restart"));
 
@@ -406,7 +406,7 @@ async fn a_message_instead_of_a_decision_continues_the_conversation() {
     );
     assert_eq!(
         transcript.last().unwrap().text,
-        "User: forget that, tell me the time"
+        "Person: forget that, tell me the time"
     );
     assert_eq!(
         timeline(&daemon).await[0]["text_content"],

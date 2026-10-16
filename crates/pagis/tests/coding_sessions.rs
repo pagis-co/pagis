@@ -21,7 +21,7 @@ use pagis_coding::{
     CloseReason, NewCodingSession, PERMISSION_DECIDED_EVENT, Place, PromptOutcome, SettingChoices,
 };
 use pagis_core::{
-    AgentId, AuthorKind, Block, ChannelId, CodingSession, CodingSessionEventKind, CodingSessionId,
+    AgentId, Author, Block, ChannelId, CodingSession, CodingSessionEventKind, CodingSessionId,
     CodingSessionState, Event, EventSource, HostId, KnownBlock, Message, MessageId,
     NewCodingSessionEvent, Request, RequestId, RequestState, Run, RunId, RunOrigin, RunState,
     SessionApprovalMode, TriggerKind, WakeupState, harness, now_ms,
@@ -351,7 +351,7 @@ fn assert_session_block(message: &Message, session: &CodingSession) {
             "Fix the login bug",
         )]
     );
-    assert_eq!(message.author_kind, AuthorKind::System);
+    assert_eq!(message.author, Author::System);
     assert_eq!(message.run_id.as_ref(), Some(&session.run_id));
     assert_eq!(
         message.text_content,
@@ -363,8 +363,9 @@ fn assert_session_block(message: &Message, session: &CodingSession) {
 async fn a_session_from_a_run_in_a_thread_posts_its_block_as_a_reply_in_that_thread() {
     let daemon = TestDaemon::start().await;
     let mut socket = daemon.event_socket(daemon.cookie()).await;
-    let root = fixture::user_message(
+    let root = fixture::person_message(
         &daemon.workspace_id,
+        &daemon.user_id,
         &ChannelId::from(daemon.dm_channel_id.clone()),
         "Fix the login bug.",
     );
@@ -656,7 +657,7 @@ async fn person_bs_agent(tenants: &TwoTenants) -> ChannelId {
     stores.channels.create(&channel).await.unwrap();
     for participant in [
         fixture::agent_participant(&tenants.b.workspace_id, &channel.id, &agent.id),
-        fixture::user_participant(&tenants.b.workspace_id, &channel.id),
+        fixture::person_participant(&tenants.b.workspace_id, &tenants.b.user_id, &channel.id),
     ] {
         stores.participants.create(&participant).await.unwrap();
     }
@@ -1087,8 +1088,9 @@ async fn a_grant_revision_that_removes_the_rule_makes_the_next_same_command_wait
 /// A queued Run in the Thread of a new message of the Person in the
 /// seeded DM channel, and the root of that Thread.
 async fn run_in_a_thread(daemon: &TestDaemon) -> (RunId, MessageId) {
-    let root = fixture::user_message(
+    let root = fixture::person_message(
         &daemon.workspace_id,
+        &daemon.user_id,
         &ChannelId::from(daemon.dm_channel_id.clone()),
         "Fix the login bug.",
     );
@@ -1291,7 +1293,7 @@ async fn a_session_from_the_top_level_ends_with_the_report_of_the_agent_at_the_t
         .expect("the briefing of the end")
         .system;
     assert!(
-        briefing.contains("report to the user"),
+        briefing.contains("report to your Person"),
         "the instruction asks for the report: {briefing}"
     );
 
@@ -1308,8 +1310,8 @@ async fn a_session_from_the_top_level_ends_with_the_report_of_the_agent_at_the_t
         .iter()
         .find(|message| message.text_content == REPORT)
         .unwrap_or_else(|| panic!("no report at the top level: {top_level:?}"));
-    assert_eq!(report.author_kind, AuthorKind::Agent);
-    assert_eq!(report.author_agent_id.as_ref(), Some(&agent_id));
+    assert!(report.author.agent_id().is_some());
+    assert_eq!(report.author.agent_id(), Some(&agent_id));
     let thread = daemon
         .stores()
         .messages
@@ -1713,7 +1715,7 @@ impl Started {
             }
             assert!(
                 tokio::time::Instant::now() < deadline,
-                "no Harness Permission waits for the Person"
+                "no Harness Permission waits for your Person"
             );
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
@@ -1803,7 +1805,7 @@ async fn a_command_that_policy_does_not_allow_asks_the_person_and_approve_once_a
     );
     let cards = started.cards().await;
     assert_eq!(cards.len(), 1);
-    assert_eq!(cards[0].author_kind, AuthorKind::System);
+    assert_eq!(cards[0].author, Author::System);
     assert_eq!(cards[0].run_id, None);
     assert_eq!(
         cards[0].blocks,
@@ -1960,6 +1962,7 @@ async fn a_restart_expires_a_pending_harness_permission() {
     let host_id = host(&daemon).await;
     let session = record(&daemon, &host_id).await;
     let permission = Request {
+        decided_by: None,
         id: RequestId::generate(),
         workspace_id: daemon.workspace_id.clone(),
         agent_id: AgentId::from(daemon.agent_id.clone()),
@@ -2704,7 +2707,7 @@ async fn a_woken_run_that_ends_without_a_decision_escalates_the_permission() {
     assert_eq!(
         started.state().await,
         CodingSessionState::NeedsDecision,
-        "the session waits for the Person"
+        "the session waits for your Person"
     );
 }
 
@@ -2727,7 +2730,7 @@ async fn a_narrower_widest_mode_during_the_wait_makes_decide_answer_escalated_an
             "coding_session_decide",
             json!({"decision": "allow", "note": NOTE}),
         ),
-        pagis_testkit::Script::reply(&["The user decides."]),
+        pagis_testkit::Script::reply(&["Your Person decides."]),
     ]);
 
     let request = started.wait_for_card().await;
@@ -2740,7 +2743,7 @@ async fn a_narrower_widest_mode_during_the_wait_makes_decide_answer_escalated_an
     assert!(started.answers().is_empty(), "the Agent did not decide");
     assert!(
         started.wait_for_facts(0).await.is_empty(),
-        "no audit fact before the Person decides"
+        "no audit fact before your Person decides"
     );
 }
 
@@ -2785,6 +2788,7 @@ async fn person_bs_agent_that_decides_on_person_as_session_gets_session_not_foun
         .stores()
         .grants
         .create(&pagis_core::Grant {
+            created_by: pagis_core::Author::System,
             id: pagis_core::GrantId::generate(),
             workspace_id: tenants.b.workspace_id.clone(),
             agent_id: b_agent.id,

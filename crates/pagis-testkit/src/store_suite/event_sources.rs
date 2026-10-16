@@ -6,7 +6,7 @@
 //! test of the parent module fails while one is missing.
 
 use pagis_core::{
-    CodingSession, CodingSessionId, CodingSessionPlace, CreatorKind, EventMatcher, EventSource,
+    CodingSession, CodingSessionId, CodingSessionPlace, EventMatcher, EventSource,
     EventSubscription, EventSubscriptionId, EventSubscriptionState, IngestBatch, IngestOutcome,
     NormalizedEvent, Workspace,
 };
@@ -79,6 +79,7 @@ async fn world(backend: &Backend) -> World {
 
 fn rule(world: &World, session: &CodingSessionId) -> EventSubscription {
     EventSubscription {
+        created_by: pagis_core::Author::Agent(world.agent_id.clone()),
         id: EventSubscriptionId::generate(),
         workspace_id: world.workspace.id.clone(),
         agent_id: world.agent_id.clone(),
@@ -90,7 +91,6 @@ fn rule(world: &World, session: &CodingSessionId) -> EventSubscription {
         channel_id: world.channel_id.clone(),
         root_message_id: None,
         filter: serde_json::json!({}),
-        creator: CreatorKind::Agent,
         state: EventSubscriptionState::Active,
         revision: 1,
         approved_revision: Some(1),
@@ -105,6 +105,41 @@ fn rule(world: &World, session: &CodingSessionId) -> EventSubscription {
 }
 
 /// One session event, as one batch with one event and no cursor.
+pub async fn subscriptions_keep_person_agent_and_system_authors(backend: &Backend) {
+    let world = world(backend).await;
+    for author in [
+        pagis_core::Author::Person(world.workspace.user_id.clone()),
+        pagis_core::Author::Agent(world.agent_id.clone()),
+        pagis_core::Author::System,
+    ] {
+        let mut subscription = rule(&world, &world.sessions[0]);
+        subscription.created_by = author.clone();
+        assert!(
+            serde_json::to_value(&subscription)
+                .unwrap()
+                .get("creator")
+                .is_none()
+        );
+        backend
+            .stores()
+            .subscriptions
+            .create(&subscription)
+            .await
+            .unwrap();
+        assert_eq!(
+            backend
+                .stores()
+                .subscriptions
+                .get(&world.workspace.id, &subscription.id)
+                .await
+                .unwrap()
+                .unwrap()
+                .created_by,
+            author
+        );
+    }
+}
+
 async fn ingest(
     backend: &Backend,
     world: &World,
@@ -414,6 +449,7 @@ pub async fn collector_retry_state_is_shared_by_a_target_and_scoped_to_its_works
         ..rule(&world, &world.sessions[0])
     };
     let second = EventSubscription {
+        created_by: pagis_core::Author::System,
         id: EventSubscriptionId::generate(),
         failures: 0,
         next_attempt_at: 0,
@@ -501,6 +537,7 @@ macro_rules! store_suite_event_sources {
     ($emit:path) => {
         $emit!(
             event_sources,
+            subscriptions_keep_person_agent_and_system_authors,
             collector_retry_state_is_shared_by_a_target_and_scoped_to_its_workspace,
             a_rule_and_an_event_of_a_coding_session_read_back_with_their_source,
             one_event_id_stored_twice_for_one_session_makes_one_event,

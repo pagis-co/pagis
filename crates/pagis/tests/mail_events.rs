@@ -151,13 +151,13 @@ async fn provisioning_a_mailbox_writes_the_standing_mail_rule() {
         .get(&format!("/api/v1/event-subscriptions?agent_id={agent_id}"))
         .await;
     let rules = page["items"].as_array().unwrap();
-    assert_eq!(rules.len(), 1, "one rule, and the user wrote it");
+    assert_eq!(rules.len(), 1, "one rule, and your Person wrote it");
     let rule = &rules[0];
     assert_eq!(rule["event_kind"], "mail.message_received");
     assert_eq!(rule["filter"]["mailbox"], "own");
     assert_eq!(rule["state"], "active");
     assert_eq!(rule["revision"], 1);
-    assert_eq!(rule["creator"], "user");
+    assert_eq!(rule["created_by"]["kind"], "system");
     assert!(
         rule["instruction"]
             .as_str()
@@ -173,7 +173,7 @@ async fn provisioning_a_mailbox_writes_the_standing_mail_rule() {
         )
         .await
         .unwrap()
-        .expect("the Agent has a thread with the user")
+        .expect("the Agent has a thread with your Person")
         .id;
     assert_eq!(rule["channel_id"], channel_id.as_str());
 }
@@ -240,12 +240,12 @@ async fn a_message_that_reaches_the_mailbox_wakes_the_agent() {
         )
         .await
         .unwrap()
-        .expect("the Agent has a thread with the user")
+        .expect("the Agent has a thread with your Person")
         .id;
     assert_eq!(
         runs[0]["channel_id"],
         channel_id.as_str(),
-        "mail the Agent did not ask for lands in its Thread with the user"
+        "mail the Agent did not ask for lands in its Thread with your Person"
     );
 
     // The event carries the envelope and no words.

@@ -15,7 +15,7 @@ use pagis_coding::{
     SESSION_END_INSTRUCTION, SESSION_RULE_INSTRUCTION, SessionEvents, SessionRuleError,
     SessionRules, session_rule_name,
 };
-use pagis_core::{CodingSession, CreatorKind, EventSource, IngestBatch, now_ms};
+use pagis_core::{CodingSession, EventSource, IngestBatch, now_ms};
 use pagis_trigger::{NewSubscription, Trigger};
 
 /// The Session Rule of ADR-0033: one Event Subscription for each kind of
@@ -65,6 +65,7 @@ fn session_rule(session: &CodingSession, kind: &str) -> NewSubscription {
         )
     };
     NewSubscription {
+        created_by: pagis_core::Author::System,
         workspace_id: session.workspace_id.clone(),
         agent_id: session.agent_id.clone(),
         source: EventSource::coding_session(session.id.clone()),
@@ -75,9 +76,8 @@ fn session_rule(session: &CodingSession, kind: &str) -> NewSubscription {
         root_message_id,
         // The source names the one session.
         filter: serde_json::json!({}),
-        // The Person approved the start, so the rule is the user's.
-        // Nobody edits it: it is daemon housekeeping.
-        creator: CreatorKind::User,
+        // The daemon supplies this rule for the Coding Session.
+        // Nobody edits it.
         // A rule wakes only for the events after its activation. The rule
         // watches the whole session, so it is active from the instant
         // before the session's first instant: an event in the first

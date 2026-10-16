@@ -13,11 +13,11 @@ use std::sync::Arc;
 use chrono::{LocalResult, NaiveDateTime, TimeZone};
 use pagis_core::{
     AgentId, AgentStatus, AgentStore, BlockReason, ChannelId, ChannelStore, CollectorTarget,
-    Connection, ConnectionId, ConnectionStore, CreatorKind, EventBus, EventCatalog,
-    EventDeclaration, EventMatcher, EventSource, EventSubscription, EventSubscriptionId,
-    EventSubscriptionState, EventSubscriptionStore, ForgetKeys, Grant, GrantStore, IncomingEvent,
-    IncomingEventId, IngestBatch, IngestOutcome, MessageId, MessageStore, NewEvent, PAGIS_PROVIDER,
-    Schedule, ScheduleId, ScheduleKind, ScheduleOccurrence, ScheduleOccurrenceId, ScheduleRevision,
+    Connection, ConnectionId, ConnectionStore, EventBus, EventCatalog, EventDeclaration,
+    EventMatcher, EventSource, EventSubscription, EventSubscriptionId, EventSubscriptionState,
+    EventSubscriptionStore, ForgetKeys, Grant, GrantStore, IncomingEvent, IncomingEventId,
+    IngestBatch, IngestOutcome, MessageId, MessageStore, NewEvent, PAGIS_PROVIDER, Schedule,
+    ScheduleId, ScheduleKind, ScheduleOccurrence, ScheduleOccurrenceId, ScheduleRevision,
     ScheduleState, ScheduleStore, ScheduleTimeError, SourceBatch, StoreError, TriggerStore, Wakeup,
     WakeupClaim, WakeupId, WorkspaceId, interval_window, next_after, next_cron_occurrence,
 };
@@ -33,6 +33,7 @@ const SUBJECT_COOLDOWN_MS: i64 = 14 * 24 * 60 * 60 * 1_000;
 
 #[derive(Debug, Clone)]
 pub struct NewOneShot {
+    pub created_by: pagis_core::Author,
     pub workspace_id: WorkspaceId,
     pub agent_id: AgentId,
     pub name: String,
@@ -46,6 +47,7 @@ pub struct NewOneShot {
 
 #[derive(Debug, Clone)]
 pub struct NewInterval {
+    pub created_by: pagis_core::Author,
     pub workspace_id: WorkspaceId,
     pub agent_id: AgentId,
     pub name: String,
@@ -59,6 +61,7 @@ pub struct NewInterval {
 
 #[derive(Debug, Clone)]
 pub struct NewCron {
+    pub created_by: pagis_core::Author,
     pub workspace_id: WorkspaceId,
     pub agent_id: AgentId,
     pub name: String,
@@ -102,6 +105,7 @@ pub struct ScheduleEdit {
 
 #[derive(Debug, Clone)]
 pub struct NewSchedule {
+    pub created_by: pagis_core::Author,
     pub workspace_id: WorkspaceId,
     pub agent_id: AgentId,
     pub name: String,
@@ -110,7 +114,6 @@ pub struct NewSchedule {
     pub channel_id: ChannelId,
     pub root_message_id: Option<MessageId>,
     pub timing: ScheduleTiming,
-    pub creator: CreatorKind,
     pub creating_run_id: Option<pagis_core::RunId>,
     pub now: i64,
 }
@@ -342,6 +345,7 @@ impl Trigger {
         }
         let approved_revision = input.subject_page_path.is_none().then_some(1);
         let schedule = Schedule {
+            created_by: input.created_by,
             id,
             workspace_id: input.workspace_id,
             agent_id: input.agent_id,
@@ -361,7 +365,6 @@ impl Trigger {
             state: ScheduleState::Active,
             revision: 1,
             approved_revision,
-            creator: input.creator,
             creating_run_id: input.creating_run_id,
             created_at: input.now,
             updated_at: input.now,
@@ -378,7 +381,7 @@ impl Trigger {
                 "schedule_id": schedule.id.as_str(),
                 "state": schedule.state.as_str(),
                 "next_due_at": schedule.next_due_at,
-                "creator": schedule.creator.as_str(),
+                "created_by": schedule.created_by,
                 "name": schedule.name,
                 "instruction": schedule.instruction,
                 "subject_page_path": schedule.subject_page_path,
@@ -391,6 +394,7 @@ impl Trigger {
 
     pub async fn create_one_shot(&self, input: NewOneShot) -> Result<Schedule, TriggerError> {
         self.create_schedule(NewSchedule {
+            created_by: input.created_by,
             workspace_id: input.workspace_id,
             agent_id: input.agent_id,
             name: input.name,
@@ -402,7 +406,6 @@ impl Trigger {
                 local_time: input.local_time,
                 timezone: input.timezone,
             },
-            creator: CreatorKind::User,
             creating_run_id: None,
             now: input.now,
         })
@@ -411,6 +414,7 @@ impl Trigger {
 
     pub async fn create_interval(&self, input: NewInterval) -> Result<Schedule, TriggerError> {
         self.create_schedule(NewSchedule {
+            created_by: input.created_by,
             workspace_id: input.workspace_id,
             agent_id: input.agent_id,
             name: input.name,
@@ -422,7 +426,6 @@ impl Trigger {
                 every_ms: input.every_ms,
                 anchor: input.anchor,
             },
-            creator: CreatorKind::User,
             creating_run_id: None,
             now: input.now,
         })
@@ -431,6 +434,7 @@ impl Trigger {
 
     pub async fn create_cron(&self, input: NewCron) -> Result<Schedule, TriggerError> {
         self.create_schedule(NewSchedule {
+            created_by: input.created_by,
             workspace_id: input.workspace_id,
             agent_id: input.agent_id,
             name: input.name,
@@ -442,7 +446,6 @@ impl Trigger {
                 expression: input.expression,
                 timezone: input.timezone,
             },
-            creator: CreatorKind::User,
             creating_run_id: None,
             now: input.now,
         })
@@ -1016,6 +1019,7 @@ impl Trigger {
         }
 
         let subscription = EventSubscription {
+            created_by: input.created_by,
             id: EventSubscriptionId::generate(),
             workspace_id: input.workspace_id,
             agent_id: input.agent_id,
@@ -1027,7 +1031,6 @@ impl Trigger {
             channel_id: input.channel_id,
             root_message_id: input.root_message_id,
             filter: input.filter,
-            creator: input.creator,
             state: EventSubscriptionState::Active,
             revision: 1,
             // Both paths reach here past the user: REST is the user,

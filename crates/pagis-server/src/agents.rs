@@ -256,10 +256,11 @@ pub async fn create_agent(
     state
         .participants
         .create(&ChannelParticipant {
+            person_id: Some(tenant.user_id.clone()),
             id: ParticipantId::generate(),
             workspace_id: tenant.workspace_id.clone(),
             channel_id: dm.id.clone(),
-            kind: ParticipantKind::User,
+            kind: ParticipantKind::Person,
             agent_id: None,
             joined_at: now,
         })
@@ -267,6 +268,7 @@ pub async fn create_agent(
     state
         .participants
         .create(&ChannelParticipant {
+            person_id: None,
             id: ParticipantId::generate(),
             workspace_id: tenant.workspace_id.clone(),
             channel_id: dm.id.clone(),
@@ -312,7 +314,7 @@ pub async fn create_agent(
             payload: serde_json::json!({
                 "message_id": greeting.id,
                 "parent_message_id": null,
-                "author_kind": "agent",
+                "author": {"kind": "agent", "id": agent.id, "name": agent.name},
             }),
         })
         .await?;

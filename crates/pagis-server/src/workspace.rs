@@ -275,7 +275,10 @@ async fn latest_report(
             .latest_agent_message_of_run(&tenant.workspace_id, &run.id)
             .await?
         {
-            return Ok((Some(report.into()), writing));
+            return Ok((
+                Some(crate::channels::MessageDto::read(state, report).await?),
+                writing,
+            ));
         }
     }
     Ok((None, writing))

@@ -82,7 +82,7 @@ impl CallTools for BrokerCallTools {
                     .await;
                 ToolResult::error(
                     "permission_denied",
-                    "this action needs the user's approval, and a call cannot wait for one. Do \
+                    "this action needs your Person's approval, and a call cannot wait for one. Do \
                      it after the call ends.",
                 )
             }

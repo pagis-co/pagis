@@ -15,7 +15,7 @@ use pagis_audit::AuditEventBus;
 use pagis_core::OrgStore;
 use pagis_core::{
     Agent, AgentId, AgentMailbox, AgentMailboxId, AgentMailboxState, AgentMailboxStore,
-    AgentStatus, AgentStore, AuthorKind, Channel, ChannelId, ChannelKind, ChannelStore, Connection,
+    AgentStatus, AgentStore, Author, Channel, ChannelId, ChannelKind, ChannelStore, Connection,
     ConnectionId, ConnectionStore, EventMatcher, MemorySecretStore, Message, MessageId,
     MessageStatus, MessageStore, Run, RunId, RunState, RunStore, SecretStore, SentMail,
     SentMailStore, TriggerKind, TrustEntry, TrustEntryId, TrustListStore, TrustTier, User,
@@ -160,8 +160,7 @@ impl World {
             workspace_id: workspace.id.clone(),
             channel_id: channel.id.clone(),
             parent_message_id: None,
-            author_kind: AuthorKind::User,
-            author_agent_id: None,
+            author: Author::Person(workspace.user_id.clone()),
             run_id: None,
             status: MessageStatus::Complete,
             blocks: Vec::new(),

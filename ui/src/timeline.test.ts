@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { RunProgress } from './state/stores'
 import {
+  buildConversation,
   formatClock,
   mergeTimeline,
   plainText,
@@ -21,7 +22,7 @@ function serverItem(overrides: Partial<TimelineMessage>): TimelineMessage {
     kind: 'message',
     id: 'msg-1',
     channel_id: 'ch-1',
-    author_kind: 'user',
+    author: { kind: 'person', id: 'person-1', name: 'Ajay' },
     status: 'complete',
     blocks: [{ type: 'markdown', text: 'hi' }],
     text_content: 'hi',
@@ -94,7 +95,7 @@ describe('mergeTimeline', () => {
       [
         serverItem({
           id: 'msg-2',
-          author_kind: 'agent',
+          author: { kind: 'agent', id: 'agent-1', name: 'Scout' },
           status: 'streaming',
           run_id: 'run-1',
           text_content: '',
@@ -152,16 +153,18 @@ describe('mergeTimeline', () => {
           reply_count: 2,
           last_reply_at: 4000,
           reply_authors: [
-            { author_kind: 'agent', author_agent_id: 'ag-2' },
-            { author_kind: 'user', author_agent_id: null },
+            { author: { kind: 'agent', id: 'ag-2', name: 'Scout' } },
+            { author: { kind: 'person', id: 'person-1', name: 'Ajay' } },
           ],
         }),
       ],
       [pendingSend({ pending_id: 'p-1' })],
     )
     expect(rows[0].replyAuthors).toEqual([
-      { authorKind: 'agent', agentId: 'ag-2' },
-      { authorKind: 'user', agentId: null },
+      { authorKind: 'agent',
+      authorName: 'Scout', agentId: 'ag-2' },
+      { authorKind: 'person',
+      authorName: 'Ajay', agentId: null },
     ])
     expect(rows[1].replyAuthors).toEqual([])
   })
@@ -180,7 +183,7 @@ describe('mergeTimeline', () => {
       [
         serverItem({
           id: 'msg-2',
-          author_kind: 'agent',
+          author: { kind: 'agent', id: 'agent-1', name: 'Scout' },
           status: 'failed',
           run_id: 'run-1',
           text_content: 'Partial ',
@@ -228,13 +231,12 @@ describe('mergeTimeline', () => {
       [
         serverItem({
           id: 'msg-1',
-          author_kind: 'agent',
-          author_agent_id: 'ag-1',
+          author: { kind: 'agent', id: 'ag-1', name: 'Scout' },
         }),
       ],
       [],
     )
-    expect(rows[0].authorAgentId).toBe('ag-1')
+    expect(rows[0].authorId).toBe('ag-1')
   })
 
   it('names a live stream that has no server row yet', () => {
@@ -247,7 +249,7 @@ describe('mergeTimeline', () => {
         text: 'thin',
       },
     })
-    expect(rows[0].authorAgentId).toBe('ag-1')
+    expect(rows[0].authorId).toBe('ag-1')
   })
 
   it('shows the live progress line in place of the block text', () => {
@@ -255,7 +257,7 @@ describe('mergeTimeline', () => {
       [
         serverItem({
           id: 'msg-p1',
-          author_kind: 'agent',
+          author: { kind: 'agent', id: 'agent-1', name: 'Scout' },
           run_id: 'run-1',
           status: 'streaming',
           blocks: [{ type: 'progress', run_id: 'run-1', text: 'Thinking…' }],
@@ -287,7 +289,7 @@ describe('mergeTimeline', () => {
     expect(rows[0].key).toBe('msg-p1')
     expect(rows[0].status).toBe('streaming')
     expect(rows[0].runId).toBe('run-1')
-    expect(rows[0].authorAgentId).toBe('ag-1')
+    expect(rows[0].authorId).toBe('ag-1')
     expect(rows[0].blocks).toEqual([
       { type: 'progress', run_id: 'run-1', text: 'Running `git status`…' },
     ])
@@ -298,7 +300,7 @@ describe('mergeTimeline', () => {
       [
         serverItem({
           id: 'msg-p1',
-          author_kind: 'agent',
+          author: { kind: 'agent', id: 'agent-1', name: 'Scout' },
           run_id: 'run-1',
           blocks: [{ type: 'progress', run_id: 'run-1', text: 'Done' }],
         }),
@@ -350,4 +352,22 @@ describe('plainText', () => {
       'Trips Austin San Jose past',
     )
   })
+})
+
+it('groups Person messages by their author id, even when their names match', () => {
+  const rows = mergeTimeline([
+    serverItem({
+      id: 'm3',
+      created_at: 3000,
+      author: { kind: 'person', id: 'person-2', name: 'Ajay' },
+    }),
+    serverItem({
+      id: 'm2',
+      created_at: 2000,
+      author: { kind: 'person', id: 'person-2', name: 'Ajay' },
+    }),
+    serverItem({ id: 'm1', created_at: 1000 }),
+  ], [])
+  const items = buildConversation(rows).filter((item) => item.kind === 'message')
+  expect(items.map((item) => item.grouped)).toEqual([false, false, true])
 })

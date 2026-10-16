@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use pagis_broker::{AuthorizedCall, CoreTool, ToolExecutor, ToolResult, ToolRoute};
-use pagis_core::{AgentId, ChannelId, ChannelStore, Clock, CreatorKind, ScheduleId, WorkspaceId};
+use pagis_core::{AgentId, ChannelId, ChannelStore, Clock, ScheduleId, WorkspaceId};
 use pagis_trigger::{NewSchedule, ScheduleEdit, ScheduleTiming, Trigger, TriggerError};
 
 const USER_CHANNEL: &str = "user";
@@ -63,6 +63,7 @@ impl ScheduleToolRuntime {
         match self
             .trigger
             .create_schedule(NewSchedule {
+                created_by: pagis_core::Author::Agent(call.agent_id.clone()),
                 workspace_id: call.workspace_id.clone(),
                 agent_id: call.agent_id.clone(),
                 name: call.arguments["name"]
@@ -77,7 +78,6 @@ impl ScheduleToolRuntime {
                 channel_id,
                 root_message_id: None,
                 timing,
-                creator: CreatorKind::Agent,
                 creating_run_id: Some(call.run_id.clone()),
                 now: self.clock.now_ms(),
             })
@@ -280,7 +280,7 @@ impl ScheduleToolRuntime {
             .ok_or_else(|| {
                 ToolResult::error(
                     "invalid_request",
-                    "you have no direct channel with the user",
+                    "you have no direct channel with your Person",
                 )
             })
     }

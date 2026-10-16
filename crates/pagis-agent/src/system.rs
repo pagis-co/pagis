@@ -12,7 +12,7 @@ use futures::StreamExt;
 use object_store::ObjectStore;
 use pagis_broker::Broker;
 use pagis_core::{
-    AgentId, AgentStatus, AgentStore, AuthorKind, Block, BriefStore, ChannelKind, ChannelStore,
+    AgentId, AgentStatus, AgentStore, Author, Block, BriefStore, ChannelKind, ChannelStore,
     ConnectionStore, EventBus, EventScope, FailureKind, FileStore, GrantStore, KnownBlock,
     MemoryStore, Message, MessageId, MessageStore, ModelAliasStore, NewEvent, ParticipantStore,
     RequestStore, Run, RunId, RunOrigin, RunSlots, RunState, RunStore, ScheduleStore, TriggerKind,
@@ -289,9 +289,9 @@ impl AgentSystem {
             }
             // User and agent messages trigger; system messages
             // (approval cards, takeover notes) never do.
-            let author_kind = event.payload["author_kind"].clone();
-            if author_kind != serde_json::json!(AuthorKind::User)
-                && author_kind != serde_json::json!(AuthorKind::Agent)
+            let author_kind = event.payload["author"]["kind"].clone();
+            if author_kind != serde_json::json!("person")
+                && author_kind != serde_json::json!("agent")
             {
                 continue;
             }
@@ -377,24 +377,20 @@ impl AgentSystem {
         // an agent reply re-triggering every thread author would
         // ping-pong; agent-to-agent group triggers are
         // mention-based.
-        let thread_authors = match (
-            &channel.kind,
-            message.author_kind,
-            &message.parent_message_id,
-        ) {
-            (ChannelKind::Group, AuthorKind::User, Some(root_id)) => self
+        let thread_authors = match (&channel.kind, &message.author, &message.parent_message_id) {
+            (ChannelKind::Group, Author::Person(_), Some(root_id)) => self
                 .deps
                 .messages
                 .list_thread(&message.workspace_id, root_id)
                 .await?
                 .into_iter()
-                .filter_map(|m| m.author_agent_id)
+                .filter_map(|m| m.author.agent_id().cloned())
                 .collect(),
             _ => HashSet::new(),
         };
         let mut targets = Vec::new();
         for agent_id in participant_ids {
-            if message.author_agent_id.as_ref() == Some(&agent_id) {
+            if message.author.agent_id() == Some(&agent_id) {
                 continue;
             }
             let Some(agent) = self
@@ -458,7 +454,7 @@ impl AgentSystem {
     }
 }
 
-/// True when the message is addressed to the user and triggers no
+/// True when the message is addressed to the Person and triggers no
 /// agent: an `approval_card`, or a derived progress row.
 /// Both view a row the daemon owns; neither is conversation.
 fn addressed_to_the_user(message: &Message) -> bool {
@@ -480,7 +476,7 @@ fn addressed_to_the_user(message: &Message) -> bool {
 /// the sender left to ask elsewhere, and the one its answer must
 /// reach.
 async fn chain_of(deps: &AgentDeps, message: &Message) -> (u32, Option<RunOrigin>) {
-    if message.author_kind != AuthorKind::Agent {
+    if message.author.agent_id().is_none() {
         return (0, None);
     }
     let Some(run_id) = &message.run_id else {
@@ -818,7 +814,7 @@ mod tests {
             "id": "message",
             "workspace_id": "workspace",
             "channel_id": "channel",
-            "author_kind": "user",
+            "author": {"kind": "person", "person_id": "person"},
             "status": "complete",
             "blocks": [],
             "text_content": "Continue",

@@ -64,22 +64,22 @@ pub use conversation_evidence::{
     ConversationScope, ConversationToolEvidence, EvidenceFileRef, RetainedToolEvidence,
 };
 pub use domain::{
-    Agent, AgentMailbox, AgentMailboxState, AgentStatus, AuthorKind, BlockReason, Call,
+    Agent, AgentMailbox, AgentMailboxState, AgentStatus, Author, AuthorDto, BlockReason, Call,
     CallDirection, CallOutcome, CallState, CapabilitySnapshotRecord, Channel, ChannelKind,
-    ChannelParticipant, Classification, Connection, Contribution, ContributionStatus, CreatorKind,
-    Credential, CredentialProvenance, DEFAULT_MODEL_ALIAS, EventDeclaration, EventSource,
-    EventSubscription, EventSubscriptionState, FailureKind, File, FileKind, Grant, IncomingEvent,
-    MailboxCursor, Message, MessageStatus, MessagingReadiness, ModelAlias,
-    OnboardingModelVerification, PAGIS_PROVIDER, ParticipantKind, PhoneNumber, PhoneNumberStatus,
-    Plugin, PluginBinding, PluginBindingValue, PluginSource, PluginState, PluginTool, PluginTools,
-    PurchaseIntent, PurchaseIntentState, Request, RequestState, RetentionPolicy, Run, RunOrigin,
-    RunSlots, RunState, Schedule, ScheduleKind, ScheduleOccurrence, ScheduleRevision,
-    ScheduleState, SealedSecret, SentMail, SoftwarePackage, SoftwareVersion, SourceBatch,
-    SourceBatchOutcome, Speaker, TEXT_THREAD_WINDOW_MS, TelnyxRelayState, TextConversation,
-    TextDeliveryStatus, TextDirection, TextRecord, TranscriptLine, TriggerKind, TrustEntry,
-    TrustSubject, TrustTier, Wakeup, WakeupClaim, WakeupLanding, WakeupRule, WakeupSource,
-    WakeupSourceLink, WakeupState, Workspace, day_start, mail_address, mail_domain, normalize_e164,
-    parse_trust_subject, render_transcript,
+    ChannelParticipant, Classification, Connection, Contribution, ContributionStatus, Credential,
+    CredentialProvenance, DEFAULT_MODEL_ALIAS, EventDeclaration, EventSource, EventSubscription,
+    EventSubscriptionState, FailureKind, File, FileKind, Grant, IncomingEvent, MailboxCursor,
+    Message, MessageStatus, MessagingReadiness, ModelAlias, OnboardingModelVerification,
+    PAGIS_PROVIDER, ParticipantKind, PhoneNumber, PhoneNumberStatus, Plugin, PluginBinding,
+    PluginBindingValue, PluginSource, PluginState, PluginTool, PluginTools, PurchaseIntent,
+    PurchaseIntentState, Request, RequestState, RetentionPolicy, Run, RunOrigin, RunSlots,
+    RunState, Schedule, ScheduleKind, ScheduleOccurrence, ScheduleRevision, ScheduleState,
+    SealedSecret, SentMail, SoftwarePackage, SoftwareVersion, SourceBatch, SourceBatchOutcome,
+    Speaker, TEXT_THREAD_WINDOW_MS, TelnyxRelayState, TextConversation, TextDeliveryStatus,
+    TextDirection, TextRecord, TranscriptLine, TriggerKind, TrustEntry, TrustSubject, TrustTier,
+    Wakeup, WakeupClaim, WakeupLanding, WakeupRule, WakeupSource, WakeupSourceLink, WakeupState,
+    Workspace, day_start, mail_address, mail_domain, normalize_e164, parse_trust_subject,
+    render_transcript,
 };
 pub use event::{Event, NewEvent};
 pub use exposure::message_source_is_live;
@@ -130,9 +130,9 @@ pub use store::{
     EventSubscriptionStore, EventWakeupContext, FileOutcome, FileStore, GrantStore, IngestBatch,
     IngestOutcome, MessageStore, ModelAliasStore, NormalizedEvent, OnboardingStore,
     ParticipantStore, PendingEvidenceStore, PhoneNumberStore, PluginStore, PluginToolStore,
-    REPLY_AUTHORS_MAX, ReplyAuthor, RequestStore, RetentionPolicyStore, RunStore, ScheduleStore,
-    SendOutcome, SentMailStore, SoftwareStore, StoreError, TextRecordStore, TimelineEntry,
-    TriggerStore, TrustListStore, WorkspaceStore,
+    REPLY_AUTHORS_MAX, RequestStore, RetentionPolicyStore, RunStore, ScheduleStore, SendOutcome,
+    SentMailStore, SoftwareStore, StoreError, TextRecordStore, TimelineEntry, TriggerStore,
+    TrustListStore, WorkspaceStore,
 };
 pub use stores::{Stores, seed_org_and_administrator};
 pub use time::{Clock, SystemClock, UnixMillis, local_date, now_ms};

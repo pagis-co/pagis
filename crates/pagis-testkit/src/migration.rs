@@ -28,11 +28,10 @@ INSERT INTO channels (id, workspace_id, kind, title, created_at, updated_at)
     VALUES ('ch', 'w', 'dm', 'Sage', 1, 1);
 INSERT INTO connections (id, workspace_id, provider, alias, display_name, status, auth_mode,
     created_at) VALUES ('cn', 'w', 'gmail', 'work', 'Work mail', 'connected', 'byo', 1);
-INSERT INTO event_subscriptions (id, workspace_id, agent_id, connection_id, event_kind,
-    source_version, name, instruction, channel_id, filter, creator, state, revision,
+INSERT INTO event_subscriptions (created_by_kind, id, workspace_id, agent_id, connection_id, event_kind,
+    source_version, name, instruction, channel_id, filter, state, revision,
     approved_revision, watermark_at, created_at, updated_at)
-    VALUES ('es', 'w', 'a', 'cn', 'mail.message_received', 'v1', 'Inbox', 'Read it', 'ch', '{}',
-    'user', 'active', 1, 1, 1, 1, 1);
+    VALUES ('system', 'es', 'w', 'a', 'cn', 'mail.message_received', 'v1', 'Inbox', 'Read it', 'ch', '{}', 'active', 1, 1, 1, 1, 1);
 INSERT INTO source_batches (id, workspace_id, connection_id, event_kind, collected_at,
     collected_count, stored_count, wakeup_count, outcome)
     VALUES ('sb', 'w', 'cn', 'mail.message_received', 2, 1, 1, 1, 'collected');
@@ -50,7 +49,7 @@ INSERT INTO wakeup_sources (workspace_id, wakeup_id, source_kind, source_id)
 /// Runs created before titles, including a Call that references its Run.
 pub const RUN_TITLE_ROWS: &str = "\
 INSERT INTO messages (id, workspace_id, channel_id, author_kind, status, blocks, text_content, created_at)
-    VALUES ('m', 'w', 'ch', 'user', 'complete', '[]', '  Book the Austin trip  \nIgnore this second line', 3);
+    VALUES ('m', 'w', 'ch', 'system', 'complete', '[]', '  Book the Austin trip  \nIgnore this second line', 3);
 INSERT INTO runs (id, workspace_id, agent_id, trigger_kind, trigger_ref, state, created_at)
     VALUES ('message', 'w', 'a', 'message', 'm', 'completed', 3),
            ('attachment', 'w', 'a', 'message', NULL, 'completed', 3),
@@ -124,11 +123,11 @@ INSERT INTO coding_sessions (id, workspace_id, agent_id, harness_id, harness_ver
     'idle', 'ch', 'm1', 'm2', 'r', 1, 1, '4f1c');
 INSERT INTO coding_session_events (workspace_id, coding_session_id, seq, at, kind, payload)
     VALUES ('w', 'cs', 1, 1, 'prompt', '{\"text\":\"Fix it.\"}');
-INSERT INTO event_subscriptions (id, workspace_id, agent_id, coding_session_id, event_kind,
-    source_version, name, instruction, channel_id, filter, creator, state, revision,
+INSERT INTO event_subscriptions (created_by_kind, id, workspace_id, agent_id, coding_session_id, event_kind,
+    source_version, name, instruction, channel_id, filter, state, revision,
     approved_revision, created_at, updated_at)
-    VALUES ('es', 'w', 'a', 'cs', 'coding_session.turn_ended', 'v1', 'Turn ended', 'Read it',
-    'ch', '{}', 'agent', 'active', 1, 1, 1, 1);
+    VALUES ('system', 'es', 'w', 'a', 'cs', 'coding_session.turn_ended', 'v1', 'Turn ended', 'Read it',
+    'ch', '{}', 'active', 1, 1, 1, 1);
 ";
 
 /// The version of the migration that gives a Coding Session its Harness
@@ -155,11 +154,11 @@ INSERT INTO coding_sessions (id, workspace_id, agent_id, harness_id, harness_ver
 INSERT INTO coding_session_events (workspace_id, coding_session_id, seq, at, kind, payload)
     VALUES ('w', 'cs', 1, 1, 'prompt', '{\"text\":\"Fix it.\"}'),
     ('w', 'cs', 2, 2, 'turn_end', '{\"stop_reason\":\"end_turn\"}');
-INSERT INTO event_subscriptions (id, workspace_id, agent_id, coding_session_id, event_kind,
-    source_version, name, instruction, channel_id, filter, creator, state, revision,
+INSERT INTO event_subscriptions (created_by_kind, id, workspace_id, agent_id, coding_session_id, event_kind,
+    source_version, name, instruction, channel_id, filter, state, revision,
     approved_revision, created_at, updated_at)
-    VALUES ('es', 'w', 'a', 'cs', 'coding_session.turn_ended', 'v1', 'Turn ended', 'Read it',
-    'ch', '{}', 'agent', 'active', 1, 1, 1, 1);
+    VALUES ('system', 'es', 'w', 'a', 'cs', 'coding_session.turn_ended', 'v1', 'Turn ended', 'Read it',
+    'ch', '{}', 'active', 1, 1, 1, 1);
 ";
 
 /// The migrations of `directory` before `version`, from a directory of

@@ -1,7 +1,7 @@
 //! Boot recovery of queued and interrupted Runs.
 
 use pagis_core::{
-    AuthorKind, Block, EventLog, Message, MessageId, MessageStatus, MessageStore, NewEvent,
+    Author, Block, EventLog, Message, MessageId, MessageStatus, MessageStore, NewEvent,
     RequestStore, Run, RunState, RunStore, StoreError, blocks_text, now_ms,
 };
 
@@ -96,8 +96,7 @@ async fn post_restart_note(
         workspace_id: run.workspace_id.clone(),
         channel_id,
         parent_message_id: run.root_message_id.clone(),
-        author_kind: AuthorKind::System,
-        author_agent_id: None,
+        author: Author::System,
         run_id: Some(run.id.clone()),
         status: MessageStatus::Complete,
         text_content: blocks_text(&blocks),
@@ -118,7 +117,7 @@ async fn post_restart_note(
             payload: serde_json::json!({
                 "message_id": note.id.as_str(),
                 "parent_message_id": note.parent_message_id.as_ref().map(|p| p.as_str()),
-                "author_kind": AuthorKind::System,
+                "author": {"kind": "system", "id": null, "name": "Pagis"},
             }),
         })
         .await?;

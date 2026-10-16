@@ -355,7 +355,7 @@ async fn open_a_page_and_report(computer_call: serde_json::Value) {
     // The agent's reply reports the page content.
     let reply = loop {
         let frame = next_frame_of(&mut socket, "message.completed").await;
-        if frame["payload"]["payload"]["author_kind"] == "agent" {
+        if frame["payload"]["payload"]["author"]["kind"] == "agent" {
             break frame;
         }
     };
@@ -521,7 +521,7 @@ async fn takeover_denies_the_agent_and_handback_resumes_with_the_note() {
         let payload = &frame["payload"]["payload"];
         match frame["type"].as_str() {
             Some("run.state_changed") => completed |= payload["to"] == "completed",
-            Some("message.completed") => noted |= payload["author_kind"] == "system",
+            Some("message.completed") => noted |= payload["author"]["kind"] == "system",
             _ => {}
         }
     }
@@ -547,7 +547,7 @@ async fn takeover_denies_the_agent_and_handback_resumes_with_the_note() {
         .as_array()
         .unwrap()
         .iter()
-        .find(|item| item["author_kind"] == "system")
+        .find(|item| item["author"]["kind"] == "system")
         .expect("a system block exists");
     assert!(
         block["text_content"]

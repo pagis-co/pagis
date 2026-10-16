@@ -140,7 +140,7 @@ pub enum NoModelRoute {
     /// No provider of the harness's routes holds an Org key.
     #[error(
         "{label} in your computer spends this installation's {} key, and the installation has \
-         none. Ask the user to have an administrator add one in the Administration Interface.",
+         none. Ask your Person to have an administrator add one in the Administration Interface.",
         provider_names(providers)
     )]
     NoKey {
@@ -151,7 +151,7 @@ pub enum NoModelRoute {
     /// an Org key on the harness's routes.
     #[error(
         "{label} in your computer uses a model of your model alias {alias:?} from the \
-         {} provider, and the alias has no candidate of it. Ask the user to add a candidate \
+         {} provider, and the alias has no candidate of it. Ask your Person to add a candidate \
          of that provider to the alias.",
         provider_names(providers)
     )]

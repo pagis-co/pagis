@@ -339,7 +339,7 @@ impl TriggerStore for FakeTriggerStore {
             .collect::<Result<_, _>>()?;
         for (schedule, (scheduled_at, next)) in schedules.into_iter().zip(windows) {
             let scheduled_at = scheduled_at.expect("due Schedule has a due time");
-            if schedule.creator == CreatorKind::Agent
+            if matches!(schedule.created_by, Author::Agent(_))
                 && schedule.approved_revision != Some(schedule.revision)
             {
                 let row = data

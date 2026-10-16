@@ -10,6 +10,7 @@ mod analytics;
 mod api;
 mod arrival_commit;
 mod arrival_reflection;
+mod authorship;
 mod backfill_reflection;
 mod backup;
 mod blocks;

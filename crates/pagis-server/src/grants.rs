@@ -27,6 +27,7 @@ use crate::error::ApiError;
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct GrantDto {
+    pub created_by: pagis_core::AuthorDto,
     pub id: String,
     pub agent_id: String,
     /// Denormalized so the settings page renders standalone.
@@ -108,8 +109,20 @@ fn host_unattended_modes(grant: &Grant) -> Option<bool> {
     (grant.resource_kind == Grant::HOST_KIND).then(|| grant.unattended_modes())
 }
 
-pub(crate) fn grant_dto(grant: &Grant, agent_name: &str) -> GrantDto {
-    GrantDto {
+pub(crate) async fn grant_dto(
+    state: &AppState,
+    grant: &Grant,
+    agent_name: &str,
+) -> Result<GrantDto, ApiError> {
+    Ok(GrantDto {
+        created_by: grant
+            .created_by
+            .resolve(
+                &grant.workspace_id,
+                state.users.as_ref(),
+                state.agent_store.as_ref(),
+            )
+            .await?,
         id: grant.id.to_string(),
         agent_id: grant.agent_id.to_string(),
         agent_name: agent_name.to_string(),
@@ -122,7 +135,7 @@ pub(crate) fn grant_dto(grant: &Grant, agent_name: &str) -> GrantDto {
         unattended_modes: host_unattended_modes(grant),
         revision: grant.revision,
         created_at: grant.created_at,
-    }
+    })
 }
 
 async fn agent_names(
@@ -187,19 +200,14 @@ pub async fn list_grants(
     tenant: Tenant,
 ) -> Result<Json<GrantPage>, ApiError> {
     let names = agent_names(&state, &tenant).await?;
-    let items = state
-        .grants
-        .list_live(&tenant.workspace_id)
-        .await?
-        .iter()
-        .map(|grant| {
-            let name = names
-                .get(grant.agent_id.as_str())
-                .map(String::as_str)
-                .unwrap_or("unknown agent");
-            grant_dto(grant, name)
-        })
-        .collect();
+    let mut items = Vec::new();
+    for grant in state.grants.list_live(&tenant.workspace_id).await? {
+        let name = names
+            .get(grant.agent_id.as_str())
+            .map(String::as_str)
+            .unwrap_or("unknown Agent");
+        items.push(grant_dto(&state, &grant, name).await?);
+    }
     Ok(Json(GrantPage { items }))
 }
 
@@ -231,6 +239,7 @@ pub async fn create_connection_grant(
         .await?;
 
     let grant = Grant {
+        created_by: pagis_core::Author::Person(tenant.user_id.clone()),
         id: GrantId::generate(),
         workspace_id: tenant.workspace_id.clone(),
         agent_id,
@@ -243,7 +252,10 @@ pub async fn create_connection_grant(
     };
     state.grants.create(&grant).await?;
     publish_grant_event(&state, &grant, "grant.created").await?;
-    Ok((StatusCode::CREATED, Json(grant_dto(&grant, &agent.name))))
+    Ok((
+        StatusCode::CREATED,
+        Json(grant_dto(&state, &grant, &agent.name).await?),
+    ))
 }
 
 #[utoipa::path(
@@ -311,7 +323,7 @@ pub async fn set_grant_capabilities(
         .get(changed.agent_id.as_str())
         .map(String::as_str)
         .unwrap_or("unknown agent");
-    Ok(Json(grant_dto(&changed, name)))
+    Ok(Json(grant_dto(&state, &changed, name).await?))
 }
 
 #[utoipa::path(
@@ -395,7 +407,7 @@ pub async fn set_grant_rules(
         .get(grant.agent_id.as_str())
         .map(String::as_str)
         .unwrap_or("unknown agent");
-    Ok(Json(grant_dto(&grant, name)))
+    Ok(Json(grant_dto(&state, &grant, name).await?))
 }
 
 /// Set the widest Session Approval Mode of an Agent on a machine. The
@@ -515,6 +527,7 @@ async fn set_host_grant_field(
         .await?;
     let Some(grant) = live else {
         let mut grant = Grant {
+            created_by: pagis_core::Author::Person(tenant.user_id.clone()),
             id: GrantId::generate(),
             workspace_id: tenant.workspace_id.clone(),
             agent_id: agent.id.clone(),
@@ -528,10 +541,16 @@ async fn set_host_grant_field(
         grant.scope = change(&grant);
         state.grants.create(&grant).await?;
         publish_grant_event(state, &grant, "grant.changed").await?;
-        return Ok((StatusCode::CREATED, Json(grant_dto(&grant, &agent.name))));
+        return Ok((
+            StatusCode::CREATED,
+            Json(grant_dto(state, &grant, &agent.name).await?),
+        ));
     };
     if holds(&grant) {
-        return Ok((StatusCode::OK, Json(grant_dto(&grant, &agent.name))));
+        return Ok((
+            StatusCode::OK,
+            Json(grant_dto(state, &grant, &agent.name).await?),
+        ));
     }
     let scope = change(&grant);
     if !state
@@ -547,7 +566,10 @@ async fn set_host_grant_field(
         .await?
         .ok_or_else(|| ApiError::not_found("grant"))?;
     publish_grant_event(state, &changed, "grant.changed").await?;
-    Ok((StatusCode::OK, Json(grant_dto(&changed, &agent.name))))
+    Ok((
+        StatusCode::OK,
+        Json(grant_dto(state, &changed, &agent.name).await?),
+    ))
 }
 
 #[utoipa::path(

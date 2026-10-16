@@ -7,8 +7,8 @@
 //! neither reaches this file.
 
 use pagis_core::{
-    AgentId, ChannelId, CreatorKind, EventSource, EventSubscription, EventSubscriptionState,
-    MessageId, WorkspaceId,
+    AgentId, ChannelId, EventSource, EventSubscription, EventSubscriptionState, MessageId,
+    WorkspaceId,
 };
 
 /// What a caller asks for when it creates a subscription. The daemon
@@ -16,6 +16,7 @@ use pagis_core::{
 /// the caller can choose.
 #[derive(Debug, Clone)]
 pub struct NewSubscription {
+    pub created_by: pagis_core::Author,
     pub workspace_id: WorkspaceId,
     pub agent_id: AgentId,
     pub source: EventSource,
@@ -25,7 +26,7 @@ pub struct NewSubscription {
     pub channel_id: ChannelId,
     pub root_message_id: Option<MessageId>,
     pub filter: serde_json::Value,
-    pub creator: CreatorKind,
+
     pub now: i64,
 }
 

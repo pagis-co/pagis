@@ -7,7 +7,7 @@ use sqlx::{PgPool, Row};
 
 use crate::db_err;
 
-const COLUMNS: &str = "id, workspace_id, agent_id, run_id, kind, payload, state, \
+const COLUMNS: &str = "decided_by_kind, decided_by_person_id, decided_by_agent_id, id, workspace_id, agent_id, run_id, kind, payload, state, \
                        submitted_values, decided_at, created_at";
 
 #[derive(Clone)]
@@ -26,6 +26,17 @@ fn row_to_request(row: &sqlx::postgres::PgRow) -> Result<Request, StoreError> {
     let values: Option<String> = row.get("submitted_values");
     let state: String = row.get("state");
     Ok(Request {
+        decided_by: row
+            .get::<Option<String>, _>("decided_by_kind")
+            .map(|kind| {
+                pagis_core::Author::from_columns(
+                    &kind,
+                    row.get("decided_by_person_id"),
+                    row.get("decided_by_agent_id"),
+                )
+                .map_err(StoreError::Corrupt)
+            })
+            .transpose()?,
         id: RequestId::from(row.get::<String, _>("id")),
         workspace_id: WorkspaceId::from(row.get::<String, _>("workspace_id")),
         agent_id: AgentId::from(row.get::<String, _>("agent_id")),
@@ -47,10 +58,13 @@ fn row_to_request(row: &sqlx::postgres::PgRow) -> Result<Request, StoreError> {
 impl RequestStore for PostgresRequestStore {
     async fn create(&self, request: &Request) -> Result<(), StoreError> {
         sqlx::query(
-            "INSERT INTO requests (id, workspace_id, agent_id, run_id, kind, payload, state, \
+            "INSERT INTO requests (decided_by_kind, decided_by_person_id, decided_by_agent_id, id, workspace_id, agent_id, run_id, kind, payload, state, \
              submitted_values, decided_at, created_at) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
         )
+        .bind(request.decided_by.as_ref().map(|a| a.kind()))
+        .bind(request.decided_by.as_ref().and_then(|a| a.person_id()).map(|id| id.as_str()))
+        .bind(request.decided_by.as_ref().and_then(|a| a.agent_id()).map(|id| id.as_str()))
         .bind(request.id.as_str())
         .bind(request.workspace_id.as_str())
         .bind(request.agent_id.as_str())
@@ -110,12 +124,16 @@ impl RequestStore for PostgresRequestStore {
         id: &RequestId,
         state: RequestState,
         values: Option<serde_json::Value>,
+        decided_by: pagis_core::Author,
         decided_at: UnixMillis,
     ) -> Result<DecideOutcome, StoreError> {
         let updated = sqlx::query(
-            "UPDATE requests SET state = $1, submitted_values = $2, decided_at = $3 \
-             WHERE id = $4 AND workspace_id = $5 AND state = 'pending'",
+            "UPDATE requests SET decided_by_kind = $1, decided_by_person_id = $2, decided_by_agent_id = $3, state = $4, submitted_values = $5, decided_at = $6 \
+             WHERE id = $7 AND workspace_id = $8 AND state = 'pending'",
         )
+        .bind(decided_by.kind())
+        .bind(decided_by.person_id().map(|id| id.as_str()))
+        .bind(decided_by.agent_id().map(|id| id.as_str()))
         .bind(state.as_str())
         .bind(values.as_ref().map(ToString::to_string))
         .bind(decided_at)
@@ -142,7 +160,7 @@ impl RequestStore for PostgresRequestStore {
         decided_at: UnixMillis,
     ) -> Result<u64, StoreError> {
         let updated = sqlx::query(
-            "UPDATE requests SET state = 'expired', decided_at = $1 \
+            "UPDATE requests SET decided_by_kind = 'system', decided_by_person_id = NULL, decided_by_agent_id = NULL, state = 'expired', decided_at = $1 \
              WHERE run_id = $2 AND workspace_id = $3 AND state = 'pending'",
         )
         .bind(decided_at)

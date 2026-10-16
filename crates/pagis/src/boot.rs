@@ -383,6 +383,7 @@ async fn expire_harness_permissions(stores: &pagis_core::Stores) -> anyhow::Resu
                     &request.id,
                     pagis_core::RequestState::Expired,
                     None,
+                    pagis_core::Author::System,
                     now,
                 )
                 .await?;

@@ -2,7 +2,7 @@
 // every durable rule. A needs-you queue sits at the top, then
 // Schedules, then Event Subscriptions. Selecting a row opens the
 // detail body, which carries the rule's current revision, state,
-// creator, Agent, destination, timing or filter, next due, last
+// author, Agent, destination, timing or filter, next due, last
 // occurrence, last Run result, and the paginated occurrence and
 // Wake-up history from ADR-0006.
 //
@@ -462,7 +462,7 @@ function ScheduleDetail({
           <dl className="automations-fields">
             <Field label="State">{row.state.replaceAll('_', ' ')}</Field>
             <Field label="Revision">{row.revision}</Field>
-            <Field label="Creator">{row.creator}</Field>
+            <Field label="Created by">{row.created_by.name}</Field>
             <Field label="Sprite">{names.agents.get(row.agent_id) ?? row.agent_id}</Field>
             <Field label="Destination">
               {names.channels.get(row.channel_id) ?? row.channel_id}
@@ -667,7 +667,7 @@ function SubscriptionDetail({
           <dl className="automations-fields">
             <Field label="State">{row.state.replaceAll('_', ' ')}</Field>
             <Field label="Revision">{row.revision}</Field>
-            <Field label="Creator">{row.creator}</Field>
+            <Field label="Created by">{row.created_by.name}</Field>
             <Field label="Sprite">{names.agents.get(row.agent_id) ?? row.agent_id}</Field>
             <Field label="Destination">
               {names.channels.get(row.channel_id) ?? row.channel_id}

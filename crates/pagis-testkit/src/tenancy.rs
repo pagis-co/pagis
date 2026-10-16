@@ -20,7 +20,7 @@ use std::sync::Arc;
 use pagis_audit::AuditEventBus;
 use pagis_core::{
     AgentMailbox, AgentMailboxState, Call, CallDirection, CallState, Connection, ConnectionId,
-    Contribution, ContributionStatus, CreatorKind, Credential, CredentialId, CredentialProvenance,
+    Contribution, ContributionStatus, Credential, CredentialId, CredentialProvenance,
     EventSubscription, EventSubscriptionId, EventSubscriptionState, PhoneNumber, PhoneNumberId,
     PluginId, PurchaseIntent, Schedule, ScheduleId, ScheduleKind, ScheduleState, SealedSecret,
     TrustEntry, TrustEntryId, TrustSubject, TrustTier, User, UserRole, Workspace, WorkspaceId,
@@ -555,7 +555,18 @@ async fn seed_a(
     owned.insert("push_subscription_id", push_subscription.id.to_string());
 
     let messages = &stores.messages;
-    let message = fixture::user_message(workspace_id, &channel_id, "A's own words");
+    let message = fixture::person_message(
+        workspace_id,
+        &stores
+            .workspaces
+            .get(workspace_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .user_id,
+        &channel_id,
+        "A's own words",
+    );
     messages.insert(&message).await.expect("write A's message");
     owned.insert("root_message_id", message.id.to_string());
 
@@ -630,6 +641,7 @@ async fn seed_a(
 
     let credentials = &stores.credentials;
     let credential = Credential {
+        created_by: pagis_core::Author::System,
         id: CredentialId::generate(),
         workspace_id: workspace_id.clone(),
         domain: "example.com".to_string(),
@@ -651,6 +663,7 @@ async fn seed_a(
 
     let schedules = &stores.schedules;
     let schedule = Schedule {
+        created_by: pagis_core::Author::System,
         id: ScheduleId::generate(),
         workspace_id: workspace_id.clone(),
         agent_id: agent_id.clone(),
@@ -670,7 +683,6 @@ async fn seed_a(
         state: ScheduleState::Active,
         revision: 1,
         approved_revision: Some(1),
-        creator: CreatorKind::User,
         creating_run_id: None,
         created_at: now,
         updated_at: now,
@@ -684,6 +696,7 @@ async fn seed_a(
 
     let subscriptions = &stores.subscriptions;
     let subscription = EventSubscription {
+        created_by: pagis_core::Author::System,
         id: EventSubscriptionId::generate(),
         workspace_id: workspace_id.clone(),
         agent_id: agent_id.clone(),
@@ -695,7 +708,6 @@ async fn seed_a(
         channel_id: channel_id.clone(),
         root_message_id: None,
         filter: serde_json::json!({}),
-        creator: CreatorKind::User,
         state: EventSubscriptionState::Active,
         revision: 1,
         approved_revision: Some(1),

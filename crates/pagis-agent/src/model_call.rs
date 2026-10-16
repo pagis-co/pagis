@@ -347,7 +347,7 @@ mod tests {
             person_id: Some(pagis_core::UserId::from("person-one".to_string())),
             model_alias: "default".into(),
             model_candidates: vec!["openai/gpt-6-luna".into()],
-            system: "Follow the user.".into(),
+            system: "Follow your Person.".into(),
             messages: vec![message],
             tools: vec![],
             computer: false,
@@ -358,7 +358,7 @@ mod tests {
 
         let captured = request_json(&request);
 
-        assert_eq!(captured["system"], "Follow the user.");
+        assert_eq!(captured["system"], "Follow your Person.");
         assert_eq!(captured["messages"][0]["text"], "look at this");
         assert_eq!(
             captured["messages"][0]["images"][0]["media_type"],

@@ -366,8 +366,8 @@ impl CodingToolRuntime {
         if !granted {
             return Err(ToolResult::error(
                 "permission_revoked",
-                "the user revoked your access to the computer of this coding session; ask the \
-                 user to allow it again",
+                "your Person revoked your access to the computer of this coding session; ask your \
+                 Person to allow it again",
             ));
         }
         self.sessions
@@ -937,8 +937,8 @@ mod tests {
             let content: serde_json::Value = serde_json::from_str(&result.content).unwrap();
             assert_eq!(
                 content["error"]["message"],
-                "pi acts without asking, and the user does not allow modes that act without \
-                 asking for you on Air. The session is closed. Ask the user to allow them."
+                "pi acts without asking, and your Person does not allow modes that act without \
+                 asking for you on Air. The session is closed. Ask your Person to allow them."
             );
         }
     }

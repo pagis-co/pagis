@@ -106,8 +106,7 @@ function stubApi(queue: NeedsYouItem[]) {
                 agent_ids: ['agent-2'],
                 user_member: true,
                 last_message: {
-                  author_kind: 'agent',
-                  author_agent_id: 'agent-2',
+                  author: { kind: 'agent', id: 'agent-2', name: 'Scout' },
                   created_at: NOW,
                   text_content: 'Which flight do you want on Tuesday?',
                 },

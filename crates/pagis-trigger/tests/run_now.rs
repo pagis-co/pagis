@@ -29,6 +29,7 @@ async fn daily_report(
 ) -> pagis_core::Schedule {
     trigger
         .create_cron(NewCron {
+            created_by: pagis_core::Author::System,
             workspace_id: ids.0,
             agent_id: ids.1,
             name: "Daily report".to_string(),

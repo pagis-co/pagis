@@ -72,6 +72,7 @@ impl Fixture {
 
     fn grant(&self, kind: &str, resource_id: String, capabilities: &[&str]) -> Grant {
         Grant {
+            created_by: pagis_core::Author::System,
             id: GrantId::generate(),
             workspace_id: self.workspace_id.clone(),
             agent_id: self.agent_id.clone(),

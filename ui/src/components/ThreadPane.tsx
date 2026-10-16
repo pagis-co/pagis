@@ -12,6 +12,7 @@ import type { ApiClient } from '../api/client'
 import {
   useAgentNames,
   useAgents,
+  useUser,
   useSendMessage,
   useThread,
 } from '../queries'
@@ -62,9 +63,11 @@ export function ThreadPane({
   const progress = useRunProgress(selectRunProgress(scope))
   const send = useSendMessage(api, channelId, rootId)
   const agentNames = useAgentNames(api)
+  const person = useUser(api).data
+  const personName = person?.name ?? person?.email ?? 'Person'
   const agents = useAgents(api)
   const nameOf = (row: TimelineRow): string | undefined =>
-    row.authorAgentId === null ? undefined : agentNames[row.authorAgentId]
+    row.authorKind === 'person' ? personName : row.authorId === null ? undefined : agentNames[row.authorId]
 
   const rows = useMemo(() => {
     // The merge expects the newest-first server order.
@@ -76,9 +79,7 @@ export function ThreadPane({
   const rootName =
     root === undefined
       ? undefined
-      : root.author_kind === 'user'
-        ? 'You'
-        : ((root.author_agent_id == null ? undefined : agentNames[root.author_agent_id]) ?? 'Sprite')
+      : root.author.name
 
   return (
     <aside className="thread-pane" data-testid="thread-pane">
@@ -123,14 +124,14 @@ export function ThreadPane({
                   api={api}
                   row={row}
                   agentName={nameOf(row) ?? 'Sprite'}
-                  agentAppearance={agents.data?.find((agent) => agent.id === row.authorAgentId)?.avatar}
+                  agentAppearance={agents.data?.find((agent) => agent.id === row.authorId)?.avatar}
                 />
               ) : (
                 <MessageRow
                   key={row.key}
                   api={api}
                   row={row}
-                  authorAppearance={agents.data?.find((agent) => agent.id === row.authorAgentId)?.avatar}
+                  authorAppearance={agents.data?.find((agent) => agent.id === row.authorId)?.avatar}
                   authorName={nameOf(row)}
                   onRetry={(pendingId, text) => send.mutate({ pendingId, text })}
                 />

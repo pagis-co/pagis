@@ -15,6 +15,7 @@ import { Button, ReadingColumn } from '../primitives'
 import {
   useAgentNames,
   useAgents,
+  useUser,
   useChannels,
   useSendMessage,
   useTimeline,
@@ -77,7 +78,7 @@ function searchItems(items: ConversationItem[], query: string): ConversationItem
 function questionBefore(items: ConversationItem[], index: number): string | null {
   for (let at = index - 1; at >= 0; at -= 1) {
     const item = items[at]
-    if (item.kind === 'message' && item.row.authorKind === 'user') return item.row.text
+    if (item.kind === 'message' && item.row.authorKind === 'person') return item.row.text
   }
   return null
 }
@@ -105,6 +106,8 @@ export function Timeline({
   const query = useThreadSearch(selectThreadQuery(channelId))
   const send = useSendMessage(api, channelId)
   const agentNames = useAgentNames(api)
+  const person = useUser(api).data
+  const personName = person?.name ?? person?.email ?? 'Person'
   const agents = useAgents(api)
   const channels = useChannels(api)
   const channel = (channels.data ?? []).find((item) => item.id === channelId)
@@ -214,13 +217,13 @@ export function Timeline({
       return <PointerRow row={item.row} onOpenChannel={onOpenChannel} />
     }
     if (item.kind === 'working' || item.kind === 'reflecting') {
-      const agentId = item.row.authorAgentId
+      const agentId = item.row.authorId
       return (
         <WorkingRow
           api={api}
           row={item.row}
-          agentName={agentName(item.row.authorAgentId)}
-          agentAppearance={agentAppearance(item.row.authorAgentId)}
+          agentName={agentName(item.row.authorId)}
+          agentAppearance={agentAppearance(item.row.authorId)}
           onOpenDesk={agentId === null ? undefined : () => onOpenDesk(agentId)}
         />
       )
@@ -232,8 +235,8 @@ export function Timeline({
           api={api}
           row={item.row}
           outcome={item.outcome}
-          authorName={agentName(item.row.authorAgentId)}
-          authorAppearance={agentAppearance(item.row.authorAgentId)}
+          authorName={agentName(item.row.authorId)}
+          authorAppearance={agentAppearance(item.row.authorId)}
           onAskAgain={() => {
             if (question !== null) {
               useComposerDraft.getState().set(threadScope(channelId), question)
@@ -248,11 +251,13 @@ export function Timeline({
         row={item.row}
         grouped={item.grouped}
         work={item.work}
-        authorAppearance={agentAppearance(item.row.authorAgentId)}
+        authorAppearance={agentAppearance(item.row.authorId)}
         authorName={
-          item.row.authorAgentId === null
+          item.row.authorKind === 'person'
+            ? personName
+            : item.row.authorId === null
             ? undefined
-            : agentNames[item.row.authorAgentId]
+            : agentNames[item.row.authorId]
         }
         onRetry={(pendingId, text) => send.mutate({ pendingId, text })}
         onOpenThread={onOpenThread}
@@ -263,9 +268,9 @@ export function Timeline({
             .catch(() => undefined)
         }}
         onShowScreenshot={(screenshotId) => {
-          if (item.row.authorAgentId === null) return
+          if (item.row.authorId === null) return
           useDeskFocus.getState().show(screenshotId)
-          onOpenDesk(item.row.authorAgentId)
+          onOpenDesk(item.row.authorId)
         }}
       />
     )

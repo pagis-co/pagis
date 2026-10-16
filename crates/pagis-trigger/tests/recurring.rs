@@ -14,6 +14,7 @@ async fn a_subject_schedule_refuses_a_reschedule_inside_its_cooldown() {
     let due = NOW + MINUTE;
     let schedule = trigger
         .create_schedule(NewSchedule {
+            created_by: pagis_core::Author::Agent(agent_id.clone()),
             workspace_id: workspace_id.clone(),
             agent_id: agent_id.clone(),
             name: "School follow-up".into(),
@@ -25,7 +26,6 @@ async fn a_subject_schedule_refuses_a_reschedule_inside_its_cooldown() {
                 local_time: "2027-01-15T08:01:00".into(),
                 timezone: "UTC".into(),
             },
-            creator: pagis_core::CreatorKind::Agent,
             creating_run_id: None,
             now: NOW,
         })
@@ -73,6 +73,7 @@ async fn interval_uses_its_anchor_when_processing_is_late() {
     let anchor = NOW + MINUTE;
     let schedule = trigger
         .create_interval(NewInterval {
+            created_by: pagis_core::Author::System,
             workspace_id,
             agent_id,
             name: "Mailbox review".to_string(),
@@ -106,6 +107,7 @@ async fn interval_downtime_creates_one_latest_occurrence_without_a_backlog() {
     let anchor = NOW + MINUTE;
     let schedule = trigger
         .create_interval(NewInterval {
+            created_by: pagis_core::Author::System,
             workspace_id,
             agent_id,
             name: "Mailbox review".to_string(),
@@ -158,6 +160,7 @@ async fn interval_rejects_a_cadence_below_one_minute() {
     let (trigger, workspace_id, agent_id, channel_id) = setup().await;
     let result = trigger
         .create_interval(NewInterval {
+            created_by: pagis_core::Author::System,
             workspace_id,
             agent_id,
             name: "Too frequent".to_string(),
@@ -184,6 +187,7 @@ async fn cron_moves_a_spring_gap_to_the_first_valid_local_instant() {
         .timestamp_millis();
     let schedule = trigger
         .create_cron(NewCron {
+            created_by: pagis_core::Author::System,
             workspace_id,
             agent_id,
             name: "Daily review".to_string(),
@@ -211,6 +215,7 @@ async fn cron_uses_the_first_instant_in_a_repeated_hour() {
         .timestamp_millis();
     let schedule = trigger
         .create_cron(NewCron {
+            created_by: pagis_core::Author::System,
             workspace_id,
             agent_id,
             name: "Daily review".to_string(),
@@ -238,6 +243,7 @@ async fn cron_downtime_creates_only_the_latest_due_occurrence() {
         .timestamp_millis();
     let schedule = trigger
         .create_cron(NewCron {
+            created_by: pagis_core::Author::System,
             workspace_id,
             agent_id,
             name: "Daily review".to_string(),
@@ -285,6 +291,7 @@ async fn occurrences_during_an_active_run_share_one_pending_wakeup() {
     let anchor = NOW + MINUTE;
     let schedule = trigger
         .create_interval(NewInterval {
+            created_by: pagis_core::Author::System,
             workspace_id: workspace_id.clone(),
             agent_id: agent_id.clone(),
             name: "Mailbox review".to_string(),
@@ -369,6 +376,7 @@ async fn pause_resume_and_skip_next_do_not_catch_up() {
     let anchor = NOW + MINUTE;
     let schedule = trigger
         .create_interval(NewInterval {
+            created_by: pagis_core::Author::System,
             workspace_id,
             agent_id,
             name: "Mailbox review".to_string(),
@@ -440,6 +448,7 @@ async fn skip_next_conflicts_when_due_processing_won() {
     let anchor = NOW + MINUTE;
     let schedule = trigger
         .create_interval(NewInterval {
+            created_by: pagis_core::Author::System,
             workspace_id,
             agent_id,
             name: "Mailbox review".to_string(),
@@ -481,6 +490,7 @@ async fn edit_preserves_revisions_and_withdraws_only_pending_old_work() {
     let anchor = NOW + MINUTE;
     let schedule = trigger
         .create_interval(NewInterval {
+            created_by: pagis_core::Author::System,
             workspace_id: workspace_id.clone(),
             agent_id: agent_id.clone(),
             name: "Mailbox review".to_string(),

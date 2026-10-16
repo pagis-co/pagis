@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use pagis_core::{
-    AuthorKind, ConversationEvidenceHit, ConversationEvidenceMessage, ConversationEvidenceStore,
+    ConversationEvidenceHit, ConversationEvidenceMessage, ConversationEvidenceStore,
     ConversationScope, ConversationToolEvidence, EvidenceFileRef, MessageId, RetainedToolEvidence,
     StoreError,
 };
@@ -37,7 +37,7 @@ fn root_predicate(root: Option<&MessageId>) -> (&'static str, Option<&str>) {
 
 fn live_source_predicate() -> &'static str {
     "NOT EXISTS (SELECT 1 FROM forgotten_messages f WHERE f.message_id = m.id) \
-     AND (m.author_kind = 'user' OR (\
+     AND (m.author_kind = 'person' OR (\
        EXISTS (SELECT 1 FROM message_exposure_sets s WHERE s.message_id = m.id) \
        AND NOT EXISTS (\
          SELECT 1 FROM message_exposures x \
@@ -66,7 +66,7 @@ impl ConversationEvidenceStore for SqliteConversationEvidenceStore {
         let (root_sql, root) = root_predicate(scope.root_message_id.as_ref());
         let (after_id, after_reference) = search_cursor(after);
         let sql = format!(
-            "SELECT m.id, m.author_kind, m.author_agent_id, m.created_at, \
+            "SELECT m.id, m.author_kind, m.author_person_id, m.author_agent_id, m.created_at, \
              snippet(conversation_message_search, 2, '[', ']', '...', 18) AS snippet \
              FROM conversation_message_search s JOIN messages m ON m.id = s.message_id \
              WHERE conversation_message_search MATCH ? AND s.workspace_id = ? \
@@ -178,7 +178,7 @@ impl ConversationEvidenceStore for SqliteConversationEvidenceStore {
         }
         let (root_sql, root) = root_predicate(scope.root_message_id.as_ref());
         let sql = format!(
-            "SELECT m.id, m.author_kind, m.author_agent_id, m.created_at, \
+            "SELECT m.id, m.author_kind, m.author_person_id, m.author_agent_id, m.created_at, \
              m.text_content, m.blocks FROM messages m \
              WHERE m.workspace_id = ? AND m.channel_id = ? AND {root_sql} \
              AND m.id > ? AND m.id <= ? AND m.status = 'complete' \
@@ -223,7 +223,7 @@ impl ConversationEvidenceStore for SqliteConversationEvidenceStore {
     ) -> Result<Option<ConversationEvidenceMessage>, StoreError> {
         let (root_sql, root) = root_predicate(scope.root_message_id.as_ref());
         let sql = format!(
-            "SELECT m.id, m.author_kind, m.author_agent_id, m.created_at, \
+            "SELECT m.id, m.author_kind, m.author_person_id, m.author_agent_id, m.created_at, \
              m.text_content, m.blocks FROM messages m \
              WHERE m.id = ? AND m.workspace_id = ? AND m.channel_id = ? AND {root_sql} \
              AND m.status = 'complete' \
@@ -334,16 +334,12 @@ fn search_cursor(after: Option<&str>) -> (&str, &str) {
 }
 
 fn speaker(row: &sqlx::sqlite::SqliteRow) -> Result<String, StoreError> {
-    let kind: AuthorKind = row
-        .get::<String, _>("author_kind")
-        .parse()
-        .map_err(StoreError::Corrupt)?;
-    Ok(match kind {
-        AuthorKind::Agent => row
-            .get::<Option<String>, _>("author_agent_id")
-            .map(|id| format!("agent:{id}"))
-            .unwrap_or_else(|| "agent".to_string()),
-        _ => kind.as_str().to_string(),
+    let kind: String = row.get("author_kind");
+    Ok(match kind.as_str() {
+        "person" => format!("person:{}", row.get::<String, _>("author_person_id")),
+        "agent" => format!("agent:{}", row.get::<String, _>("author_agent_id")),
+        "system" => "system".to_string(),
+        _ => return Err(StoreError::Corrupt("invalid author kind".into())),
     })
 }
 

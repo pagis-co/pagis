@@ -42,7 +42,7 @@ export function OutcomeLine({
   return (
     <div className="outcome" data-testid="outcome-line">
       <Avatar
-        id={row.authorAgentId ?? 'agent'}
+        id={row.authorId ?? 'agent'}
         name={authorName}
         appearance={authorAppearance}
         size="md"

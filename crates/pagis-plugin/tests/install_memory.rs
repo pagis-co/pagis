@@ -262,7 +262,13 @@ async fn a_grant_belongs_to_the_agents_workspace() {
     let agent = AgentId::generate();
     let grant = h
         .plugins
-        .grant(&h.workspace, &tenant, &plugin.id, &agent)
+        .grant(
+            &h.workspace,
+            &tenant,
+            &plugin.id,
+            &agent,
+            pagis_core::Author::System,
+        )
         .await
         .unwrap();
     assert_eq!(grant.resource_id.as_deref(), Some(plugin.id.as_str()));
@@ -302,7 +308,13 @@ async fn uninstall_removes_all_states_bindings_secrets_and_grants() {
     let tenant = WorkspaceId::generate();
     let agent = AgentId::generate();
     h.plugins
-        .grant(&h.workspace, &tenant, id, &agent)
+        .grant(
+            &h.workspace,
+            &tenant,
+            id,
+            &agent,
+            pagis_core::Author::System,
+        )
         .await
         .unwrap();
     let new = crate::memory_support::Package { files }

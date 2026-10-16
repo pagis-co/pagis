@@ -1532,12 +1532,9 @@ async fn a_listed_model_no_table_knows_runs_end_to_end() {
             .json()
             .await
             .unwrap();
-        if timeline["items"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|message| message["author_kind"] == "agent" && message["text_content"] == "ready")
-        {
+        if timeline["items"].as_array().unwrap().iter().any(|message| {
+            message["author"]["kind"] == "agent" && message["text_content"] == "ready"
+        }) {
             break;
         }
         assert!(

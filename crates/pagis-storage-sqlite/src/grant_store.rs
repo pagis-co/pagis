@@ -4,7 +4,7 @@ use sqlx::{Row, SqlitePool};
 
 use crate::db_err;
 
-const COLUMNS: &str = "id, workspace_id, agent_id, resource_kind, resource_id, scope, revision, \
+const COLUMNS: &str = "created_by_kind, created_by_person_id, created_by_agent_id, id, workspace_id, agent_id, resource_kind, resource_id, scope, revision, \
                        created_at, revoked_at";
 
 #[derive(Clone)]
@@ -21,6 +21,12 @@ impl SqliteGrantStore {
 fn row_to_grant(row: &sqlx::sqlite::SqliteRow) -> Result<Grant, StoreError> {
     let scope: String = row.get("scope");
     Ok(Grant {
+        created_by: pagis_core::Author::from_columns(
+            &row.get::<String, _>("created_by_kind"),
+            row.get("created_by_person_id"),
+            row.get("created_by_agent_id"),
+        )
+        .map_err(StoreError::Corrupt)?,
         id: GrantId::from(row.get::<String, _>("id")),
         workspace_id: WorkspaceId::from(row.get::<String, _>("workspace_id")),
         agent_id: AgentId::from(row.get::<String, _>("agent_id")),
@@ -38,9 +44,12 @@ fn row_to_grant(row: &sqlx::sqlite::SqliteRow) -> Result<Grant, StoreError> {
 impl GrantStore for SqliteGrantStore {
     async fn create(&self, grant: &Grant) -> Result<(), StoreError> {
         sqlx::query(
-            "INSERT INTO grants (id, workspace_id, agent_id, resource_kind, resource_id, scope, \
-             revision, created_at, revoked_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO grants (created_by_kind, created_by_person_id, created_by_agent_id, id, workspace_id, agent_id, resource_kind, resource_id, scope, \
+             revision, created_at, revoked_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
+        .bind(grant.created_by.kind())
+        .bind(grant.created_by.person_id().map(|id| id.as_str()))
+        .bind(grant.created_by.agent_id().map(|id| id.as_str()))
         .bind(grant.id.as_str())
         .bind(grant.workspace_id.as_str())
         .bind(grant.agent_id.as_str())

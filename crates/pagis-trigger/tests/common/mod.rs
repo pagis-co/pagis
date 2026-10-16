@@ -154,6 +154,7 @@ pub async fn world_with(
     let grants: Arc<dyn GrantStore> = Arc::new(SqliteGrantStore::new(pool.clone()));
     grants
         .create(&Grant {
+            created_by: pagis_core::Author::System,
             id: GrantId::generate(),
             workspace_id: workspace_id.clone(),
             agent_id: agent_id.clone(),
@@ -268,6 +269,7 @@ pub async fn restore_grant(world: &World, at: i64) -> Result<(), StoreError> {
     world
         .grants
         .create(&Grant {
+            created_by: pagis_core::Author::System,
             id: GrantId::generate(),
             workspace_id: world.workspace_id.clone(),
             agent_id: world.agent_id.clone(),
@@ -347,14 +349,15 @@ pub async fn message(
     let id = MessageId::generate();
     sqlx::query(
         "INSERT INTO messages \
-         (id, workspace_id, channel_id, parent_message_id, author_kind, status, blocks, \
+         (id, workspace_id, channel_id, parent_message_id, author_kind, author_person_id, status, blocks, \
           text_content, created_at, completed_at) \
-         VALUES (?, ?, ?, ?, 'user', 'complete', '[]', ?, ?, ?)",
+         VALUES (?, ?, ?, ?, 'person', (SELECT user_id FROM workspaces WHERE id=?), 'complete', '[]', ?, ?, ?)",
     )
     .bind(id.as_str())
     .bind(workspace_id.as_str())
     .bind(channel_id.as_str())
     .bind(parent.map(MessageId::as_str))
+    .bind(workspace_id.as_str())
     .bind("Let us talk here")
     .bind(NOW)
     .bind(NOW)
@@ -370,14 +373,20 @@ async fn seed(
     agent_id: &AgentId,
     channel_id: &ChannelId,
 ) {
-    sqlx::query("INSERT INTO workspaces (id, name, timezone, created_at) VALUES (?, ?, ?, ?)")
-        .bind(workspace_id.as_str())
-        .bind("Test")
-        .bind("America/Los_Angeles")
-        .bind(NOW)
-        .execute(pool)
+    let person = pagis_storage_sqlite::seed_org_and_administrator(pool, "Org", NOW)
         .await
-        .expect("workspace");
+        .expect("Person");
+    sqlx::query(
+        "INSERT INTO workspaces (id, user_id, name, timezone, created_at) VALUES (?, ?, ?, ?, ?)",
+    )
+    .bind(workspace_id.as_str())
+    .bind(person.id.as_str())
+    .bind("Test")
+    .bind("America/Los_Angeles")
+    .bind(NOW)
+    .execute(pool)
+    .await
+    .expect("Workspace");
     sqlx::query(
         "INSERT INTO model_aliases (id, workspace_id, alias, candidates, created_at, updated_at) \
          VALUES (?, ?, ?, ?, ?, ?)",

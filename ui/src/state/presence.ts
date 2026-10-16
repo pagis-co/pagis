@@ -155,10 +155,10 @@ export const usePresence = create<PresenceState>((set) => ({
       }
       if (type === 'message.completed') {
         const channelId = event.channel_id
-        const payload = event.payload as { author_kind?: string }
+        const payload = event.payload as { author?: { kind: string; id: string | null; name: string } }
         if (
           channelId == null ||
-          payload.author_kind !== 'agent' ||
+          payload.author?.kind !== 'agent' ||
           channelId === state.selectedChannelId
         ) {
           return state

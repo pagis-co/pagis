@@ -22,8 +22,8 @@ pub const USER_FILE: &str = "shared/user.md";
 
 /// The sentence that carries the name. The file is written from the
 /// record, so nothing reads it back.
-const NAME_PREFIX: &str = "The user's name: ";
-const NAME_SUFFIX: &str = ". Address the user by this name.";
+const NAME_PREFIX: &str = "Your Person's name: ";
+const NAME_SUFFIX: &str = ". Address your Person by this name.";
 
 /// The content of `shared/user.md` for one name.
 pub fn render_user_file(name: &str) -> String {
@@ -173,7 +173,7 @@ impl OrgMenu for NoOrgMenu {
     }
 }
 
-/// Read the Person's Org for the user and sign-in answers.
+/// Read the Person's Org for your Person and sign-in answers.
 pub(crate) async fn user_dto(state: &AppState, user: &User) -> Result<UserDto, ApiError> {
     let org = state
         .orgs
@@ -409,6 +409,6 @@ mod tests {
     #[test]
     fn the_rendered_file_names_the_person() {
         let file = render_user_file("Ada");
-        assert!(file.contains("The user's name: Ada."));
+        assert!(file.contains("Your Person's name: Ada."));
     }
 }

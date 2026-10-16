@@ -34,7 +34,7 @@ use sqlx::SqlitePool;
 
 const ADDRESS: &str = "ada@example.com";
 
-/// The alias of the user's Gmail account in these tests.
+/// The alias of the Person's Gmail account in these tests.
 const ALIAS: &str = "work";
 
 #[derive(Default)]
@@ -176,7 +176,7 @@ impl World {
         }
     }
 
-    /// Connect one of the user's Gmail accounts and grant this Agent
+    /// Connect one of the Person's Gmail accounts and grant this Agent
     /// the named capabilities on it.
     async fn grant_gmail(&self, capabilities: &[&str]) {
         let connection_id = ConnectionId::generate();
@@ -195,6 +195,7 @@ impl World {
         .unwrap();
         SqliteGrantStore::new(self.pool.clone())
             .create(&Grant {
+                created_by: pagis_core::Author::System,
                 id: GrantId::generate(),
                 workspace_id: self.workspace_id.clone(),
                 agent_id: self.agent_id.clone(),
@@ -279,7 +280,7 @@ fn send(to: &[&str]) -> serde_json::Value {
 fn card(outcome: &InvokeOutcome) -> &Request {
     match outcome {
         InvokeOutcome::Waiting(pending) => &pending.request,
-        other => panic!("the send waits for the user, not {other:?}"),
+        other => panic!("the send waits for your Person, not {other:?}"),
     }
 }
 
@@ -572,7 +573,7 @@ async fn a_send_with_no_recipient_is_a_tool_error(pool: SqlitePool) {
     assert_eq!(error_code(&outcome).as_deref(), Some("invalid_request"));
 }
 
-// ----- the user's own mail accounts -----
+// ----- the Person's own mail accounts -----
 
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
 async fn a_granted_account_installs_the_tools_that_capability_reaches(pool: SqlitePool) {
@@ -677,11 +678,11 @@ async fn a_send_from_an_account_is_approved_once_and_names_the_alias(pool: Sqlit
     let request = card(&outcome);
     assert_eq!(
         request.payload["action_title"],
-        format!("Send an email from the user's Gmail ({ALIAS})")
+        format!("Send an email from your Person's Gmail ({ALIAS})")
     );
     assert_eq!(request.payload["body"], "Invoice 42");
     // A recipient-domain rule lives on the Agent's own mailbox record.
-    // A send from the user's account offers `Approve once` and `Deny`.
+    // A send from the Person's account offers `Approve once` and `Deny`.
     assert_eq!(request.payload["proposed_rules"], serde_json::json!([]));
     assert!(request.payload["mailbox_id"].is_null());
 
@@ -764,7 +765,7 @@ async fn the_outgoing_cap_holds_the_own_mailbox_and_not_the_users_account(pool: 
         .await;
     assert!(
         matches!(account, InvokeOutcome::Waiting(_)),
-        "the cap is the Agent's own mailbox's, not the user's account's: {account:?}"
+        "the cap is the Agent's own mailbox's, not your Person's account's: {account:?}"
     );
 }
 

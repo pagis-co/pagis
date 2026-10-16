@@ -697,6 +697,7 @@ async fn configured_source() -> (SqliteKnowledgeStore, SyncStatus) {
         .unwrap();
     SqliteGrantStore::new(pool.clone())
         .create(&Grant {
+            created_by: pagis_core::Author::System,
             id: GrantId::generate(),
             workspace_id: workspace.id.clone(),
             agent_id: sage.id.clone(),

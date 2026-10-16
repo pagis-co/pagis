@@ -104,6 +104,7 @@ async fn an_event_of_a_forgotten_message_is_dropped_and_wakes_nothing() {
     world
         .trigger
         .create_subscription(NewSubscription {
+            created_by: pagis_core::Author::System,
             workspace_id: world.workspace_id.clone(),
             agent_id: world.agent_id.clone(),
             source: pagis_core::EventSource::connection(world.connection_id.clone()),
@@ -113,7 +114,6 @@ async fn an_event_of_a_forgotten_message_is_dropped_and_wakes_nothing() {
             channel_id: world.channel_id.clone(),
             root_message_id: None,
             filter: serde_json::json!({}),
-            creator: pagis_core::CreatorKind::User,
             now: NOW,
         })
         .await

@@ -1,7 +1,7 @@
 //! Typed fixture builders. Seeds are Rust values, not SQL files.
 
 use pagis_core::{
-    Agent, AgentStatus, AuthorKind, Block, Call, CallDirection, CallOutcome, CallState, Channel,
+    Agent, AgentStatus, Author, Block, Call, CallDirection, CallOutcome, CallState, Channel,
     ChannelKind, ChannelParticipant, File, Grant, Message, MessageStatus, ParticipantKind, Request,
     RequestState, Run, RunState, TriggerKind, TrustTier, Workspace, now_ms,
 };
@@ -66,15 +66,19 @@ pub fn group_channel(workspace_id: &WorkspaceId, title: &str) -> Channel {
 }
 
 /// A complete user message with a pending_id, ready to insert.
-pub fn user_message(workspace_id: &WorkspaceId, channel_id: &ChannelId, text: &str) -> Message {
+pub fn person_message(
+    workspace_id: &WorkspaceId,
+    person_id: &UserId,
+    channel_id: &ChannelId,
+    text: &str,
+) -> Message {
     let now = now_ms();
     Message {
         id: MessageId::generate(),
         workspace_id: workspace_id.clone(),
         channel_id: channel_id.clone(),
         parent_message_id: None,
-        author_kind: AuthorKind::User,
-        author_agent_id: None,
+        author: Author::Person(person_id.clone()),
         run_id: None,
         status: MessageStatus::Complete,
         blocks: vec![Block::markdown(text)],
@@ -189,6 +193,7 @@ pub fn agent_participant(
     agent_id: &AgentId,
 ) -> ChannelParticipant {
     ChannelParticipant {
+        person_id: None,
         id: ParticipantId::generate(),
         workspace_id: workspace_id.clone(),
         channel_id: channel_id.clone(),
@@ -199,12 +204,17 @@ pub fn agent_participant(
 }
 
 /// The user participant row of a channel.
-pub fn user_participant(workspace_id: &WorkspaceId, channel_id: &ChannelId) -> ChannelParticipant {
+pub fn person_participant(
+    workspace_id: &WorkspaceId,
+    person_id: &UserId,
+    channel_id: &ChannelId,
+) -> ChannelParticipant {
     ChannelParticipant {
+        person_id: Some(person_id.clone()),
         id: ParticipantId::generate(),
         workspace_id: workspace_id.clone(),
         channel_id: channel_id.clone(),
-        kind: ParticipantKind::User,
+        kind: ParticipantKind::Person,
         agent_id: None,
         joined_at: now_ms(),
     }
@@ -218,10 +228,9 @@ pub fn agent_message(
     text: &str,
 ) -> Message {
     Message {
-        author_kind: AuthorKind::Agent,
-        author_agent_id: Some(agent_id.clone()),
+        author: Author::Agent(agent_id.clone()),
         pending_id: None,
-        ..user_message(workspace_id, channel_id, text)
+        ..person_message(workspace_id, &UserId::generate(), channel_id, text)
     }
 }
 
@@ -233,6 +242,7 @@ pub fn pending_request(
     command: &str,
 ) -> Request {
     Request {
+        decided_by: None,
         id: RequestId::generate(),
         workspace_id: workspace_id.clone(),
         agent_id: agent_id.clone(),
@@ -258,6 +268,7 @@ pub fn pending_form_request(
     run_id: &RunId,
 ) -> Request {
     Request {
+        decided_by: None,
         id: RequestId::generate(),
         workspace_id: workspace_id.clone(),
         agent_id: agent_id.clone(),
@@ -309,6 +320,7 @@ pub fn grant(
 ) -> Grant {
     let allow: Vec<String> = allow.iter().map(|r| r.to_string()).collect();
     Grant {
+        created_by: pagis_core::Author::System,
         id: GrantId::generate(),
         workspace_id: workspace_id.clone(),
         agent_id: agent_id.clone(),

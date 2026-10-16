@@ -8,8 +8,8 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use pagis_core::{
-    AgentId, AgentStatus, AuthorKind, Block, Channel, ChannelId, ChannelKind, ChannelParticipant,
-    File, FileId, KnownBlock, Message, MessageId, MessageStatus, NewEvent, ParticipantId,
+    AgentId, AgentStatus, Author, Block, Channel, ChannelId, ChannelKind, ChannelParticipant, File,
+    FileId, KnownBlock, Message, MessageId, MessageStatus, NewEvent, ParticipantId,
     ParticipantKind, SendOutcome, TimelineEntry, blocks_text, now_ms,
 };
 use serde::{Deserialize, Serialize};
@@ -52,8 +52,7 @@ pub struct ChannelDto {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ChannelLastMessageDto {
     pub text_content: String,
-    pub author_kind: String,
-    pub author_agent_id: Option<String>,
+    pub author: pagis_core::AuthorDto,
     pub created_at: i64,
 }
 
@@ -78,9 +77,8 @@ pub struct MessageDto {
     pub id: String,
     pub channel_id: String,
     pub parent_message_id: Option<String>,
-    /// `user`, `agent`, or `system`.
-    pub author_kind: String,
-    pub author_agent_id: Option<String>,
+    /// The Person, Agent or daemon that writes the message.
+    pub author: pagis_core::AuthorDto,
     pub run_id: Option<String>,
     /// `streaming`, `complete`, or `failed`.
     pub status: String,
@@ -96,14 +94,21 @@ pub struct MessageDto {
     pub completed_at: Option<i64>,
 }
 
-impl From<Message> for MessageDto {
-    fn from(m: Message) -> Self {
-        MessageDto {
+impl MessageDto {
+    pub(crate) async fn read(state: &AppState, m: Message) -> Result<Self, ApiError> {
+        let author = m
+            .author
+            .resolve(
+                &m.workspace_id,
+                state.users.as_ref(),
+                state.agent_store.as_ref(),
+            )
+            .await?;
+        Ok(MessageDto {
             id: m.id.to_string(),
             channel_id: m.channel_id.to_string(),
             parent_message_id: m.parent_message_id.map(|p| p.to_string()),
-            author_kind: m.author_kind.as_str().to_string(),
-            author_agent_id: m.author_agent_id.map(|a| a.to_string()),
+            author,
             run_id: m.run_id.map(|r| r.to_string()),
             status: m.status.as_str().to_string(),
             blocks: m.blocks,
@@ -111,7 +116,7 @@ impl From<Message> for MessageDto {
             pending_id: m.pending_id,
             created_at: m.created_at,
             completed_at: m.completed_at,
-        }
+        })
     }
 }
 
@@ -134,26 +139,30 @@ pub struct TimelineMessageDto {
 /// One author of the replies in a thread.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ReplyAuthorDto {
-    /// `user` or `agent`.
-    pub author_kind: String,
-    pub author_agent_id: Option<String>,
+    /// The resolved identity of a reply author.
+    pub author: pagis_core::AuthorDto,
 }
 
-impl From<TimelineEntry> for TimelineMessageDto {
-    fn from(entry: TimelineEntry) -> Self {
-        TimelineMessageDto {
-            message: entry.message.into(),
+impl TimelineMessageDto {
+    async fn read(state: &AppState, entry: TimelineEntry) -> Result<Self, ApiError> {
+        let mut reply_authors = Vec::new();
+        for author in entry.reply_authors {
+            reply_authors.push(ReplyAuthorDto {
+                author: author
+                    .resolve(
+                        &entry.message.workspace_id,
+                        state.users.as_ref(),
+                        state.agent_store.as_ref(),
+                    )
+                    .await?,
+            });
+        }
+        Ok(Self {
+            message: MessageDto::read(state, entry.message).await?,
             reply_count: entry.reply_count,
             last_reply_at: entry.last_reply_at,
-            reply_authors: entry
-                .reply_authors
-                .into_iter()
-                .map(|author| ReplyAuthorDto {
-                    author_kind: author.kind.as_str().to_string(),
-                    author_agent_id: author.agent_id.map(|id| id.to_string()),
-                })
-                .collect(),
-        }
+            reply_authors,
+        })
     }
 }
 
@@ -177,7 +186,7 @@ pub struct PointerDto {
 #[derive(Debug, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TimelineItem {
-    Message(TimelineMessageDto),
+    Message(Box<TimelineMessageDto>),
     Pointer(PointerDto),
 }
 
@@ -259,14 +268,20 @@ pub async fn list_channels(
         let mut row = ChannelDto::new(
             channel,
             agent_participants(&participants),
-            has_user(&participants),
+            has_person(&participants, &tenant.user_id),
         );
         if let Some(message) = last {
             let message = readable_message(&state, message).await?;
             row.last_message = Some(ChannelLastMessageDto {
                 text_content: message.text_content.chars().take(140).collect(),
-                author_kind: message.author_kind.as_str().to_string(),
-                author_agent_id: message.author_agent_id.map(|id| id.to_string()),
+                author: message
+                    .author
+                    .resolve(
+                        &message.workspace_id,
+                        state.users.as_ref(),
+                        state.agent_store.as_ref(),
+                    )
+                    .await?,
                 created_at: message.created_at,
             });
         }
@@ -320,10 +335,11 @@ pub async fn create_channel(
     state
         .participants
         .create(&ChannelParticipant {
+            person_id: Some(tenant.user_id.clone()),
             id: ParticipantId::generate(),
             workspace_id: tenant.workspace_id.clone(),
             channel_id: channel.id.clone(),
-            kind: ParticipantKind::User,
+            kind: ParticipantKind::Person,
             agent_id: None,
             joined_at: now,
         })
@@ -332,6 +348,7 @@ pub async fn create_channel(
         state
             .participants
             .create(&ChannelParticipant {
+                person_id: None,
                 id: ParticipantId::generate(),
                 workspace_id: tenant.workspace_id.clone(),
                 channel_id: channel.id.clone(),
@@ -390,7 +407,9 @@ pub async fn list_messages(
     let mut items = Vec::with_capacity(entries.len());
     for mut entry in entries {
         entry.message = readable_message(&state, entry.message).await?;
-        items.push(TimelineItem::Message(entry.into()));
+        items.push(TimelineItem::Message(Box::new(
+            TimelineMessageDto::read(&state, entry).await?,
+        )));
     }
 
     // DM pointer entries: in the user's DM with one agent,
@@ -466,8 +485,10 @@ fn agent_participants(participants: &[ChannelParticipant]) -> Vec<AgentId> {
 }
 
 /// True when the user is one of these participants.
-fn has_user(participants: &[ChannelParticipant]) -> bool {
-    participants.iter().any(|p| p.kind == ParticipantKind::User)
+fn has_person(participants: &[ChannelParticipant], person_id: &pagis_core::UserId) -> bool {
+    participants
+        .iter()
+        .any(|p| p.kind == ParticipantKind::Person && p.person_id.as_ref() == Some(person_id))
 }
 
 /// The agent whose outside messages this DM derives pointers for:
@@ -480,7 +501,10 @@ async fn pointer_agent(state: &AppState, channel: &Channel) -> Result<Option<Age
         .participants
         .list_for_channel(&channel.workspace_id, &channel.id)
         .await?;
-    if !has_user(&participants) {
+    if !participants
+        .iter()
+        .any(|p| p.kind == ParticipantKind::Person)
+    {
         return Ok(None);
     }
     match agent_participants(&participants).as_slice() {
@@ -552,12 +576,12 @@ pub async fn get_thread(
         .await?
     {
         if message.id != root.id {
-            replies.push(readable_message(&state, message).await?.into());
+            replies.push(MessageDto::read(&state, readable_message(&state, message).await?).await?);
         }
     }
     let root = readable_message(&state, root).await?;
     Ok(Json(ThreadDto {
-        root: root.into(),
+        root: MessageDto::read(&state, root).await?,
         replies,
     }))
 }
@@ -584,7 +608,9 @@ pub async fn get_message(
         .await?
         .filter(|message| message.channel_id == channel_id)
         .ok_or_else(|| ApiError::not_found("message"))?;
-    Ok(Json(readable_message(&state, message).await?.into()))
+    Ok(Json(
+        MessageDto::read(&state, readable_message(&state, message).await?).await?,
+    ))
 }
 
 #[utoipa::path(
@@ -628,7 +654,7 @@ pub async fn send_message(
         .participants
         .list_for_channel(&tenant.workspace_id, &channel_id)
         .await?;
-    if !has_user(&participants) {
+    if !has_person(&participants, &tenant.user_id) {
         return Err(ApiError::forbidden(
             "this conversation is between agents; the user reads it only",
         ));
@@ -672,8 +698,7 @@ pub async fn send_message(
         workspace_id: tenant.workspace_id.clone(),
         channel_id: channel_id.clone(),
         parent_message_id,
-        author_kind: AuthorKind::User,
-        author_agent_id: None,
+        author: Author::Person(tenant.user_id.clone()),
         run_id: None,
         status: MessageStatus::Complete,
         text_content: blocks_text(&blocks),
@@ -696,12 +721,18 @@ pub async fn send_message(
                     payload: serde_json::json!({
                         "message_id": message.id.as_str(),
                         "parent_message_id": message.parent_message_id.as_ref().map(|p| p.as_str()),
-                        "author_kind": message.author_kind,
+                        "author": message.author.resolve(&message.workspace_id, state.users.as_ref(), state.agent_store.as_ref()).await?,
                     }),
                 })
                 .await?;
-            Ok((StatusCode::CREATED, Json(message.into())))
+            Ok((
+                StatusCode::CREATED,
+                Json(MessageDto::read(&state, message).await?),
+            ))
         }
-        SendOutcome::Deduplicated(original) => Ok((StatusCode::OK, Json(original.into()))),
+        SendOutcome::Deduplicated(original) => Ok((
+            StatusCode::OK,
+            Json(MessageDto::read(&state, original).await?),
+        )),
     }
 }

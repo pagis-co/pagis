@@ -25,6 +25,9 @@ DROP TABLE source_batches;
 DROP TABLE event_subscriptions;
 
 CREATE TABLE event_subscriptions (
+    created_by_kind TEXT NOT NULL CHECK (created_by_kind IN ('person', 'agent', 'system')),
+    created_by_person_id TEXT REFERENCES users (id),
+    created_by_agent_id TEXT REFERENCES agents (id),
     id TEXT PRIMARY KEY,
     workspace_id TEXT NOT NULL REFERENCES workspaces (id),
     agent_id TEXT NOT NULL REFERENCES agents (id),
@@ -37,7 +40,7 @@ CREATE TABLE event_subscriptions (
     channel_id TEXT NOT NULL REFERENCES channels (id),
     root_message_id TEXT REFERENCES messages (id),
     filter TEXT NOT NULL,
-    creator TEXT NOT NULL CHECK (creator IN ('user', 'agent')),
+
     state TEXT NOT NULL CHECK (
         state IN ('active', 'paused', 'blocked', 'archived')
     ),
@@ -50,7 +53,10 @@ CREATE TABLE event_subscriptions (
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     archived_at INTEGER,
-    CHECK ((connection_id IS NULL) <> (coding_session_id IS NULL))
+    CHECK ((connection_id IS NULL) <> (coding_session_id IS NULL)),
+    CHECK ((created_by_kind = 'person' AND created_by_person_id IS NOT NULL AND created_by_agent_id IS NULL)
+        OR (created_by_kind = 'agent' AND created_by_person_id IS NULL AND created_by_agent_id IS NOT NULL)
+        OR (created_by_kind = 'system' AND created_by_person_id IS NULL AND created_by_agent_id IS NULL))
 );
 CREATE INDEX idx_subscriptions_workspace ON event_subscriptions (workspace_id, id DESC);
 CREATE INDEX idx_subscriptions_source ON event_subscriptions (connection_id, event_kind, state);
@@ -94,12 +100,12 @@ CREATE INDEX idx_incoming_events_source ON incoming_events (connection_id, event
 CREATE INDEX idx_incoming_events_coding_session
     ON incoming_events (coding_session_id, event_kind, id DESC);
 
-INSERT INTO event_subscriptions (id, workspace_id, agent_id, connection_id, event_kind,
-    source_version, name, instruction, channel_id, root_message_id, filter, creator, state,
+INSERT INTO event_subscriptions (created_by_kind, created_by_person_id, created_by_agent_id, id, workspace_id, agent_id, connection_id, event_kind,
+    source_version, name, instruction, channel_id, root_message_id, filter, state,
     revision, approved_revision, watermark_at, blocked_reason, created_at, updated_at,
     archived_at)
-SELECT id, workspace_id, agent_id, connection_id, event_kind, source_version, name,
-    instruction, channel_id, root_message_id, filter, creator, state, revision,
+SELECT created_by_kind, created_by_person_id, created_by_agent_id, id, workspace_id, agent_id, connection_id, event_kind, source_version, name,
+    instruction, channel_id, root_message_id, filter, state, revision,
     approved_revision, watermark_at, blocked_reason, created_at, updated_at, archived_at
 FROM event_subscriptions_rows;
 

@@ -61,7 +61,18 @@ async fn targets_in(world: &TwoTenants, workspace_id: &WorkspaceId) -> Targets {
         .create(&channel)
         .await
         .expect("write the Channel");
-    let root = fixture::user_message(workspace_id, &channel.id, "a Thread of its own");
+    let root = fixture::person_message(
+        workspace_id,
+        &stores
+            .workspaces
+            .get(workspace_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .user_id,
+        &channel.id,
+        "a Thread of its own",
+    );
     stores
         .messages
         .insert(&root)

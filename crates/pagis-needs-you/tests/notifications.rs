@@ -108,6 +108,7 @@ impl Embedder {
 
     async fn request(&self, id: &str) -> Request {
         let request = Request {
+            decided_by: None,
             id: RequestId::from(id.to_string()),
             workspace_id: self.workspace.clone(),
             agent_id: AgentId::from("agent".to_string()),
@@ -328,6 +329,7 @@ async fn a_queue_read_returns_none_after_a_request_is_decided_or_for_another_wor
             &request.id,
             RequestState::Approved,
             None,
+            pagis_core::Author::System,
             1,
         )
         .await

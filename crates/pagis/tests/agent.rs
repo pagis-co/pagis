@@ -124,7 +124,7 @@ async fn a_dm_message_streams_the_reply_over_the_subscribed_socket() {
     // The durable completion event follows on the firehose.
     let completed = next_frame_of(&mut socket, "message.completed").await;
     assert_eq!(
-        completed["payload"]["payload"]["author_kind"], "agent",
+        completed["payload"]["payload"]["author"]["kind"], "agent",
         "the agent's completion"
     );
     assert_eq!(
@@ -137,13 +137,13 @@ async fn a_dm_message_streams_the_reply_over_the_subscribed_socket() {
     // the trigger, and the greeting, newest first.
     let items = timeline(&daemon).await["items"].as_array().unwrap().clone();
     assert_eq!(items.len(), 4);
-    assert_eq!(items[0]["author_kind"], "agent");
+    assert_eq!(items[0]["author"]["kind"], "agent");
     assert_eq!(items[0]["status"], "complete");
     assert_eq!(items[0]["text_content"], "Hello!");
     assert_eq!(items[0]["run_id"], first["payload"]["run_id"]);
     assert_eq!(items[1]["blocks"][0]["type"], "progress");
-    assert_eq!(items[2]["author_kind"], "user");
-    assert_eq!(items[3]["author_kind"], "agent");
+    assert_eq!(items[2]["author"]["kind"], "person");
+    assert_eq!(items[3]["author"]["kind"], "agent");
     assert!(items[3]["run_id"].is_null());
 }
 
@@ -167,7 +167,7 @@ async fn an_unsubscribed_socket_receives_no_deltas() {
         let frame = next_frame(&mut socket).await;
         assert_ne!(frame["type"], "message.delta");
         if frame["type"] == "message.completed"
-            && frame["payload"]["payload"]["author_kind"] == "agent"
+            && frame["payload"]["payload"]["author"]["kind"] == "agent"
         {
             break;
         }
@@ -231,7 +231,7 @@ async fn cancel_stops_the_stream_and_persists_the_partial_as_failed() {
     assert_eq!(state_changed["payload"]["payload"]["to"], "canceled");
 
     let items = timeline(&daemon).await["items"].as_array().unwrap().clone();
-    assert_eq!(items[0]["author_kind"], "agent");
+    assert_eq!(items[0]["author"]["kind"], "agent");
     assert_eq!(items[0]["status"], "failed");
     assert_eq!(items[0]["text_content"], "Partial answer");
 
@@ -350,6 +350,6 @@ async fn a_restart_fails_the_unfinished_run_and_its_partial() {
     assert_eq!(run.error.as_deref(), Some(pagis_agent::RESTART_ERROR));
 
     let items = timeline(&daemon).await["items"].as_array().unwrap().clone();
-    assert_eq!(items[0]["author_kind"], "agent");
+    assert_eq!(items[0]["author"]["kind"], "agent");
     assert_eq!(items[0]["status"], "failed");
 }

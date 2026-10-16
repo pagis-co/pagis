@@ -14,7 +14,7 @@ pub const MAX_LISTED_SKILLS: usize = 40;
 /// The Skills section, as the prompt carries it.
 pub fn skills_section(skills: &[Skill]) -> String {
     if skills.is_empty() {
-        return "Skills: you hold no skills. A skill arrives when the user installs a plugin \
+        return "Skills: you hold no skills. A skill arrives when your Person installs a plugin \
                 and grants it to you."
             .to_string();
     }

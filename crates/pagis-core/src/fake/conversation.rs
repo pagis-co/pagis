@@ -49,7 +49,7 @@ impl ChannelStore for FakeChannelStore {
                     && data
                         .participants
                         .rows(workspace_id)
-                        .any(|p| p.channel_id == c.id && p.kind == ParticipantKind::User)
+                        .any(|p| p.channel_id == c.id && p.kind == ParticipantKind::Person)
                     && data
                         .participants
                         .rows(workspace_id)
@@ -77,7 +77,7 @@ impl ChannelStore for FakeChannelStore {
                     && !data
                         .participants
                         .rows(workspace_id)
-                        .any(|p| p.channel_id == c.id && p.kind == ParticipantKind::User)
+                        .any(|p| p.channel_id == c.id && p.kind == ParticipantKind::Person)
             })
             .cloned())
     }
@@ -208,10 +208,7 @@ impl MessageStore for FakeMessageStore {
                 replies.sort_by_key(|r| std::cmp::Reverse((r.created_at, r.id.clone())));
                 let mut authors = Vec::new();
                 for reply in &replies {
-                    let author = ReplyAuthor {
-                        kind: reply.author_kind,
-                        agent_id: reply.author_agent_id.clone(),
-                    };
+                    let author = reply.author.clone();
                     if !authors.contains(&author) && authors.len() < REPLY_AUTHORS_MAX {
                         authors.push(author);
                     }
@@ -263,7 +260,7 @@ impl MessageStore for FakeMessageStore {
                 .messages
                 .rows(workspace_id)
                 .filter(|m| {
-                    m.author_agent_id.as_ref() == Some(agent_id)
+                    m.author.agent_id() == Some(agent_id)
                         && &m.channel_id != exclude_channel
                         && m.status == MessageStatus::Complete
                         && !m.blocks.iter().any(Block::is_progress)
@@ -301,7 +298,7 @@ impl MessageStore for FakeMessageStore {
             .messages
             .rows(workspace_id)
             .filter(|m| {
-                m.author_kind == AuthorKind::Agent
+                m.author.agent_id().is_some()
                     && m.run_id.as_ref() == Some(run_id)
                     && m.status == MessageStatus::Complete
             })
@@ -488,6 +485,7 @@ impl RequestStore for FakeRequestStore {
         id: &RequestId,
         state: RequestState,
         values: Option<serde_json::Value>,
+        decided_by: crate::Author,
         decided_at: UnixMillis,
     ) -> Result<DecideOutcome, StoreError> {
         let mut data = self.0.lock().unwrap();
@@ -500,6 +498,7 @@ impl RequestStore for FakeRequestStore {
         }
         row.state = state;
         row.values = values;
+        row.decided_by = Some(decided_by);
         row.decided_at = Some(decided_at);
         Ok(DecideOutcome::Decided(row.clone()))
     }
@@ -517,6 +516,7 @@ impl RequestStore for FakeRequestStore {
             .filter(|r| r.run_id.as_ref() == Some(run_id) && r.state == RequestState::Pending)
         {
             row.state = RequestState::Expired;
+            row.decided_by = Some(crate::Author::System);
             row.decided_at = Some(decided_at);
             count += 1;
         }
@@ -1135,8 +1135,8 @@ fn message_readable(data: &Data, message: &Message) -> bool {
     !data
         .forgotten_messages
         .contains(&(message.workspace_id.clone(), message.id.clone()))
-        && (message.author_kind == AuthorKind::User
-            || message.author_agent_id.as_ref().is_some_and(|agent| {
+        && (message.author.person_id().is_some()
+            || message.author.agent_id().is_some_and(|agent| {
                 data.message_exposures
                     .get(&message.workspace_id, &message.id)
                     .is_some_and(|exposures| {
@@ -1159,10 +1159,11 @@ fn tool_readable(data: &Data, tool: &RetainedToolEvidence) -> bool {
 }
 fn speaker(message: &Message) -> String {
     message
-        .author_agent_id
+        .author
+        .agent_id()
         .as_ref()
         .map(|a| format!("agent:{a}"))
-        .unwrap_or_else(|| message.author_kind.as_str().to_string())
+        .unwrap_or_else(|| message.author.kind().to_string())
 }
 fn evidence_message(data: &Data, message: &Message) -> ConversationEvidenceMessage {
     ConversationEvidenceMessage {

@@ -850,7 +850,9 @@ async fn a_late_code_raises_the_tier_once() {
 async fn only_the_user_drops_the_tier_and_the_call_stays_down() {
     let gate = TierGate::outbound(TrustTier::Owner);
 
-    let change = gate.drop_to_unknown().expect("the user dropped the tier");
+    let change = gate
+        .drop_to_unknown()
+        .expect("your Person dropped the tier");
 
     assert_eq!(change.from, TrustTier::Owner);
     assert_eq!(change.to, TrustTier::Unknown);

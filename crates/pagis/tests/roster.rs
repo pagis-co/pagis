@@ -259,8 +259,8 @@ async fn a_new_agent_introduces_itself_in_its_dm() {
     )
     .await;
     assert_eq!(messages.len(), 1);
-    assert_eq!(messages[0]["author_kind"], "agent");
-    assert_eq!(messages[0]["author_agent_id"], agent["id"]);
+    assert_eq!(messages[0]["author"]["kind"], "agent");
+    assert_eq!(messages[0]["author"]["id"], agent["id"]);
     assert_eq!(messages[0]["status"], "complete");
     assert!(messages[0]["run_id"].is_null());
     assert_eq!(messages[0]["text_content"], "Hi, I'm Rex, your researcher.");
@@ -276,7 +276,7 @@ async fn the_seeded_assistant_introduces_itself_once() {
         messages[0]["text_content"],
         "Hi, I'm Pixie, your Chief of Staff."
     );
-    assert_eq!(messages[0]["author_kind"], "agent");
+    assert_eq!(messages[0]["author"]["kind"], "agent");
     assert!(messages[0]["run_id"].is_null());
     let daemon = daemon.restart(Default::default()).await;
     assert_eq!(list(&daemon, &path).await.len(), 1);

@@ -351,6 +351,7 @@ async fn add_google_connection_as(
     .unwrap();
     SqliteGrantStore::new(harness.pool.clone())
         .create(&Grant {
+            created_by: pagis_core::Author::System,
             id: GrantId::generate(),
             workspace_id: harness.workspace.id.clone(),
             agent_id: harness.agent.id.clone(),
@@ -480,7 +481,7 @@ async fn core_tool_definitions_keep_their_contract(pool: SqlitePool) {
     let expected = vec![
         ToolDef {
             name: "host_shell".to_string(),
-            description: "Run a shell command on one of the user's own computers, as the user, through the Pagis client running on it. It never runs on the server. A command outside the granted allow rules asks the user for an approval before it executes, and the user is asked which computer when more than one of theirs is connected.".to_string(),
+            description: "Run a shell command on one of your Person's own computers, as your Person, through the Pagis client running on it. It never runs on the server. A command outside the granted allow rules asks your Person for an approval before it executes, and your Person is asked which computer when more than one of theirs is connected.".to_string(),
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {"command": {"type": "string", "description": "The shell command to run."}},
@@ -489,7 +490,7 @@ async fn core_tool_definitions_keep_their_contract(pool: SqlitePool) {
         },
         ToolDef {
             name: "send_message".to_string(),
-            description: "Send a message to another of the user's sprites, or to your user. Set `to` to the sprite's name to delegate work in your DM channel with that sprite; the sprite answers there and its reply comes back to you. Set `to` to \"user\" to post in your DM with the user.".to_string(),
+            description: "Send a message to another of your Person's sprites, or to your user. Set `to` to the sprite's name to delegate work in your DM channel with that sprite; the sprite answers there and its reply comes back to you. Set `to` to \"user\" to post in your DM with your Person.".to_string(),
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -679,6 +680,7 @@ async fn live_authorization_request_and_audit_use_the_run_snapshot(pool: SqliteP
             &request.request.id,
             RequestState::Approved,
             None,
+            pagis_core::Author::System,
             now_ms(),
         )
         .await
@@ -1005,6 +1007,7 @@ async fn ask_user_mints_a_form_and_answers_the_call(pool: SqlitePool) {
             &question.request.id,
             RequestState::Approved,
             Some(serde_json::json!({"who": "Ada"})),
+            pagis_core::Author::System,
             now_ms(),
         )
         .await
@@ -1330,6 +1333,7 @@ fn plugin_manifest(plugin_id: &str) -> CapabilityManifest {
 async fn grant_plugin(harness: &Harness, plugin_id: &str, rules: &[String]) {
     SqliteGrantStore::new(harness.pool.clone())
         .create(&Grant {
+            created_by: pagis_core::Author::System,
             id: GrantId::generate(),
             workspace_id: harness.workspace.id.clone(),
             agent_id: harness.agent.id.clone(),
@@ -1714,7 +1718,7 @@ async fn a_read_that_a_forget_blocks_during_the_call_does_not_reach_the_model(po
 
 /// One package that ships a Widget: a tool that renders it, an
 /// app-only tool the Widget refreshes itself with, and a tool that
-/// asks the user through the Widget.
+/// asks the Person through the Widget.
 fn widget_manifest(package: &str) -> CapabilityManifest {
     let tool = |name: &str,
                 visibility: pagis_broker::ToolVisibility,
@@ -1923,6 +1927,7 @@ async fn a_widget_that_asks_parks_the_run_on_a_widget_request(pool: SqlitePool) 
             &pending.request.id,
             RequestState::Approved,
             Some(serde_json::json!({"text": "the second row", "value": {"row": 2}})),
+            pagis_core::Author::System,
             now_ms(),
         )
         .await

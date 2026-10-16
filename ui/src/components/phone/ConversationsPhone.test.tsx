@@ -25,19 +25,19 @@ const AT = Date.parse('2026-10-08T09:12:00Z')
 const channels = [
   {
     id: 'channel-1', workspace_id: 'workspace-1', kind: 'dm', title: 'Brownie', agent_ids: ['agent-1'], user_member: true, created_at: 1, updated_at: 1,
-    last_message: { author_kind: 'agent', author_agent_id: 'agent-1', created_at: AT, text_content: 'Which flight do you want?' },
+    last_message: { author: { kind: 'agent', id: 'agent-1', name: 'Scout' }, created_at: AT, text_content: 'Which flight do you want?' },
   },
   {
     id: 'channel-2', workspace_id: 'workspace-1', kind: 'dm', title: 'Pixie', agent_ids: ['agent-2'], user_member: true, created_at: 2, updated_at: 2,
-    last_message: { author_kind: 'agent', author_agent_id: 'agent-2', created_at: AT, text_content: 'The invoice is out.' },
+    last_message: { author: { kind: 'agent', id: 'agent-2', name: 'Scout' }, created_at: AT, text_content: 'The invoice is out.' },
   },
   {
     id: 'channel-3', workspace_id: 'workspace-1', kind: 'group', title: 'Austin trip', agent_ids: ['agent-1', 'agent-2'], user_member: true, created_at: 3, updated_at: 3,
-    last_message: { author_kind: 'agent', author_agent_id: 'agent-2', created_at: AT, text_content: 'I put the hotel on your calendar.' },
+    last_message: { author: { kind: 'agent', id: 'agent-2', name: 'Scout' }, created_at: AT, text_content: 'I put the hotel on your calendar.' },
   },
   {
     id: 'channel-4', workspace_id: 'workspace-1', kind: 'group', title: 'Pixie and Brownie', agent_ids: ['agent-1', 'agent-2'], user_member: false, created_at: 4, updated_at: 4,
-    last_message: { author_kind: 'agent', author_agent_id: 'agent-1', created_at: AT, text_content: 'I booked the car.' },
+    last_message: { author: { kind: 'agent', id: 'agent-1', name: 'Scout' }, created_at: AT, text_content: 'I booked the car.' },
   },
 ]
 

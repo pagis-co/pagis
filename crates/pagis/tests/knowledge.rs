@@ -101,6 +101,7 @@ async fn sync_is_explicit_and_requires_the_responsible_agents_read_grant() {
     );
     SqliteGrantStore::new(daemon.pool().clone())
         .create(&Grant {
+            created_by: pagis_core::Author::System,
             id: GrantId::generate(),
             workspace_id: agent.workspace_id,
             agent_id: agent.id,

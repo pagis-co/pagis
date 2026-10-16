@@ -19,7 +19,7 @@ use pagis_core::{
 };
 
 use crate::fixture::{
-    agent, agent_participant, channel, queued_run, user_message, user_participant,
+    agent, agent_participant, channel, person_message, person_participant, queued_run,
 };
 
 use super::{Backend, Bind};
@@ -32,7 +32,11 @@ pub async fn search_and_range_read_use_message_id_order_inside_one_conversation(
     backend.stores().channels.create(&channel).await.unwrap();
     let participants = &backend.stores().participants;
     participants
-        .create(&user_participant(&workspace.id, &channel.id))
+        .create(&person_participant(
+            &workspace.id,
+            &workspace.user_id,
+            &channel.id,
+        ))
         .await
         .unwrap();
     participants
@@ -41,11 +45,17 @@ pub async fn search_and_range_read_use_message_id_order_inside_one_conversation(
         .unwrap();
 
     let messages = &backend.stores().messages;
-    let mut later_inserted = user_message(&workspace.id, &channel.id, "ultraviolet code is 8241");
+    let mut later_inserted = person_message(
+        &workspace.id,
+        &workspace.user_id,
+        &channel.id,
+        "ultraviolet code is 8241",
+    );
     later_inserted.id = MessageId::from("01J00000000000000000000002".to_string());
     later_inserted.created_at = 1_000;
-    let mut earlier_id = user_message(
+    let mut earlier_id = person_message(
         &workspace.id,
+        &workspace.user_id,
         &channel.id,
         "ultraviolet project starts Friday",
     );
@@ -86,7 +96,7 @@ pub async fn search_and_range_read_use_message_id_order_inside_one_conversation(
         .unwrap();
     assert_eq!(page.len(), 1);
     assert_eq!(page[0].text, "ultraviolet code is 8241");
-    assert_eq!(page[0].speaker, "user");
+    assert_eq!(page[0].speaker, format!("person:{}", workspace.user_id));
     assert_eq!(page[0].created_at, 1_000);
 }
 
@@ -97,11 +107,17 @@ pub async fn invalidated_hits_do_not_starve_pages_and_stay_absent_after_restart(
     backend.stores().agents.create(&agent).await.unwrap();
     backend.stores().channels.create(&channel).await.unwrap();
     let messages = &backend.stores().messages;
-    let mut first = user_message(&workspace.id, &channel.id, "marigold first");
+    let mut first = person_message(
+        &workspace.id,
+        &workspace.user_id,
+        &channel.id,
+        "marigold first",
+    );
     first.id = MessageId::from("01J00000000000000000000011".to_string());
     messages.insert(&first).await.unwrap();
 
     let grant = Grant {
+        created_by: pagis_core::Author::System,
         id: GrantId::from("grant-evidence".to_string()),
         workspace_id: workspace.id.clone(),
         agent_id: agent.id.clone(),
@@ -127,10 +143,20 @@ pub async fn invalidated_hits_do_not_starve_pages_and_stay_absent_after_restart(
         )
         .await
         .unwrap();
-    let mut forgotten = user_message(&workspace.id, &channel.id, "marigold forgotten");
+    let mut forgotten = person_message(
+        &workspace.id,
+        &workspace.user_id,
+        &channel.id,
+        "marigold forgotten",
+    );
     forgotten.id = MessageId::from("01J00000000000000000000013".to_string());
     messages.insert(&forgotten).await.unwrap();
-    let mut last = user_message(&workspace.id, &channel.id, "marigold last");
+    let mut last = person_message(
+        &workspace.id,
+        &workspace.user_id,
+        &channel.id,
+        "marigold last",
+    );
     last.id = MessageId::from("01J00000000000000000000014".to_string());
     messages.insert(&last).await.unwrap();
 
@@ -209,12 +235,22 @@ pub async fn range_read_keeps_conversation_scope_and_marks_a_missing_file(backen
     channels.create(&channel).await.unwrap();
     channels.create(&other).await.unwrap();
     let messages = &backend.stores().messages;
-    let mut kept = user_message(&workspace.id, &channel.id, "onyx scoped");
+    let mut kept = person_message(
+        &workspace.id,
+        &workspace.user_id,
+        &channel.id,
+        "onyx scoped",
+    );
     kept.id = MessageId::from("01J00000000000000000000021".to_string());
     kept.blocks = vec![Block::file("missing-file", "proof.txt", None, None)];
     kept.text_content = "onyx scoped".to_string();
     messages.insert(&kept).await.unwrap();
-    let mut foreign = user_message(&workspace.id, &other.id, "onyx other conversation");
+    let mut foreign = person_message(
+        &workspace.id,
+        &workspace.user_id,
+        &other.id,
+        "onyx other conversation",
+    );
     foreign.id = MessageId::from("01J00000000000000000000022".to_string());
     messages.insert(&foreign).await.unwrap();
 
@@ -245,14 +281,29 @@ pub async fn thread_scope_returns_its_root_and_replies_only(backend: &Backend) {
     backend.stores().agents.create(&agent).await.unwrap();
     backend.stores().channels.create(&channel).await.unwrap();
     let messages = &backend.stores().messages;
-    let mut root = user_message(&workspace.id, &channel.id, "saffron root");
+    let mut root = person_message(
+        &workspace.id,
+        &workspace.user_id,
+        &channel.id,
+        "saffron root",
+    );
     root.id = MessageId::from("01J00000000000000000000031".to_string());
     messages.insert(&root).await.unwrap();
-    let mut reply = user_message(&workspace.id, &channel.id, "saffron reply");
+    let mut reply = person_message(
+        &workspace.id,
+        &workspace.user_id,
+        &channel.id,
+        "saffron reply",
+    );
     reply.id = MessageId::from("01J00000000000000000000032".to_string());
     reply.parent_message_id = Some(root.id.clone());
     messages.insert(&reply).await.unwrap();
-    let mut unrelated = user_message(&workspace.id, &channel.id, "saffron unrelated");
+    let mut unrelated = person_message(
+        &workspace.id,
+        &workspace.user_id,
+        &channel.id,
+        "saffron unrelated",
+    );
     unrelated.id = MessageId::from("01J00000000000000000000033".to_string());
     messages.insert(&unrelated).await.unwrap();
 
@@ -275,10 +326,34 @@ pub async fn thread_scope_returns_its_root_and_replies_only(backend: &Backend) {
 pub async fn message_search_of_one_workspace_does_not_reach_another_workspace(backend: &Backend) {
     let (first, second) = tenant_pair(backend).await;
     let messages = &backend.stores().messages;
-    let mut here = user_message(&first.workspace_id, &first.channel_id, "cobalt here");
+    let mut here = person_message(
+        &first.workspace_id,
+        &backend
+            .stores()
+            .workspaces
+            .get(&first.workspace_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .user_id,
+        &first.channel_id,
+        "cobalt here",
+    );
     here.id = MessageId::from("01J00000000000000000000041".to_string());
     messages.insert(&here).await.unwrap();
-    let mut there = user_message(&second.workspace_id, &second.channel_id, "cobalt there");
+    let mut there = person_message(
+        &second.workspace_id,
+        &backend
+            .stores()
+            .workspaces
+            .get(&second.workspace_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .user_id,
+        &second.channel_id,
+        "cobalt there",
+    );
     there.id = MessageId::from("01J00000000000000000000042".to_string());
     messages.insert(&there).await.unwrap();
 
@@ -340,11 +415,31 @@ pub async fn tool_search_of_one_workspace_does_not_reach_another_workspace(backe
 pub async fn search_of_one_workspace_reads_neither_index_of_another_workspace(backend: &Backend) {
     let (first, second) = tenant_pair(backend).await;
     let messages = &backend.stores().messages;
-    let mut here = user_message(&first.workspace_id, &first.channel_id, "zinc in a message");
+    let mut here = person_message(
+        &first.workspace_id,
+        &backend
+            .stores()
+            .workspaces
+            .get(&first.workspace_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .user_id,
+        &first.channel_id,
+        "zinc in a message",
+    );
     here.id = MessageId::from("01J00000000000000000000061".to_string());
     messages.insert(&here).await.unwrap();
-    let mut there = user_message(
+    let mut there = person_message(
         &second.workspace_id,
+        &backend
+            .stores()
+            .workspaces
+            .get(&second.workspace_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .user_id,
         &second.channel_id,
         "zinc in a message",
     );
@@ -431,12 +526,25 @@ async fn retain_tool(
     grant_id: &str,
     content: &str,
 ) -> String {
-    let mut source = user_message(&scope.workspace_id, &scope.channel_id, "source");
+    let mut source = person_message(
+        &scope.workspace_id,
+        &backend
+            .stores()
+            .workspaces
+            .get(&scope.workspace_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .user_id,
+        &scope.channel_id,
+        "source",
+    );
     source.id = MessageId::from(message_id.to_string());
     backend.stores().messages.insert(&source).await.unwrap();
     let run = queued_run(&scope.workspace_id, &scope.agent_id, &scope.channel_id);
     backend.stores().runs.create(&run).await.unwrap();
     let grant = Grant {
+        created_by: pagis_core::Author::System,
         id: GrantId::from(grant_id.to_string()),
         workspace_id: scope.workspace_id.clone(),
         agent_id: scope.agent_id.clone(),

@@ -29,7 +29,6 @@ function Conversation({ api, row }: { api: ApiClient; row: ConversationRow }) {
   const activity = usePresence((state) => (row.agent ? agentPresence(state, row.agent.id) : 'none'))
   const caption = usePresence((state) => channelCaption(state, row.channel.id))
   const title = row.agent?.name ?? row.channel.title ?? 'Untitled'
-  const author = (id: string | null | undefined) => agents.find((agent) => agent.id === id)?.name ?? 'Sprite'
   // The person reads an Agent-to-Agent conversation and posts nothing in
   // it, so its row says so in place of the last message.
   const preview =
@@ -37,7 +36,7 @@ function Conversation({ api, row }: { api: ApiClient; row: ConversationRow }) {
       ? 'You can read this conversation. You cannot post in it.'
       : ((activity === 'working' ? caption : null) ??
         (latest
-          ? `${latest.author_kind === 'agent' && row.agent === null ? `${author(latest.author_agent_id)}: ` : ''}${latest.text_content}`
+          ? `${latest.author.kind === 'agent' && row.agent === null ? `${latest.author.name}: ` : ''}${latest.text_content}`
           : 'Start with a question, a task, or an idea.'))
   return (
     <Row

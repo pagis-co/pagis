@@ -4,7 +4,7 @@
 
 import { QueryClient } from '@tanstack/react-query'
 import { QueryClientProvider } from '../test/QueryClientProvider'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { ApiClient } from '../api/client'
@@ -18,7 +18,8 @@ function row(overrides: Partial<TimelineRow> = {}): TimelineRow {
     key: 'msg-1',
     kind: 'message',
     authorKind: 'agent',
-    authorAgentId: 'ag-1',
+    authorName: 'Ajay',
+    authorId: 'ag-1',
     createdAt: Date.parse('2026-09-05T15:06:00Z'),
     sendState: 'sent',
     status: 'complete',
@@ -29,8 +30,10 @@ function row(overrides: Partial<TimelineRow> = {}): TimelineRow {
     replyCount: 2,
     lastReplyAt,
     replyAuthors: [
-      { authorKind: 'agent', agentId: 'ag-2' },
-      { authorKind: 'user', agentId: null },
+      { authorKind: 'agent',
+      authorName: 'Clown', agentId: 'ag-2' },
+      { authorKind: 'person',
+      authorName: 'Ajay', agentId: null },
     ],
     ...overrides,
   }
@@ -66,7 +69,7 @@ describe('RepliesChip', () => {
     mount(row())
 
     expect(
-      await screen.findByRole('button', { name: `2 replies · Clown, you · ${time}` }),
+      await screen.findByRole('button', { name: `2 replies · Clown, Ajay · ${time}` }),
     ).toBeTruthy()
   })
 
@@ -76,15 +79,16 @@ describe('RepliesChip', () => {
 
     const faces = container.querySelectorAll('.ui-avatar-group .ui-avatar')
     expect(faces[0].querySelector('[role=img]')?.getAttribute('aria-label')).toBe('Clown, Pixie avatar')
-    expect(faces[0].querySelector('img')?.src).toContain('lavender.png')
-    expect(faces[1].textContent).toBe('Y')
+    await waitFor(() => expect(faces[0].querySelector('img')?.src).toContain('lavender.png'))
+    expect(faces[1].textContent).toBe('A')
   })
 
   it('says one reply in the singular', async () => {
-    mount(row({ replyCount: 1, replyAuthors: [{ authorKind: 'user', agentId: null }] }))
+    mount(row({ replyCount: 1, replyAuthors: [{ authorKind: 'person',
+      authorName: 'Ajay', agentId: null }] }))
 
     expect(
-      await screen.findByRole('button', { name: `1 reply · you · ${time}` }),
+      await screen.findByRole('button', { name: `1 reply · Ajay · ${time}` }),
     ).toBeTruthy()
   })
 

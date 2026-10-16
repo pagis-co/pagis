@@ -67,7 +67,7 @@ async fn channels_read_only_the_named_workspace() {
 #[tokio::test]
 async fn messages_read_only_the_named_workspace() {
     let stores = pagis_core::fake::stores();
-    let row: Message = serde_json::from_str(r#"{"id": "record", "workspace_id": "workspace", "channel_id": "channel", "author_kind": "agent", "status": "complete", "blocks": [], "text_content": "hello", "created_at": 0}"#).unwrap();
+    let row: Message = serde_json::from_str(r#"{"id": "record", "workspace_id": "workspace", "channel_id": "channel", "author": {"kind": "agent", "agent_id": "agent"}, "status": "complete", "blocks": [], "text_content": "hello", "created_at": 0}"#).unwrap();
     stores.messages.insert(&row).await.unwrap();
     assert!(
         stores
@@ -110,7 +110,7 @@ async fn runs_read_only_the_named_workspace() {
 #[tokio::test]
 async fn requests_read_only_the_named_workspace() {
     let stores = pagis_core::fake::stores();
-    let row: Request = serde_json::from_str(r#"{"id": "record", "workspace_id": "workspace", "agent_id": "agent", "kind": "tool_approval", "payload": {}, "state": "pending", "created_at": 0}"#).unwrap();
+    let row: Request = serde_json::from_str(r#"{"decided_by": null, "id": "record", "workspace_id": "workspace", "agent_id": "agent", "kind": "tool_approval", "payload": {}, "state": "pending", "created_at": 0}"#).unwrap();
     stores.requests.create(&row).await.unwrap();
     assert!(
         stores
@@ -135,7 +135,7 @@ async fn requests_read_only_the_named_workspace() {
 #[tokio::test]
 async fn grants_read_only_the_named_workspace() {
     let stores = pagis_core::fake::stores();
-    let row: Grant = serde_json::from_str(r#"{"id": "record", "workspace_id": "workspace", "agent_id": "agent", "resource_kind": "record", "scope": {}, "revision": 1, "created_at": 0}"#).unwrap();
+    let row: Grant = serde_json::from_str(r#"{"created_by": {"kind":"system"}, "id": "record", "workspace_id": "workspace", "agent_id": "agent", "resource_kind": "record", "scope": {}, "revision": 1, "created_at": 0}"#).unwrap();
     stores.grants.create(&row).await.unwrap();
     assert!(
         stores
@@ -185,7 +185,7 @@ async fn connections_read_only_the_named_workspace() {
 #[tokio::test]
 async fn credentials_read_only_the_named_workspace() {
     let stores = pagis_core::fake::stores();
-    let row: Credential = serde_json::from_str(r#"{"id": "record", "workspace_id": "workspace", "domain": "record", "username": "record", "login_url": "record", "secret": [1, 2, 3], "recipe": "record", "provenance": "user_supplied", "created_at": 0}"#).unwrap();
+    let row: Credential = serde_json::from_str(r#"{"created_by": {"kind":"system"}, "id": "record", "workspace_id": "workspace", "domain": "record", "username": "record", "login_url": "record", "secret": [1, 2, 3], "recipe": "record", "provenance": "user_supplied", "created_at": 0}"#).unwrap();
     stores.credentials.create(&row).await.unwrap();
     assert!(
         stores
@@ -1092,7 +1092,7 @@ async fn forget_operations_read_only_the_named_workspace() {
 #[tokio::test]
 async fn schedules_read_only_the_named_workspace() {
     let stores = pagis_core::fake::stores();
-    let row: Schedule = serde_json::from_str(r#"{"id": "record", "workspace_id": "workspace", "agent_id": "agent", "name": "test", "instruction": "record", "channel_id": "channel", "kind": "one_shot", "timezone": "record", "scheduled_at": 0, "state": "active", "revision": 1, "creator": "user", "created_at": 0, "updated_at": 0}"#).unwrap();
+    let row: Schedule = serde_json::from_str(r#"{"created_by": {"kind":"system"}, "id": "record", "workspace_id": "workspace", "agent_id": "agent", "name": "test", "instruction": "record", "channel_id": "channel", "kind": "one_shot", "timezone": "record", "scheduled_at": 0, "state": "active", "revision": 1, "created_at": 0, "updated_at": 0}"#).unwrap();
     stores.schedules.create(&row).await.unwrap();
     assert!(
         stores
@@ -1115,7 +1115,7 @@ async fn schedules_read_only_the_named_workspace() {
 #[tokio::test]
 async fn subscriptions_read_only_the_named_workspace() {
     let stores = pagis_core::fake::stores();
-    let row: EventSubscription = serde_json::from_str(r#"{"id": "record", "workspace_id": "workspace", "agent_id": "agent", "source": {"kind": "connection", "connection_id": "connection"}, "event_kind": "record", "source_version": "record", "name": "test", "instruction": "record", "channel_id": "channel", "filter": {}, "creator": "user", "state": "active", "revision": 1, "failures": 0, "next_attempt_at": 0, "created_at": 0, "updated_at": 0}"#).unwrap();
+    let row: EventSubscription = serde_json::from_str(r#"{"created_by": {"kind":"system"}, "id": "record", "workspace_id": "workspace", "agent_id": "agent", "source": {"kind": "connection", "connection_id": "connection"}, "event_kind": "record", "source_version": "record", "name": "test", "instruction": "record", "channel_id": "channel", "filter": {}, "state": "active", "revision": 1, "failures": 0, "next_attempt_at": 0, "created_at": 0, "updated_at": 0}"#).unwrap();
     stores.subscriptions.create(&row).await.unwrap();
     assert!(
         stores
@@ -1651,8 +1651,7 @@ async fn conversation_evidence_reads_only_the_named_workspace() {
         workspace_id: owner(),
         channel_id: scope.channel_id.clone(),
         parent_message_id: None,
-        author_kind: AuthorKind::User,
-        author_agent_id: None,
+        author: Author::Person(pagis_core::UserId::generate()),
         run_id: None,
         status: MessageStatus::Complete,
         blocks: vec![],
@@ -1691,6 +1690,7 @@ async fn conversation_evidence_reads_only_the_named_workspace() {
     stores
         .grants
         .create(&Grant {
+            created_by: pagis_core::Author::System,
             id: "grant".to_string().into(),
             workspace_id: owner(),
             agent_id: scope.agent_id.clone(),
@@ -1897,8 +1897,7 @@ async fn evidence_files_read_only_the_message_workspace() {
         workspace_id: owner(),
         channel_id: scope.channel_id.clone(),
         parent_message_id: None,
-        author_kind: AuthorKind::User,
-        author_agent_id: None,
+        author: Author::Person(pagis_core::UserId::generate()),
         run_id: None,
         status: MessageStatus::Complete,
         blocks: vec![Block::file(file.id.as_str(), "file", None, None)],
@@ -1960,8 +1959,7 @@ async fn message_views_keep_the_thread_and_completion_rules() {
         workspace_id: owner(),
         channel_id: channel.clone(),
         parent_message_id: None,
-        author_kind: AuthorKind::User,
-        author_agent_id: None,
+        author: Author::Person(pagis_core::UserId::generate()),
         run_id: None,
         status: MessageStatus::Complete,
         blocks: vec![],
@@ -1974,8 +1972,7 @@ async fn message_views_keep_the_thread_and_completion_rules() {
     let reply = Message {
         id: MessageId::generate(),
         parent_message_id: Some(root.id.clone()),
-        author_kind: AuthorKind::Agent,
-        author_agent_id: Some(agent.clone()),
+        author: Author::Agent(agent.clone()),
         run_id: Some(run.clone()),
         text_content: "reply".into(),
         ..root.clone()

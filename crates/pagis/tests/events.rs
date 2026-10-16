@@ -283,7 +283,7 @@ async fn three_rules_on_one_connection_produce_three_independent_runs() {
     )
     .await;
     assert_eq!(detail["state"], "active");
-    assert_eq!(detail["creator"], "user");
+    assert_eq!(detail["created_by"]["kind"], "person");
     assert_eq!(detail["last_successful_collection"]["outcome"], "collected");
     assert_eq!(detail["last_matched_event"]["provider_event_id"], "m1");
 }

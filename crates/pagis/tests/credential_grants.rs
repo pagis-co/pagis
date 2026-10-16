@@ -29,6 +29,7 @@ fn action(domain: &str) -> CredentialAction {
 async fn pending_credential_request(daemon: &TestDaemon, domain: &str) -> String {
     let requests = SqliteRequestStore::new(daemon.pool().clone());
     let request = Request {
+        decided_by: None,
         id: RequestId::generate(),
         workspace_id: workspace_id(daemon).await,
         agent_id: AgentId::from(daemon.agent_id.clone()),

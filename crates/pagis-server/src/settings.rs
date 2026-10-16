@@ -457,6 +457,7 @@ pub struct AuthorizeConnectionRequest {
 /// here, and no endpoint that returns one.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct CredentialDto {
+    pub created_by: pagis_core::AuthorDto,
     pub id: String,
     /// The site's registrable domain.
     pub domain: String,
@@ -473,9 +474,22 @@ pub struct CredentialDto {
     pub created_at: i64,
 }
 
-impl From<pagis_vault::CredentialView> for CredentialDto {
-    fn from(view: pagis_vault::CredentialView) -> Self {
-        Self {
+impl CredentialDto {
+    async fn read(
+        state: &AppState,
+        view: pagis_vault::CredentialView,
+        workspace_id: &pagis_core::WorkspaceId,
+    ) -> Result<Self, ApiError> {
+        let created_by = view
+            .created_by
+            .resolve(
+                workspace_id,
+                state.users.as_ref(),
+                state.agent_store.as_ref(),
+            )
+            .await?;
+        Ok(Self {
+            created_by,
             id: view.id,
             domain: view.domain,
             username: view.username,
@@ -484,7 +498,7 @@ impl From<pagis_vault::CredentialView> for CredentialDto {
             has_totp: view.has_totp,
             owner_agent_id: view.owner_agent_id,
             created_at: view.created_at,
-        }
+        })
     }
 }
 
@@ -554,14 +568,15 @@ pub async fn list_credentials(
     State(state): State<Arc<AppState>>,
     tenant: Tenant,
 ) -> Result<Json<CredentialPage>, ApiError> {
-    let items = state
+    let records = state
         .vault
         .list(&tenant.workspace_id, None)
         .await
-        .map_err(vault_error)?
-        .into_iter()
-        .map(CredentialDto::from)
-        .collect();
+        .map_err(vault_error)?;
+    let mut items = Vec::new();
+    for record in records {
+        items.push(CredentialDto::read(&state, record, &tenant.workspace_id).await?);
+    }
     Ok(Json(CredentialPage { items }))
 }
 
@@ -582,6 +597,7 @@ pub async fn add_credential(
     let view = state
         .vault
         .add_user_credential(pagis_vault::NewCredential {
+            created_by: pagis_core::Author::Person(tenant.user_id.clone()),
             workspace_id: tenant.workspace_id.clone(),
             domain: request.domain,
             username: request.username,
@@ -598,7 +614,10 @@ pub async fn add_credential(
         serde_json::json!({ "credential_id": view.id, "domain": view.domain }),
     )
     .await?;
-    Ok((StatusCode::CREATED, Json(CredentialDto::from(view))))
+    Ok((
+        StatusCode::CREATED,
+        Json(CredentialDto::read(&state, view, &tenant.workspace_id).await?),
+    ))
 }
 
 /// A vault failure the user can fix reads as a 422; the rest are 500s
@@ -1321,10 +1340,10 @@ async fn seed_user_name(state: &AppState, tenant: &Tenant, name: &str) -> Result
         format!(
             "# Shared memory\n\n\
              This index has one line per fact file: `- [Title](path.md) — hook`.\n\n\
-             - [User](user.md) — the user's name: {name}\n"
+             - [Person](user.md) — your Person's name: {name}\n"
         ),
     );
-    let message = "Onboarding: recorded the user's name";
+    let message = "Onboarding: recorded your Person's name";
     let memory_agent = pagis_core::AgentId::from(String::new());
     let access = pagis_core::MemoryAccess::Owner {
         agent_id: memory_agent.clone(),

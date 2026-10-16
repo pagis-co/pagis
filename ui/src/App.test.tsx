@@ -342,8 +342,7 @@ describe('the session block', () => {
                 id: 'message-2',
                 channel_id: 'channel-2',
                 parent_message_id: 'message-1',
-                author_kind: 'system',
-                author_agent_id: null,
+                author: { kind: 'system', id: null, name: 'Pagis' },
                 status: 'complete',
                 run_id: 'run-1',
                 blocks: [

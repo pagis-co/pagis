@@ -437,13 +437,14 @@ pub async fn grant_plugin(
             &tenant.workspace_id,
             &PluginId::from(plugin_id),
             &agent_id,
+            pagis_core::Author::Person(tenant.user_id.clone()),
         )
         .await
         .map_err(plugin_error)?;
     crate::grants::publish_grant_event(&state, &grant, "grant.created").await?;
     Ok((
         StatusCode::CREATED,
-        Json(crate::grants::grant_dto(&grant, &agent.name)),
+        Json(crate::grants::grant_dto(&state, &grant, &agent.name).await?),
     ))
 }
 

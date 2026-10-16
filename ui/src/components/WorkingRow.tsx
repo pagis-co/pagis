@@ -74,7 +74,7 @@ export function WorkingRow({
   const cancel = useCancelRun(api)
   const stopping = cancel.isPending || cancel.isSuccess
   const elapsed = useElapsed(row.createdAt)
-  const agentId = row.authorAgentId
+  const agentId = row.authorId
   const count = steps.data?.steps.length ?? 0
   const reflecting = row.text === 'Updating memory'
   return (

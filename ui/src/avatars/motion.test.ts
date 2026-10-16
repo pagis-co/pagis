@@ -36,7 +36,7 @@ it('reacts once to a live reply in the open conversation and ignores replay and 
     agent_id: 'sage',
     channel_id: 'open',
     run_id: 'run',
-    payload: { author_kind: 'agent' },
+    payload: { author: { kind: 'agent', id: 'agent-1', name: 'Scout' } },
   }
   expect(
     reactions.accept(reply, {

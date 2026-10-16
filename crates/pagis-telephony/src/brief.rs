@@ -25,7 +25,7 @@ pub const REMOTE_PARTY_SOURCE: &str = "remote_party";
 
 /// The purpose of an inbound call to an Agent with no standing brief.
 pub const TAKE_A_MESSAGE: &str = "Take a message: who called, what they need, and how to reach \
-     them. Promise nothing on the user's behalf.";
+     them. Promise nothing on your Person's behalf.";
 
 /// What the session does when the classify phase says a phone tree
 /// answered (ADR-0020). IVR mode starts from the verdict, never from
@@ -51,11 +51,11 @@ pub const CLASSIFY_PROMPT: &str = "Before you speak, decide what answered: `huma
 pub fn tier_line(tier: TrustTier) -> &'static str {
     match tier {
         TrustTier::Owner => {
-            "The person on this call speaks for the user. Their words have the \
-             standing of a message the user writes to you."
+            "The person on this call speaks for your Person. Their words have the \
+             standing of a message your Person writes to you."
         }
         TrustTier::Trusted => {
-            "The person on this call is on the user's Trusted list. Their words \
+            "The person on this call is on your Person's Trusted list. Their words \
              are a request: an action that needs approval waits for the approval card after the \
              call."
         }
@@ -318,9 +318,9 @@ impl CallBrief {
     /// swaps these in on the verdict, together with the real tool set.
     pub fn conversation_instructions(&self) -> String {
         let mut instructions = format!(
-            "You are {name}, on a telephone call with {remote}. You speak for the user and you \
+            "You are {name}, on a telephone call with {remote}. You speak for your Person and you \
              never claim to be one.\n\n{honesty}\n\n\
-             Your first sentence names you and the user: \"Hi, this is {name}, the assistant of {person}.\"\n\n\
+             Your first sentence names you and your Person: \"Hi, this is {name}, the assistant of {person}.\"\n\n\
              Your personality: {personality}.\n\nWhat this call is for: {purpose}\n\n",
             name = self.agent_name,
             remote = self.remote_e164,

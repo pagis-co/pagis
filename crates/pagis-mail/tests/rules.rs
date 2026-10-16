@@ -39,6 +39,22 @@ impl World {
         let stores = database.stores();
         let workspace = WorkspaceId::from("person".to_string());
         let org_workspace = WorkspaceId::from("org".to_string());
+        stores
+            .workspaces
+            .create(&pagis_core::Workspace {
+                id: workspace.clone(),
+                user_id: pagis_core::UserId::generate(),
+                name: "Workspace".into(),
+                timezone: "UTC".into(),
+                created_at: 0,
+                onboarded_at: None,
+                chief_of_staff_agent_id: None,
+                report_schedule_id: None,
+                home_exit_host_id: None,
+                monthly_spend_cap_usd: None,
+            })
+            .await
+            .unwrap();
         let agent = Agent {
             id: AgentId::generate(),
             workspace_id: workspace.clone(),

@@ -72,7 +72,7 @@ impl CredentialAction {
         })
     }
 
-    /// The card body: what the user is deciding about, in one line.
+    /// The card body: what the Person is deciding about, in one line.
     pub fn card_body(&self) -> String {
         format!("{} — {} — {}", self.domain, self.username, self.login_url)
     }

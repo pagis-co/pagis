@@ -42,6 +42,7 @@ pub(crate) async fn register(harness: &Harness, name: &str, capabilities: &[&str
 pub(crate) async fn grant_host(harness: &Harness, host: &Host, allow: &[&str]) -> Grant {
     let allow: Vec<String> = allow.iter().map(|rule| rule.to_string()).collect();
     let grant = Grant {
+        created_by: pagis_core::Author::System,
         id: pagis_core::GrantId::generate(),
         workspace_id: harness.workspace.id.clone(),
         agent_id: harness.agent.id.clone(),
@@ -131,6 +132,7 @@ async fn an_approved_command_reaches_the_executor_with_its_host(pool: SqlitePool
             &pending.request.id,
             RequestState::Approved,
             None,
+            pagis_core::Author::System,
             pagis_core::now_ms(),
         )
         .await
@@ -320,6 +322,7 @@ async fn two_present_hosts_ask_the_person_which_one(pool: SqlitePool) {
             &question.request.id,
             RequestState::Approved,
             Some(serde_json::json!({"value": studio.id.as_str()})),
+            pagis_core::Author::System,
             pagis_core::now_ms(),
         )
         .await
@@ -466,6 +469,7 @@ async fn a_named_host_of_another_person_names_nothing(pool: SqlitePool) {
             &question.request.id,
             RequestState::Approved,
             Some(serde_json::json!({"value": theirs.id.as_str()})),
+            pagis_core::Author::System,
             pagis_core::now_ms(),
         )
         .await
@@ -501,6 +505,7 @@ async fn a_host_that_goes_away_under_the_card_answers_absent(pool: SqlitePool) {
             &question.request.id,
             RequestState::Approved,
             Some(serde_json::json!({"value": air.id.as_str()})),
+            pagis_core::Author::System,
             pagis_core::now_ms(),
         )
         .await

@@ -17,6 +17,7 @@ async fn setup() -> (std::sync::Arc<Trigger>, WorkspaceId, AgentId, ChannelId) {
 
 fn input(workspace_id: WorkspaceId, agent_id: AgentId, channel_id: ChannelId) -> NewOneShot {
     NewOneShot {
+        created_by: pagis_core::Author::System,
         workspace_id,
         agent_id,
         name: "Morning plan".to_string(),

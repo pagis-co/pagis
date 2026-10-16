@@ -1,12 +1,12 @@
 //! The takeover audit block: when a takeover ends, post a system
-//! message into the agent's DM so the channel records that the user had
+//! message into the agent's DM so the channel records that the Person had
 //! control of the computer, and for how long.
 
 use std::sync::Arc;
 
 use futures::StreamExt;
 use pagis_core::{
-    AuthorKind, Block, ChannelKind, EventScope, Message, MessageId, MessageStatus, NewEvent,
+    Author, Block, ChannelKind, EventScope, Message, MessageId, MessageStatus, NewEvent,
     blocks_text,
 };
 
@@ -93,8 +93,7 @@ async fn post_note(
         workspace_id: workspace_id.clone(),
         channel_id: dm.id.clone(),
         parent_message_id: None,
-        author_kind: AuthorKind::System,
-        author_agent_id: None,
+        author: Author::System,
         run_id: None,
         status: MessageStatus::Complete,
         text_content: blocks_text(&blocks),
@@ -117,7 +116,7 @@ async fn post_note(
             payload: serde_json::json!({
                 "message_id": note.id.as_str(),
                 "parent_message_id": serde_json::Value::Null,
-                "author_kind": AuthorKind::System,
+                "author": {"kind": "system", "id": null, "name": "Pagis"},
             }),
         })
         .await

@@ -377,10 +377,12 @@ pub async fn widget_rpc(
                 )),
             )));
         }
-        Ok(Json(match dispatch(&state, &view, &request).await {
-            Ok(result) => JsonRpcResponse::ok(id, result),
-            Err(error) => JsonRpcResponse::failed(id, error),
-        }))
+        Ok(Json(
+            match dispatch(&state, &tenant, &view, &request).await {
+                Ok(result) => JsonRpcResponse::ok(id, result),
+                Err(error) => JsonRpcResponse::failed(id, error),
+            },
+        ))
     }
 }
 
@@ -389,6 +391,7 @@ pub async fn widget_rpc(
 #[cfg(feature = "native")]
 async fn dispatch(
     state: &AppState,
+    tenant: &Tenant,
     view: &WidgetView,
     request: &JsonRpcRequest,
 ) -> Result<Value, JsonRpcError> {
@@ -396,7 +399,7 @@ async fn dispatch(
         "ping" => Ok(json!({})),
         "tools/call" => call_tool(state, view, &request.params).await,
         "resources/read" => read_resource(state, view, &request.params).await,
-        "ui/message" => answer(state, view, &request.params).await,
+        "ui/message" => answer(state, tenant, view, &request.params).await,
         other => Err(JsonRpcError::method_not_found(format!(
             "a widget cannot call {other}"
         ))),
@@ -509,6 +512,7 @@ fn scoped_widget<'a>(package: &str, uri: &'a str) -> Result<&'a str, JsonRpcErro
 #[cfg(feature = "native")]
 async fn answer(
     state: &AppState,
+    tenant: &Tenant,
     view: &WidgetView,
     params: &Value,
 ) -> Result<Value, JsonRpcError> {
@@ -534,6 +538,7 @@ async fn answer(
             &request_id,
             RequestState::Approved,
             Some(values),
+            pagis_core::Author::Person(tenant.user_id.clone()),
             now_ms(),
         )
         .await

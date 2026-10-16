@@ -660,7 +660,7 @@ impl CoreToolRuntime {
                 .await
             {
                 Ok(Some(required)) => required,
-                Ok(None) if message.author_kind == pagis_core::AuthorKind::User => Vec::new(),
+                Ok(None) if message.author.person_id().is_some() => Vec::new(),
                 Ok(None) => continue,
                 Err(error) => {
                     return ToolResult::error("temporarily_unavailable", error.to_string());
@@ -1174,7 +1174,7 @@ impl CoreToolRuntime {
                 Ok(None) => {
                     return ToolResult::error(
                         "not_found",
-                        "send_message: you have no DM with the user",
+                        "send_message: you have no DM with your Person",
                     );
                 }
                 Err(error) => {
@@ -1206,7 +1206,7 @@ impl CoreToolRuntime {
             .post(
                 &call.workspace_id,
                 &channel,
-                &sender.id,
+                &sender,
                 &call.run_id,
                 text,
                 &exposures,

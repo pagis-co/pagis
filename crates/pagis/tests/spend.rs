@@ -250,7 +250,7 @@ async fn a_workspace_at_its_spend_cap_stops_before_the_model_call() {
     let note = said
         .iter()
         .find(|message| {
-            message["author_kind"] == "system"
+            message["author"]["kind"] == "system"
                 && message["text_content"]
                     .as_str()
                     .is_some_and(|text| text.contains("spend cap"))
@@ -315,7 +315,7 @@ async fn a_capped_workspace_does_not_start_on_a_model_without_a_price() {
     let said = messages(&daemon, daemon.cookie(), &channel).await;
     assert!(
         said.iter().any(|message| {
-            message["author_kind"] == "system"
+            message["author"]["kind"] == "system"
                 && message["text_content"].as_str().is_some_and(|text| {
                     text.contains("openai/gpt-unlisted") && text.contains("no known price")
                 })
@@ -462,7 +462,7 @@ async fn a_refused_key_says_an_administrator_sets_up_the_providers() {
     let said = messages(&daemon, daemon.cookie(), &channel).await;
     let note = said
         .iter()
-        .find(|message| message["author_kind"] == "system")
+        .find(|message| message["author"]["kind"] == "system")
         .unwrap_or_else(|| panic!("the conversation says why: {said:?}"));
     let text = note["text_content"].as_str().unwrap();
     assert!(

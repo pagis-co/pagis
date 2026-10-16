@@ -9,7 +9,7 @@
 //!
 //! An allow rule here is one registrable domain of a recipient. The
 //! broker derives it from the recipients of the call it is about to
-//! make, and the user writes it with `Always allow`; the rule then
+//! make, and the Person writes it with `Always allow`; the rule then
 //! lives on the mailbox record. A later send is allowed only when every
 //! one of its recipients sits on a rule, so an Agent cannot widen its
 //! own reach by naming another domain.
@@ -49,7 +49,7 @@ pub const OWN_MAILBOX: &str = "own";
 
 /// The most domains one send card proposes as allow rules. A send that
 /// reaches more distinct domains than this proposes none: a rule set
-/// the user cannot read is worse than one approval.
+/// the Person cannot read is worse than one approval.
 pub const MAX_MAIL_RULES: usize = 5;
 
 /// The stable code of a call that names a mailbox which cannot work
@@ -60,7 +60,7 @@ pub const MAILBOX_UNAVAILABLE: &str = "mailbox_unavailable";
 pub const OUTGOING_CAP_REACHED: &str = "outgoing_cap_reached";
 
 /// The one mail Incoming Event kind, for the Agent's own mailbox and
-/// for the user's accounts alike (ADR-0019).
+/// for the Person's accounts alike (ADR-0019).
 pub const MAIL_MESSAGE_RECEIVED: &str = "mail.message_received";
 
 /// The name of the trusted matcher that reads its typed filter.
@@ -70,7 +70,7 @@ pub const MAIL_MATCHER: &str = "mail.message_received";
 /// through the Migadu API (ADR-0019).
 pub const MIGADU_PROVIDER: &str = "migadu";
 
-/// The provider of a Connection whose mailboxes the user makes at the
+/// The provider of a Connection whose mailboxes the Person makes at the
 /// host (ADR-0019).
 pub const MANUAL_PROVIDER: &str = "manual";
 
@@ -92,7 +92,7 @@ pub enum MailTool {
     GetMessage,
     GetThread,
     /// The one tool that reaches another person, so the one that waits
-    /// for the user. A reply is a send with `in_reply_to`.
+    /// for the Person. A reply is a send with `in_reply_to`.
     Send,
     /// Reversible state: read, archived, flagged. Deletion is not a
     /// tool.
@@ -215,9 +215,9 @@ pub fn mail_manifest() -> CapabilityManifest {
             ),
             tool(
                 MailTool::Send,
-                "Send one email from a mailbox. The user approves it. To reply inside a thread, \
+                "Send one email from a mailbox. Your Person approves it. To reply inside a thread, \
                  set `in_reply_to` to the `Message-ID` of the message you answer, and write the \
-                 subject yourself. There is no draft tool: what you write here is what the user \
+                 subject yourself. There is no draft tool: what you write here is what your Person \
                  reads on the card.",
                 serde_json::json!({
                     "to": {
@@ -309,7 +309,7 @@ pub fn message_received(provider: &str) -> IncomingEventKind {
             "properties": {
                 "mailbox": {
                     "type": "string",
-                    "description": "`own` for your own mailbox, or the alias of one of the user's accounts."
+                    "description": "`own` for your own mailbox, or the alias of one of your Person's accounts."
                 },
                 "senders": {
                     "type": "array",
@@ -330,7 +330,7 @@ pub fn message_received(provider: &str) -> IncomingEventKind {
             "additionalProperties": false
         }),
         // The Agent holds its own mailbox as its own identity, with no
-        // Grant; the user's account is read under a Grant on its
+        // Grant; the Person's account is read under a Grant on its
         // Connection (ADR-0019).
         required_capability: if provider == MAIL_PROVIDER {
             connection_capability(MailTool::Search).to_string()
@@ -383,7 +383,7 @@ pub fn describe_choices(description: &str, choices: &MailChoices) -> String {
         named.push(format!("`own` ({address}), your own address"));
     }
     for alias in &choices.aliases {
-        named.push(format!("`{alias}`, one of the user's mail accounts"));
+        named.push(format!("`{alias}`, one of your Person's mail accounts"));
     }
     format!(
         "{description}\n\nMailboxes you can name: {}.",
@@ -398,7 +398,7 @@ pub fn mailbox_choices(choices: &MailChoices) -> Value {
         "type": "string",
         "enum": choices.names(),
         "description": "The mailbox to act in. `own` is your own mailbox; every other name is \
-                        one of the user's mail accounts."
+                        one of your Person's mail accounts."
     })
 }
 
@@ -418,7 +418,7 @@ pub fn connection_alias(arguments: &Value) -> Option<String> {
     (!named.is_empty() && named != OWN_MAILBOX).then(|| named.to_string())
 }
 
-/// The capability a mail call in one of the user's accounts needs on
+/// The capability a mail call in one of the Person's accounts needs on
 /// the Grant for its Connection. Each name is a capability of the Gmail
 /// Connection, not of one mail tool (ADR-0019).
 pub fn connection_capability(tool: MailTool) -> &'static str {
@@ -490,7 +490,7 @@ pub fn recipient_domain(address: &str) -> Option<String> {
 /// The allow rules one send proposes: the registrable domain of every
 /// recipient, in the order the call names them. A send that reaches an
 /// address Pagis cannot read a domain from, or more domains than
-/// [`MAX_MAIL_RULES`], proposes nothing and the user approves it once.
+/// [`MAX_MAIL_RULES`], proposes nothing and the Person approves it once.
 pub fn proposed_domains(arguments: &Value) -> Vec<String> {
     let mut domains: Vec<String> = Vec::new();
     for recipient in recipients(arguments) {

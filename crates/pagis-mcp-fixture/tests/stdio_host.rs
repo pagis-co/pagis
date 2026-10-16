@@ -571,6 +571,7 @@ async fn a_tenant_runs_the_plugin_with_the_token_of_the_orgs_connection() {
     harness
         .grants
         .create(&pagis_core::Grant {
+            created_by: pagis_core::Author::System,
             id: pagis_core::GrantId::generate(),
             workspace_id: harness.workspace_id.clone(),
             agent_id: harness.agent_id.clone(),

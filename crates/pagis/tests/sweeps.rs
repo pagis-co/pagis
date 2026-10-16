@@ -175,6 +175,7 @@ impl World {
             };
             stores.connections.create(&connection).await.unwrap();
             let rule = EventSubscription {
+                created_by: pagis_core::Author::System,
                 id: EventSubscriptionId::generate(),
                 workspace_id: ws.clone(),
                 agent_id: agent.id,
@@ -186,7 +187,6 @@ impl World {
                 channel_id: channel.id,
                 root_message_id: None,
                 filter: serde_json::json!({}),
-                creator: CreatorKind::User,
                 state: EventSubscriptionState::Active,
                 revision: 1,
                 approved_revision: Some(1),
