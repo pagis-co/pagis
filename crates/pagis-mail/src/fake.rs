@@ -902,7 +902,7 @@ impl MailSession for FakeMailSession {
     async fn send(&mut self, message: &OutgoingMessage) -> Result<SentMessage, TransportError> {
         self.refuse()?;
         let mut inbox = self.shared.inbox.lock().unwrap();
-        let built = crate::mime::build_mime(&self.address, message)?;
+        let built = crate::mime::build_mime(&self.address, message, pagis_core::now_ms())?;
         inbox.sent.push(message.clone());
         inbox.submissions.push(built.clone());
         let folder = inbox.folder("Sent");

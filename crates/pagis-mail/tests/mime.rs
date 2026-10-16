@@ -179,6 +179,8 @@ fn an_answer_with_no_message_in_it_is_unreadable() {
 
 // --- the send half ---
 
+const SENT_AT: i64 = 1_700_000_000_000;
+
 #[test]
 fn a_send_carries_the_message_id_it_reports() {
     let built = build_mime(
@@ -189,6 +191,7 @@ fn a_send_carries_the_message_id_it_reports() {
             body: "On Tuesday.".into(),
             ..OutgoingMessage::default()
         },
+        SENT_AT,
     )
     .expect("the message builds");
     let raw = String::from_utf8(built.raw).expect("the message is utf-8");
@@ -203,6 +206,26 @@ fn a_send_carries_the_message_id_it_reports() {
 }
 
 #[test]
+fn the_date_header_comes_from_the_given_clock() {
+    let built = build_mime(
+        "agent@pagis.test",
+        &OutgoingMessage {
+            to: vec!["ada@example.test".into()],
+            subject: "The roof".into(),
+            body: "On Tuesday.".into(),
+            ..OutgoingMessage::default()
+        },
+        SENT_AT,
+    )
+    .expect("the message builds");
+    let raw = String::from_utf8(built.raw).expect("the message is utf-8");
+    assert!(
+        raw.contains("Date: Tue, 14 Nov 2023 22:13:20 +0000"),
+        "{raw}"
+    );
+}
+
+#[test]
 fn a_reply_carries_in_reply_to_and_references() {
     let built = build_mime(
         "agent@pagis.test",
@@ -213,6 +236,7 @@ fn a_reply_carries_in_reply_to_and_references() {
             in_reply_to: Some("<a1@example.test>".into()),
             ..OutgoingMessage::default()
         },
+        SENT_AT,
     )
     .expect("the message builds");
     let raw = String::from_utf8(built.raw).expect("the message is utf-8");
@@ -222,7 +246,7 @@ fn a_reply_carries_in_reply_to_and_references() {
 
 #[test]
 fn a_send_without_a_recipient_is_rejected_before_the_socket() {
-    let error = build_mime("agent@pagis.test", &OutgoingMessage::default())
+    let error = build_mime("agent@pagis.test", &OutgoingMessage::default(), SENT_AT)
         .err()
         .map(|error| error.0);
     assert_eq!(error, Some(TransportErrorCode::Rejected));
@@ -240,6 +264,7 @@ fn a_bcc_recipient_reaches_the_envelope_and_never_the_headers() {
             body: "On Tuesday.".into(),
             ..OutgoingMessage::default()
         },
+        SENT_AT,
     )
     .expect("the message builds");
     assert_eq!(

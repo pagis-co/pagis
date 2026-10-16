@@ -164,8 +164,13 @@ pub fn read_mime(raw: &[u8], id: MessageId) -> Result<Message, TransportError> {
 
 /// Build the bytes of one outgoing message. A reply is a send with
 /// `in_reply_to` (ADR-0019): it sets `In-Reply-To` and `References`,
-/// which is what threads the answer at the recipient.
-pub fn build_mime(from: &str, message: &OutgoingMessage) -> Result<BuiltMessage, TransportError> {
+/// which is what threads the answer at the recipient. The `Date` header
+/// comes from `sent_at`, so the build reads no platform clock.
+pub fn build_mime(
+    from: &str,
+    message: &OutgoingMessage,
+    sent_at: pagis_core::UnixMillis,
+) -> Result<BuiltMessage, TransportError> {
     let recipients: Vec<String> = message
         .to
         .iter()
@@ -187,6 +192,7 @@ pub fn build_mime(from: &str, message: &OutgoingMessage) -> Result<BuiltMessage,
     let mut builder = MessageBuilder::new()
         .date(pagis_core::now_ms() / 1000)
         .message_id(message_id.trim_matches(['<', '>']))
+        .date(mail_builder::headers::date::Date::new(sent_at / 1000))
         .from(from)
         .to(message.to.clone())
         .subject(message.subject.as_str());
