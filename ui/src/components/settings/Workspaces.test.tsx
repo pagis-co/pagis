@@ -72,3 +72,16 @@ it('requires a reason, starts and ends a Legal Hold, and reads the Audit Log', a
     params: { path: { workspace_id: 'ws-1' } },
   }))
 })
+
+it('saves the Shared Workspace Spend Cap through its own route beside the limits', async () => {
+  const api = {
+    GET: vi.fn(async (path: string) => path.endsWith('/limits') ? { data: { permitted_plugins: null, permitted_connections: null, max_mail_visibility: 'all_mail', outside_plugins: 0, outside_connections: 0 } } : { data: { items: path.endsWith('/workspaces') ? [{ id: 'team', name: 'Support', kind: 'shared', managers: [], monthly_spend_cap_usd: 25, total: { cost_usd: 0 } }] : [] } }),
+    PUT: vi.fn(async () => ({ data: {} })),
+  }
+  render(<QueryClientProvider client={new QueryClient()}><Workspaces api={api as unknown as ApiClient} /></QueryClientProvider>)
+  const cap = await screen.findByLabelText('Monthly spend cap for Support')
+  fireEvent.change(cap, { target: { value: '40' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Save the spend cap for Support' }))
+  await waitFor(() => expect(api.PUT).toHaveBeenCalledWith('/api/v1/administration/workspaces/{workspace_id}/spend-cap', { params: { path: { workspace_id: 'team' } }, body: { monthly_spend_cap_usd: 40 } }))
+  expect(await screen.findByRole('button', { name: 'Save limits for Support' })).toBeTruthy()
+})

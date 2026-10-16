@@ -135,6 +135,7 @@ pub async fn open(db_path: &std::path::Path) -> Result<pagis_core::Stores, sqlx:
 pub fn stores(pool: sqlx::SqlitePool) -> pagis_core::Stores {
     pagis_core::Stores {
         mail_assessments: Arc::new(SqliteMailAssessmentStore::new(pool.clone())),
+        governance: Arc::new(SqliteWorkspaceGovernanceStore::new(pool.clone())),
         audit: Arc::new(SqliteAuditLog::new(pool.clone())),
         workspace_mailboxes: Arc::new(SqliteWorkspaceMailboxStore::new(pool.clone())),
         run_journal: std::sync::Arc::new(SqliteRunJournal::new(pool.clone())),
@@ -196,3 +197,6 @@ mod mail_assessment_store;
 pub use mail_assessment_store::*;
 mod audit_log;
 pub use audit_log::SqliteAuditLog;
+
+mod workspace_governance;
+pub use workspace_governance::SqliteWorkspaceGovernanceStore;

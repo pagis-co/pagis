@@ -323,6 +323,12 @@ impl CredentialStore for FakeCredentialStore {
 impl GrantStore for FakeGrantStore {
     async fn create(&self, grant: &Grant) -> Result<(), StoreError> {
         let mut data = self.0.lock().unwrap();
+        if let Some(limits) = data.limits.get(&grant.workspace_id) {
+            limits.check_resource(
+                &grant.resource_kind,
+                grant.resource_id.as_deref().unwrap_or(""),
+            )?;
+        }
         if grant.revoked_at.is_none()
             && data.grants.rows(&grant.workspace_id).any(|row| {
                 row.revoked_at.is_none()
@@ -361,7 +367,11 @@ impl GrantStore for FakeGrantStore {
     ) -> Result<Option<Grant>, StoreError> {
         let data = self.0.lock().unwrap();
         let rows = data.grants.rows(workspace_id).filter(|row| {
-            row.revoked_at.is_none()
+            data.limits.get(workspace_id).is_none_or(|limits| {
+                limits
+                    .check_resource(&row.resource_kind, row.resource_id.as_deref().unwrap_or(""))
+                    .is_ok()
+            }) && row.revoked_at.is_none()
                 && &row.agent_id == agent_id
                 && row.resource_kind == resource_kind
         });
@@ -373,10 +383,14 @@ impl GrantStore for FakeGrantStore {
         agent_id: &AgentId,
     ) -> Result<Vec<Grant>, StoreError> {
         let data = self.0.lock().unwrap();
-        let rows = data
-            .grants
-            .rows(workspace_id)
-            .filter(|row| row.revoked_at.is_none() && &row.agent_id == agent_id);
+        let rows = data.grants.rows(workspace_id).filter(|row| {
+            data.limits.get(workspace_id).is_none_or(|limits| {
+                limits
+                    .check_resource(&row.resource_kind, row.resource_id.as_deref().unwrap_or(""))
+                    .is_ok()
+            }) && row.revoked_at.is_none()
+                && &row.agent_id == agent_id
+        });
         Ok(rows.cloned().collect())
     }
     async fn live_for_resource(
@@ -388,7 +402,11 @@ impl GrantStore for FakeGrantStore {
     ) -> Result<Option<Grant>, StoreError> {
         let data = self.0.lock().unwrap();
         let rows = data.grants.rows(workspace_id).filter(|row| {
-            row.revoked_at.is_none()
+            data.limits.get(workspace_id).is_none_or(|limits| {
+                limits
+                    .check_resource(&row.resource_kind, row.resource_id.as_deref().unwrap_or(""))
+                    .is_ok()
+            }) && row.revoked_at.is_none()
                 && &row.agent_id == agent_id
                 && row.resource_kind == resource_kind
                 && row.resource_id.as_deref() == Some(resource_id)

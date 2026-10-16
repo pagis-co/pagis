@@ -5,6 +5,7 @@ import { Button, Frame, Input, Row, SectionLabel, Select } from '../../primitive
 import { useAdministrationWorkspaces, usePeople, useSetSpendCap, workspacesKey } from '../../queries'
 import { money, personLabel } from './People'
 import { AuditLog, LegalHoldControl } from './LegalHold'
+import { WorkspaceLimits } from './WorkspaceLimits'
 import './People.css'
 
 function WorkspaceRow({ api, workspace }: { api: ApiClient; workspace: AdministrationWorkspaceDto }) {
@@ -32,6 +33,7 @@ function WorkspaceRow({ api, workspace }: { api: ApiClient; workspace: Administr
           Save cap
         </Button>
       </Row>
+      {workspace.kind === 'shared' && <WorkspaceLimits api={api} workspaceId={workspace.id} name={workspace.name} />}
       <LegalHoldControl api={api} workspace={workspace} />
       {setCap.isError && <span role="alert" className="settings-error">The Spend Cap could not be saved.</span>}
     </div>
@@ -58,7 +60,7 @@ export function Workspaces({ api }: { api: ApiClient }) {
   })
   return (
     <section className="settings-section people">
-      <div className="people-title"><h1>Workspaces</h1><span>Set Spend Caps and Legal Holds for each Workspace.</span></div>
+      <div className="people-title"><h1>Workspaces</h1><span>Set Shared Workspace Limits, Spend Caps and Legal Holds.</span></div>
       <SectionLabel>Create a Shared Workspace</SectionLabel>
       <form onSubmit={(event) => {
         event.preventDefault()

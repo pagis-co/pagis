@@ -188,6 +188,14 @@ pub async fn create_workspace_mailbox(
         .provision_workspace(&tenant.workspace_id, request.into())
         .await
         .map_err(mailbox_error)?;
+    if let Some(agent) = state
+        .workspaces
+        .get(&tenant.workspace_id)
+        .await?
+        .and_then(|w| w.chief_of_staff_agent_id)
+    {
+        crate::agent_versions::record(&state, &tenant, &agent).await?;
+    }
     Ok((StatusCode::CREATED, Json(mailbox.into())))
 }
 async fn open(state: &AppState, tenant: &Tenant) -> Result<Box<dyn WorkspaceMailStore>, ApiError> {
