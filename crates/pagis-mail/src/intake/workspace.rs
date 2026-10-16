@@ -14,6 +14,15 @@ pub(crate) struct CalendarMailStore {
 
 #[async_trait]
 impl WorkspaceMailReader for CalendarMailStore {
+    async fn folder_state(&mut self, folder: &str) -> Result<crate::FolderState, TransportError> {
+        self.inner.folder_state(folder).await
+    }
+    async fn messages_since(
+        &mut self,
+        cursor: &crate::Cursor,
+    ) -> Result<(Vec<MessageId>, crate::Cursor), TransportError> {
+        self.inner.messages_since(cursor).await
+    }
     async fn quarantined_message(
         &mut self,
         id: &MessageId,

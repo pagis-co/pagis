@@ -109,22 +109,50 @@ pub struct MemoryWorkspaceMailStore {
 struct State {
     folders: BTreeSet<String>,
     entries: HashMap<String, Entry>,
+    numbering: HashMap<String, (u32, u32)>,
+    fetched_messages: Vec<MessageId>,
 }
 impl Default for State {
     fn default() -> Self {
         Self {
             folders: BTreeSet::from(["INBOX".into()]),
             entries: HashMap::new(),
+            numbering: HashMap::new(),
+            fetched_messages: Vec::new(),
         }
     }
 }
 struct Entry {
+    uid: u32,
     folder: String,
     flags: MailMetadata,
     attachments: Vec<OutgoingAttachment>,
 }
 
+impl State {
+    fn assign_uid(&mut self, folder: &str) -> u32 {
+        let (_, next_uid) = self.numbering.entry(folder.into()).or_insert((1, 1));
+        let uid = *next_uid;
+        *next_uid += 1;
+        uid
+    }
+}
+
 impl MemoryWorkspaceMailStore {
+    pub fn fetched_messages(&self) -> Vec<MessageId> {
+        self.state.lock().unwrap().fetched_messages.clone()
+    }
+
+    pub fn renumber(&self, folder: &str) {
+        self.state
+            .lock()
+            .unwrap()
+            .numbering
+            .entry(folder.into())
+            .or_insert((1, 1))
+            .0 += 1;
+    }
+
     fn with_context(mut self, context: MailReadContext) -> Self {
         self.context = Some(context);
         self
@@ -132,9 +160,12 @@ impl MemoryWorkspaceMailStore {
 
     pub fn deliver(&self, from: &str, subject: &str, body: &str) -> MessageId {
         let id = self.mail.deliver(from, subject, body);
-        self.state.lock().unwrap().entries.insert(
+        let mut state = self.state.lock().unwrap();
+        let uid = state.assign_uid("INBOX");
+        state.entries.insert(
             id.to_string(),
             Entry {
+                uid,
                 folder: "INBOX".into(),
                 flags: MailMetadata::default(),
                 attachments: vec![],
@@ -150,9 +181,12 @@ impl MemoryWorkspaceMailStore {
             .map(|index| crate::mime::read_attachment(raw, index))
             .collect::<Result<Vec<_>, _>>()?;
         self.mail.insert(message);
-        self.state.lock().unwrap().entries.insert(
+        let mut state = self.state.lock().unwrap();
+        let uid = state.assign_uid("INBOX");
+        state.entries.insert(
             id.to_string(),
             Entry {
+                uid,
                 folder: "INBOX".into(),
                 flags: MailMetadata::default(),
                 attachments,
@@ -189,10 +223,51 @@ fn stale() -> TransportError {
 
 #[async_trait]
 impl WorkspaceMailReader for MemoryWorkspaceMailStore {
+    async fn folder_state(&mut self, folder: &str) -> Result<crate::FolderState, TransportError> {
+        let mut state = self.state.lock().unwrap();
+        if !state.folders.contains(folder) {
+            return Err(invalid());
+        }
+        let (uid_validity, next_uid) = *state.numbering.entry(folder.into()).or_insert((1, 1));
+        Ok(crate::FolderState {
+            folder: folder.into(),
+            uid_validity,
+            next_uid,
+            exists: state
+                .entries
+                .values()
+                .filter(|e| e.folder == folder)
+                .count() as u32,
+        })
+    }
+    async fn messages_since(
+        &mut self,
+        cursor: &crate::Cursor,
+    ) -> Result<(Vec<MessageId>, crate::Cursor), TransportError> {
+        let head = self.folder_state(&cursor.folder).await?;
+        if head.uid_validity != cursor.uid_validity {
+            return Err(stale());
+        }
+        let state = self.state.lock().unwrap();
+        let mut found = state
+            .entries
+            .iter()
+            .filter(|(_, entry)| entry.folder == cursor.folder && entry.uid > cursor.last_uid)
+            .map(|(id, entry)| (entry.uid, MessageId::new(id.clone())))
+            .collect::<Vec<_>>();
+        found.sort_by_key(|(uid, _)| *uid);
+        found.truncate(crate::transport::FETCH_BATCH);
+        let next = crate::Cursor {
+            last_uid: found.last().map_or(cursor.last_uid, |(uid, _)| *uid),
+            ..cursor.clone()
+        };
+        Ok((found.into_iter().map(|(_, id)| id).collect(), next))
+    }
     async fn quarantined_message(
         &mut self,
         id: &MessageId,
     ) -> Result<WorkspaceMailMessage, TransportError> {
+        self.state.lock().unwrap().fetched_messages.push(id.clone());
         let mut message = Mailbox::message(&mut self.mail, id).await?;
         if let Some(context) = &self.context {
             context.assess(&mut message.summary, false).await?;
@@ -263,7 +338,16 @@ impl WorkspaceMailReader for MemoryWorkspaceMailStore {
                 && context.moves_junk().await?
             {
                 let junk = self.junk_folder().await?;
-                self.move_message(&summary.id, &junk).await?;
+                let in_junk = self
+                    .state
+                    .lock()
+                    .unwrap()
+                    .entries
+                    .get(summary.id.as_str())
+                    .is_some_and(|entry| entry.folder == junk);
+                if !in_junk {
+                    self.move_message(&summary.id, &junk).await?;
+                }
             }
             let in_folder = self
                 .state
@@ -297,6 +381,7 @@ impl WorkspaceMailReader for MemoryWorkspaceMailStore {
         })
     }
     async fn message(&mut self, id: &MessageId) -> Result<WorkspaceMailMessage, TransportError> {
+        self.state.lock().unwrap().fetched_messages.push(id.clone());
         let mut message = Mailbox::message(&mut self.mail, id).await?;
         if let Some(context) = &self.context {
             let in_junk = self
@@ -378,6 +463,9 @@ impl WorkspaceMailWriter for MemoryWorkspaceMailStore {
             return Err(invalid());
         }
         state.folders.insert(new_name.into());
+        if let Some(numbering) = state.numbering.remove(name) {
+            state.numbering.insert(new_name.into(), numbering);
+        }
         for entry in state
             .entries
             .values_mut()
@@ -392,6 +480,7 @@ impl WorkspaceMailWriter for MemoryWorkspaceMailStore {
         if name == "INBOX" || !state.folders.remove(name) {
             return Err(invalid());
         }
+        state.numbering.remove(name);
         let removed: Vec<_> = state
             .entries
             .iter()
@@ -410,7 +499,10 @@ impl WorkspaceMailWriter for MemoryWorkspaceMailStore {
         if !state.folders.contains(folder) {
             return Err(invalid());
         }
-        state.entries.get_mut(id.as_str()).ok_or_else(stale)?.folder = folder.into();
+        let uid = state.assign_uid(folder);
+        let entry = state.entries.get_mut(id.as_str()).ok_or_else(stale)?;
+        entry.folder = folder.into();
+        entry.uid = uid;
         Ok(())
     }
     async fn set_label(

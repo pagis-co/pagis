@@ -73,17 +73,24 @@ REQUEST or CANCEL, or the attendee for a REPLY. This address check does not
 make the sender's text trusted input for Agents.
 
 The desk reads INBOX and the Junk folder through the supplied Workspace
-Mailbox store, with opaque message ids and page tokens. It reads INBOX
-before Junk so an automatic move does not hide an invitation. It reads all
-pages and applies messages oldest first. Junk is readable mail and its
-invitations apply to the Calendar. Quarantine prevents Calendar intake and
-invitation responses. An Administrator read of quarantine does not apply
-an invitation. The intake layer wraps every supplied store. It applies calendar
-messages when the Person or an Agent opens a message or a thread, and when
-the Calendar reads INBOX and Junk. The IMAP store does not own calendar intake.
-The Workspace Mailbox record has no calendar cursor. Scheduling UID,
-SEQUENCE and occurrence state make repeated reads safe. A failed read can
-repeat the pass. Reading a message does not mark it seen.
+Mailbox store. Each poll reads at most 50 messages per folder above its
+calendar intake cursor, in UID order. The Workspace Mailbox record store
+keeps one cursor per folder: UIDVALIDITY and the highest UID already read.
+An initial cursor reads existing mail from UID 1. A changed UIDVALIDITY
+starts the cursor at the folder's current head, as the Agent Mailbox
+collector does (ADR-0019). It does not apply the mail already there.
+The cursor moves only after every message in its batch is applied. A
+failed batch repeats from the stored cursor.
+
+Junk is readable mail and its invitations apply to the Calendar. A move
+from INBOX to Junk assigns a new UID in Junk. Its separate cursor reads
+the moved message. Scheduling UID, SEQUENCE and occurrence state make
+repeated application safe and keep an attendee's response. Quarantine
+prevents Calendar intake and invitation responses. An Administrator read
+of quarantine does not apply an invitation. The intake layer wraps every
+supplied store. It also applies calendar messages when a Person or an Agent
+opens a message or a thread. The IMAP store does not own calendar intake.
+Reading a message does not mark it seen.
 Accept, maybe and decline in Calendar and Mail send a REPLY through the
 Workspace Mailbox and store the attendee's PARTSTAT. These controls also
 serve the Mobile App. Responses keep the organizer's SEQUENCE. Changes by

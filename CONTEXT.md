@@ -1786,6 +1786,13 @@ you through its escalation tool. The escalation keeps the Agent author and
 the message identity across folder moves. Not built: automatic Agent
 triage, assignments and saved drafts.
 
+### Workspace Mailbox calendar intake cursor
+The UIDVALIDITY and highest UID already read for one Workspace Mailbox
+folder. The Workspace Mailbox record store keeps separate cursors for
+INBOX and Junk. A poll reads one bounded batch above each cursor and moves
+it after the batch is applied. A changed UIDVALIDITY starts at the folder's
+current head (ADR-0042).
+
 ### Workspace Mailbox Grant
 The Grant that gives one active Agent access to its Workspace Mailbox.
 Its resource is the mailbox record, keyed by the Workspace id. Its Allow

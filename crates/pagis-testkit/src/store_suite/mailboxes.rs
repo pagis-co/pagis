@@ -458,6 +458,66 @@ pub async fn workspace_mailbox_record_and_ledger(backend: &Backend) {
     assert!(store.get(&ws.id).await.unwrap().is_none());
     store.create(&record).await.unwrap();
     assert_eq!(store.get(&ws.id).await.unwrap(), Some(record.clone()));
+    for folder in ["INBOX", "Junk"] {
+        assert!(
+            store
+                .calendar_cursor(&ws.id, folder)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        let mut cursor = MailboxCursor {
+            folder: folder.into(),
+            uid_validity: 7,
+            last_uid: 12,
+        };
+        store.set_calendar_cursor(&ws.id, &cursor).await.unwrap();
+        assert_eq!(
+            store.calendar_cursor(&ws.id, folder).await.unwrap(),
+            Some(cursor.clone())
+        );
+        assert!(
+            store
+                .calendar_cursor(&WorkspaceId::generate(), folder)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        cursor.last_uid = 15;
+        store.set_calendar_cursor(&ws.id, &cursor).await.unwrap();
+        let mut older = cursor.clone();
+        older.last_uid = 10;
+        store.set_calendar_cursor(&ws.id, &older).await.unwrap();
+        assert_eq!(
+            store.calendar_cursor(&ws.id, folder).await.unwrap(),
+            Some(cursor.clone())
+        );
+        cursor.uid_validity = 8;
+        cursor.last_uid = if folder == "INBOX" { 2 } else { 3 };
+        store.set_calendar_cursor(&ws.id, &cursor).await.unwrap();
+        assert_eq!(
+            store.calendar_cursor(&ws.id, folder).await.unwrap(),
+            Some(cursor)
+        );
+    }
+    assert_eq!(
+        store
+            .calendar_cursor(&ws.id, "INBOX")
+            .await
+            .unwrap()
+            .unwrap()
+            .last_uid,
+        2
+    );
+    assert_eq!(
+        store
+            .calendar_cursor(&ws.id, "Junk")
+            .await
+            .unwrap()
+            .unwrap()
+            .last_uid,
+        3
+    );
     for level in [
         pagis_core::MailVisibility::AgentOnly,
         pagis_core::MailVisibility::Escalations,
@@ -565,6 +625,20 @@ pub async fn workspace_mailbox_record_and_ledger(backend: &Backend) {
         store.create(&record).await,
         Err(StoreError::Conflict(_))
     ));
+    assert!(
+        store
+            .calendar_cursor(&ws.id, "INBOX")
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        store
+            .calendar_cursor(&ws.id, "Junk")
+            .await
+            .unwrap()
+            .is_none()
+    );
 }
 
 /// Verdict and Trust Tier are one record, isolated by Workspace and mailbox.

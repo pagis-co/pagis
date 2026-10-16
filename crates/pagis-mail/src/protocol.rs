@@ -37,9 +37,9 @@ use tokio_rustls::rustls::{ClientConfig, RootCertStore};
 
 use crate::mime::{build_mime, read_mime};
 use crate::transport::{
-    ARCHIVE, Cursor, Endpoint, FlagChange, FolderState, IdleOutcome, MailQuery, MailSession,
-    MailTransport, MailboxCredential, Message, MessageSummary, OutgoingMessage, SentMessage,
-    TransportError, TransportErrorCode,
+    ARCHIVE, Cursor, Endpoint, FETCH_BATCH, FlagChange, FolderState, IdleOutcome, MailQuery,
+    MailSession, MailTransport, MailboxCredential, Message, MessageSummary, OutgoingMessage,
+    SentMessage, TransportError, TransportErrorCode,
 };
 
 /// IMAP with implicit TLS (RFC 8314).
@@ -55,11 +55,6 @@ pub const SUBMISSION_PORT: u16 = 587;
 /// and to issue it again at least every 29 minutes, because a server
 /// may log an idle client off after its own timeout.
 pub const MAX_IDLE_TURN: Duration = Duration::from_secs(29 * 60);
-
-/// The most messages one `fetch_since` reads in one pass. The caller
-/// keeps the cursor it gets back and asks again, so a folder with a
-/// year of mail in it cannot fill the daemon's memory in one call.
-const FETCH_BATCH: usize = 50;
 
 /// The bytes of one message, without touching the `\Seen` flag: a read
 /// by the collector must not mark mail as read behind the user.

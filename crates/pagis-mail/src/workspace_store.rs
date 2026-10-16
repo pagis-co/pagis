@@ -52,6 +52,13 @@ pub trait WorkspaceMailWriter: Send {
 /// The read operations and session lifetime of a Workspace Mailbox.
 #[async_trait]
 pub trait WorkspaceMailReader: Send {
+    async fn folder_state(&mut self, folder: &str) -> Result<crate::FolderState, TransportError>;
+    /// At most 50 messages above the cursor, in UID order, without assessment.
+    /// A changed UIDVALIDITY returns `stale_id`.
+    async fn messages_since(
+        &mut self,
+        cursor: &crate::Cursor,
+    ) -> Result<(Vec<MessageId>, crate::Cursor), TransportError>;
     async fn quarantined_message(
         &mut self,
         id: &MessageId,
@@ -222,6 +229,16 @@ impl WorkspaceMailWriter for ImapWorkspaceMailStore {
 
 #[async_trait]
 impl WorkspaceMailReader for ImapWorkspaceMailStore {
+    async fn folder_state(&mut self, folder: &str) -> Result<crate::FolderState, TransportError> {
+        self.session().await?.select(folder).await
+    }
+    async fn messages_since(
+        &mut self,
+        cursor: &crate::Cursor,
+    ) -> Result<(Vec<MessageId>, crate::Cursor), TransportError> {
+        let (messages, next) = self.session().await?.fetch_since(cursor).await?;
+        Ok((messages.into_iter().map(|m| m.id).collect(), next))
+    }
     async fn quarantined_message(
         &mut self,
         id: &MessageId,

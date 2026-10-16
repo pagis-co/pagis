@@ -93,6 +93,7 @@ const TABLES: &[&str] = &[
     "wakeup_sources",
     "wakeups",
     "workspace_limits",
+    "workspace_mail_calendar_cursors",
     "workspace_mail_escalations",
     "workspace_mailboxes",
     "workspace_members",

@@ -368,3 +368,6 @@ pub trait MailSession: Send {
     /// archive.
     async fn move_to_archive(&mut self, id: &MessageId) -> Result<(), TransportError>;
 }
+
+/// The maximum messages in one cursor batch.
+pub(crate) const FETCH_BATCH: usize = 50;

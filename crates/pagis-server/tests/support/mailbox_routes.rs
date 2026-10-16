@@ -1730,3 +1730,126 @@ async fn quarantined_invitation_is_not_applied_or_answered() {
         );
     }
 }
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+async fn calendar_cursor_works_through_the_supplied_memory_store() {
+    let host = std::sync::Arc::new(pagis_mail::fake::MemoryWorkspaceMailHost::default());
+    let e = Embedder::with_workspace_mail(host.clone()).await;
+    let connection = provider(&e).await;
+    assert_eq!(
+        response(
+            &e,
+            "POST",
+            "/api/v1/workspace/mailbox",
+            json!({"connection_id":connection, "local_part":"reader"})
+        )
+        .await
+        .0,
+        StatusCode::CREATED
+    );
+    let mail = host.store(&e.workspace).unwrap();
+    let desk = &e.routers.state.mailbox_desk;
+    desk.poll_workspace_calendar(&e.workspace).await.unwrap();
+    let request = |uid: &str| {
+        pagis_mail::build_mime(
+            "organizer@example.org",
+            &pagis_mail::OutgoingMessage {
+                to: vec!["reader@example.com".into()],
+                attachments: vec![pagis_mail::OutgoingAttachment {
+                    name: "invite.ics".into(),
+                    content_type: "text/calendar; method=REQUEST".into(),
+                    data: include_str!(
+                        "../../../pagis-core/tests/fixtures/imip/google-request.ics"
+                    )
+                    .replace("meeting@example.org", uid)
+                    .into_bytes(),
+                }],
+                ..Default::default()
+            },
+            0,
+        )
+        .unwrap()
+        .raw
+    };
+    let id = mail.deliver_raw(&request("first@example.org")).unwrap();
+    desk.poll_workspace_calendar(&e.workspace).await.unwrap();
+    let mut event = e
+        .stores
+        .calendar
+        .get_by_uid(&e.workspace, "first@example.org")
+        .await
+        .unwrap()
+        .unwrap();
+    event.data.attendees[0].status = ParticipationStatus::Accepted;
+    e.stores
+        .calendar
+        .update(&e.workspace, &event.id, &event.data)
+        .await
+        .unwrap();
+    let fetched = mail.fetched_messages();
+    desk.poll_workspace_calendar(&e.workspace).await.unwrap();
+    assert_eq!(mail.fetched_messages(), fetched);
+    let mut store = desk.open_workspace(&e.workspace).await.unwrap();
+    store.move_message(&id, "Junk").await.unwrap();
+    store.close().await.unwrap();
+    desk.poll_workspace_calendar(&e.workspace).await.unwrap();
+    assert_eq!(
+        e.stores
+            .calendar
+            .get_by_uid(&e.workspace, "first@example.org")
+            .await
+            .unwrap()
+            .unwrap(),
+        event
+    );
+    let fetched = mail.fetched_messages();
+    desk.poll_workspace_calendar(&e.workspace).await.unwrap();
+    assert_eq!(mail.fetched_messages(), fetched);
+    // Listing Junk must not assign another UID to mail already there.
+    e.stores
+        .workspace_mailboxes
+        .set_spam_mode(&e.workspace, MailScoringMode::MoveToJunk)
+        .await
+        .unwrap();
+    let mut store = desk.open_workspace(&e.workspace).await.unwrap();
+    store
+        .messages(
+            "Junk",
+            "",
+            &pagis_mail::PageRequest {
+                limit: 100,
+                token: None,
+            },
+        )
+        .await
+        .unwrap();
+    store.close().await.unwrap();
+    let fetched = mail.fetched_messages();
+    desk.poll_workspace_calendar(&e.workspace).await.unwrap();
+    assert_eq!(mail.fetched_messages(), fetched);
+    mail.deliver_raw(&request("before-reset@example.org"))
+        .unwrap();
+    mail.renumber("INBOX");
+    desk.poll_workspace_calendar(&e.workspace).await.unwrap();
+    assert_eq!(mail.fetched_messages(), fetched);
+    assert!(
+        e.stores
+            .calendar
+            .get_by_uid(&e.workspace, "before-reset@example.org")
+            .await
+            .unwrap()
+            .is_none()
+    );
+    mail.deliver_raw(&request("after-reset@example.org"))
+        .unwrap();
+    desk.poll_workspace_calendar(&e.workspace).await.unwrap();
+    assert!(
+        e.stores
+            .calendar
+            .get_by_uid(&e.workspace, "after-reset@example.org")
+            .await
+            .unwrap()
+            .is_some()
+    );
+}

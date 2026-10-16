@@ -25,31 +25,40 @@ impl MailboxDesk {
         let mut store = self.open_workspace(workspace).await?;
         let result = async {
             let junk = store.junk_folder().await?;
-            let mut messages = Vec::new();
-            // INBOX can move mail to Junk. Read Junk after those moves.
             for folder in ["INBOX", junk.as_str()] {
-                let mut page = crate::PageRequest {
-                    limit: 100,
-                    token: None,
+                let cursor = match self
+                    .workspace_mailboxes
+                    .calendar_cursor(workspace, folder)
+                    .await?
+                {
+                    Some(cursor) => cursor,
+                    None => crate::Cursor {
+                        last_uid: 0,
+                        ..store.folder_state(folder).await?.cursor_here()
+                    },
                 };
-                loop {
-                    let found = store.messages(folder, "", &page).await?;
-                    messages.extend(found.items.into_iter().map(|m| m.summary));
-                    page.token = found.next;
-                    if page.token.is_none() {
-                        break;
+                let (messages, next) = match store.messages_since(&cursor).await {
+                    Ok(batch) => batch,
+                    Err(crate::TransportError(crate::TransportErrorCode::StaleId)) => {
+                        let head = store.folder_state(folder).await?.cursor_here();
+                        self.workspace_mailboxes
+                            .set_calendar_cursor(workspace, &head)
+                            .await?;
+                        continue;
+                    }
+                    Err(error) => return Err(error.into()),
+                };
+                for id in messages {
+                    match store.message(&id).await {
+                        Ok(_) => {}
+                        // A message can move or enter quarantine after the batch read.
+                        Err(crate::TransportError(crate::TransportErrorCode::StaleId)) => {}
+                        Err(error) => return Err(error.into()),
                     }
                 }
-            }
-            messages.reverse();
-            messages.sort_by_key(|m| m.date);
-            for message in messages {
-                match store.message(&message.id).await {
-                    Ok(_) => {}
-                    // A message can enter quarantine after the list read.
-                    Err(crate::TransportError(crate::TransportErrorCode::StaleId)) => {}
-                    Err(error) => return Err(error.into()),
-                }
+                self.workspace_mailboxes
+                    .set_calendar_cursor(workspace, &next)
+                    .await?;
             }
             Ok::<_, MailboxError>(())
         }
