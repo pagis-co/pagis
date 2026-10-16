@@ -67,6 +67,7 @@ use unavailable::{
     administration_routes as native_administration_routes, product_routes as native_product_routes,
     public_routes as native_public_routes,
 };
+mod agent_versions;
 mod requests;
 mod ring;
 pub mod routes;
@@ -91,6 +92,7 @@ pub mod voice;
 pub mod voice_list;
 mod widgets;
 mod workspace;
+mod workspace_limits;
 mod workspace_members;
 pub mod ws;
 
@@ -153,6 +155,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// behind the storage seams. The bus must already be ring-wrapped
 /// (`RingedBus`) so every published event is resumable over `last_seq`.
 pub struct AppState {
+    pub governance: Arc<dyn pagis_core::WorkspaceGovernanceStore>,
     pub audit: Arc<dyn pagis_core::AuditLog>,
     #[cfg(feature = "native")]
     pub native: NativeState,
@@ -473,6 +476,10 @@ fn product_router(state: Arc<AppState>) -> Router {
             get(agents::list_agents).post(agents::create_agent),
         )
         .route("/api/v1/agents/{agent_id}", put(agents::update_agent))
+        .route(
+            "/api/v1/agents/{agent_id}/versions",
+            get(agent_versions::list),
+        )
         .route(
             "/api/v1/agents/{agent_id}/appearance",
             put(agents::update_appearance),

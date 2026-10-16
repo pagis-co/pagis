@@ -8,7 +8,7 @@ use pagis_core::*;
 use pagis_mail::fake::{FakeMailTransport, FakeMailboxHost, FakeStandingRule};
 use tower::ServiceExt;
 
-use crate::agents::{ArchiveState, archive_agent};
+use crate::agents::{ArchiveState, archive as archive_agent};
 use crate::auth::Tenant;
 
 #[tokio::test]

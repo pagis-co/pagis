@@ -131,11 +131,12 @@ pub async fn create_workspace_mailbox_grant(
         resource_id: Some(mailbox.workspace_id.to_string()),
         scope: Grant::allow_scope(&[]),
         revision: 1,
-        created_by: pagis_core::Author::Person(tenant.user_id),
+        created_by: pagis_core::Author::Person(tenant.user_id.clone()),
         created_at: now_ms(),
         revoked_at: None,
     };
     state.grants.create(&grant).await?;
+    crate::agent_versions::record(&state, &tenant, &grant.agent_id).await?;
     publish_grant_event(&state, &grant, "grant.created").await?;
     Ok((
         StatusCode::CREATED,
@@ -225,6 +226,11 @@ async fn validate_connection_capabilities(
     capabilities: &[String],
     require_connected: bool,
 ) -> Result<(), ApiError> {
+    state
+        .governance
+        .limits(&tenant.workspace_id)
+        .await?
+        .check_resource(Grant::CONNECTION_KIND, connection_id.as_str())?;
     if capabilities.is_empty() {
         return Err(ApiError::validation(
             "a Connection grant requires at least one capability",
@@ -318,6 +324,7 @@ pub async fn create_connection_grant(
         revoked_at: None,
     };
     state.grants.create(&grant).await?;
+    crate::agent_versions::record(&state, &tenant, &grant.agent_id).await?;
     publish_grant_event(&state, &grant, "grant.created").await?;
     Ok((
         StatusCode::CREATED,
@@ -369,11 +376,12 @@ pub async fn create_workspace_number_grant(
         resource_id: Some(number.id.to_string()),
         scope: serde_json::json!({}),
         revision: 1,
-        created_by: pagis_core::Author::Person(tenant.user_id),
+        created_by: pagis_core::Author::Person(tenant.user_id.clone()),
         created_at: now_ms(),
         revoked_at: None,
     };
     state.grants.create(&grant).await?;
+    crate::agent_versions::record(&state, &tenant, &grant.agent_id).await?;
     publish_grant_event(&state, &grant, "grant.created").await?;
     Ok((
         StatusCode::CREATED,
@@ -440,6 +448,7 @@ pub async fn set_grant_capabilities(
         .get(&tenant.workspace_id, &grant_id)
         .await?
         .ok_or_else(|| ApiError::not_found("grant"))?;
+    crate::agent_versions::record(&state, &tenant, &changed.agent_id).await?;
     publish_grant_event(&state, &changed, "grant.changed").await?;
     let names = agent_names(&state, &tenant).await?;
     let name = names
@@ -525,6 +534,7 @@ pub async fn set_grant_rules(
         .get(&tenant.workspace_id, &grant_id)
         .await?
         .ok_or_else(|| ApiError::not_found("grant"))?;
+    crate::agent_versions::record(&state, &tenant, &grant.agent_id).await?;
     publish_grant_event(&state, &grant, "grant.changed").await?;
 
     let names = agent_names(&state, &tenant).await?;
@@ -667,6 +677,7 @@ async fn set_host_grant_field(
         };
         grant.scope = change(&grant);
         state.grants.create(&grant).await?;
+        crate::agent_versions::record(state, tenant, &grant.agent_id).await?;
         publish_grant_event(state, &grant, "grant.changed").await?;
         return Ok((
             StatusCode::CREATED,
@@ -692,6 +703,7 @@ async fn set_host_grant_field(
         .get(&tenant.workspace_id, &grant.id)
         .await?
         .ok_or_else(|| ApiError::not_found("grant"))?;
+    crate::agent_versions::record(state, tenant, &changed.agent_id).await?;
     publish_grant_event(state, &changed, "grant.changed").await?;
     Ok((
         StatusCode::OK,
@@ -736,6 +748,7 @@ pub async fn revoke_grant(
         .get(&tenant.workspace_id, &grant_id)
         .await?
         .ok_or_else(|| ApiError::not_found("grant"))?;
+    crate::agent_versions::record(&state, &tenant, &revoked.agent_id).await?;
     publish_grant_event(&state, &revoked, "grant.revoked").await?;
     Ok(StatusCode::NO_CONTENT)
 }

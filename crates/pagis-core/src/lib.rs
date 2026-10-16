@@ -174,3 +174,8 @@ pub use spam::*;
 pub mod legal_hold;
 pub use id::AuditEntryId;
 pub use legal_hold::{AuditEntry, AuditLog, LegalHold};
+
+pub mod workspace_governance;
+pub use workspace_governance::{
+    AgentVersion, MailVisibility, SharedWorkspaceLimits, WorkspaceGovernanceStore,
+};
