@@ -21,6 +21,8 @@ use utoipa::ToSchema;
 /// A pending decision. The row carries the Approve and the Deny.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct NeedsYouApproval {
+    /// The Workspace that owns the Request.
+    pub workspace_id: String,
     /// `request:<request_id>`.
     pub id: String,
     pub agent_id: String,
@@ -205,6 +207,7 @@ pub struct NeedsYou {
     keypad_failures: Arc<dyn KeypadFailureStore>,
     agents: Arc<dyn AgentStore>,
     pub(crate) workspaces: Arc<dyn WorkspaceStore>,
+    pub(crate) workspace_members: Arc<dyn pagis_core::WorkspaceMemberStore>,
 }
 
 impl NeedsYou {
@@ -216,6 +219,7 @@ impl NeedsYou {
             keypad_failures: Arc::clone(&stores.keypad_failures),
             agents: Arc::clone(&stores.agents),
             workspaces: Arc::clone(&stores.workspaces),
+            workspace_members: Arc::clone(&stores.workspace_members),
         }
     }
 
@@ -225,8 +229,51 @@ impl NeedsYou {
         workspace_id: &WorkspaceId,
         now: UnixMillis,
     ) -> Result<NeedsYouQueue, StoreError> {
+        let mut result = self.local(workspace_id, now).await?;
+        if let Some(workspace) = self.workspaces.get(workspace_id).await?
+            && workspace.kind == pagis_core::WorkspaceKind::Private
+            && let Some(person) = workspace.user_id
+        {
+            for shared in self.workspaces.list().await? {
+                if shared.kind != pagis_core::WorkspaceKind::Shared {
+                    continue;
+                }
+                let member = self.workspace_members.get(&shared.id, &person).await?;
+                if !member.is_some_and(|member| member.role >= pagis_core::WorkspaceRole::Responder)
+                {
+                    continue;
+                }
+                let shared_queue = self.local(&shared.id, now).await?;
+                result.items.extend(
+                    shared_queue
+                        .items
+                        .into_iter()
+                        .filter(|item| matches!(item, NeedsYouItem::Approval(_))),
+                );
+            }
+        }
+        result.items.sort_by(|left, right| {
+            left.rank()
+                .cmp(&right.rank())
+                .then_with(|| right.at().cmp(&left.at()))
+        });
+        result.count = result.items.len();
+        Ok(result)
+    }
+
+    /// The records of this Workspace, without Requests from other Workspaces.
+    async fn local(
+        &self,
+        workspace_id: &WorkspaceId,
+        now: UnixMillis,
+    ) -> Result<NeedsYouQueue, StoreError> {
         let records = self.read(workspace_id, now).await?;
         Ok(queue(&records, now))
+    }
+
+    pub(crate) async fn is_private(&self, workspace_id: &WorkspaceId) -> bool {
+        matches!(self.workspaces.get(workspace_id).await, Ok(Some(workspace))
+            if workspace.kind == pagis_core::WorkspaceKind::Private)
     }
 
     async fn read(
@@ -412,6 +459,7 @@ fn queue(records: &Records, now: UnixMillis) -> NeedsYouQueue {
                 None => "/".to_string(),
             };
             NeedsYouItem::Approval(NeedsYouApproval {
+                workspace_id: request.workspace_id.to_string(),
                 id: format!("request:{}", request.id),
                 agent_id: request.agent_id.to_string(),
                 line: format!("{} needs your approval", name(&request.agent_id)),
@@ -561,7 +609,10 @@ pub const NEEDS_YOU_REMOVED: &str = "needs_you.removed";
 /// every other event, and so it ignores its own `needs_you.*` events.
 /// A cancel or a recovery expires the pending Requests of a Run, and a
 /// `run.state_changed` follows.
-pub(crate) const QUEUE_EVENTS: [&str; 9] = [
+pub(crate) const QUEUE_EVENTS: [&str; 12] = [
+    "workspace.member_added",
+    "workspace.member_changed",
+    "workspace.member_removed",
     "request.created",
     "request.decided",
     "request.superseded",

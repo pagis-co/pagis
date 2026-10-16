@@ -1,3 +1,4 @@
+import { useWorkspaceAccess } from '../../workspace'
 import { useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { BookOpen, Clock3, Lock, MessageSquare, Moon } from 'lucide-react'
@@ -11,6 +12,8 @@ import {
   useRecentChanges,
   useRuns,
   useUpdateAgent,
+  useArchiveAgent,
+  useSetChiefOfStaff,
   useUpdateAppearance,
   useWorkspace,
 } from '../../queries'
@@ -25,6 +28,9 @@ import { activityTone, activityWord, computerStateWord } from '../stateWords'
 import { changeTimeLabel } from '../memory/pages'
 
 export function AgentProfilePhone({ api, agent }: { api: ApiClient; agent: AgentDto }) {
+  const { canManage } = useWorkspaceAccess()
+  const archive = useArchiveAgent(api)
+  const designate = useSetChiefOfStaff(api)
   const navigate = useNavigate()
   const workspace = useWorkspace(api)
   const channels = useChannels(api)
@@ -55,7 +61,11 @@ export function AgentProfilePhone({ api, agent }: { api: ApiClient; agent: Agent
       <NavBar
         back={{ label: 'Sprites', onBack: () => void navigate({ to: '/sprites' }) }}
         actions={
-          <Button variant="link" onClick={() => setEditing(true)}>
+          canManage && <Button
+            variant="link"
+            aria-label={`Edit ${agent.name}`}
+            onClick={() => setEditing(true)}
+          >
             Edit
           </Button>
         }
@@ -77,6 +87,27 @@ export function AgentProfilePhone({ api, agent }: { api: ApiClient; agent: Agent
             {agent.email_address && <Badge>{agent.email_address}</Badge>}
           </div>
         </header>
+        {canManage && agent.status !== 'archived' && (
+          <div className="phone-actions">
+            {workspace.data?.chief_of_staff_agent_id !== agent.id && (
+              <Button
+                aria-label={`Make ${agent.name} the Chief of Staff`}
+                disabled={designate.isPending}
+                onClick={() => designate.mutate(agent.id)}
+              >
+                Make Chief of Staff
+              </Button>
+            )}
+            <Button
+              variant="danger"
+              aria-label={`Archive ${agent.name}`}
+              disabled={archive.isPending}
+              onClick={() => archive.mutate(agent.id)}
+            >
+              Archive
+            </Button>
+          </div>
+        )}
         <div className="phone-actions">
           <Frame>
             <Row
@@ -174,7 +205,7 @@ export function AgentProfilePhone({ api, agent }: { api: ApiClient; agent: Agent
           </Row>
         </Frame>
       </div>
-      <Sheet open={editing} onOpenChange={setEditing} title={`Edit ${agent.name}`}>
+      <Sheet open={canManage && editing} onOpenChange={setEditing} title={`Edit ${agent.name}`}>
         <div className="phone-form">
           <AppearanceControls value={appearance} onChange={setAppearance} compact />
           <AgentForm

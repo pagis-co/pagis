@@ -19317,6 +19317,7 @@
         "type": "object",
         "description": "A pending decision. The row carries the Approve and the Deny.",
         "required": [
+          "workspace_id",
           "id",
           "agent_id",
           "line",
@@ -19359,6 +19360,10 @@
           "url": {
             "type": "string",
             "description": "The Product App path that answers the item."
+          },
+          "workspace_id": {
+            "type": "string",
+            "description": "The Workspace that owns the Request."
           }
         }
       },
@@ -23792,6 +23797,31 @@
         ],
         "description": "Tailscale on the machine of the installation, as the Remote Access\nswitch reads it. Each state has one thing for the owner to do."
       },
+      "TeamTrustDto": {
+        "type": "object",
+        "required": [
+          "person_id",
+          "role",
+          "tier"
+        ],
+        "properties": {
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "person_id": {
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/WorkspaceRole"
+          },
+          "tier": {
+            "$ref": "#/components/schemas/TrustTier"
+          }
+        }
+      },
       "ThreadDto": {
         "type": "object",
         "description": "One thread: the root message plus its replies, oldest first.",
@@ -24042,6 +24072,7 @@
       "TrustListPage": {
         "type": "object",
         "required": [
+          "team",
           "items",
           "own_addresses",
           "keypad_code"
@@ -24062,6 +24093,13 @@
               "$ref": "#/components/schemas/OwnAddressDto"
             },
             "description": "The addresses that are owner with no row."
+          },
+          "team": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TeamTrustDto"
+            },
+            "description": "Team identities follow the current Shared Workspace membership."
           }
         }
       },
@@ -24071,6 +24109,7 @@
         "enum": [
           "unknown",
           "trusted",
+          "team",
           "owner"
         ]
       },

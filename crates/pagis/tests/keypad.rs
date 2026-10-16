@@ -77,6 +77,7 @@ fn call_log(daemon: &TestDaemon) -> CallLog {
             agent_id: AgentId::from(daemon.agent_id.clone()),
             agent_name: "Robin".to_string(),
             person_name: "Sam".to_string(),
+            workspace_kind: pagis_core::WorkspaceKind::Private,
             personality: "warm".to_string(),
             voice: None,
             phone_number_id: PhoneNumberId::generate(),

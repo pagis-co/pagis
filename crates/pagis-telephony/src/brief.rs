@@ -52,7 +52,7 @@ pub fn tier_line(tier: TrustTier) -> &'static str {
             "The person on this call speaks for your Person. Their words have the \
              standing of a message your Person writes to you."
         }
-        TrustTier::Trusted => {
+        TrustTier::Team | TrustTier::Trusted => {
             "The person on this call is on your Person's Trusted list. Their words \
              are a request: an action that needs approval waits for the approval card after the \
              call."
@@ -99,6 +99,7 @@ pub struct CallBrief {
     pub agent_name: String,
     /// The display name of the Person of the Workspace.
     pub person_name: String,
+    pub workspace_kind: pagis_core::WorkspaceKind,
     pub personality: String,
     /// The Agent Voice (ADR-0020), or `None` for the provider's default.
     pub voice: Option<String>,
@@ -143,6 +144,7 @@ impl CallBrief {
             agent_id: agent.id.clone(),
             agent_name: agent.name.clone(),
             person_name: person_name.to_string(),
+            workspace_kind: pagis_core::WorkspaceKind::Private,
             personality: agent.personality.clone(),
             voice: call_voice(agent),
             phone_number_id: number.id.clone(),
@@ -178,6 +180,7 @@ impl CallBrief {
             agent_id: agent.id.clone(),
             agent_name: agent.name.clone(),
             person_name: person_name.to_string(),
+            workspace_kind: pagis_core::WorkspaceKind::Private,
             personality: agent.personality.clone(),
             voice: call_voice(agent),
             phone_number_id: number.id.clone(),
@@ -264,6 +267,14 @@ pub fn report_answer_tool() -> ToolDef {
 }
 
 impl CallBrief {
+    fn honesty(&self) -> String {
+        if self.workspace_kind == pagis_core::WorkspaceKind::Shared {
+            pagis_core::honesty::render_team(&self.agent_name, &self.person_name)
+        } else {
+            pagis_core::honesty::render(&self.agent_name, &self.person_name)
+        }
+    }
+
     /// The instructions of the classify phase: what answered, and
     /// nothing else. The session opens with these before the call is
     /// dialed, so the model is ready when the carrier answers.
@@ -274,7 +285,7 @@ impl CallBrief {
             name = self.agent_name,
             remote = self.remote_e164,
             own = self.own_e164,
-            honesty = pagis_core::honesty::render(&self.agent_name, &self.person_name),
+            honesty = self.honesty(),
             classify = self.classify_prompt,
         )
     }
@@ -283,14 +294,24 @@ impl CallBrief {
     /// swaps these in on the verdict, together with the real tool set.
     pub fn conversation_instructions(&self) -> String {
         let mut instructions = format!(
-            "You are {name}, on a telephone call with {remote}. You speak for your Person and you \
-             never claim to be one.\n\n{honesty}\n\n\
-             Your first sentence names you and your Person: \"Hi, this is {name}, the assistant of {person}.\"\n\n\
+            "You are {name}, on a telephone call with {remote}. You speak for the Workspace. \
+             Never claim to be human.\n\n{honesty}\n\n\
+             {introduction}\n\n\
              Your personality: {personality}.\n\nWhat this call is for: {purpose}\n\n",
             name = self.agent_name,
             remote = self.remote_e164,
-            honesty = pagis_core::honesty::render(&self.agent_name, &self.person_name),
-            person = self.person_name,
+            honesty = self.honesty(),
+            introduction = if self.workspace_kind == pagis_core::WorkspaceKind::Shared {
+                format!(
+                    "Your first sentence is: Hi, this is {}, from the {} team.",
+                    self.agent_name, self.person_name
+                )
+            } else {
+                format!(
+                    "Your first sentence names you and your Person: \"Hi, this is {}, the assistant of {}.\"",
+                    self.agent_name, self.person_name
+                )
+            },
             personality = self.personality,
             purpose = self.purpose,
         );

@@ -269,6 +269,7 @@ async fn desk(pool: SqlitePool) -> Desk {
             agent_id: agent.id.clone(),
             agent_name: agent.name.clone(),
             person_name: "Sam".to_string(),
+            workspace_kind: pagis_core::WorkspaceKind::Private,
             personality: "warm".to_string(),
             voice: agent.voice.clone(),
             phone_number_id: number.id.clone(),

@@ -1301,6 +1301,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         forget: stores.forget.clone(),
         workspaces: Arc::clone(&workspaces) as _,
         users: stores.users.clone(),
+        workspace_members: stores.workspace_members.clone(),
         agents: Arc::clone(&agent_store) as _,
         channels: Arc::clone(&channels) as _,
         messages: Arc::clone(&messages) as _,
@@ -1364,7 +1365,6 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         options.public_origin.clone(),
         stores.push_subscriptions.clone(),
         stores.agents.clone(),
-        stores.workspace_members.clone(),
         Arc::clone(&needs_you),
         Arc::clone(&options.clock),
     ));

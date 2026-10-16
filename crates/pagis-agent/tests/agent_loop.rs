@@ -573,6 +573,9 @@ where
         forget: Arc::new(pagis_storage_sqlite::SqliteForgetStore::new(pool.clone())),
         workspaces: Arc::new(SqliteWorkspaceStore::new(pool.clone())),
         users: Arc::new(pagis_storage_sqlite::SqliteUserStore::new(pool.clone())),
+        workspace_members: Arc::new(pagis_storage_sqlite::SqliteWorkspaceMemberStore::new(
+            pool.clone(),
+        )),
         agents: Arc::clone(&agents) as _,
         channels: Arc::clone(&channels) as _,
         messages: Arc::clone(&written),
@@ -9479,6 +9482,117 @@ async fn the_spend_cap_uses_the_workspaces_calendar_month(pool: SqlitePool) {
         assert_eq!(
             pagis_agent::cap_stop(reads, &workspace.id, &[]).await,
             expected
+        );
+    }
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn shared_workspace_runs_name_the_asker_and_use_current_team_authority(pool: SqlitePool) {
+    use pagis_core::{WorkspaceMember, WorkspaceMemberStore, WorkspaceRole};
+    let harness = boot(pool.clone(), AgentLoopConfig::default()).await;
+    let person = harness.workspace.user_id.as_ref().unwrap();
+    sqlx::query(
+        "UPDATE workspaces SET kind = 'shared', user_id = NULL, name = 'Acme Support' WHERE id = ?",
+    )
+    .bind(harness.workspace.id.as_str())
+    .execute(&pool)
+    .await
+    .unwrap();
+    let members = pagis_storage_sqlite::SqliteWorkspaceMemberStore::new(pool.clone());
+    members
+        .add(&WorkspaceMember {
+            workspace_id: harness.workspace.id.clone(),
+            person_id: person.clone(),
+            role: WorkspaceRole::Manager,
+            author: Author::Person(person.clone()),
+        })
+        .await
+        .unwrap();
+    SqliteParticipantStore::new(pool.clone())
+        .create(&fixture::person_participant(
+            &harness.workspace.id,
+            person,
+            &harness.dm.id,
+        ))
+        .await
+        .unwrap();
+    let users = pagis_storage_sqlite::SqliteUserStore::new(pool.clone());
+    let mut lee = pagis_core::UserStore::get(&users, person)
+        .await
+        .unwrap()
+        .unwrap();
+    lee.id = pagis_core::UserId::generate();
+    lee.name = Some("Lee".into());
+    lee.email = None;
+    pagis_core::UserStore::create(&users, &lee).await.unwrap();
+    members
+        .add(&WorkspaceMember {
+            workspace_id: harness.workspace.id.clone(),
+            person_id: lee.id.clone(),
+            role: WorkspaceRole::Manager,
+            author: Author::System,
+        })
+        .await
+        .unwrap();
+    SqliteParticipantStore::new(pool.clone())
+        .create(&fixture::person_participant(
+            &harness.workspace.id,
+            &lee.id,
+            &harness.dm.id,
+        ))
+        .await
+        .unwrap();
+    let mut events = harness
+        .bus
+        .subscribe(EventScope::Installation, Some(0))
+        .await;
+    for (role, authority) in [
+        (WorkspaceRole::Manager, "instructions"),
+        (WorkspaceRole::Responder, "requests"),
+        (WorkspaceRole::Reader, "requests"),
+    ] {
+        sqlx::query(
+            "UPDATE workspace_members SET role = ? WHERE workspace_id = ? AND person_id = ?",
+        )
+        .bind(role.as_str())
+        .bind(harness.workspace.id.as_str())
+        .bind(person.as_str())
+        .execute(&pool)
+        .await
+        .unwrap();
+        harness.brain.push(Script::reply(&["Hello."]));
+        harness.send("Who asked?").await;
+        next_state(&mut events, "completed").await;
+        let requests = harness.brain.requests();
+        let request = requests.last().unwrap();
+        assert!(request.system.contains("Lee (manager)"));
+        assert!(
+            request
+                .system
+                .contains(&format!("Asked by: Sam ({})", role.as_str())),
+            "{}",
+            request.system
+        );
+        assert!(request.system.contains(&format!("Sam ({})", role.as_str())));
+        assert!(
+            request.system.contains("Sage, from the Acme Support team"),
+            "{}",
+            request.system
+        );
+        assert!(!request.system.contains("Your Person is Acme Support"));
+        let message = request
+            .messages
+            .iter()
+            .rev()
+            .find(|message| message.text.contains("Who asked?"))
+            .unwrap();
+        assert!(
+            message.text.contains(&format!(
+                "role={} authority={authority} trust=team",
+                role.as_str()
+            )),
+            "{}",
+            message.text
         );
     }
 }

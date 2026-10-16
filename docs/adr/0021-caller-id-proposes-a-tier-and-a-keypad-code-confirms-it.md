@@ -17,7 +17,7 @@ and can be spoofed, and attestation reaches no stack.
 
 ## Decision
 
-### Three tiers gate authority, not access
+### Trust Tiers gate authority, not access
 
 Every call has one tier in both directions, chosen by the remote party's
 number whoever dialed. A restaurant the Agent dialed is Unknown.
@@ -31,6 +31,14 @@ number whoever dialed. A restaurant the Agent dialed is Unknown.
 Pagis answers a call from any number. The tier decides whose words can move
 the Agent.
 
+For Channel messages in a Shared Workspace, Team takes the place of Owner.
+A Manager's words are instructions. A Responder's or Reader's words are
+requests, within the Agent's job and Standing Brief. The daemon reads the
+current membership role and puts it in the message envelope. The message
+body cannot supply its own role or end the envelope. The Trust List shows
+Team identities from membership; external identities cannot receive Team
+or Owner in a Shared Workspace (ADR-0039).
+
 On an outbound call Pagis dialed the number, so the listed tier holds. On an
 inbound call caller id proposes a candidate tier, and any tier above Unknown
 needs the keypad code; without it the call is Unknown for its life. A spoofed
@@ -43,7 +51,7 @@ hand it to another active Agent of the Workspace (ADR-0041). Routing does
 not change the Trust Tier. A Shared Workspace has no Keypad Code
 (ADR-0039). Its Keypad Code routes answer 409 with the Private Workspace
 rule. Settings shows no code control there.
-Each Private Workspace holds one code of 6 to 8 digits, ended by a hash key or by its
+A Private Workspace holds one code of 6 to 8 digits, ended by a hash key or by its
 length. The secret store (ADR-0013) keeps only its Argon2 hash, under a name
 that carries the Workspace, so one person's code confirms nothing on another
 person's line. The person sets and clears it through the daemon. Only the tier

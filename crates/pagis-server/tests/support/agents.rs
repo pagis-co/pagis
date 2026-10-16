@@ -256,6 +256,7 @@ impl Embedder {
             forget: stores.forget.clone(),
             workspaces: stores.workspaces.clone(),
             users: stores.users.clone(),
+            workspace_members: stores.workspace_members.clone(),
             agents: stores.agents.clone(),
             channels: stores.channels.clone(),
             messages: stores.messages.clone(),
@@ -338,7 +339,6 @@ impl Embedder {
             origin.clone(),
             stores.push_subscriptions.clone(),
             stores.agents.clone(),
-            stores.workspace_members.clone(),
             needs_you.clone(),
             deps.clock.clone(),
         ));

@@ -69,10 +69,20 @@ pub struct KeypadCodeDto {
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct TrustListPage {
+    /// Team identities follow the current Shared Workspace membership.
+    pub team: Vec<TeamTrustDto>,
     pub items: Vec<TrustEntryDto>,
     /// The addresses that are owner with no row.
     pub own_addresses: Vec<OwnAddressDto>,
     pub keypad_code: KeypadCodeDto,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct TeamTrustDto {
+    pub person_id: String,
+    pub name: Option<String>,
+    pub role: pagis_core::WorkspaceRole,
+    pub tier: TrustTier,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -165,9 +175,30 @@ pub async fn list_trust_entries(
         .into_iter()
         .map(dto)
         .collect();
+    let mut team = Vec::new();
+    if tenant.workspace_role.is_some() {
+        for member in state.workspace_members.list(&tenant.workspace_id).await? {
+            let person = state
+                .users
+                .get(&member.person_id)
+                .await?
+                .ok_or_else(|| ApiError::not_found("person"))?;
+            team.push(TeamTrustDto {
+                person_id: member.person_id.to_string(),
+                name: person.name,
+                role: member.role,
+                tier: member.role.trust_tier(),
+            });
+        }
+    }
     Ok(Json(TrustListPage {
+        team,
         items,
-        own_addresses: own_addresses(&state, &tenant).await?,
+        own_addresses: if tenant.workspace_role.is_some() {
+            Vec::new()
+        } else {
+            own_addresses(&state, &tenant).await?
+        },
         keypad_code: keypad_card(&state, &tenant).await?,
     }))
 }
@@ -187,6 +218,11 @@ pub async fn add_trust_entry(
     let (subject, value) = parse_trust_subject(&request.value).map_err(ApiError::validation)?;
     let tier = TrustTier::listed(&request.tier)
         .ok_or_else(|| ApiError::validation("a listed tier is `owner` or `trusted`"))?;
+    if tenant.workspace_role.is_some() && tier == TrustTier::Owner {
+        return Err(ApiError::validation(
+            "a Shared Workspace uses Team membership in place of Owner identities",
+        ));
+    }
     let row = TrustEntry {
         id: TrustEntryId::generate(),
         workspace_id: tenant.workspace_id.clone(),

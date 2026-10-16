@@ -1,3 +1,5 @@
+import { useCurrentWorkspaceId } from '../../workspace'
+import { SharedRequest } from './SharedRequest'
 import { useWorkspaceAccess } from '../../workspace'
 import { useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
@@ -208,6 +210,7 @@ export function HomePhone({
   onWrite?: () => void
   onReply: () => void
 }) {
+  const workspaceId = useCurrentWorkspaceId()
   const navigate = useNavigate()
   const channels = useChannels(api).data ?? []
   const questionOf = (item: QueueItem): string | null => {
@@ -242,7 +245,9 @@ export function HomePhone({
               <p className="phone-hint">Nothing needs you.</p>
             ) : (
               <>
-                {newest && (
+                {newest && newest.workspace_id !== workspaceId ? (
+                  <SharedRequest item={newest} />
+                ) : newest && (
                   <ApprovalPreview
                     api={api}
                     item={newest}
@@ -253,7 +258,9 @@ export function HomePhone({
                   <Frame>
                     {items
                       .filter((item) => item.id !== newest?.id)
-                      .map((item) => (
+                      .map((item) => item.kind === 'approval' && item.workspace_id !== workspaceId ? (
+                        <SharedRequest key={item.id} item={item} />
+                      ) : (
                         <QueueRow
                           key={item.id}
                           item={item}

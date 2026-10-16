@@ -155,6 +155,7 @@ fn brief(direction: CallDirection, tier: TrustTier) -> CallBrief {
         agent_id: AgentId::generate(),
         agent_name: "Robin".to_string(),
         person_name: "Sam".to_string(),
+        workspace_kind: pagis_core::WorkspaceKind::Private,
         personality: "warm".to_string(),
         voice: Some("marin".to_string()),
         phone_number_id: PhoneNumberId::generate(),

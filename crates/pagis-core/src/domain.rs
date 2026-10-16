@@ -2090,12 +2090,14 @@ impl std::str::FromStr for CallDirection {
 pub enum TrustTier {
     Unknown,
     Trusted,
+    Team,
     Owner,
 }
 
 impl TrustTier {
     pub fn as_str(self) -> &'static str {
         match self {
+            TrustTier::Team => "team",
             TrustTier::Owner => "owner",
             TrustTier::Trusted => "trusted",
             TrustTier::Unknown => "unknown",
@@ -2121,6 +2123,7 @@ impl std::str::FromStr for TrustTier {
             "owner" => Ok(TrustTier::Owner),
             "trusted" => Ok(TrustTier::Trusted),
             "unknown" => Ok(TrustTier::Unknown),
+            "team" => Ok(TrustTier::Team),
             other => Err(format!("unknown trust tier: {other}")),
         }
     }

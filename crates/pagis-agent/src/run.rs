@@ -5523,7 +5523,14 @@ async fn context_message(
         return None;
     }
     let speaker = speakers
-        .speaker(deps.agents.as_ref(), deps.users.as_ref(), agent, m)
+        .speaker(
+            deps.agents.as_ref(),
+            deps.users.as_ref(),
+            deps.workspaces.as_ref(),
+            deps.workspace_members.as_ref(),
+            agent,
+            m,
+        )
         .await;
     let role = match speaker {
         None => TurnRole::Assistant,
@@ -5669,6 +5676,20 @@ fn reply_target(run: &Run) -> ReplyTarget {
     }
 }
 
+async fn team_member_label(
+    deps: &AgentDeps,
+    workspace: &WorkspaceId,
+    person: &pagis_core::UserId,
+) -> Option<String> {
+    let member = deps.workspace_members.get(workspace, person).await.ok()??;
+    let user = deps.users.get(person).await.ok()??;
+    Some(format!(
+        "{} ({})",
+        user.name.as_deref().unwrap_or("Person"),
+        member.role.as_str()
+    ))
+}
+
 /// The run's channel briefing: who shares the channel, and
 /// what the run owes the delegation chain it belongs to.
 async fn channel_briefing(deps: &AgentDeps, agent: &Agent, run: &Run, person_name: &str) -> String {
@@ -5719,13 +5740,54 @@ async fn channel_briefing(deps: &AgentDeps, agent: &Agent, run: &Run, person_nam
         (None, Some(requester)) => Some(Delegation::Answering { requester }),
         (None, None) => None,
     };
-    let channel = Briefing {
-        person_name,
-        user_present,
-        others,
-        delegation,
-    }
-    .render();
+    let shared = deps
+        .workspaces
+        .get(&run.workspace_id)
+        .await
+        .ok()
+        .flatten()
+        .filter(|workspace| workspace.kind == pagis_core::WorkspaceKind::Shared);
+    let channel = if let Some(workspace) = shared {
+        let mut members = Vec::new();
+        for participant in &participants {
+            if let Some(id) = &participant.person_id
+                && let Some(label) = team_member_label(deps, &run.workspace_id, id).await
+            {
+                members.push(label);
+            }
+        }
+        let asker = if let Some(reference) = &run.trigger_ref {
+            match deps
+                .messages
+                .get(&run.workspace_id, &MessageId::from(reference.clone()))
+                .await
+            {
+                Ok(Some(message)) => match message.author.person_id() {
+                    Some(id) => team_member_label(deps, &run.workspace_id, id).await,
+                    None => None,
+                },
+                _ => None,
+            }
+        } else {
+            None
+        };
+        let mut text =
+            crate::briefing::team_channel(&workspace.name, asker.as_deref(), &members, &others);
+        // Delegation keeps its reply destination in a team Channel.
+        if let Some(delegation) = delegation {
+            text.push_str("\n\n");
+            text.push_str(&delegation.render());
+        }
+        text
+    } else {
+        Briefing {
+            person_name,
+            user_present,
+            others,
+            delegation,
+        }
+        .render()
+    };
     let channel = format!(
         "{channel}\n\n{}",
         sprites(deps, agent)
@@ -6151,14 +6213,32 @@ async fn system_prompt(
         &run.workspace_id,
     )
     .await?;
-    let honesty = pagis_core::honesty::render(&agent.name, &person);
-    let identity = format!(
-        "You are {name}, one of {person}'s sprites. Your job: {job}.\n\n\
+    let honesty = pagis_core::honesty::render_workspace(
+        &agent.name,
+        deps.workspaces.as_ref(),
+        deps.users.as_ref(),
+        &run.workspace_id,
+    )
+    .await?;
+    let is_shared = deps
+        .workspaces
+        .get(&run.workspace_id)
+        .await?
+        .is_some_and(|workspace| workspace.kind == pagis_core::WorkspaceKind::Shared);
+    let identity = if is_shared {
+        format!(
+            "You are {}, a sprite of the {} team. Your job: {}.\n\n{}\n\nYour personality: {}. Reply in markdown.",
+            agent.name, person, agent.job, honesty, agent.personality
+        )
+    } else {
+        format!(
+            "You are {name}, one of {person}'s sprites. Your job: {job}.\n\n\
          Your Person is {person}.\n\n{honesty}\n\nYour personality: {personality}. Reply in markdown.",
-        name = agent.name,
-        job = agent.job,
-        personality = agent.personality,
-    );
+            name = agent.name,
+            job = agent.job,
+            personality = agent.personality,
+        )
+    };
     let date = date_line(
         deps.clock.now_ms(),
         &owner_timezone(deps, &run.workspace_id).await,
@@ -6228,11 +6308,19 @@ async fn system_prompt(
          ## Your private memory index (private/MEMORY.md)\n\n{private}\
          {brief}\n\n\
          {date}",
-        envelope = pagis_core::ENVELOPE_RULE.replace("your Person", &person),
+        envelope = if is_shared {
+            crate::briefing::TEAM_ENVELOPE_RULE.into()
+        } else {
+            pagis_core::ENVELOPE_RULE.replace("your Person", &person)
+        },
         skills = skills.replace("your Person", &person),
-        consent = crate::briefing::CONSENT_RULE
-            .replace("your Person", &person)
-            .replace("Your Person", &person),
+        consent = (if is_shared {
+            crate::briefing::TEAM_CONSENT_RULE
+        } else {
+            crate::briefing::CONSENT_RULE
+        })
+        .replace("your Person", &person)
+        .replace("Your Person", &person),
         software =
             crate::briefing::software_line(software_packages).replace("your Person", &person),
         computer =

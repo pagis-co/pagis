@@ -1,12 +1,12 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { ReactNode } from 'react'
 
 import type { ApiClient, ChannelDto } from './api/client'
 import { useChannels } from './queries'
-import { CurrentWorkspaceProvider, WorkspaceSwitcher, useCurrentWorkspaceId } from './workspace'
+import { CurrentWorkspaceProvider, WorkspaceSelectionContext, WorkspaceSwitcher, useCurrentWorkspaceId, useWorkspaceAccess } from './workspace'
 import { WidgetBlock } from './blocks/WidgetBlock'
 import { PageView } from './components/memory/PageView'
 
@@ -123,5 +123,24 @@ describe('the current Workspace', () => {
     await waitFor(() => expect(api.POST).toHaveBeenCalledWith('/api/v1/knowledge/forget/preview', {
       body: { target: { kind: 'source', source: { workspace_id: 'workspace-A', connection_id: 'connection-1', resource: 'gmail' }, source_id: 'item-1' } },
     }))
+  })
+})
+
+describe('Workspace access', () => {
+  it.each([
+    ['private', 'manager', true, true, true, false],
+    ['shared', 'manager', false, true, true, true],
+    ['shared', 'responder', false, false, true, false],
+    ['shared', 'reader', false, false, false, false],
+  ] as const)('%s Workspace with role %s', (kind, role, isPrivate, canManage, canRespond, canManageMembers) => {
+    const current = { id: 'workspace', name: 'Workspace', kind, role }
+    const { result } = renderHook(useWorkspaceAccess, {
+      wrapper: ({ children }) => (
+        <WorkspaceSelectionContext value={{ items: [current], current, select: () => {} }}>
+          {children}
+        </WorkspaceSelectionContext>
+      ),
+    })
+    expect(result.current).toEqual({ isPrivate, canManage, canRespond, canManageMembers })
   })
 })

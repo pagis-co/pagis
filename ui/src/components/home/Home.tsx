@@ -1,3 +1,5 @@
+import { useCurrentWorkspaceId } from '../../workspace'
+import { SharedRequest } from './SharedRequest'
 // `/`: Home, the Report of the Chief of Staff (ADR-0022).
 //
 // Home reads top to bottom as one page of the day: the date, whose
@@ -67,6 +69,10 @@ function QueueRow({
   /** The action of the row runs now. */
   busy?: boolean
 }) {
+  const workspaceId = useCurrentWorkspaceId()
+  if (item.kind === 'approval' && item.workspace_id !== workspaceId) {
+    return <li className="home-queue-item"><SharedRequest item={item} /></li>
+  }
   if (item.kind === 'approval') {
     return (
       <li className="home-queue-item" data-kind={item.kind}>

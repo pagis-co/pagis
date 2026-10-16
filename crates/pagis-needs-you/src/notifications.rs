@@ -226,7 +226,6 @@ pub struct Notifications {
     public_origin: String,
     push_subscriptions: Arc<dyn PushSubscriptionStore>,
     agents: Arc<dyn AgentStore>,
-    members: Arc<dyn pagis_core::WorkspaceMemberStore>,
     /// The Needs-You Queue, which a held item reads again before it goes.
     needs_you: Arc<NeedsYou>,
     pub(crate) clock: Arc<dyn Clock>,
@@ -239,7 +238,6 @@ impl Notifications {
         public_origin: String,
         push_subscriptions: Arc<dyn PushSubscriptionStore>,
         agents: Arc<dyn AgentStore>,
-        members: Arc<dyn pagis_core::WorkspaceMemberStore>,
         needs_you: Arc<NeedsYou>,
         clock: Arc<dyn Clock>,
     ) -> Self {
@@ -248,7 +246,6 @@ impl Notifications {
             public_origin,
             push_subscriptions,
             agents,
-            members,
             needs_you,
             clock,
         }
@@ -389,16 +386,9 @@ pub(crate) trait Notifier: Send + Sync + 'static {
 impl Notifier for Notifications {
     async fn recipients(&self, workspace_id: &WorkspaceId) -> Vec<pagis_core::UserId> {
         match self.needs_you.workspaces.get(workspace_id).await {
-            Ok(Some(workspace)) => match workspace.user_id {
-                Some(user_id) => vec![user_id],
-                None => match self.members.list(workspace_id).await {
-                    Ok(members) => members.into_iter().map(|member| member.person_id).collect(),
-                    Err(error) => {
-                        tracing::error!(%error, "Notification recipients were not read");
-                        Vec::new()
-                    }
-                },
-            },
+            Ok(Some(workspace)) if workspace.kind == pagis_core::WorkspaceKind::Private => {
+                workspace.user_id.into_iter().collect()
+            }
             _ => Vec::new(),
         }
     }
@@ -442,6 +432,9 @@ impl Notifications {
     /// the queue or the queue cannot be read. An Embedder calls this
     /// at the end of a hold before it calls [`crate::NotificationRule::on_hold_end`].
     pub async fn queued(&self, workspace_id: &WorkspaceId, item_id: &str) -> Option<QueuedItem> {
+        if !self.needs_you.is_private(workspace_id).await {
+            return None;
+        }
         match self
             .needs_you
             .derive(workspace_id, self.clock.now_ms())
@@ -519,6 +512,7 @@ mod tests {
 
     fn approval(request_kind: &str) -> NeedsYouItem {
         NeedsYouItem::Approval(NeedsYouApproval {
+            workspace_id: "workspace".into(),
             id: "request:r-1".to_string(),
             agent_id: "a-1".to_string(),
             line: "Robin needs your approval".to_string(),

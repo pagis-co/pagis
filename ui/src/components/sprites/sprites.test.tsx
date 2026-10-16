@@ -586,3 +586,45 @@ describe("the agent profile", () => {
     ).toBeTruthy();
   });
 });
+
+
+describe('Shared Workspace Agent controls', () => {
+  it.each([
+    ['manager', false], ['responder', false], ['reader', false],
+    ['manager', true], ['responder', true], ['reader', true],
+  ] as const)(
+    '%s sees only permitted Agent controls with phone=%s',
+    async (role, phone) => {
+      const { renderInRouter } = await import('../../test/router')
+      vi.stubGlobal('matchMedia', (query: string) => ({
+        matches: phone && query.includes('max-width'),
+        media: query,
+        addEventListener() {},
+        removeEventListener() {},
+      }))
+      const { WorkspaceSelectionContext } = await import('../../workspace')
+      const current = { id: 'team', name: 'Support', kind: 'shared' as const, role }
+      const api = stubApi([sage], null) as unknown as ApiClient
+      renderInRouter(
+        <QueryClientProvider client={new QueryClient()}>
+        <WorkspaceSelectionContext value={{ items: [current], current, select: () => {} }}>
+          <RosterHarness api={api} />
+          <AgentProfile
+            api={api}
+            agentId="ag1"
+            onBack={() => {}}
+            onOpenRun={() => {}}
+            onOpenMemory={() => {}}
+            onOpenSyncSettings={() => {}}
+          />
+        </WorkspaceSelectionContext>
+        </QueryClientProvider>,
+      )
+      await screen.findByRole('heading', { name: 'Sage' })
+      for (const name of ['New sprite', 'Edit Sage', 'Archive Sage',
+        'Make Sage the Chief of Staff']) {
+        expect(screen.queryByRole('button', { name }) !== null).toBe(role === 'manager')
+      }
+    },
+  )
+})

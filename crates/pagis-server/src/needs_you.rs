@@ -20,6 +20,12 @@ pub async fn get_needs_you(
     State(state): State<Arc<AppState>>,
     tenant: Tenant,
 ) -> Result<Json<NeedsYouQueue>, ApiError> {
+    if tenant.workspace_role == Some(pagis_core::WorkspaceRole::Reader) {
+        return Ok(Json(NeedsYouQueue {
+            items: Vec::new(),
+            count: 0,
+        }));
+    }
     let queue = state
         .needs_you
         .derive(&tenant.workspace_id, state.clock.now_ms())

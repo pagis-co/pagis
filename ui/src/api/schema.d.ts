@@ -5915,6 +5915,8 @@ export interface components {
             title: string;
             /** @description The Product App path that answers the item. */
             url: string;
+            /** @description The Workspace that owns the Request. */
+            workspace_id: string;
         };
         /** @description An inbound Call of today that nobody answered. */
         NeedsYouCall: {
@@ -7518,6 +7520,12 @@ export interface components {
             /** @enum {string} */
             state: "ready";
         };
+        TeamTrustDto: {
+            name?: string | null;
+            person_id: string;
+            role: components["schemas"]["WorkspaceRole"];
+            tier: components["schemas"]["TrustTier"];
+        };
         /** @description One thread: the root message plus its replies, oldest first. */
         ThreadDto: {
             replies: components["schemas"]["MessageDto"][];
@@ -7604,6 +7612,8 @@ export interface components {
             keypad_code: components["schemas"]["KeypadCodeDto"];
             /** @description The addresses that are owner with no row. */
             own_addresses: components["schemas"]["OwnAddressDto"][];
+            /** @description Team identities follow the current Shared Workspace membership. */
+            team: components["schemas"]["TeamTrustDto"][];
         };
         /**
          * @description What the words of one Remote Party are worth (ADR-0021). The tier
@@ -7615,7 +7625,7 @@ export interface components {
          *     the Keypad Code proves.
          * @enum {string}
          */
-        TrustTier: "unknown" | "trusted" | "owner";
+        TrustTier: "unknown" | "trusted" | "team" | "owner";
         /** @description A turn-on that waits for Tailscale. */
         TurningOnDto: {
             /**

@@ -50,6 +50,11 @@ impl<Q: QueueReader> QueueChanges<Q> {
         {
             return Ok(Vec::new());
         }
+        self.refresh().await
+    }
+
+    /// A Shared Workspace event can change a Person's queue too.
+    pub(crate) async fn refresh(&mut self) -> Result<Vec<NewEvent>, StoreError> {
         let queue = self.queue.queue(&self.workspace_id).await?;
         let events = changes(&self.workspace_id, &self.last, &queue);
         self.last = item_ids(&queue);
