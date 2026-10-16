@@ -75,7 +75,7 @@ async fn upload(daemon: &TestDaemon) -> String {
         .mime_str("application/x-tar")
         .expect("the part");
     let body: serde_json::Value = reqwest::Client::new()
-        .post(format!("{}/api/v1/artifacts", daemon.base_url))
+        .post(format!("{}/api/v1/files", daemon.base_url))
         .header("cookie", daemon.cookie())
         .multipart(reqwest::multipart::Form::new().part("file", part))
         .send()
@@ -84,18 +84,18 @@ async fn upload(daemon: &TestDaemon) -> String {
         .json()
         .await
         .expect("JSON");
-    body["id"].as_str().expect("the artifact id").to_string()
+    body["id"].as_str().expect("the file id").to_string()
 }
 
 /// Install the fixture Plugin against the server on `port`. The
 /// install freezes the tool list, so the server must answer here.
 async fn install(daemon: &TestDaemon, port: u16) -> serde_json::Value {
-    let artifact_id = upload(daemon).await;
+    let file_id = upload(daemon).await;
     let response = reqwest::Client::new()
         .post(format!("{}/api/v1/plugins", daemon.administration_base_url))
         .header("cookie", daemon.cookie())
         .json(&serde_json::json!({
-            "source": {"kind": "upload", "artifact_id": artifact_id},
+            "source": {"kind": "upload", "file_id": file_id},
             "bindings": [
                 {"field": "endpoint", "kind": "value", "value": port.to_string()},
                 {"field": "token", "kind": "secret", "secret": "the-token"},

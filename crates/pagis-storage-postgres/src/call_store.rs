@@ -6,9 +6,8 @@
 
 use async_trait::async_trait;
 use pagis_core::{
-    AgentId, ArtifactId, Call, CallDirection, CallId, CallOutcome, CallState, CallStore,
-    Classification, PhoneNumberId, RunId, StoreError, TranscriptLine, TrustTier, UnixMillis,
-    WorkspaceId,
+    AgentId, Call, CallDirection, CallId, CallOutcome, CallState, CallStore, Classification,
+    FileId, PhoneNumberId, RunId, StoreError, TranscriptLine, TrustTier, UnixMillis, WorkspaceId,
 };
 use sqlx::{PgPool, Row};
 
@@ -27,7 +26,7 @@ impl PostgresCallStore {
 
 const COLUMNS: &str = "id, workspace_id, agent_id, run_id, phone_number_id, direction, \
      remote_e164, agent_name, own_e164, purpose, tools, tier, state, outcome, ended_reason, \
-     classification, message_left, transcript, recording_artifact_id, created_at, ringing_at, \
+     classification, message_left, transcript, recording_file_id, created_at, ringing_at, \
      answered_at, ended_at, dismissed_at";
 
 /// The transcript goes to the row as JSON, so its times survive.
@@ -74,9 +73,9 @@ fn from_row(row: &sqlx::postgres::PgRow) -> Result<Call, StoreError> {
         message_left: row.get("message_left"),
         transcript: serde_json::from_str(&row.get::<String, _>("transcript"))
             .map_err(|error| StoreError::Corrupt(format!("the transcript is not JSON: {error}")))?,
-        recording_artifact_id: row
-            .get::<Option<String>, _>("recording_artifact_id")
-            .map(ArtifactId::from),
+        recording_file_id: row
+            .get::<Option<String>, _>("recording_file_id")
+            .map(FileId::from),
         created_at: row.get("created_at"),
         ringing_at: row.get("ringing_at"),
         answered_at: row.get("answered_at"),
@@ -111,7 +110,7 @@ impl CallStore for PostgresCallStore {
         .bind(call.classification.map(Classification::as_str))
         .bind(call.message_left)
         .bind(transcript_json(&call.transcript)?)
-        .bind(call.recording_artifact_id.as_ref().map(ArtifactId::as_str))
+        .bind(call.recording_file_id.as_ref().map(FileId::as_str))
         .bind(call.created_at)
         .bind(call.ringing_at)
         .bind(call.answered_at)
@@ -127,7 +126,7 @@ impl CallStore for PostgresCallStore {
         let updated = sqlx::query(
             "UPDATE calls SET tier = $1, state = $2, outcome = $3, ended_reason = $4, \
              classification = $5, message_left = $6, transcript = $7, \
-             recording_artifact_id = $8, ringing_at = $9, answered_at = $10, ended_at = $11 \
+             recording_file_id = $8, ringing_at = $9, answered_at = $10, ended_at = $11 \
              WHERE id = $12 AND workspace_id = $13",
         )
         .bind(call.tier.as_str())
@@ -137,7 +136,7 @@ impl CallStore for PostgresCallStore {
         .bind(call.classification.map(Classification::as_str))
         .bind(call.message_left)
         .bind(transcript_json(&call.transcript)?)
-        .bind(call.recording_artifact_id.as_ref().map(ArtifactId::as_str))
+        .bind(call.recording_file_id.as_ref().map(FileId::as_str))
         .bind(call.ringing_at)
         .bind(call.answered_at)
         .bind(call.ended_at)

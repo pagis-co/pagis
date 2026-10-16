@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use pagis_core::{
-    ArtifactKind, RetentionPolicy, RetentionPolicyStore, StoreError, UnixMillis, WorkspaceId,
+    FileKind, RetentionPolicy, RetentionPolicyStore, StoreError, UnixMillis, WorkspaceId,
 };
 use sqlx::{Row, SqlitePool};
 
@@ -21,14 +21,14 @@ impl SqliteRetentionPolicyStore {
 impl RetentionPolicyStore for SqliteRetentionPolicyStore {
     async fn list(&self, workspace_id: &WorkspaceId) -> Result<Vec<RetentionPolicy>, StoreError> {
         let rows = sqlx::query(
-            "SELECT kind, retain_days FROM artifact_retention_policies WHERE workspace_id = ?",
+            "SELECT kind, retain_days FROM file_retention_policies WHERE workspace_id = ?",
         )
         .bind(workspace_id.as_str())
         .fetch_all(&self.pool)
         .await
         .map_err(db_err)?;
-        let mut policies = Vec::with_capacity(ArtifactKind::ALL.len());
-        for kind in ArtifactKind::ALL {
+        let mut policies = Vec::with_capacity(FileKind::ALL.len());
+        for kind in FileKind::ALL {
             let retain_days = rows
                 .iter()
                 .find(|row| row.get::<String, _>("kind") == kind.as_str())
@@ -41,25 +41,23 @@ impl RetentionPolicyStore for SqliteRetentionPolicyStore {
     async fn set(
         &self,
         workspace_id: &WorkspaceId,
-        kind: ArtifactKind,
+        kind: FileKind,
         retain_days: Option<i64>,
         now: UnixMillis,
     ) -> Result<(), StoreError> {
         // "Keep for ever" is the absence of a row, so the reset path is
         // a delete and not a stored sentinel.
         let Some(days) = retain_days else {
-            sqlx::query(
-                "DELETE FROM artifact_retention_policies WHERE workspace_id = ? AND kind = ?",
-            )
-            .bind(workspace_id.as_str())
-            .bind(kind.as_str())
-            .execute(&self.pool)
-            .await
-            .map_err(db_err)?;
+            sqlx::query("DELETE FROM file_retention_policies WHERE workspace_id = ? AND kind = ?")
+                .bind(workspace_id.as_str())
+                .bind(kind.as_str())
+                .execute(&self.pool)
+                .await
+                .map_err(db_err)?;
             return Ok(());
         };
         sqlx::query(
-            "INSERT INTO artifact_retention_policies (workspace_id, kind, retain_days, updated_at) \
+            "INSERT INTO file_retention_policies (workspace_id, kind, retain_days, updated_at) \
              VALUES (?, ?, ?, ?) \
              ON CONFLICT (workspace_id, kind) \
              DO UPDATE SET retain_days = excluded.retain_days, updated_at = excluded.updated_at",

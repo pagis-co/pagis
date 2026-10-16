@@ -97,7 +97,7 @@ id_type!(RunId);
 id_type!(ParticipantId);
 id_type!(EventId);
 id_type!(RequestId);
-id_type!(ArtifactId);
+id_type!(FileId);
 id_type!(GrantId);
 id_type!(ModelAliasId);
 id_type!(ConnectionId);

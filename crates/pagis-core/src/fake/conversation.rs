@@ -1171,24 +1171,24 @@ fn evidence_message(data: &Data, message: &Message) -> ConversationEvidenceMessa
         speaker: speaker(message),
         created_at: message.created_at,
         text: message.text_content.clone(),
-        artifacts: message
+        files: message
             .blocks
             .iter()
             .filter_map(|block| {
                 let id = match block {
-                    Block::Known(KnownBlock::Image { artifact_id, .. })
-                    | Block::Known(KnownBlock::File { artifact_id, .. }) => artifact_id,
+                    Block::Known(KnownBlock::Image { file_id, .. })
+                    | Block::Known(KnownBlock::File { file_id, .. }) => file_id,
                     _ => return None,
                 };
-                let artifact = data
-                    .artifacts
-                    .get(&message.workspace_id, &ArtifactId::from(id.clone()));
-                Some(EvidenceArtifactRef {
-                    reference: format!("artifact:{id}"),
-                    available: artifact.is_some(),
-                    filename: artifact.and_then(|row| row.filename.clone()),
-                    mime: artifact.map(|row| row.mime.clone()),
-                    size_bytes: artifact.map(|row| row.size_bytes),
+                let file = data
+                    .files
+                    .get(&message.workspace_id, &FileId::from(id.clone()));
+                Some(EvidenceFileRef {
+                    reference: format!("file:{id}"),
+                    available: file.is_some(),
+                    filename: file.and_then(|row| row.filename.clone()),
+                    mime: file.map(|row| row.mime.clone()),
+                    size_bytes: file.map(|row| row.size_bytes),
                 })
             })
             .collect(),

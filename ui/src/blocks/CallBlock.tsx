@@ -21,7 +21,7 @@ import { useEffect, useState } from 'react'
 import { ChevronDown, ChevronUp } from 'lucide-react'
 
 import type { ApiClient, CallDto } from '../api/client'
-import { fetchArtifactBlob } from '../api/client'
+import { fetchFileBlob } from '../api/client'
 import { Badge, Button } from '../primitives'
 import { Avatar } from '../avatars/Avatar'
 import type { BadgeTone } from '../primitives'
@@ -77,17 +77,17 @@ export function TierChip({ tier }: { tier: string }) {
 
 /** The recording, played where it belongs: on the card that owns it. */
 function Recording({
-  artifactId,
+  fileId,
   durationMs,
 }: {
-  artifactId: string
+  fileId: string
   durationMs: number
 }) {
   const [blob, setBlob] = useState<Blob | null>(null)
   const [failed, setFailed] = useState(false)
   useEffect(() => {
     let canceled = false
-    fetchArtifactBlob(artifactId)
+    fetchFileBlob(fileId)
       .then((loaded) => {
         if (!canceled) setBlob(loaded)
       })
@@ -97,7 +97,7 @@ function Recording({
     return () => {
       canceled = true
     }
-  }, [artifactId])
+  }, [fileId])
   if (failed) {
     return <p className="call-recording-missing">The recording is unavailable.</p>
   }
@@ -168,10 +168,10 @@ function Settled({ call, onOpen, appearance }: { call: CallDto; onOpen: () => vo
           {classification != null && <> · {classification}</>}
         </span>
       </CardBody>
-      {call.recording_artifact_id != null && (
+      {call.recording_file_id != null && (
         <CardBody>
           <Recording
-            artifactId={call.recording_artifact_id}
+            fileId={call.recording_file_id}
             durationMs={callDuration(call, Date.now())}
           />
         </CardBody>

@@ -13,8 +13,8 @@
 //! missing.
 
 use pagis_core::{
-    Agent, AgentId, ArtifactId, ChannelId, ConnectionId, MessageId, MessagingReadiness,
-    PhoneNumber, PhoneNumberId, Run, RunId, RunState, TEXT_THREAD_WINDOW_MS, TelnyxRelayState,
+    Agent, AgentId, ChannelId, ConnectionId, FileId, MessageId, MessagingReadiness, PhoneNumber,
+    PhoneNumberId, Run, RunId, RunState, TEXT_THREAD_WINDOW_MS, TelnyxRelayState,
     TextDeliveryStatus, TextDirection, TextRecord, TextRecordId, TriggerKind, TrustTier,
     UnixMillis, Workspace, WorkspaceId, day_start, now_ms,
 };
@@ -90,7 +90,7 @@ fn inbound(
         tier: TrustTier::Unknown,
         body: body.to_string(),
         segments: 1,
-        media_artifact_ids: Vec::new(),
+        media_file_ids: Vec::new(),
         carrier_message_id: format!("carrier-{body}"),
         run_id: None,
         channel_id: None,
@@ -131,10 +131,10 @@ pub async fn an_outbound_record_round_trips_with_its_thread_and_media(backend: &
 
     let thread = MessageId::generate();
     let channel = ChannelId::generate();
-    let media = ArtifactId::generate();
+    let media = FileId::generate();
     let record = TextRecord {
         channel_id: Some(channel.clone()),
-        media_artifact_ids: vec![media.clone()],
+        media_file_ids: vec![media.clone()],
         segments: 3,
         tier: TrustTier::Owner,
         ..outbound(
@@ -154,7 +154,7 @@ pub async fn an_outbound_record_round_trips_with_its_thread_and_media(backend: &
     assert_eq!(read, record);
     assert_eq!(read.thread_id, Some(thread));
     assert_eq!(read.channel_id, Some(channel));
-    assert_eq!(read.media_artifact_ids, [media]);
+    assert_eq!(read.media_file_ids, [media]);
     assert_eq!(read.segments, 3);
     assert_eq!(read.tier, TrustTier::Owner);
 }

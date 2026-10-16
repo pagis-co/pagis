@@ -61,14 +61,14 @@ pub use continuation::{
 };
 pub use conversation_evidence::{
     ConversationEvidenceHit, ConversationEvidenceMessage, ConversationEvidenceStore,
-    ConversationScope, ConversationToolEvidence, EvidenceArtifactRef, RetainedToolEvidence,
+    ConversationScope, ConversationToolEvidence, EvidenceFileRef, RetainedToolEvidence,
 };
 pub use domain::{
-    Agent, AgentMailbox, AgentMailboxState, AgentStatus, Artifact, ArtifactKind, AuthorKind,
-    BlockReason, Call, CallDirection, CallOutcome, CallState, CapabilitySnapshotRecord, Channel,
-    ChannelKind, ChannelParticipant, Classification, Connection, Contribution, ContributionStatus,
-    CreatorKind, Credential, CredentialProvenance, DEFAULT_MODEL_ALIAS, EventDeclaration,
-    EventSource, EventSubscription, EventSubscriptionState, FailureKind, Grant, IncomingEvent,
+    Agent, AgentMailbox, AgentMailboxState, AgentStatus, AuthorKind, BlockReason, Call,
+    CallDirection, CallOutcome, CallState, CapabilitySnapshotRecord, Channel, ChannelKind,
+    ChannelParticipant, Classification, Connection, Contribution, ContributionStatus, CreatorKind,
+    Credential, CredentialProvenance, DEFAULT_MODEL_ALIAS, EventDeclaration, EventSource,
+    EventSubscription, EventSubscriptionState, FailureKind, File, FileKind, Grant, IncomingEvent,
     MailboxCursor, Message, MessageStatus, MessagingReadiness, ModelAlias,
     OnboardingModelVerification, PAGIS_PROVIDER, ParticipantKind, PhoneNumber, PhoneNumberStatus,
     Plugin, PluginBinding, PluginBindingValue, PluginSource, PluginState, PluginTool, PluginTools,
@@ -85,8 +85,8 @@ pub use event::{Event, NewEvent};
 pub use exposure::message_source_is_live;
 pub use host::{EXIT_CAPABILITY, Host, HostStore, SHELL_CAPABILITY};
 pub use id::{
-    AgentId, AgentMailboxId, ArtifactId, CallId, ChannelId, CodingSessionId, ConnectionId,
-    ContributionId, CredentialId, EventId, EventSubscriptionId, GrantId, HarnessSignInId, HostId,
+    AgentId, AgentMailboxId, CallId, ChannelId, CodingSessionId, ConnectionId, ContributionId,
+    CredentialId, EventId, EventSubscriptionId, FileId, GrantId, HarnessSignInId, HostId,
     IncomingEventId, MessageId, ModelAliasId, ModelRequestCaptureId, OrgId, ParticipantId,
     PendingEvidenceId, PhoneNumberId, PluginId, PurchaseIntentId, PushSubscriptionId, RequestId,
     RunId, ScheduleId, ScheduleOccurrenceId, SessionId, SignInLinkId, SoftwarePackageId,
@@ -124,10 +124,10 @@ pub use skill::{
     FIRST_PARTY_SKILLS, MAX_SKILL_DESCRIPTION, NoSkills, SKILL_SEPARATOR, Skill, SkillMount, Skills,
 };
 pub use store::{
-    AgentMailboxStore, AgentStore, ArrivalRun, ArtifactOutcome, ArtifactStore, BriefCursor,
-    BriefStore, CallStore, CapabilitySnapshotStore, ChannelStore, CollectorTarget, ConnectionStore,
-    ContributionStore, CredentialStore, DecideOutcome, DueBatch, EventCatalog, EventLog,
-    EventMatcher, EventSubscriptionStore, EventWakeupContext, GrantStore, IngestBatch,
+    AgentMailboxStore, AgentStore, ArrivalRun, BriefCursor, BriefStore, CallStore,
+    CapabilitySnapshotStore, ChannelStore, CollectorTarget, ConnectionStore, ContributionStore,
+    CredentialStore, DecideOutcome, DueBatch, EventCatalog, EventLog, EventMatcher,
+    EventSubscriptionStore, EventWakeupContext, FileOutcome, FileStore, GrantStore, IngestBatch,
     IngestOutcome, MessageStore, ModelAliasStore, NormalizedEvent, OnboardingStore,
     ParticipantStore, PendingEvidenceStore, PhoneNumberStore, PluginStore, PluginToolStore,
     REPLY_AUTHORS_MAX, ReplyAuthor, RequestStore, RetentionPolicyStore, RunStore, ScheduleStore,

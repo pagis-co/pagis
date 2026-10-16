@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 use pagis_core::{
     AuthorKind, ConversationEvidenceHit, ConversationEvidenceMessage, ConversationEvidenceStore,
-    ConversationScope, ConversationToolEvidence, EvidenceArtifactRef, MessageId,
-    RetainedToolEvidence, StoreError,
+    ConversationScope, ConversationToolEvidence, EvidenceFileRef, MessageId, RetainedToolEvidence,
+    StoreError,
 };
 use sqlx::{Row, SqlitePool};
 
@@ -210,7 +210,7 @@ impl ConversationEvidenceStore for SqliteConversationEvidenceStore {
                 speaker: speaker(&row)?,
                 created_at: row.get("created_at"),
                 text: row.get("text_content"),
-                artifacts: artifacts(&self.pool, &scope.workspace_id, &blocks).await?,
+                files: files(&self.pool, &scope.workspace_id, &blocks).await?,
             });
         }
         Ok(messages)
@@ -248,7 +248,7 @@ impl ConversationEvidenceStore for SqliteConversationEvidenceStore {
             speaker: speaker(&row)?,
             created_at: row.get("created_at"),
             text: row.get("text_content"),
-            artifacts: artifacts(&self.pool, &scope.workspace_id, &blocks).await?,
+            files: files(&self.pool, &scope.workspace_id, &blocks).await?,
         }))
     }
 
@@ -347,22 +347,20 @@ fn speaker(row: &sqlx::sqlite::SqliteRow) -> Result<String, StoreError> {
     })
 }
 
-async fn artifacts(
+async fn files(
     pool: &SqlitePool,
     workspace_id: &pagis_core::WorkspaceId,
     blocks: &[pagis_core::Block],
-) -> Result<Vec<EvidenceArtifactRef>, StoreError> {
+) -> Result<Vec<EvidenceFileRef>, StoreError> {
     let mut references = Vec::new();
     for block in blocks {
         let id = match block {
-            pagis_core::Block::Known(pagis_core::KnownBlock::Image { artifact_id, .. })
-            | pagis_core::Block::Known(pagis_core::KnownBlock::File { artifact_id, .. }) => {
-                artifact_id
-            }
+            pagis_core::Block::Known(pagis_core::KnownBlock::Image { file_id, .. })
+            | pagis_core::Block::Known(pagis_core::KnownBlock::File { file_id, .. }) => file_id,
             _ => continue,
         };
         let row = sqlx::query(
-            "SELECT filename, mime, size_bytes FROM artifacts WHERE id = ? AND workspace_id = ?",
+            "SELECT filename, mime, size_bytes FROM files WHERE id = ? AND workspace_id = ?",
         )
         .bind(id)
         .bind(workspace_id.as_str())
@@ -370,15 +368,15 @@ async fn artifacts(
         .await
         .map_err(db_err)?;
         references.push(match row {
-            Some(row) => EvidenceArtifactRef {
-                reference: format!("artifact:{id}"),
+            Some(row) => EvidenceFileRef {
+                reference: format!("file:{id}"),
                 available: true,
                 filename: row.get("filename"),
                 mime: Some(row.get("mime")),
                 size_bytes: Some(row.get("size_bytes")),
             },
-            None => EvidenceArtifactRef {
-                reference: format!("artifact:{id}"),
+            None => EvidenceFileRef {
+                reference: format!("file:{id}"),
                 available: false,
                 filename: None,
                 mime: None,

@@ -354,7 +354,7 @@ mod tests {
 
         let after = Config::read_file(&path).unwrap();
         assert_eq!(after.secrets.key_file(), before.secrets.key_file());
-        assert_eq!(after.artifact_max_bytes, before.artifact_max_bytes);
+        assert_eq!(after.file_max_bytes, before.file_max_bytes);
         assert_eq!(after.docker_endpoint, "");
     }
 }

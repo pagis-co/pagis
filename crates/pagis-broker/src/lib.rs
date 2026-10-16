@@ -267,7 +267,7 @@ pub enum CoreTool {
     PhoneCall,
     /// Read the transcript of one of the Agent's own Calls (ADR-0020,
     /// ADR-0021). A Call the Agent answered leaves its words in an
-    /// Artifact, and the Wake-up that reports the call carries the
+    /// File, and the Wake-up that reports the call carries the
     /// envelope alone, so this is how the Agent reads what was said.
     /// It is `Free`: the daemon reads its own records, and the words
     /// come back inside the untrusted envelope with the tier.
@@ -4220,7 +4220,7 @@ fn ui_manifest() -> CapabilityManifest {
                                 },
                                 {
                                     "type": "object",
-                                    "description": "A grid. Past 100 rows, write a CSV artifact and post a file block instead.",
+                                    "description": "A grid. Past 100 rows, write a CSV file and post a file block instead.",
                                     "properties": {
                                         "type": {"const": "table"},
                                         "columns": {
@@ -4249,22 +4249,22 @@ fn ui_manifest() -> CapabilityManifest {
                                     "type": "object",
                                     "properties": {
                                         "type": {"const": "image"},
-                                        "artifact_id": {"type": "string"},
+                                        "file_id": {"type": "string"},
                                         "alt": {"type": "string"}
                                     },
-                                    "required": ["type", "artifact_id"],
+                                    "required": ["type", "file_id"],
                                     "additionalProperties": false
                                 },
                                 {
                                     "type": "object",
                                     "properties": {
                                         "type": {"const": "file"},
-                                        "artifact_id": {"type": "string"},
+                                        "file_id": {"type": "string"},
                                         "name": {"type": "string"},
                                         "mime": {"type": "string"},
                                         "size_bytes": {"type": "integer"}
                                     },
-                                    "required": ["type", "artifact_id", "name"],
+                                    "required": ["type", "file_id", "name"],
                                     "additionalProperties": false
                                 }
                             ]
@@ -4718,7 +4718,7 @@ fn core_manifest() -> CapabilityManifest {
             ),
             core(
                 CONVERSATION_READ,
-                "Read one bounded message-id range in this Run's conversation. The range is (after_message_id, through_message_id]. Missing artifacts are marked unavailable.",
+                "Read one bounded message-id range in this Run's conversation. The range is (after_message_id, through_message_id]. Missing files are marked unavailable.",
                 serde_json::json!({
                     "type": "object",
                     "properties": {

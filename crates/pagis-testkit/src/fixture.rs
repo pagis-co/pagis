@@ -1,13 +1,13 @@
 //! Typed fixture builders. Seeds are Rust values, not SQL files.
 
 use pagis_core::{
-    Agent, AgentStatus, Artifact, AuthorKind, Block, Call, CallDirection, CallOutcome, CallState,
-    Channel, ChannelKind, ChannelParticipant, Grant, Message, MessageStatus, ParticipantKind,
-    Request, RequestState, Run, RunState, TriggerKind, TrustTier, Workspace, now_ms,
+    Agent, AgentStatus, AuthorKind, Block, Call, CallDirection, CallOutcome, CallState, Channel,
+    ChannelKind, ChannelParticipant, File, Grant, Message, MessageStatus, ParticipantKind, Request,
+    RequestState, Run, RunState, TriggerKind, TrustTier, Workspace, now_ms,
 };
 use pagis_core::{
-    AgentId, ArtifactId, CallId, ChannelId, CodingSessionId, GrantId, HostId, MessageId,
-    ParticipantId, PhoneNumberId, RequestId, RunId, UserId, WorkspaceId,
+    AgentId, CallId, ChannelId, CodingSessionId, FileId, GrantId, HostId, MessageId, ParticipantId,
+    PhoneNumberId, RequestId, RunId, UserId, WorkspaceId,
 };
 use pagis_core::{
     CodingSession, CodingSessionPlace, CodingSessionState, CodingSessionUsage, SessionApprovalMode,
@@ -128,7 +128,7 @@ pub fn missed_call(workspace_id: &WorkspaceId, agent_id: &AgentId, run_id: &RunI
         classification: None,
         message_left: false,
         transcript: Vec::new(),
-        recording_artifact_id: None,
+        recording_file_id: None,
         created_at: at,
         ringing_at: Some(at),
         answered_at: None,
@@ -319,14 +319,14 @@ pub fn grant(
     }
 }
 
-/// An uploaded image artifact with the given content hash.
-pub fn artifact(workspace_id: &WorkspaceId, sha256: &str) -> Artifact {
-    Artifact {
-        id: ArtifactId::generate(),
+/// An uploaded image file with the given content hash.
+pub fn file(workspace_id: &WorkspaceId, sha256: &str) -> File {
+    File {
+        id: FileId::generate(),
         workspace_id: workspace_id.clone(),
         creator_agent_id: None,
         run_id: None,
-        kind: pagis_core::ArtifactKind::File,
+        kind: pagis_core::FileKind::Other,
         filename: Some("shot.png".to_string()),
         mime: "image/png".to_string(),
         size_bytes: 3,

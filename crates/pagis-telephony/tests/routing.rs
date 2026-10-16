@@ -20,7 +20,7 @@ use pagis_core::{
     WorkspaceId, WorkspaceStore, now_ms,
 };
 use pagis_storage_sqlite::{
-    SqliteAgentStore, SqliteArtifactStore, SqliteCallStore, SqliteConnectionStore, SqliteEventLog,
+    SqliteAgentStore, SqliteCallStore, SqliteConnectionStore, SqliteEventLog, SqliteFileStore,
     SqliteMessageStore, SqlitePhoneNumberStore, SqliteRunStore, SqliteTrustListStore,
     SqliteWorkspaceStore,
 };
@@ -390,7 +390,7 @@ impl World {
 
         let cancel = CancellationToken::new();
         let calls = Arc::new(SqliteCallStore::new(pool.clone()));
-        let artifacts = Arc::new(SqliteArtifactStore::new(pool.clone()));
+        let files = Arc::new(SqliteFileStore::new(pool.clone()));
         let blobs = Arc::new(object_store::memory::InMemory::new());
         let sessions = Arc::new(FakeModelSessions::new());
         let realtime = Arc::new(RealtimeBridge::new(RealtimeBridgeDeps {
@@ -398,7 +398,7 @@ impl World {
             sessions: Arc::clone(&sessions) as _,
             tools: Arc::new(NoTools),
             calls: Arc::clone(&calls) as _,
-            artifacts: Arc::clone(&artifacts) as _,
+            files: Arc::clone(&files) as _,
             blobs: Arc::clone(&blobs) as _,
             recordings: tempfile::tempdir().unwrap().keep(),
             live: Arc::clone(&live),
@@ -439,7 +439,7 @@ impl World {
                 Bridge::Realtime => Arc::clone(&realtime) as _,
             },
             live,
-            artifacts: artifacts as _,
+            files: files as _,
             blobs,
             bus: Arc::clone(&bus),
             events: Arc::new(NoWakeups),

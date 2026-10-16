@@ -15,18 +15,19 @@ use pagis_agent::{
 };
 use pagis_audit::AuditEventBus;
 use pagis_core::{
-    Agent, AgentStore, ArtifactStore, AuthorKind, Block, Channel, ChannelStore, ContinuationStore,
-    Event, EventBus, EventLog, EventScope, ForgetStore, ForgetTarget, Grant, GrantId, GrantStore,
-    KnownBlock, Message, MessageStatus, MessageStore, ModelAlias, ModelAliasId, ModelAliasStore,
-    NewEvent, ParticipantStore, PendingEvidence, PendingEvidenceStore, PendingUrgency,
-    RequestState, RequestStore, RunState, RunStore, TriggerKind, Workspace, WorkspaceStore, now_ms,
+    Agent, AgentStore, AuthorKind, Block, Channel, ChannelStore, ContinuationStore, Event,
+    EventBus, EventLog, EventScope, FileStore, ForgetStore, ForgetTarget, Grant, GrantId,
+    GrantStore, KnownBlock, Message, MessageStatus, MessageStore, ModelAlias, ModelAliasId,
+    ModelAliasStore, NewEvent, ParticipantStore, PendingEvidence, PendingEvidenceStore,
+    PendingUrgency, RequestState, RequestStore, RunState, RunStore, TriggerKind, Workspace,
+    WorkspaceStore, now_ms,
 };
 use pagis_storage_sqlite::{
-    SqliteAgentMailboxStore, SqliteAgentStore, SqliteArtifactStore, SqliteBriefStore,
-    SqliteCapabilitySnapshotStore, SqliteChannelStore, SqliteConnectionStore, SqliteEventLog,
-    SqliteForgetStore, SqliteGrantStore, SqliteMessageStore, SqliteModelAliasStore,
-    SqliteParticipantStore, SqlitePendingEvidenceStore, SqlitePhoneNumberStore, SqliteRequestStore,
-    SqliteRunStore, SqliteScheduleStore, SqliteTriggerStore, SqliteWorkspaceStore,
+    SqliteAgentMailboxStore, SqliteAgentStore, SqliteBriefStore, SqliteCapabilitySnapshotStore,
+    SqliteChannelStore, SqliteConnectionStore, SqliteEventLog, SqliteFileStore, SqliteForgetStore,
+    SqliteGrantStore, SqliteMessageStore, SqliteModelAliasStore, SqliteParticipantStore,
+    SqlitePendingEvidenceStore, SqlitePhoneNumberStore, SqliteRequestStore, SqliteRunStore,
+    SqliteScheduleStore, SqliteTriggerStore, SqliteWorkspaceStore,
 };
 use pagis_testkit::fixture;
 use pagis_testkit::{Script, ScriptedBrain};
@@ -274,7 +275,7 @@ struct Loop {
     capture: Arc<pagis_core::CaptureSetting>,
     captures: Arc<pagis_storage_sqlite::SqliteModelRequestCaptureStore>,
     agents: Arc<SqliteAgentStore>,
-    artifacts: Arc<SqliteArtifactStore>,
+    files: Arc<SqliteFileStore>,
     brain: Arc<ScriptedBrain>,
     hub: Arc<StreamHub>,
     progress: Arc<ProgressHub>,
@@ -504,7 +505,7 @@ where
         }),
     });
     let computer = computers.get(&workspace.id);
-    let artifacts = Arc::new(SqliteArtifactStore::new(pool.clone()));
+    let files = Arc::new(SqliteFileStore::new(pool.clone()));
     let channels = Arc::new(SqliteChannelStore::new(pool.clone()));
     let participants = Arc::new(participants);
     let grants = Arc::new(SqliteGrantStore::new(pool.clone()));
@@ -582,7 +583,7 @@ where
         requests: Arc::clone(&requests) as _,
         grants: Arc::clone(&grants) as _,
         connections: Arc::new(SqliteConnectionStore::new(pool.clone())),
-        artifacts: Arc::clone(&artifacts) as _,
+        files: Arc::clone(&files) as _,
         blobs: Arc::new(object_store::memory::InMemory::new()),
         memory: Arc::clone(&memory),
         pending_evidence: Arc::clone(&pending_evidence) as _,
@@ -636,7 +637,7 @@ where
         _host_client,
         system,
         agents,
-        artifacts,
+        files,
         brain,
         hub,
         progress,
@@ -6701,7 +6702,7 @@ fn computer_member(name: &str, input: serde_json::Value) -> serde_json::Value {
 }
 
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
-async fn an_anthropic_screenshot_lands_in_context_and_as_a_run_artifact(pool: SqlitePool) {
+async fn an_anthropic_screenshot_lands_in_context_and_as_a_run_file(pool: SqlitePool) {
     let harness = boot(pool, AgentLoopConfig::default()).await;
     harness.computer_runtime.set_frame(&display_png());
     harness.brain.push(Script::tool_call(
@@ -6726,22 +6727,22 @@ async fn an_anthropic_screenshot_lands_in_context_and_as_a_run_artifact(pool: Sq
     assert_eq!(completed.payload["name"], "computer");
     assert_eq!(completed.payload["ok"], true);
     assert!(completed.payload["duration_ms"].as_i64().is_some());
-    let artifact_id = completed.payload["artifact_ids"][0].as_str().unwrap();
+    let file_id = completed.payload["file_ids"][0].as_str().unwrap();
 
-    // The screenshot is a run-tagged artifact row.
+    // The screenshot is a run-tagged file row.
     let run_id = completed.run_id.clone().unwrap();
-    let artifact = harness
-        .artifacts
+    let file = harness
+        .files
         .get(
             &harness.workspace.id,
-            &pagis_core::ArtifactId::from(artifact_id.to_string()),
+            &pagis_core::FileId::from(file_id.to_string()),
         )
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(artifact.run_id, Some(run_id));
-    assert_eq!(artifact.creator_agent_id, Some(harness.agent.id.clone()));
-    assert_eq!(artifact.filename.as_deref(), Some("screenshot.png"));
+    assert_eq!(file.run_id, Some(run_id));
+    assert_eq!(file.creator_agent_id, Some(harness.agent.id.clone()));
+    assert_eq!(file.filename.as_deref(), Some("screenshot.png"));
 
     next_state(&mut events, "completed").await;
     // The next work turn's context carries the screenshot image.
@@ -6937,7 +6938,7 @@ async fn an_openai_batch_executes_in_order_and_replies_with_a_screenshot(pool: S
         ]
     );
     // The call answered with the current screenshot (the OpenAI loop's
-    // required reply shape), stored as an artifact.
+    // required reply shape), stored as a file.
     let requests = harness.brain.requests();
     let result = requests[1].messages.last().unwrap();
     assert_eq!(result.images.len(), 1);

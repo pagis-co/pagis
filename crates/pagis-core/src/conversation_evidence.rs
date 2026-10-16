@@ -18,7 +18,7 @@ pub struct ConversationScope {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct EvidenceArtifactRef {
+pub struct EvidenceFileRef {
     pub reference: String,
     pub available: bool,
     pub filename: Option<String>,
@@ -44,7 +44,7 @@ pub struct ConversationEvidenceMessage {
     pub speaker: String,
     pub created_at: UnixMillis,
     pub text: String,
-    pub artifacts: Vec<EvidenceArtifactRef>,
+    pub files: Vec<EvidenceFileRef>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

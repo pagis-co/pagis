@@ -8,8 +8,6 @@ use pagis_testkit::postgres;
 const TABLES: &[&str] = &[
     "agent_mailboxes",
     "agents",
-    "artifact_retention_policies",
-    "artifacts",
     "calls",
     "capability_snapshots",
     "channel_participants",
@@ -27,6 +25,8 @@ const TABLES: &[&str] = &[
     "connections",
     "events",
     "event_subscriptions",
+    "file_retention_policies",
+    "files",
     "forget_operations",
     "forget_suppressions",
     "forgotten_messages",

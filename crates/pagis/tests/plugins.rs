@@ -122,14 +122,14 @@ fn tar_of(directory: &std::path::Path) -> Vec<u8> {
     builder.into_inner().expect("the upload tar")
 }
 
-/// Upload the tar as an Artifact and answer with its id.
+/// Upload the tar as a File and answer with its id.
 async fn upload(daemon: &TestDaemon, bytes: Vec<u8>) -> String {
     let part = reqwest::multipart::Part::bytes(bytes)
         .file_name("weather.tar".to_string())
         .mime_str("application/x-tar")
         .expect("the part");
     let body: serde_json::Value = reqwest::Client::new()
-        .post(format!("{}/api/v1/artifacts", daemon.base_url))
+        .post(format!("{}/api/v1/files", daemon.base_url))
         .header("cookie", daemon.cookie())
         .multipart(reqwest::multipart::Form::new().part("file", part))
         .send()
@@ -138,7 +138,7 @@ async fn upload(daemon: &TestDaemon, bytes: Vec<u8>) -> String {
         .json()
         .await
         .expect("JSON");
-    body["id"].as_str().expect("the artifact id").to_string()
+    body["id"].as_str().expect("the file id").to_string()
 }
 
 /// The Bindings that make the weather plugin ready to serve.
@@ -150,12 +150,12 @@ fn bindings(port: u16) -> serde_json::Value {
 }
 
 async fn install(daemon: &TestDaemon, name: &str, port: u16) -> serde_json::Value {
-    let artifact_id = upload(daemon, package(name)).await;
+    let file_id = upload(daemon, package(name)).await;
     let response = reqwest::Client::new()
         .post(format!("{}/api/v1/plugins", daemon.administration_base_url))
         .header("cookie", daemon.cookie())
         .json(&serde_json::json!({
-            "source": {"kind": "upload", "artifact_id": artifact_id},
+            "source": {"kind": "upload", "file_id": file_id},
             "bindings": bindings(port),
         }))
         .send()
@@ -168,7 +168,7 @@ async fn install(daemon: &TestDaemon, name: &str, port: u16) -> serde_json::Valu
 #[tokio::test]
 async fn the_install_card_carries_every_env_value_and_the_effect_classes() {
     let daemon = TestDaemon::start().await;
-    let artifact_id = upload(&daemon, stdio_package("weather")).await;
+    let file_id = upload(&daemon, stdio_package("weather")).await;
 
     // No Binding arrives, so the Plugin installs `disabled` and no
     // server starts. The card is what the user reads before binding.
@@ -176,7 +176,7 @@ async fn the_install_card_carries_every_env_value_and_the_effect_classes() {
         .post(format!("{}/api/v1/plugins", daemon.administration_base_url))
         .header("cookie", daemon.cookie())
         .json(&serde_json::json!({
-            "source": {"kind": "upload", "artifact_id": artifact_id},
+            "source": {"kind": "upload", "file_id": file_id},
         }))
         .send()
         .await
@@ -247,13 +247,13 @@ async fn a_second_plugin_of_the_same_name_conflicts() {
     let port = serve().await;
     let daemon = TestDaemon::start().await;
     install(&daemon, "weather", port).await;
-    let artifact_id = upload(&daemon, package("weather")).await;
+    let file_id = upload(&daemon, package("weather")).await;
 
     let response = reqwest::Client::new()
         .post(format!("{}/api/v1/plugins", daemon.administration_base_url))
         .header("cookie", daemon.cookie())
         .json(&serde_json::json!({
-            "source": {"kind": "upload", "artifact_id": artifact_id},
+            "source": {"kind": "upload", "file_id": file_id},
         }))
         .send()
         .await
@@ -274,13 +274,13 @@ async fn a_package_that_is_not_valid_is_refused() {
     builder
         .append_data(&mut header, "plugin.json", content.as_slice())
         .expect("the entry");
-    let artifact_id = upload(&daemon, builder.into_inner().expect("the tar")).await;
+    let file_id = upload(&daemon, builder.into_inner().expect("the tar")).await;
 
     let response = reqwest::Client::new()
         .post(format!("{}/api/v1/plugins", daemon.administration_base_url))
         .header("cookie", daemon.cookie())
         .json(&serde_json::json!({
-            "source": {"kind": "upload", "artifact_id": artifact_id},
+            "source": {"kind": "upload", "file_id": file_id},
         }))
         .send()
         .await
@@ -361,7 +361,7 @@ async fn an_upload_updates_from_a_new_upload_and_names_what_changed() {
     let plugin_id = installed["id"].as_str().expect("the id");
     // A second package with one more file, so the update has a diff.
     let next = with_readme(package("weather"));
-    let artifact_id = upload(&daemon, next).await;
+    let file_id = upload(&daemon, next).await;
 
     let response = reqwest::Client::new()
         .post(format!(
@@ -369,7 +369,7 @@ async fn an_upload_updates_from_a_new_upload_and_names_what_changed() {
             daemon.administration_base_url
         ))
         .header("cookie", daemon.cookie())
-        .json(&serde_json::json!({ "artifact_id": artifact_id }))
+        .json(&serde_json::json!({ "file_id": file_id }))
         .send()
         .await
         .expect("update");

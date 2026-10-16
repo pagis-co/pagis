@@ -189,7 +189,7 @@ tier                    owner | trusted | unknown
 state                   dialing | live | ended
 outcome                 answered | no_answer | busy | voicemail | failed
 ended_reason, classification, message_left
-transcript_artifact_id?, recording_artifact_id?
+transcript_file_id?, recording_file_id?
 created_at, answered_at?, ended_at?
 ```
 

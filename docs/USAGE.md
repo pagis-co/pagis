@@ -404,7 +404,7 @@ if job.status == VideoStatus::Completed {
 The job id is router-scoped and opaque; store it as-is. Sora
 (`ProviderConfig::openai`, pixel sizes) and Veo (`ProviderConfig::veo`,
 aspect sizes) sit behind the same three calls. `video_content` on a job
-without an artifact returns `Error::JobNotReady`.
+without a file returns `Error::JobNotReady`.
 
 ## Realtime voice
 

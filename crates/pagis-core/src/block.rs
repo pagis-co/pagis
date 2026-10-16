@@ -43,22 +43,22 @@ impl Block {
         KnownBlock::Markdown { text: text.into() }.into()
     }
 
-    pub fn image(artifact_id: impl Into<String>, alt: Option<String>) -> Self {
+    pub fn image(file_id: impl Into<String>, alt: Option<String>) -> Self {
         KnownBlock::Image {
-            artifact_id: artifact_id.into(),
+            file_id: file_id.into(),
             alt,
         }
         .into()
     }
 
     pub fn file(
-        artifact_id: impl Into<String>,
+        file_id: impl Into<String>,
         name: impl Into<String>,
         mime: Option<String>,
         size_bytes: Option<i64>,
     ) -> Self {
         KnownBlock::File {
-            artifact_id: artifact_id.into(),
+            file_id: file_id.into(),
             name: name.into(),
             mime,
             size_bytes,
@@ -265,15 +265,15 @@ pub enum KnownBlock {
     /// Derived run progress. The daemon composes the text; there is no
     /// tool that writes it.
     Progress { run_id: String, text: String },
-    /// An image artifact, fetched through the daemon.
+    /// An image file, fetched through the daemon.
     Image {
-        artifact_id: String,
+        file_id: String,
         #[serde(default)]
         alt: Option<String>,
     },
-    /// A non-image artifact, downloaded through the daemon.
+    /// A non-image file, downloaded through the daemon.
     File {
-        artifact_id: String,
+        file_id: String,
         name: String,
         #[serde(default)]
         mime: Option<String>,

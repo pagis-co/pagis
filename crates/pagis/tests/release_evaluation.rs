@@ -214,7 +214,7 @@ fn authorized_usd() -> f64 {
         .unwrap_or_default()
 }
 
-/// Where one run's artifacts go: a directory named after its start.
+/// Where one run's files go: a directory named after its start.
 /// The docs tree keeps a run only when the owner asks for it with
 /// `PAGIS_EVALUATION_RECORD=1`; every other run goes under the target
 /// directory and leaves the checkout clean.

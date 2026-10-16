@@ -19,8 +19,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use object_store::{ObjectStore, ObjectStoreExt as _};
 use pagis_core::{
-    Artifact, ArtifactId, ArtifactKind, ArtifactOutcome, ArtifactStore, Call, CallOutcome,
-    CallState, CallStore, TrustListStore, now_ms,
+    Call, CallOutcome, CallState, CallStore, File, FileId, FileKind, FileOutcome, FileStore,
+    TrustListStore, now_ms,
 };
 use tokio_util::sync::CancellationToken;
 
@@ -47,9 +47,9 @@ pub struct RealtimeBridgeDeps {
     pub sessions: Arc<dyn ModelSessions>,
     pub tools: Arc<dyn CallTools>,
     pub calls: Arc<dyn CallStore>,
-    /// The Artifact rows and the blob store the muxed recording lands
-    /// in. The recording is an ordinary Artifact (ADR-0020).
-    pub artifacts: Arc<dyn ArtifactStore>,
+    /// The File rows and the blob store the muxed recording lands
+    /// in. The recording is an ordinary File (ADR-0020).
+    pub files: Arc<dyn FileStore>,
     pub blobs: Arc<dyn ObjectStore>,
     /// Where the raw G.711 legs are appended while a call runs. They
     /// outlive the process, so a killed daemon still has a recording.
@@ -118,7 +118,7 @@ impl RealtimeBridge {
         {
             tracing::warn!(%error, "the recorder did not finish; the tail may be short");
         }
-        report.recording_artifact_id = self
+        report.recording_file_id = self
             .store_recording(
                 &call.id,
                 &call.workspace_id,
@@ -147,7 +147,7 @@ impl RealtimeBridge {
     }
 
     /// Mux the two raw legs into one stereo WAV and store it as an
-    /// Artifact. `None` when the call recorded nothing, or when the
+    /// File. `None` when the call recorded nothing, or when the
     /// mux or the store failed: the Call record settles either way.
     async fn store_recording(
         &self,
@@ -155,7 +155,7 @@ impl RealtimeBridge {
         workspace_id: &pagis_core::WorkspaceId,
         agent_id: Option<&pagis_core::AgentId>,
         run_id: Option<&pagis_core::RunId>,
-    ) -> Option<ArtifactId> {
+    ) -> Option<FileId> {
         use sha2::Digest as _;
 
         let wav = match recording::mux(&self.deps.recordings, call_id).await {
@@ -168,10 +168,10 @@ impl RealtimeBridge {
         };
         let sha256 = format!("{:x}", sha2::Sha256::digest(&wav));
         let storage_key = format!("{workspace_id}/{sha256}");
-        let artifact = Artifact {
-            id: ArtifactId::generate(),
+        let file = File {
+            id: FileId::generate(),
             workspace_id: workspace_id.clone(),
-            kind: ArtifactKind::CallRecording,
+            kind: FileKind::CallRecording,
             creator_agent_id: agent_id.cloned(),
             run_id: run_id.cloned(),
             filename: Some(RECORDING_FILENAME.to_string()),
@@ -190,12 +190,10 @@ impl RealtimeBridge {
             tracing::error!(%error, "the recording did not reach the blob store");
             return None;
         }
-        let stored = match self.deps.artifacts.insert(&artifact).await {
-            Ok(ArtifactOutcome::Created(artifact) | ArtifactOutcome::Deduplicated(artifact)) => {
-                artifact.id
-            }
+        let stored = match self.deps.files.insert(&file).await {
+            Ok(FileOutcome::Created(file) | FileOutcome::Deduplicated(file)) => file.id,
             Err(error) => {
-                tracing::error!(%error, "the recording Artifact was not written");
+                tracing::error!(%error, "the recording File was not written");
                 return None;
             }
         };
@@ -211,7 +209,7 @@ impl RealtimeBridge {
         let unsettled = self.deps.calls.list_unsettled().await?;
         let mut settled = 0;
         for call in unsettled {
-            let recording_artifact_id = self
+            let recording_file_id = self
                 .store_recording(
                     &call.id,
                     &call.workspace_id,
@@ -229,7 +227,7 @@ impl RealtimeBridge {
                 outcome: Some(outcome),
                 ended_reason: Some(DAEMON_RESTART.to_string()),
                 ended_at: Some(now_ms()),
-                recording_artifact_id,
+                recording_file_id,
                 ..call
             };
             if let Err(error) = self.deps.calls.update(&recovered).await {
@@ -269,7 +267,7 @@ impl RealtimeBridge {
             classification: None,
             message_left: false,
             transcript: Vec::new(),
-            recording_artifact_id: None,
+            recording_file_id: None,
             created_at: now_ms(),
             ringing_at: None,
             answered_at,
@@ -322,7 +320,7 @@ impl RealtimeBridge {
             classification: report.classification,
             message_left: report.message_left,
             transcript: report.transcript.clone(),
-            recording_artifact_id: report.recording_artifact_id.clone(),
+            recording_file_id: report.recording_file_id.clone(),
             ringing_at: report.ringing_at.or(existing.ringing_at),
             answered_at: report.answered_at.or(existing.answered_at),
             ended_at: Some(now_ms()),

@@ -1,7 +1,7 @@
 // The table block: declarative, non-interactive except for a
 // local sort, and every cell kind renders from its own value. A
 // 100-row table is the most the daemon sends: past that the agent
-// posts a CSV artifact as a `file` block instead.
+// posts a CSV file as a `file` block instead.
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen } from '@testing-library/react'

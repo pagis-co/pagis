@@ -10,7 +10,6 @@
 
 mod agent_mailbox_store;
 mod agent_store;
-mod artifact_store;
 mod brief_store;
 mod call_store;
 mod capability_snapshot_store;
@@ -21,6 +20,7 @@ mod contribution_store;
 mod conversation_evidence_store;
 mod event_log;
 mod event_subscription_store;
+mod file_store;
 mod forget_journal;
 mod forget_memory;
 mod forget_plan;
@@ -60,7 +60,6 @@ mod workspace_store;
 
 pub use agent_mailbox_store::PostgresAgentMailboxStore;
 pub use agent_store::PostgresAgentStore;
-pub use artifact_store::PostgresArtifactStore;
 pub use brief_store::PostgresBriefStore;
 pub use call_store::PostgresCallStore;
 pub use capability_snapshot_store::PostgresCapabilitySnapshotStore;
@@ -71,6 +70,7 @@ pub use contribution_store::PostgresContributionStore;
 pub use conversation_evidence_store::PostgresConversationEvidenceStore;
 pub use event_log::PostgresEventLog;
 pub use event_subscription_store::PostgresEventSubscriptionStore;
+pub use file_store::PostgresFileStore;
 pub use forget_store::PostgresForgetStore;
 pub use grant_store::PostgresGrantStore;
 pub use host_store::PostgresHostStore;
@@ -129,7 +129,7 @@ pub fn stores(pool: PgPool) -> pagis_core::Stores {
         run_journal: std::sync::Arc::new(PostgresRunJournal::new(pool.clone())),
         agent_mailboxes: Arc::new(PostgresAgentMailboxStore::new(pool.clone())),
         agents: Arc::new(PostgresAgentStore::new(pool.clone())),
-        artifacts: Arc::new(PostgresArtifactStore::new(pool.clone())),
+        files: Arc::new(PostgresFileStore::new(pool.clone())),
         briefs: Arc::new(PostgresBriefStore::new(pool.clone())),
         calls: Arc::new(PostgresCallStore::new(pool.clone())),
         capability_snapshots: Arc::new(PostgresCapabilitySnapshotStore::new(pool.clone())),

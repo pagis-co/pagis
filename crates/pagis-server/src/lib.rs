@@ -4,7 +4,6 @@
 
 mod administration;
 mod agents;
-mod artifacts;
 mod auth;
 #[cfg(feature = "native")]
 mod axum_socket;
@@ -22,6 +21,7 @@ mod cors;
 mod cross_origin;
 pub mod error;
 pub mod fake;
+mod files;
 pub mod forget;
 pub mod forwarded;
 mod grants;
@@ -97,8 +97,8 @@ use axum::{Json, Router, middleware};
 use object_store::ObjectStore;
 use pagis_agent::{AgentSystem, ProgressHub, StreamHub};
 use pagis_core::{
-    AgentStore, ArtifactStore, ChannelStore, Clock, ConnectionStore, CredentialStore, EventBus,
-    EventLog, GrantStore, MemoryStore, MessageStore, ModelAliasStore, OnboardingStore, OrgStore,
+    AgentStore, ChannelStore, Clock, ConnectionStore, CredentialStore, EventBus, EventLog,
+    FileStore, GrantStore, MemoryStore, MessageStore, ModelAliasStore, OnboardingStore, OrgStore,
     ParticipantStore, ProviderKeys, RequestStore, RetentionPolicyStore, RunStore, SessionStore,
     SignInLinkStore, SoftwareStore, UserStore, WorkspaceStore,
 };
@@ -173,7 +173,7 @@ pub struct AppState {
     /// account is written through it.
     pub schedules: Arc<dyn pagis_core::ScheduleStore>,
     pub onboarding: Arc<dyn OnboardingStore>,
-    /// The Artifact retention windows the user set.
+    /// The File retention windows the user set.
     pub retention_policies: Arc<dyn RetentionPolicyStore>,
     pub connections: Arc<dyn ConnectionStore>,
     pub credentials: Arc<dyn CredentialStore>,
@@ -232,10 +232,10 @@ pub struct AppState {
     /// stays on the WebAssembly host's one thread; the wrapper checks it.
     #[cfg(target_arch = "wasm32")]
     pub voice: send_wrapper::SendWrapper<Arc<dyn pagis_voice::VoiceProvider>>,
-    pub artifacts: Arc<dyn ArtifactStore>,
+    pub files: Arc<dyn FileStore>,
     pub blobs: Arc<dyn ObjectStore>,
     /// The upload size cap; larger uploads get 413.
-    pub artifact_max_bytes: u64,
+    pub file_max_bytes: u64,
     /// The events table, read directly for the learning feed.
     pub events: Arc<dyn EventLog>,
     pub memory: Arc<dyn MemoryStore>,
@@ -507,15 +507,12 @@ fn product_router(state: Arc<AppState>) -> Router {
         )
         .route("/api/v1/settings/voices", get(voice::list_voices))
         .route(
-            "/api/v1/artifacts",
-            post(artifacts::upload_artifact).layer(DefaultBodyLimit::max(
-                state.artifact_max_bytes as usize + artifacts::MULTIPART_OVERHEAD,
+            "/api/v1/files",
+            post(files::upload_file).layer(DefaultBodyLimit::max(
+                state.file_max_bytes as usize + files::MULTIPART_OVERHEAD,
             )),
         )
-        .route(
-            "/api/v1/artifacts/{artifact_id}",
-            get(artifacts::download_artifact),
-        )
+        .route("/api/v1/files/{file_id}", get(files::download_file))
         .route("/api/v1/runs/{run_id}/cancel", post(runs::cancel_run))
         .route("/api/v1/runs/{run_id}/dismiss", post(runs::dismiss_run))
         .route("/api/v1/runs/{run_id}/retry", post(runs::retry_review))

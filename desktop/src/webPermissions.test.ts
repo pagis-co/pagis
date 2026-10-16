@@ -124,11 +124,11 @@ describe('a permission that the Client App denies', () => {
   it('denies the product window while its main frame has an opaque origin', () => {
     const sandboxed = { mainFrame: { origin: 'null' } }
     const window: ProductWindow = { contents: sandboxed, origin: LOCAL }
-    const artifact = { requestingUrl: `${LOCAL}/api/v1/artifacts/01ABC` }
+    const file = { requestingUrl: `${LOCAL}/api/v1/files/01ABC` }
 
-    expect(grantsRequest(window, sandboxed, 'clipboard-sanitized-write', { ...clipboardWrite, ...artifact })).toBe(false)
-    expect(grantsRequest(window, sandboxed, 'media', { ...microphone, ...artifact })).toBe(false)
-    expect(grantsCheck(window, sandboxed, 'media', `${LOCAL}/`, { ...microphoneCheck, ...artifact })).toBe(false)
+    expect(grantsRequest(window, sandboxed, 'clipboard-sanitized-write', { ...clipboardWrite, ...file })).toBe(false)
+    expect(grantsRequest(window, sandboxed, 'media', { ...microphone, ...file })).toBe(false)
+    expect(grantsCheck(window, sandboxed, 'media', `${LOCAL}/`, { ...microphoneCheck, ...file })).toBe(false)
   })
 
   it('denies a sub-frame at the Product App origin', () => {

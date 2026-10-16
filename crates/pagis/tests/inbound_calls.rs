@@ -192,7 +192,7 @@ async fn a_call_to_the_desk_line_runs_in_the_agents_thread_with_the_user() {
         "{ended}"
     );
     assert_eq!(ended["payload"]["payload"]["call_id"], call_id);
-    assert!(ended["payload"]["payload"]["transcript_artifact_id"].is_string());
+    assert!(ended["payload"]["payload"]["transcript_file_id"].is_string());
 
     // The bridge answered under the standing brief.
     let answered = desk.bridge.answered();

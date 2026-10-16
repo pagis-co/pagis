@@ -1,4 +1,4 @@
-//! What a signed-in browser does with an Artifact URL and with the
+//! What a signed-in browser does with a File URL and with the
 //! raw Widget URL. The author of hostile content steers an Agent to
 //! link to such a file, and the Person clicks the link in their own
 //! conversation. The browser must save the file and never run it as a
@@ -9,7 +9,7 @@
 use pagis_testkit::TestDaemon;
 use pagis_testkit::browser::{Browser, Outcome, PROBE};
 
-use crate::artifacts::upload;
+use crate::files::upload;
 use crate::widgets::seed_page;
 
 /// The script of each hostile file: it reports that it runs, then reads
@@ -48,25 +48,25 @@ fn hostile_widget() -> String {
     )
 }
 
-/// The Artifact URL of one uploaded file.
-async fn artifact_url(daemon: &TestDaemon, filename: &str, mime: &str, body: String) -> String {
-    let artifact: serde_json::Value = upload(daemon, filename, mime, body.into_bytes())
+/// The File URL of one uploaded file.
+async fn file_url(daemon: &TestDaemon, filename: &str, mime: &str, body: String) -> String {
+    let file: serde_json::Value = upload(daemon, filename, mime, body.into_bytes())
         .await
         .json()
         .await
-        .expect("the Artifact");
+        .expect("the File");
     format!(
-        "{}/api/v1/artifacts/{}",
+        "{}/api/v1/files/{}",
         daemon.base_url,
-        artifact["id"].as_str().expect("an Artifact id")
+        file["id"].as_str().expect("a File id")
     )
 }
 
 #[tokio::test]
-async fn a_signed_in_browser_runs_no_script_from_an_artifact_or_widget_url() {
+async fn a_signed_in_browser_runs_no_script_from_a_file_or_widget_url() {
     let daemon = TestDaemon::start().await;
-    let html = artifact_url(&daemon, "invoice.html", "text/html", hostile_html()).await;
-    let svg = artifact_url(&daemon, "chart.svg", "image/svg+xml", hostile_svg()).await;
+    let html = file_url(&daemon, "invoice.html", "text/html", hostile_html()).await;
+    let svg = file_url(&daemon, "chart.svg", "image/svg+xml", hostile_svg()).await;
     seed_page(&daemon, &hostile_widget()).await;
     let widget = format!(
         "{}/api/v1/widgets/weather/v1/forecast-card",

@@ -681,7 +681,7 @@ mod tests {
             classification: None,
             message_left: false,
             transcript: Vec::new(),
-            recording_artifact_id: None,
+            recording_file_id: None,
             created_at: NOW,
             ringing_at: Some(NOW),
             answered_at: None,

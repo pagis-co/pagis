@@ -325,7 +325,7 @@ async fn running_run(daemon: &TestDaemon) -> String {
 
 /// `multipart/form-data` is a content type a form posts with no
 /// preflight. From a sibling origin the upload is refused and stores
-/// nothing: the same bytes from the Public Origin make a new Artifact.
+/// nothing: the same bytes from the Public Origin make a new File.
 #[tokio::test]
 async fn a_multipart_upload_from_a_sibling_origin_is_refused() {
     let daemon = TestDaemon::start_with(options()).await;
@@ -336,7 +336,7 @@ async fn a_multipart_upload_from_a_sibling_origin_is_refused() {
             .unwrap();
         request(
             "post",
-            &format!("{}/api/v1/artifacts", daemon.base_url),
+            &format!("{}/api/v1/files", daemon.base_url),
             &[("cookie", daemon.cookie()), ("origin", origin)],
         )
         .multipart(reqwest::multipart::Form::new().part("file", part))

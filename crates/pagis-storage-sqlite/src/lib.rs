@@ -3,7 +3,6 @@
 
 mod agent_mailbox_store;
 mod agent_store;
-mod artifact_store;
 mod brief_store;
 mod call_store;
 mod capability_snapshot_store;
@@ -14,6 +13,7 @@ mod contribution_store;
 mod conversation_evidence_store;
 mod event_log;
 mod event_subscription_store;
+mod file_store;
 mod grant_store;
 mod host_store;
 mod identity_store;
@@ -48,7 +48,6 @@ mod workspace_store;
 
 pub use agent_mailbox_store::SqliteAgentMailboxStore;
 pub use agent_store::SqliteAgentStore;
-pub use artifact_store::SqliteArtifactStore;
 pub use brief_store::SqliteBriefStore;
 pub use call_store::SqliteCallStore;
 pub use capability_snapshot_store::SqliteCapabilitySnapshotStore;
@@ -59,6 +58,7 @@ pub use contribution_store::SqliteContributionStore;
 pub use conversation_evidence_store::SqliteConversationEvidenceStore;
 pub use event_log::SqliteEventLog;
 pub use event_subscription_store::SqliteEventSubscriptionStore;
+pub use file_store::SqliteFileStore;
 pub use grant_store::SqliteGrantStore;
 pub use host_store::SqliteHostStore;
 pub use identity_store::{
@@ -133,7 +133,7 @@ pub fn stores(pool: sqlx::SqlitePool) -> pagis_core::Stores {
         run_journal: std::sync::Arc::new(SqliteRunJournal::new(pool.clone())),
         agent_mailboxes: Arc::new(SqliteAgentMailboxStore::new(pool.clone())),
         agents: Arc::new(SqliteAgentStore::new(pool.clone())),
-        artifacts: Arc::new(SqliteArtifactStore::new(pool.clone())),
+        files: Arc::new(SqliteFileStore::new(pool.clone())),
         briefs: Arc::new(SqliteBriefStore::new(pool.clone())),
         calls: Arc::new(SqliteCallStore::new(pool.clone())),
         capability_snapshots: Arc::new(SqliteCapabilitySnapshotStore::new(pool.clone())),

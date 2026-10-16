@@ -23,7 +23,7 @@ the directory. A Headless Server keeps it at `/var/lib/pagis`
 | `installation-key` | The Key File that a local installation generates where the keychain or the Secret Service does not answer. |
 | `client-credential` | The Client Credential, which the Client App trades for a Session. |
 | `runtime-release` | The Release Marker: the newest release that opened this data. |
-| `artifacts/`, `recordings/` | The files that the Agents made, the files that People attach, the screenshots and the call recordings. |
+| `files/`, `recordings/` | The files that the Agents made, the files that People attach, the screenshots and the call recordings. |
 | `screens/` | The last screenshot of each Computer. |
 | `computer-tokens/` | The access token of each Computer. The daemon makes a new token at each start of that Computer. |
 | `gog/` | The files of `gog`, the Google provider, for each Workspace. |
@@ -125,7 +125,7 @@ hashes.
 | `secrets.enc` | The provider keys, the other secrets of the installation and of each Workspace, and the Tenant Data Key of each Workspace. | Yes, with the Installation Key. |
 | `pagis.db`, or the Postgres database of a server | The records of every Person: the People, the conversations with their tool results, the Runs, the Connections, the Source Items that a Sync copies (for example mail and calendar events), the Grants, the Vault, and the Model Request Captures while that setting is on. | Partly. The Tenant Data Keys seal the Credential secrets, the one-time code seeds and the Google refresh tokens. Sessions, Sign-In Links and passwords are hashes. |
 | `memory/<workspace_id>/` | The memory of each Workspace, with its full git history. | No. |
-| `artifacts/`, `recordings/` | The Artifacts: the files that the Agents made, the files that People attach, the screenshots and the call recordings. | No. |
+| `files/`, `recordings/` | The Files: the files that the Agents made, the files that People attach, the screenshots and the call recordings. | No. |
 | `screens/` | The last screenshot of each Computer. | No. |
 | `gog/` | The files of `gog` for each Workspace. | No. `gog` holds no token and no client secret there: the daemon hands it an access token for each call. |
 | `plugins/`, `software/` | The installed Plugins and the Software Packages. | No. |
@@ -145,7 +145,7 @@ Postgres cluster and the Computer volumes.
 A Backup holds the same content without encryption. Only the owner can read
 it. Encrypt it with your backup tool, for example restic or age, and keep it
 apart from the Key File. A person who reads the Backup gets the records,
-the memory and the Artifacts of every Person. A Backup never holds the
+the memory and the Files of every Person. A Backup never holds the
 Installation Key, the Client Credential or `computer-tokens/`, and Sessions
 are hashes. So that person gets no secret that Pagis seals, no Session and
 no access token of a Computer. The Backup of a local installation does not
@@ -294,6 +294,14 @@ Notifications of a phone, and can see its device token and the time of
 each Notification. That person cannot read a Notification.
 [The Push Relay guide](https://github.com/pagis-co/pagis/blob/main/docs/PUSH-RELAY.md)
 states what the relay stores and its limits.
+
+### File retention
+
+Retention Policies set how long each File class stays in a Workspace:
+`screenshot`, `call_recording`, `call_transcript` and `other`. Settings shows
+these as Screenshots, Call recordings, Call transcripts and Other files.
+An empty window keeps the class for ever. The daily sweep removes expired
+Files. Memory has no Retention Policy.
 
 ## The trust of a connected Client App
 

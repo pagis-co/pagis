@@ -1,4 +1,4 @@
-// The Retention section: one row per artifact class.
+// The Retention section: one row per file class.
 
 import { QueryClient } from '@tanstack/react-query'
 import { QueryClientProvider } from '../../test/QueryClientProvider'
@@ -12,7 +12,7 @@ const policies = [
   { kind: 'screenshot', retain_days: null },
   { kind: 'call_recording', retain_days: 30 },
   { kind: 'call_transcript', retain_days: null },
-  { kind: 'file', retain_days: null },
+  { kind: 'other', retain_days: null },
 ]
 
 function stubApi() {
@@ -43,7 +43,7 @@ describe('Retention', () => {
     expect(screen.getByText(/Empty means for ever/)).toBeTruthy()
     expect(screen.getByText('Call recordings')).toBeTruthy()
     expect(screen.getByText('Call transcripts')).toBeTruthy()
-    expect(screen.getByText('Files')).toBeTruthy()
+    expect(screen.getByText('Other files')).toBeTruthy()
     expect(screen.getAllByText('days')).toHaveLength(4)
 
     const screenshots = screen.getByLabelText('Days to keep Screenshots') as HTMLInputElement
@@ -98,9 +98,9 @@ describe('Retention', () => {
     const api = stubApi()
     mount(api)
 
-    const input = (await screen.findByLabelText('Days to keep Files')) as HTMLInputElement
+    const input = (await screen.findByLabelText('Days to keep Other files')) as HTMLInputElement
     fireEvent.change(input, { target: { value: '0' } })
-    const save = screen.getByLabelText('Save the window for Files') as HTMLButtonElement
+    const save = screen.getByLabelText('Save the window for Other files') as HTMLButtonElement
     expect(save.disabled).toBe(true)
     fireEvent.click(save)
     expect(api.PUT).not.toHaveBeenCalled()
@@ -114,9 +114,9 @@ describe('Retention', () => {
     } as never)
     mount(api)
 
-    const input = (await screen.findByLabelText('Days to keep Files')) as HTMLInputElement
+    const input = (await screen.findByLabelText('Days to keep Other files')) as HTMLInputElement
     fireEvent.change(input, { target: { value: '7' } })
-    fireEvent.click(screen.getByLabelText('Save the window for Files'))
+    fireEvent.click(screen.getByLabelText('Save the window for Other files'))
 
     expect(await screen.findByRole('alert')).toBeTruthy()
   })

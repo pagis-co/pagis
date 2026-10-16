@@ -133,9 +133,9 @@ pub struct FakeGrantStore(Shared);
 /// The in-memory `CapabilitySnapshotStore`. Clones share their records.
 #[derive(Clone, Default)]
 pub struct FakeCapabilitySnapshotStore(Shared);
-/// The in-memory `ArtifactStore`. Clones share their records.
+/// The in-memory `FileStore`. Clones share their records.
 #[derive(Clone, Default)]
-pub struct FakeArtifactStore(Shared);
+pub struct FakeFileStore(Shared);
 /// The in-memory `RetentionPolicyStore`. Clones share their records.
 #[derive(Clone, Default)]
 pub struct FakeRetentionPolicyStore(Shared);
@@ -244,7 +244,7 @@ impl FakeDatabase {
         Stores {
             agent_mailboxes: Arc::new(FakeAgentMailboxStore(self.0.clone())),
             agents: Arc::new(FakeAgentStore(self.0.clone())),
-            artifacts: Arc::new(FakeArtifactStore(self.0.clone())),
+            files: Arc::new(FakeFileStore(self.0.clone())),
             briefs: Arc::new(FakeBriefStore(self.0.clone())),
             calls: Arc::new(FakeCallStore(self.0.clone())),
             capability_snapshots: Arc::new(FakeCapabilitySnapshotStore(self.0.clone())),
@@ -300,7 +300,7 @@ struct Data {
     connections: Table<ConnectionId, Connection>,
     credentials: Table<CredentialId, Credential>,
     grants: Table<GrantId, Grant>,
-    artifacts: Table<ArtifactId, Artifact>,
+    files: Table<FileId, File>,
     software: Table<SoftwarePackageId, SoftwarePackage>,
     contributions: Table<ContributionId, Contribution>,
     plugins: Table<PluginId, Plugin>,

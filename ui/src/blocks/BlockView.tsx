@@ -14,7 +14,7 @@ import { useEffect, useState } from 'react'
 import { Clock, File as FileIcon } from 'lucide-react'
 
 import type { ApiClient } from '../api/client'
-import { fetchArtifactBlob } from '../api/client'
+import { fetchFileBlob } from '../api/client'
 import type { components } from '../api/schema'
 import { Button } from '../primitives'
 import { Prose } from '../prose'
@@ -99,7 +99,7 @@ function isPassiveImage(blob: Blob): boolean {
   return PASSIVE_IMAGE_TYPES.has(essence)
 }
 
-/** An image artifact, fetched through the daemon into an object URL.
+/** An image file, fetched through the daemon into an object URL.
  *  The alt text is the caption; one Save hands the bytes over. An
  *  object URL has the Product App origin, so the block makes one only
  *  for a passive image: an SVG or HTML document behind it would run
@@ -112,7 +112,7 @@ function ImageBlockView({ block }: { block: BlockOfType<'image'> }) {
   useEffect(() => {
     let objectUrl: string | null = null
     let canceled = false
-    fetchArtifactBlob(block.artifact_id)
+    fetchFileBlob(block.file_id)
       .then((loaded) => {
         if (canceled) return
         setBlob(loaded)
@@ -127,7 +127,7 @@ function ImageBlockView({ block }: { block: BlockOfType<'image'> }) {
       canceled = true
       if (objectUrl !== null) URL.revokeObjectURL(objectUrl)
     }
-  }, [block.artifact_id])
+  }, [block.file_id])
 
   const alt = block.alt ?? 'attached image'
   return (
@@ -168,7 +168,7 @@ export function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-/** A non-image artifact: a kind tile, the name over its kind and size,
+/** A non-image file: a kind tile, the name over its kind and size,
  *  and one Save that downloads through the daemon. */
 function FileBlockView({ block }: { block: BlockOfType<'file'> }) {
   const meta = [
@@ -176,7 +176,7 @@ function FileBlockView({ block }: { block: BlockOfType<'file'> }) {
     block.size_bytes != null ? formatBytes(block.size_bytes) : null,
   ].filter((part) => part !== null)
   const save = async () => {
-    saveBlob(await fetchArtifactBlob(block.artifact_id), block.name)
+    saveBlob(await fetchFileBlob(block.file_id), block.name)
   }
   return (
     <Card className="block-file" data-testid="file-block">
@@ -221,10 +221,10 @@ function KnownBlockView({ block, api }: { block: KnownBlock; api: ApiClient }) {
         />
       )
     case 'image':
-      if (typeof block.artifact_id !== 'string') break
+      if (typeof block.file_id !== 'string') break
       return <ImageBlockView block={block} />
     case 'file':
-      if (typeof block.artifact_id !== 'string') break
+      if (typeof block.file_id !== 'string') break
       return <FileBlockView block={block} />
     case 'progress':
       // The daemon's derived line: live over ephemeral frames

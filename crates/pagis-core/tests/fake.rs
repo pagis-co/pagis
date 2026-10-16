@@ -208,21 +208,14 @@ async fn credentials_read_only_the_named_workspace() {
 }
 
 #[tokio::test]
-async fn artifacts_read_only_the_named_workspace() {
+async fn files_read_only_the_named_workspace() {
     let stores = pagis_core::fake::stores();
-    let row: Artifact = serde_json::from_str(r#"{"id": "record", "workspace_id": "workspace", "kind": "file", "mime": "text/plain", "size_bytes": 0, "sha256": "record", "storage_key": "record", "created_at": 0}"#).unwrap();
-    stores.artifacts.insert(&row).await.unwrap();
-    assert!(
-        stores
-            .artifacts
-            .get(&other(), &row.id)
-            .await
-            .unwrap()
-            .is_none()
-    );
+    let row: File = serde_json::from_str(r#"{"id": "record", "workspace_id": "workspace", "kind": "other", "mime": "text/plain", "size_bytes": 0, "sha256": "record", "storage_key": "record", "created_at": 0}"#).unwrap();
+    stores.files.insert(&row).await.unwrap();
+    assert!(stores.files.get(&other(), &row.id).await.unwrap().is_none());
     assert_eq!(
         stores
-            .artifacts
+            .files
             .get(&owner(), &row.id)
             .await
             .unwrap()
@@ -651,7 +644,7 @@ async fn calls_read_only_the_named_workspace() {
 #[tokio::test]
 async fn text_records_read_only_the_named_workspace() {
     let stores = pagis_core::fake::stores();
-    let row: TextRecord = serde_json::from_str(r#"{"id": "record", "workspace_id": "workspace", "agent_id": "agent", "phone_number_id": "record", "counterpart_e164": "record", "direction": "outbound", "tier": "trusted", "body": "record", "segments": 0, "media_artifact_ids": [], "carrier_message_id": "record", "occurred_at": 0}"#).unwrap();
+    let row: TextRecord = serde_json::from_str(r#"{"id": "record", "workspace_id": "workspace", "agent_id": "agent", "phone_number_id": "record", "counterpart_e164": "record", "direction": "outbound", "tier": "trusted", "body": "record", "segments": 0, "media_file_ids": [], "carrier_message_id": "record", "occurred_at": 0}"#).unwrap();
     stores.text_records.insert(&row).await.unwrap();
     assert!(
         stores
@@ -856,7 +849,7 @@ async fn onboarding_reads_only_the_named_workspace() {
 #[tokio::test]
 async fn retention_policies_read_only_the_named_workspace() {
     let stores = pagis_core::fake::stores();
-    let kind = ArtifactKind::ALL[0];
+    let kind = FileKind::ALL[0];
     stores
         .retention_policies
         .set(&owner(), kind, Some(1), 0)
@@ -1877,7 +1870,7 @@ async fn memory_reads_only_the_named_workspace() {
 }
 
 #[tokio::test]
-async fn evidence_artifacts_read_only_the_message_workspace() {
+async fn evidence_files_read_only_the_message_workspace() {
     let stores = pagis_core::fake::stores();
     let scope = ConversationScope {
         workspace_id: owner(),
@@ -1885,10 +1878,10 @@ async fn evidence_artifacts_read_only_the_message_workspace() {
         channel_id: ChannelId::generate(),
         root_message_id: None,
     };
-    let artifact = Artifact {
-        id: ArtifactId::generate(),
+    let file = File {
+        id: FileId::generate(),
         workspace_id: other(),
-        kind: ArtifactKind::File,
+        kind: FileKind::Other,
         creator_agent_id: None,
         run_id: None,
         filename: Some("foreign.txt".into()),
@@ -1898,7 +1891,7 @@ async fn evidence_artifacts_read_only_the_message_workspace() {
         storage_key: "file".into(),
         created_at: 0,
     };
-    stores.artifacts.insert(&artifact).await.unwrap();
+    stores.files.insert(&file).await.unwrap();
     let message = Message {
         id: MessageId::generate(),
         workspace_id: owner(),
@@ -1908,7 +1901,7 @@ async fn evidence_artifacts_read_only_the_message_workspace() {
         author_agent_id: None,
         run_id: None,
         status: MessageStatus::Complete,
-        blocks: vec![Block::file(artifact.id.as_str(), "file", None, None)],
+        blocks: vec![Block::file(file.id.as_str(), "file", None, None)],
         text_content: "file".into(),
         pending_id: None,
         created_at: 0,
@@ -1921,16 +1914,16 @@ async fn evidence_artifacts_read_only_the_message_workspace() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(read.artifacts.len(), 1);
-    assert!(!read.artifacts[0].available);
-    assert!(read.artifacts[0].filename.is_none());
-    let mut artifact = artifact;
-    artifact.workspace_id = owner();
-    artifact.id = ArtifactId::generate();
-    stores.artifacts.insert(&artifact).await.unwrap();
+    assert_eq!(read.files.len(), 1);
+    assert!(!read.files[0].available);
+    assert!(read.files[0].filename.is_none());
+    let mut file = file;
+    file.workspace_id = owner();
+    file.id = FileId::generate();
+    stores.files.insert(&file).await.unwrap();
     let mut message = message;
     message.id = MessageId::generate();
-    message.blocks = vec![Block::file(artifact.id.as_str(), "file", None, None)];
+    message.blocks = vec![Block::file(file.id.as_str(), "file", None, None)];
     stores.messages.insert(&message).await.unwrap();
     let read = stores
         .conversation_evidence
@@ -1938,8 +1931,8 @@ async fn evidence_artifacts_read_only_the_message_workspace() {
         .await
         .unwrap()
         .unwrap();
-    assert!(read.artifacts[0].available);
-    assert_eq!(read.artifacts[0].filename.as_deref(), Some("foreign.txt"));
+    assert!(read.files[0].available);
+    assert_eq!(read.files[0].filename.as_deref(), Some("foreign.txt"));
 }
 
 #[tokio::test]
@@ -2056,4 +2049,20 @@ async fn message_views_keep_the_thread_and_completion_rules() {
             .id,
         progress.id
     );
+}
+
+#[test]
+fn file_classes_use_the_retention_wire_names() {
+    let names = ["screenshot", "call_recording", "call_transcript", "other"];
+    for (kind, name) in FileKind::ALL.into_iter().zip(names) {
+        assert_eq!(kind.as_str(), name);
+        assert_eq!(FileKind::parse(name), Some(kind));
+        assert_eq!(serde_json::to_value(kind).unwrap(), name);
+        assert_eq!(
+            serde_json::from_value::<FileKind>(serde_json::json!(name)).unwrap(),
+            kind
+        );
+    }
+    assert_eq!(FileKind::parse("file"), None);
+    assert!(serde_json::from_value::<FileKind>(serde_json::json!("file")).is_err());
 }

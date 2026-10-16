@@ -673,38 +673,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/artifacts": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["upload_artifact"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/artifacts/{artifact_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["download_artifact"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/calls": {
         parameters: {
             query?: never;
@@ -1173,6 +1141,38 @@ export interface paths {
             cookie?: never;
         };
         get: operations["list_subscription_wakeups"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["upload_file"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/files/{file_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["download_file"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3382,16 +3382,6 @@ export interface components {
              */
             enabled: boolean;
         };
-        ArtifactDto: {
-            /** Format: int64 */
-            created_at: number;
-            filename?: string | null;
-            id: string;
-            mime: string;
-            sha256: string;
-            /** Format: int64 */
-            size_bytes: number;
-        };
         AssignNumberRequest: {
             agent_id: string;
         };
@@ -3495,7 +3485,7 @@ export interface components {
             /** @description What the call is for, from the Call Brief. */
             purpose: string;
             /** @description The stereo WAV of the call, once it settles. */
-            recording_artifact_id?: string | null;
+            recording_file_id?: string | null;
             remote_e164: string;
             /** @description `dialing`, `live` or `ended`. */
             state: string;
@@ -3539,7 +3529,7 @@ export interface components {
             /** @description What the call is for, from the Call Brief. */
             purpose: string;
             /** @description The stereo WAV of the call, once it settles. */
-            recording_artifact_id?: string | null;
+            recording_file_id?: string | null;
             remote_e164: string;
             /** @description `dialing`, `live` or `ended`. */
             state: string;
@@ -4359,6 +4349,16 @@ export interface components {
          * @enum {string}
          */
         FailureKind: "agent_missing" | "model_missing" | "context_failed" | "tool_failed" | "call_failed" | "access_changed" | "publication_rejected" | "lease_failed" | "daemon_restarted" | "model_failed" | "turn_limit" | "spend_cap_reached" | "unknown";
+        FileDto: {
+            /** Format: int64 */
+            created_at: number;
+            filename?: string | null;
+            id: string;
+            mime: string;
+            sha256: string;
+            /** Format: int64 */
+            size_bytes: number;
+        };
         /**
          * @description What one filter decides about the stored pages of a resource, for
          *     the filter editor. The counts come from Page Signals alone.
@@ -4771,11 +4771,11 @@ export interface components {
             type: "progress";
         } | {
             alt?: string | null;
-            artifact_id: string;
+            file_id: string;
             /** @enum {string} */
             type: "image";
         } | {
-            artifact_id: string;
+            file_id: string;
             mime?: string | null;
             name: string;
             /** Format: int64 */
@@ -5883,8 +5883,8 @@ export interface components {
             name: string;
         };
         /**
-         * @description Where the files of a Plugin come from. An upload arrives as an
-         *     Artifact: the desk uploads the tar of the directory first and names
+         * @description Where the files of a Plugin come from. An upload arrives as a
+         *     File: the desk uploads the tar of the directory first and names
          *     it here.
          */
         PluginSourceRequest: {
@@ -5894,8 +5894,8 @@ export interface components {
             ref?: string | null;
             url: string;
         } | {
-            /** @description The Artifact that holds the plugin directory as one tar. */
-            artifact_id: string;
+            /** @description The File that holds the plugin directory as one tar. */
+            file_id: string;
             /** @enum {string} */
             kind: "upload";
         };
@@ -6225,7 +6225,7 @@ export interface components {
          *     class for ever, which is the default (ADR-0020).
          */
         RetentionPolicyDto: {
-            /** @description `screenshot`, `call_recording`, `call_transcript`, or `file`. */
+            /** @description `screenshot`, `call_recording`, `call_transcript`, or `other`. */
             kind: string;
             /** Format: int64 */
             retain_days?: number | null;
@@ -6332,7 +6332,7 @@ export interface components {
             /** @description True on the step the Run works on now. */
             live: boolean;
             /**
-             * @description The Artifact of the screenshot taken during the step, when there
+             * @description The File of the screenshot taken during the step, when there
              *     is one.
              */
             screenshot_id?: string | null;
@@ -6521,7 +6521,7 @@ export interface components {
              * @description Pre-uploaded attachments, rendered as `image`/`file`
              *     blocks after the text.
              */
-            artifact_ids?: string[];
+            file_ids?: string[];
             /** @description Reply target; must be a top-level message in the same channel. */
             parent_message_id?: string | null;
             /**
@@ -7217,7 +7217,7 @@ export interface components {
              * @description The new upload, for a Plugin that was uploaded. A Plugin
              *     installed from a repository reads that repository again.
              */
-            artifact_id?: string | null;
+            file_id?: string | null;
         };
         UpdateScheduleRequest: {
             /** @description `pause`, `resume`, `skip_next`, `edit`, or `archive`. */
@@ -9355,101 +9355,6 @@ export interface operations {
             };
         };
     };
-    upload_artifact: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "multipart/form-data": components["schemas"]["UploadForm"];
-            };
-        };
-        responses: {
-            /** @description Duplicate content; the original artifact */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ArtifactDto"];
-                };
-            };
-            /** @description Artifact stored */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ArtifactDto"];
-                };
-            };
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            413: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
-    };
-    download_artifact: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                artifact_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The artifact bytes. A passive image, audio, video or plain-text type shows inline; every other type is an `application/octet-stream` attachment. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/octet-stream": unknown;
-                };
-            };
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
-    };
     list_calls: {
         parameters: {
             query?: {
@@ -10530,6 +10435,101 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WakeupPage"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    upload_file: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["UploadForm"];
+            };
+        };
+        responses: {
+            /** @description Duplicate content; the original file */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FileDto"];
+                };
+            };
+            /** @description File stored */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FileDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    download_file: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The file bytes. A passive image, audio, video or plain-text type shows inline; every other type is an `application/octet-stream` attachment. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": unknown;
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
                 };
             };
             404: {
@@ -14583,7 +14583,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The artifact class */
+                /** @description The file class */
                 kind: string;
             };
             cookie?: never;

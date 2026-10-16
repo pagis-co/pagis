@@ -199,7 +199,7 @@ pub async fn invalidated_hits_do_not_starve_pages_and_stay_absent_after_restart(
     }
 }
 
-pub async fn range_read_keeps_conversation_scope_and_marks_a_missing_artifact(backend: &Backend) {
+pub async fn range_read_keeps_conversation_scope_and_marks_a_missing_file(backend: &Backend) {
     let workspace = backend.seeded_workspace().await;
     let agent = agent(&workspace.id);
     let channel = channel(&workspace.id);
@@ -211,7 +211,7 @@ pub async fn range_read_keeps_conversation_scope_and_marks_a_missing_artifact(ba
     let messages = &backend.stores().messages;
     let mut kept = user_message(&workspace.id, &channel.id, "onyx scoped");
     kept.id = MessageId::from("01J00000000000000000000021".to_string());
-    kept.blocks = vec![Block::file("missing-artifact", "proof.txt", None, None)];
+    kept.blocks = vec![Block::file("missing-file", "proof.txt", None, None)];
     kept.text_content = "onyx scoped".to_string();
     messages.insert(&kept).await.unwrap();
     let mut foreign = user_message(&workspace.id, &other.id, "onyx other conversation");
@@ -233,9 +233,9 @@ pub async fn range_read_keeps_conversation_scope_and_marks_a_missing_artifact(ba
         .await
         .unwrap();
     assert_eq!(read.len(), 1);
-    assert_eq!(read[0].artifacts.len(), 1);
-    assert_eq!(read[0].artifacts[0].reference, "artifact:missing-artifact");
-    assert!(!read[0].artifacts[0].available);
+    assert_eq!(read[0].files.len(), 1);
+    assert_eq!(read[0].files[0].reference, "file:missing-file");
+    assert!(!read[0].files[0].available);
 }
 
 pub async fn thread_scope_returns_its_root_and_replies_only(backend: &Backend) {
@@ -477,7 +477,7 @@ macro_rules! store_suite_conversation_evidence {
             conversation_evidence,
             search_and_range_read_use_message_id_order_inside_one_conversation,
             invalidated_hits_do_not_starve_pages_and_stay_absent_after_restart,
-            range_read_keeps_conversation_scope_and_marks_a_missing_artifact,
+            range_read_keeps_conversation_scope_and_marks_a_missing_file,
             thread_scope_returns_its_root_and_replies_only,
             message_search_of_one_workspace_does_not_reach_another_workspace,
             tool_search_of_one_workspace_does_not_reach_another_workspace,

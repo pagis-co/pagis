@@ -26,7 +26,7 @@ const live: CallDto = {
   classification: null,
   message_left: false,
   transcript: [{ at: 1_000, speaker: 'agent', text: 'Hello, this is Robin.' }],
-  recording_artifact_id: null,
+  recording_file_id: null,
   created_at: 0,
   answered_at: 1_000,
   ended_at: null,

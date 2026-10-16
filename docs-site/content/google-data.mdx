@@ -27,7 +27,7 @@ Sprites lose access through it. It does not remove access at Google.
 
 The imported Source Items, Source Versions, Sync records, memory files and
 their git history stay. Conversations, tool results, Model Request Captures
-and Artifacts also stay. The files of the Google provider in
+and Files also stay. The files of the Google provider in
 `gog/<workspace_id>/` stay. Deleting a Connection does not compact the
 database files to erase the deleted row. Use Forget to remove imported data.
 
@@ -71,7 +71,7 @@ content.
 
 The following deletion is not built: words that reach a Run through a Brief
 or a memory read; a message of another Run that quotes a forgotten message;
-cards, sent mail, Artifacts and other Run records that are not messages or
+cards, sent mail, Files and other Run records that are not messages or
 tool results; and call arguments in the audit log. Other event log entries,
 including tool call arguments and failed commit entries, can still name a
 purged page. A Run in progress can write words after the purge; its message
@@ -103,7 +103,7 @@ In **People** in the Administration Interface, an Administrator disables
 the Person. This deletes every Session of that Person, closes their live
 connections and ends their Computer Takeovers. It prevents sign-in. It
 does not delete the Person's Workspace, Google refresh tokens, imported
-records, memory, conversations, Artifacts or Computer volumes.
+records, memory, conversations, Files or Computer volumes.
 
 Deletion of a Person and their Workspace is not built. The Administration
 Interface has no control that deletes another Person's imported Google
@@ -113,7 +113,7 @@ their control that still hold that data.
 ## What stays in a Backup
 
 A Backup made before a deletion still holds the imported records,
-conversations, stored tool results, memory and its git history, Artifacts,
+conversations, stored tool results, memory and its git history, Files,
 and sealed Google refresh tokens that existed when it was made. The Backup
 of a Headless Server also holds the Computer volumes. A Backup holds no
 Model Request Capture and no Installation Key.

@@ -1,7 +1,7 @@
 // The table block (ADR-0004): a declarative grid after Adaptive
 // Cards' `ColumnSet`. No server pagination and no sort configuration —
 // the client sorts locally, and past 100 rows the agent posts a CSV
-// artifact as a `file` block instead. A cell is a closed union, so a
+// file as a `file` block instead. A cell is a closed union, so a
 // cell carries no markup and nothing here renders model text as HTML.
 
 import { useMemo, useState } from 'react'

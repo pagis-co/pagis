@@ -8,12 +8,12 @@ use utoipa::OpenApi;
 
 use crate::administration;
 use crate::agents;
-use crate::artifacts;
 use crate::calls;
 use crate::channels;
 use crate::coding_sessions;
 use crate::connections;
 use crate::error::{ErrorBody, ErrorDetail};
+use crate::files;
 use crate::forget;
 use crate::grants;
 use crate::harnesses;
@@ -96,8 +96,8 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         calls::control,
         voice::speak_block,
         voice::list_voices,
-        artifacts::upload_artifact,
-        artifacts::download_artifact,
+        files::upload_file,
+        files::download_file,
         runs::list_runs,
         runs::run_events,
         runs::run_steps,
@@ -380,8 +380,8 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         phone_numbers::BuyNumberRequest,
         phone_numbers::AdoptNumberRequest,
         phone_numbers::AssignNumberRequest,
-        artifacts::ArtifactDto,
-        artifacts::UploadForm,
+        files::FileDto,
+        files::UploadForm,
         plugins::PluginSourceRequest,
         plugins::BindingValueRequest,
         plugins::BindingRequest,

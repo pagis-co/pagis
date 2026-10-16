@@ -9,7 +9,7 @@ import { ArrowLeft, ChevronDown, ChevronRight } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 import {
-  fetchArtifactBlob,
+  fetchFileBlob,
   type ApiClient,
   type MemoryFeedItem,
   type RunEventDto,
@@ -42,12 +42,12 @@ import {
 
 import './runs.css'
 
-function Screenshot({ artifactId }: { artifactId: string }) {
+function Screenshot({ fileId }: { fileId: string }) {
   const [url, setUrl] = useState<string | null>(null)
   useEffect(() => {
     let active = true
     let objectUrl: string | null = null
-    void fetchArtifactBlob(artifactId).then((blob) => {
+    void fetchFileBlob(fileId).then((blob) => {
       if (!active) return
       objectUrl = URL.createObjectURL(blob)
       setUrl(objectUrl)
@@ -56,16 +56,16 @@ function Screenshot({ artifactId }: { artifactId: string }) {
       active = false
       if (objectUrl !== null) URL.revokeObjectURL(objectUrl)
     }
-  }, [artifactId])
+  }, [fileId])
   return url === null ? null : (
-    <img className="runs-shot" src={url} alt={`Run screenshot ${artifactId}`} />
+    <img className="runs-shot" src={url} alt={`Run screenshot ${fileId}`} />
   )
 }
 
 function screenshotsOf(event: RunEventDto | null): string[] {
   if (event === null) return []
-  const payload = event.payload as { artifact_ids?: unknown } | null
-  const ids = payload === null ? undefined : payload.artifact_ids
+  const payload = event.payload as { file_ids?: unknown } | null
+  const ids = payload === null ? undefined : payload.file_ids
   return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : []
 }
 
@@ -101,8 +101,8 @@ function StepCard({ step, index }: { step: RunStep; index: number }) {
               {JSON.stringify(step.completed.payload, null, 2)}
             </pre>
           )}
-          {shots.map((artifactId) => (
-            <Screenshot key={artifactId} artifactId={artifactId} />
+          {shots.map((fileId) => (
+            <Screenshot key={fileId} fileId={fileId} />
           ))}
         </>
       )}

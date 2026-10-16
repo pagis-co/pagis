@@ -1,4 +1,4 @@
-//! Artifacts REST: multipart upload with content dedup, and byte
+//! Files REST: multipart upload with content dedup, and byte
 //! download through the daemon. Bytes live in the blob store; the row
 //! is metadata only. A download shows only a passive type inline and
 //! serves every other type as bytes to save (`served_file`).
@@ -11,7 +11,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use object_store::ObjectStoreExt as _;
 use object_store::path::Path as BlobPath;
-use pagis_core::{Artifact, ArtifactId, ArtifactOutcome, now_ms};
+use pagis_core::{File, FileId, FileOutcome, now_ms};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use utoipa::ToSchema;
@@ -25,7 +25,7 @@ use crate::served_file;
 pub const MULTIPART_OVERHEAD: usize = 64 * 1024;
 
 #[derive(Debug, Serialize, ToSchema)]
-pub struct ArtifactDto {
+pub struct FileDto {
     pub id: String,
     pub filename: Option<String>,
     pub mime: String,
@@ -34,9 +34,9 @@ pub struct ArtifactDto {
     pub created_at: i64,
 }
 
-impl From<Artifact> for ArtifactDto {
-    fn from(a: Artifact) -> Self {
-        ArtifactDto {
+impl From<File> for FileDto {
+    fn from(a: File) -> Self {
+        FileDto {
             id: a.id.to_string(),
             filename: a.filename,
             mime: a.mime,
@@ -69,22 +69,22 @@ fn blob_error(err: object_store::Error) -> ApiError {
 
 #[utoipa::path(
     post,
-    path = "/api/v1/artifacts",
+    path = "/api/v1/files",
     request_body(content = UploadForm, content_type = "multipart/form-data"),
     responses(
-        (status = 201, description = "Artifact stored", body = ArtifactDto),
-        (status = 200, description = "Duplicate content; the original artifact", body = ArtifactDto),
+        (status = 201, description = "File stored", body = FileDto),
+        (status = 200, description = "Duplicate content; the original file", body = FileDto),
         (status = 401, body = crate::error::ErrorBody),
         (status = 413, body = crate::error::ErrorBody),
         (status = 422, body = crate::error::ErrorBody),
     )
 )]
-pub async fn upload_artifact(
+pub async fn upload_file(
     State(state): State<Arc<AppState>>,
     tenant: Tenant,
     mut multipart: Multipart,
-) -> Result<(StatusCode, Json<ArtifactDto>), ApiError> {
-    let max_bytes = state.artifact_max_bytes;
+) -> Result<(StatusCode, Json<FileDto>), ApiError> {
+    let max_bytes = state.file_max_bytes;
     let field = multipart
         .next_field()
         .await
@@ -109,12 +109,12 @@ pub async fn upload_artifact(
 
     let sha256 = format!("{:x}", Sha256::digest(&data));
     let storage_key = format!("{}/{sha256}", tenant.workspace_id);
-    let artifact = Artifact {
-        id: ArtifactId::generate(),
+    let file = File {
+        id: FileId::generate(),
         workspace_id: tenant.workspace_id.clone(),
         creator_agent_id: None,
         run_id: None,
-        kind: pagis_core::ArtifactKind::File,
+        kind: pagis_core::FileKind::Other,
         filename,
         mime,
         size_bytes: data.len() as i64,
@@ -131,35 +131,35 @@ pub async fn upload_artifact(
         .await
         .map_err(blob_error)?;
 
-    match state.artifacts.insert(&artifact).await? {
-        ArtifactOutcome::Created(artifact) => Ok((StatusCode::CREATED, Json(artifact.into()))),
-        ArtifactOutcome::Deduplicated(original) => Ok((StatusCode::OK, Json(original.into()))),
+    match state.files.insert(&file).await? {
+        FileOutcome::Created(file) => Ok((StatusCode::CREATED, Json(file.into()))),
+        FileOutcome::Deduplicated(original) => Ok((StatusCode::OK, Json(original.into()))),
     }
 }
 
 #[utoipa::path(
     get,
-    path = "/api/v1/artifacts/{artifact_id}",
-    params(("artifact_id" = String, Path,)),
+    path = "/api/v1/files/{file_id}",
+    params(("file_id" = String, Path,)),
     responses(
-        (status = 200, description = "The artifact bytes. A passive image, audio, video or plain-text type shows inline; every other type is an `application/octet-stream` attachment.", content_type = "application/octet-stream"),
+        (status = 200, description = "The file bytes. A passive image, audio, video or plain-text type shows inline; every other type is an `application/octet-stream` attachment.", content_type = "application/octet-stream"),
         (status = 401, body = crate::error::ErrorBody),
         (status = 404, body = crate::error::ErrorBody),
     )
 )]
-pub async fn download_artifact(
+pub async fn download_file(
     State(state): State<Arc<AppState>>,
     tenant: Tenant,
-    Path(artifact_id): Path<String>,
+    Path(file_id): Path<String>,
 ) -> Result<Response, ApiError> {
-    let artifact = state
-        .artifacts
-        .get(&tenant.workspace_id, &ArtifactId::from(artifact_id))
+    let file = state
+        .files
+        .get(&tenant.workspace_id, &FileId::from(file_id))
         .await?
-        .ok_or_else(|| ApiError::not_found("artifact"))?;
+        .ok_or_else(|| ApiError::not_found("file"))?;
     let bytes = state
         .blobs
-        .get(&BlobPath::from(artifact.storage_key.clone()))
+        .get(&BlobPath::from(file.storage_key.clone()))
         .await
         .map_err(blob_error)?
         .bytes()
@@ -167,7 +167,7 @@ pub async fn download_artifact(
         .map_err(blob_error)?;
 
     Ok((
-        served_file::headers(&artifact.mime, artifact.filename.as_deref()),
+        served_file::headers(&file.mime, file.filename.as_deref()),
         bytes,
     )
         .into_response())

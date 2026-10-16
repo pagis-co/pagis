@@ -1,13 +1,13 @@
 // Composer attachments: a pasted or attached file uploads as an
-// artifact right away, shows as a chip, and the send carries the
-// artifact ids. Push-to-talk (ADR-0020): hold the microphone,
+// file right away, shows as a chip, and the send carries the
+// file ids. Push-to-talk (ADR-0020): hold the microphone,
 // the transcript lands as a draft, and the user presses send.
 
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { uploadArtifact, type ApiClient, type ArtifactDto } from '../api/client'
+import { uploadFile, type ApiClient, type FileDto } from '../api/client'
 import { useSendMessage } from '../queries'
 import { useComposerDraft } from '../state/composerDraft'
 import { useSpeaking } from '../state/stores'
@@ -15,7 +15,7 @@ import type { DictationHandlers, DictationOptions } from '../ws/dictation'
 import { Composer } from './Composer'
 
 vi.mock('../api/client', () => ({
-  uploadArtifact: vi.fn(),
+  uploadFile: vi.fn(),
 }))
 
 vi.mock('../queries', () => ({
@@ -42,7 +42,7 @@ vi.mock('../ws/dictation', () => ({
 
 const mutate = vi.fn()
 
-function dto(id: string, filename: string): ArtifactDto {
+function dto(id: string, filename: string): FileDto {
   return {
     id,
     filename,
@@ -70,7 +70,7 @@ beforeEach(() => {
   dictations.length = 0
   useSpeaking.setState({ byScope: {}, spoken: {} })
   useComposerDraft.setState({ byScope: {} })
-  vi.mocked(uploadArtifact).mockReset()
+  vi.mocked(uploadFile).mockReset()
   vi.mocked(useSendMessage).mockReturnValue({ mutate } as unknown as ReturnType<
     typeof useSendMessage
   >)
@@ -103,8 +103,8 @@ describe('Composer', () => {
     ])
   })
 
-  it('uploads a pasted file and sends its artifact id', async () => {
-    vi.mocked(uploadArtifact).mockResolvedValue(dto('A1', 'shot.png'))
+  it('uploads a pasted file and sends its file id', async () => {
+    vi.mocked(uploadFile).mockResolvedValue(dto('A1', 'shot.png'))
     renderComposer()
     const input = screen.getByPlaceholderText('Message')
 
@@ -113,7 +113,7 @@ describe('Composer', () => {
 
     // The chip appears once the upload settles.
     await waitFor(() => expect(screen.getByText('shot.png')).toBeTruthy())
-    expect(uploadArtifact).toHaveBeenCalledWith(file)
+    expect(uploadFile).toHaveBeenCalledWith(file)
 
     fireEvent.change(input, { target: { value: 'What is this?' } })
     fireEvent.keyDown(input, { key: 'Enter' })
@@ -121,7 +121,7 @@ describe('Composer', () => {
     expect(mutate).toHaveBeenCalledWith(
       expect.objectContaining({
         text: 'What is this?',
-        artifactIds: ['A1'],
+        fileIds: ['A1'],
       }),
     )
     // The composer clears after the send.
@@ -129,7 +129,7 @@ describe('Composer', () => {
   })
 
   it('uploads files picked through the attach button', async () => {
-    vi.mocked(uploadArtifact).mockResolvedValue(dto('A2', 'notes.txt'))
+    vi.mocked(uploadFile).mockResolvedValue(dto('A2', 'notes.txt'))
     renderComposer()
 
     const file = new File(['text'], 'notes.txt', { type: 'text/plain' })
@@ -138,7 +138,7 @@ describe('Composer', () => {
     })
 
     await waitFor(() => expect(screen.getByText('notes.txt')).toBeTruthy())
-    expect(uploadArtifact).toHaveBeenCalledWith(file)
+    expect(uploadFile).toHaveBeenCalledWith(file)
   })
 
   // An http:// page on another machine is not a secure context, and
@@ -165,7 +165,7 @@ describe('Composer', () => {
   })
 
   it('allows sending attachments without text', async () => {
-    vi.mocked(uploadArtifact).mockResolvedValue(dto('A3', 'shot.png'))
+    vi.mocked(uploadFile).mockResolvedValue(dto('A3', 'shot.png'))
     renderComposer()
     const input = screen.getByPlaceholderText('Message')
     const file = new File(['png'], 'shot.png', { type: 'image/png' })
@@ -175,12 +175,12 @@ describe('Composer', () => {
     fireEvent.keyDown(input, { key: 'Enter' })
 
     expect(mutate).toHaveBeenCalledWith(
-      expect.objectContaining({ text: '', artifactIds: ['A3'] }),
+      expect.objectContaining({ text: '', fileIds: ['A3'] }),
     )
   })
 
   it('shows the upload error and keeps the send disabled on failure', async () => {
-    vi.mocked(uploadArtifact).mockRejectedValue(new Error('upload exceeds the limit'))
+    vi.mocked(uploadFile).mockRejectedValue(new Error('upload exceeds the limit'))
     renderComposer()
     const input = screen.getByPlaceholderText('Message')
     const file = new File(['big'], 'big.bin', { type: 'application/zip' })
@@ -194,8 +194,8 @@ describe('Composer', () => {
     expect(mutate).not.toHaveBeenCalled()
   })
 
-  it('removes a chip without sending its artifact', async () => {
-    vi.mocked(uploadArtifact).mockResolvedValue(dto('A4', 'shot.png'))
+  it('removes a chip without sending its file', async () => {
+    vi.mocked(uploadFile).mockResolvedValue(dto('A4', 'shot.png'))
     renderComposer()
     const input = screen.getByPlaceholderText('Message')
     const file = new File(['png'], 'shot.png', { type: 'image/png' })
@@ -207,7 +207,7 @@ describe('Composer', () => {
     fireEvent.keyDown(input, { key: 'Enter' })
 
     expect(mutate).toHaveBeenCalledWith(
-      expect.objectContaining({ text: 'no attachment', artifactIds: [] }),
+      expect.objectContaining({ text: 'no attachment', fileIds: [] }),
     )
   })
 })
@@ -257,7 +257,7 @@ describe('Composer push-to-talk', () => {
     fireEvent.change(input, { target: { value: 'book the room for Tuesday' } })
     fireEvent.keyDown(input, { key: 'Enter' })
     expect(mutate).toHaveBeenCalledWith(
-      expect.objectContaining({ text: 'book the room for Tuesday', artifactIds: [] }),
+      expect.objectContaining({ text: 'book the room for Tuesday', fileIds: [] }),
     )
   })
 
@@ -325,7 +325,7 @@ describe('Composer push-to-talk', () => {
 
 describe('Composer drag and drop', () => {
   it('shows a drop zone on drag-over and drops a file as a chip', async () => {
-    vi.mocked(uploadArtifact).mockResolvedValue(dto('A5', 'plan.pdf'))
+    vi.mocked(uploadFile).mockResolvedValue(dto('A5', 'plan.pdf'))
     const view = renderComposer()
     const form = composerForm(view.container)
 
@@ -340,11 +340,11 @@ describe('Composer drag and drop', () => {
 
     expect(screen.queryByTestId('composer-dropzone')).toBeNull()
     await waitFor(() => expect(screen.getByText('plan.pdf')).toBeTruthy())
-    expect(uploadArtifact).toHaveBeenCalledWith(file)
+    expect(uploadFile).toHaveBeenCalledWith(file)
   })
 
   it('removing the chip of a dropped file keeps it out of the send', async () => {
-    vi.mocked(uploadArtifact).mockResolvedValue(dto('A6', 'plan.pdf'))
+    vi.mocked(uploadFile).mockResolvedValue(dto('A6', 'plan.pdf'))
     const view = renderComposer()
     const file = new File(['pdf'], 'plan.pdf', { type: 'application/pdf' })
     fireEvent.drop(composerForm(view.container), { dataTransfer: { files: [file] } })
@@ -358,7 +358,7 @@ describe('Composer drag and drop', () => {
     fireEvent.keyDown(input, { key: 'Enter' })
 
     expect(mutate).toHaveBeenCalledWith(
-      expect.objectContaining({ text: 'no file', artifactIds: [] }),
+      expect.objectContaining({ text: 'no file', fileIds: [] }),
     )
   })
 })
@@ -373,7 +373,7 @@ describe('Composer keys', () => {
     await user.keyboard('ship it{Enter}')
 
     expect(mutate).toHaveBeenCalledWith(
-      expect.objectContaining({ text: 'ship it', artifactIds: [] }),
+      expect.objectContaining({ text: 'ship it', fileIds: [] }),
     )
     expect(input.value).toBe('')
   })

@@ -24,7 +24,7 @@ use crate::hub::{Direction, Recorded, RecordingSink};
 
 /// What the muxed recording is.
 pub const RECORDING_MIME: &str = "audio/wav";
-/// What the muxed recording is called in the Artifact row.
+/// What the muxed recording is called in the File row.
 pub const RECORDING_FILENAME: &str = "recording.wav";
 
 /// The Remote Party's leg, which becomes the left channel.

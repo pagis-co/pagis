@@ -145,7 +145,7 @@ exception, because a Computer reads them as a different user.
 
 | Volume | What is in it | In a backup |
 | --- | --- | --- |
-| `/var/lib/pagis`, a directory on the VM | The state directory: `config.toml`, `secrets.enc`, `runtime-release`, `memory/<workspace_id>/`, `artifacts/`, `recordings/`, `screens/`, `gog/`, `plugins/`, `software/`, `computer-tokens/`, `logs/` | Yes, without the logs and `computer-tokens/` |
+| `/var/lib/pagis`, a directory on the VM | The state directory: `config.toml`, `secrets.enc`, `runtime-release`, `memory/<workspace_id>/`, `files/`, `recordings/`, `screens/`, `gog/`, `plugins/`, `software/`, `computer-tokens/`, `logs/` | Yes, without the logs and `computer-tokens/` |
 | `pagis-database` | The Postgres cluster | As a dump, not as files |
 | `pagis-volume-<workspace_id>-<agent_id>` | One Agent's Computer home, made by the daemon | Yes, one tarball each |
 | `caddy-data`, `caddy-config` | The certificate and Caddy's state | No. Caddy gets a certificate again on a new host. |

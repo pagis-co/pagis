@@ -629,7 +629,7 @@ pub enum ImageData {
 
 /// A video-generation request. Video generation is an async job: submit with
 /// [`Router::create_video`](crate::Router::create_video), poll with
-/// [`Router::video_status`](crate::Router::video_status), fetch the artifact
+/// [`Router::video_status`](crate::Router::video_status), fetch the file
 /// with [`Router::video_content`](crate::Router::video_content).
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct VideoRequest {
@@ -686,10 +686,10 @@ pub struct VideoJob {
     pub progress: Option<u8>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub created_at: Option<u64>,
-    /// Unix seconds after which the provider deletes the artifact.
+    /// Unix seconds after which the provider deletes the file.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<u64>,
-    /// The artifact URL, on providers that deliver by URL (Veo). Fetch it
+    /// The file URL, on providers that deliver by URL (Veo). Fetch it
     /// through [`Router::video_content`](crate::Router::video_content) —
     /// the URL can require provider auth.
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -195,7 +195,7 @@ services:
       - pagis-secrets-key
     volumes:
       # The state directory: the sealed secrets, the memory
-      # repositories, the artifacts, the recordings, the Plugins and the
+      # repositories, the Files, the recordings, the Plugins and the
       # Software. `deploy/backup.sh` captures it. It is a directory of
       # the VM at the same path, not a named volume: the daemon gives
       # each Computer the screend token and the Plugin checkouts as bind

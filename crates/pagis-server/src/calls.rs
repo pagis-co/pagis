@@ -250,7 +250,7 @@ pub struct CallSummaryDto {
     pub classification: Option<String>,
     pub message_left: bool,
     /// The stereo WAV of the call, once it settles.
-    pub recording_artifact_id: Option<String>,
+    pub recording_file_id: Option<String>,
     pub created_at: i64,
     pub answered_at: Option<i64>,
     pub ended_at: Option<i64>,
@@ -275,9 +275,7 @@ impl From<Call> for CallSummaryDto {
             ended_reason: call.ended_reason,
             classification: call.classification.map(|class| class.as_str().to_string()),
             message_left: call.message_left,
-            recording_artifact_id: call
-                .recording_artifact_id
-                .map(|artifact| artifact.to_string()),
+            recording_file_id: call.recording_file_id.map(|file| file.to_string()),
             created_at: call.created_at,
             answered_at: call.answered_at,
             ended_at: call.ended_at,
@@ -390,7 +388,7 @@ pub struct CallDto {
     pub message_left: bool,
     pub transcript: Vec<TranscriptLineDto>,
     /// The stereo WAV of the call, once it settles.
-    pub recording_artifact_id: Option<String>,
+    pub recording_file_id: Option<String>,
     pub created_at: i64,
     pub answered_at: Option<i64>,
     pub ended_at: Option<i64>,
@@ -422,9 +420,7 @@ impl From<Call> for CallDto {
                     text: line.text,
                 })
                 .collect(),
-            recording_artifact_id: call
-                .recording_artifact_id
-                .map(|artifact| artifact.to_string()),
+            recording_file_id: call.recording_file_id.map(|file| file.to_string()),
             created_at: call.created_at,
             answered_at: call.answered_at,
             ended_at: call.ended_at,

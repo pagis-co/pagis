@@ -17,7 +17,7 @@ vi.mock('../api/client', async () => {
   )
   return {
     ...actual,
-    fetchArtifactBlob: vi.fn(async () => new Blob(['wav'])),
+    fetchFileBlob: vi.fn(async () => new Blob(['wav'])),
   }
 })
 
@@ -37,7 +37,7 @@ const live: CallDto = {
   classification: null,
   message_left: false,
   transcript: [{ at: 1_000, speaker: 'agent', text: 'Hello, this is Robin.' }],
-  recording_artifact_id: null,
+  recording_file_id: null,
   created_at: 0,
   answered_at: 1_000,
   ended_at: null,
@@ -49,7 +49,7 @@ const settled: CallDto = {
   outcome: 'answered',
   ended_reason: 'agent_hangup',
   classification: 'human',
-  recording_artifact_id: 'art_1',
+  recording_file_id: 'art_1',
   transcript: [
     { at: 1_000, speaker: 'agent', text: 'Hello, this is Robin.' },
     { at: 2_000, speaker: 'caller', text: 'Wednesday at nine twenty.' },

@@ -55,7 +55,7 @@ const OPAQUE: &[(&str, &str)] = &[
         "alias",
         "a model alias name, read inside the tenant's own row",
     ),
-    ("kind", "an Artifact class name from a fixed vocabulary"),
+    ("kind", "a File class name from a fixed vocabulary"),
     (
         "sha",
         "a memory commit id; every read of it goes through the \
@@ -422,7 +422,7 @@ fn parameters(path: &'static str) -> impl Iterator<Item = &'static str> {
 
 /// Install one Plugin for the Org through the Administration Interface,
 /// as the Administrator does: a package with one Skill and no server,
-/// uploaded as an Artifact. The answer is the Plugin's id.
+/// uploaded as a File. The answer is the Plugin's id.
 async fn install_org_plugin(daemon: &TestDaemon) -> PluginId {
     let directory = tempfile::tempdir().expect("a scratch directory");
     std::fs::write(
@@ -452,8 +452,8 @@ async fn install_org_plugin(daemon: &TestDaemon) -> PluginId {
         .file_name("weather.tar".to_string())
         .mime_str("application/x-tar")
         .expect("the part");
-    let artifact: serde_json::Value = client
-        .post(format!("{}/api/v1/artifacts", daemon.base_url))
+    let file: serde_json::Value = client
+        .post(format!("{}/api/v1/files", daemon.base_url))
         .header("cookie", daemon.cookie())
         .multipart(reqwest::multipart::Form::new().part("file", part))
         .send()
@@ -461,12 +461,12 @@ async fn install_org_plugin(daemon: &TestDaemon) -> PluginId {
         .expect("upload the package")
         .json()
         .await
-        .expect("the artifact");
+        .expect("the file");
     let installed: serde_json::Value = client
         .post(format!("{}/api/v1/plugins", daemon.administration_base_url))
         .header("cookie", daemon.cookie())
         .json(&serde_json::json!({
-            "source": {"kind": "upload", "artifact_id": artifact["id"]},
+            "source": {"kind": "upload", "file_id": file["id"]},
             "bindings": [],
         }))
         .send()
@@ -604,13 +604,10 @@ async fn seed_a(
         .expect("write A's transcript row");
     owned.insert("coding_session_id", coding_session.id.to_string());
 
-    let artifacts = &stores.artifacts;
-    let artifact = fixture::artifact(workspace_id, "aa11");
-    artifacts
-        .insert(&artifact)
-        .await
-        .expect("write A's artifact");
-    owned.insert("artifact_id", artifact.id.to_string());
+    let files = &stores.files;
+    let file = fixture::file(workspace_id, "aa11");
+    files.insert(&file).await.expect("write A's file");
+    owned.insert("file_id", file.id.to_string());
 
     let connections = &stores.connections;
     let connection = Connection {
@@ -765,7 +762,7 @@ async fn seed_a(
         classification: None,
         message_left: false,
         transcript: Vec::new(),
-        recording_artifact_id: None,
+        recording_file_id: None,
         created_at: now,
         ringing_at: Some(now),
         answered_at: Some(now),

@@ -10,16 +10,16 @@ use async_trait::async_trait;
 use pagis_audit::AuditEventBus;
 use pagis_broker::{AuthorizedCall, CoreTool, ToolDef, ToolExecutor, ToolRoute};
 use pagis_core::{
-    Agent, AgentStatus, AgentStore, ArtifactId, ArtifactStore, Block, CallId, CallStore, Channel,
-    ChannelId, ChannelKind, ChannelStore, ConnectionId, Event, EventLog, KnownBlock,
-    MemorySecretStore, MessageId, MessageStore, PhoneNumber, PhoneNumberId, PhoneNumberStore,
-    PurchaseIntent, PurchaseIntentId, PurchaseIntentState, Run, RunId, RunState, RunStore,
-    SecretStore, TriggerKind, WorkspaceId, WorkspaceStore, now_ms,
+    Agent, AgentStatus, AgentStore, Block, CallId, CallStore, Channel, ChannelId, ChannelKind,
+    ChannelStore, ConnectionId, Event, EventLog, FileId, FileStore, KnownBlock, MemorySecretStore,
+    MessageId, MessageStore, PhoneNumber, PhoneNumberId, PhoneNumberStore, PurchaseIntent,
+    PurchaseIntentId, PurchaseIntentState, Run, RunId, RunState, RunStore, SecretStore,
+    TriggerKind, WorkspaceId, WorkspaceStore, now_ms,
 };
 use pagis_storage_sqlite::{
-    SqliteAgentStore, SqliteArtifactStore, SqliteCallStore, SqliteChannelStore,
-    SqliteConnectionStore, SqliteEventLog, SqliteMessageStore, SqlitePhoneNumberStore,
-    SqliteRunStore, SqliteTrustListStore, SqliteWorkspaceStore,
+    SqliteAgentStore, SqliteCallStore, SqliteChannelStore, SqliteConnectionStore, SqliteEventLog,
+    SqliteFileStore, SqliteMessageStore, SqlitePhoneNumberStore, SqliteRunStore,
+    SqliteTrustListStore, SqliteWorkspaceStore,
 };
 use pagis_telephony::fake::{
     FakeCallTransport, FakeNumberCatalog, FakeStandingCallRule, TokioClock,
@@ -71,7 +71,7 @@ struct World {
     call_records: Arc<SqliteCallStore>,
     numbers: Arc<SqlitePhoneNumberStore>,
     agents: Arc<SqliteAgentStore>,
-    artifacts: Arc<SqliteArtifactStore>,
+    files: Arc<SqliteFileStore>,
     messages: Arc<SqliteMessageStore>,
     channel_id: ChannelId,
     blobs: Arc<object_store::memory::InMemory>,
@@ -127,7 +127,7 @@ impl World {
         };
         agents.create(&agent).await.unwrap();
 
-        // The transcript Artifact points at the Run, so the Run exists.
+        // The transcript File points at the Run, so the Run exists.
         let channel = Channel {
             id: ChannelId::generate(),
             workspace_id: workspace.id.clone(),
@@ -201,7 +201,7 @@ impl World {
         }));
         let bridge = Arc::new(bridge);
         let messages = Arc::new(SqliteMessageStore::new(pool.clone()));
-        let artifacts = Arc::new(SqliteArtifactStore::new(pool.clone()));
+        let files = Arc::new(SqliteFileStore::new(pool.clone()));
         let blobs = Arc::new(object_store::memory::InMemory::new());
         let call_records = Arc::new(SqliteCallStore::new(pool.clone()));
         let runtime = PhoneToolRuntime::new(PhoneToolDeps {
@@ -217,7 +217,7 @@ impl World {
             transport,
             bridge: Arc::clone(&bridge) as _,
             live: Arc::clone(&live),
-            artifacts: Arc::clone(&artifacts) as _,
+            files: Arc::clone(&files) as _,
             blobs: Arc::clone(&blobs) as _,
             bus,
         });
@@ -228,7 +228,7 @@ impl World {
             call_records,
             numbers,
             agents,
-            artifacts,
+            files,
             messages,
             channel_id,
             blobs,
@@ -317,7 +317,7 @@ impl World {
                 pagis_core::Speaker::Caller,
                 said,
             )],
-            recording_artifact_id: None,
+            recording_file_id: None,
             created_at: at,
             ringing_at: None,
             answered_at: Some(at),
@@ -416,7 +416,7 @@ async fn the_daemon_writes_the_brief_and_the_agent_reads_the_result(pool: Sqlite
     assert_eq!(brief.emergency_rule, EMERGENCY_RULE);
 
     // The result: the outcome, the ended reason, the classification,
-    // the message flag, the duration, the transcript Artifact and the
+    // the message flag, the duration, the transcript File and the
     // transcript itself inside the untrusted envelope. The recording
     // is a pointer only.
     let value: serde_json::Value = serde_json::from_str(&result.content).unwrap();
@@ -436,24 +436,19 @@ async fn the_daemon_writes_the_brief_and_the_agent_reads_the_result(pool: Sqlite
         "[BEGIN UNTRUSTED source=remote_party trust=unknown]\ncaller: Robin: Is the table \
          free?\nRemote: Yes, at seven.\n[END UNTRUSTED source=remote_party]"
     );
-    assert!(value["recording_artifact_id"].is_null());
-    let transcript_id = ArtifactId::from(
-        value["transcript_artifact_id"]
-            .as_str()
-            .unwrap()
-            .to_string(),
-    );
-    let artifact = world
-        .artifacts
+    assert!(value["recording_file_id"].is_null());
+    let transcript_id = FileId::from(value["transcript_file_id"].as_str().unwrap().to_string());
+    let file = world
+        .files
         .get(&world.workspace_id, &transcript_id)
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(artifact.mime, "text/plain");
-    assert_eq!(artifact.run_id.as_ref(), Some(&world.run_id));
+    assert_eq!(file.mime, "text/plain");
+    assert_eq!(file.run_id.as_ref(), Some(&world.run_id));
     let bytes = object_store::ObjectStoreExt::get(
         world.blobs.as_ref(),
-        &object_store::path::Path::from(artifact.storage_key),
+        &object_store::path::Path::from(file.storage_key),
     )
     .await
     .unwrap()
@@ -486,8 +481,8 @@ async fn the_daemon_writes_the_brief_and_the_agent_reads_the_result(pool: Sqlite
     assert_eq!(ended.payload["outcome"], "answered");
     assert_eq!(ended.payload["ended_reason"], "hangup");
     assert_eq!(
-        ended.payload["transcript_artifact_id"],
-        value["transcript_artifact_id"]
+        ended.payload["transcript_file_id"],
+        value["transcript_file_id"]
     );
     // The line is free again.
     assert!(world.live.session_tools(&number.id).is_none());

@@ -337,7 +337,7 @@ impl<'a> Pump<'a> {
             // and never the model's: the tones stay out of the uplink.
             // The digit goes only to the tier gate. It stays out of the
             // transcript, and so out of every record made from it: the
-            // audit log, the Call record, the transcript Artifact and
+            // audit log, the Call record, the transcript File and
             // what both models read. The transcript gets one line for
             // each run of presses.
             HubEvent::Dtmf(digit) => {
@@ -721,7 +721,7 @@ impl<'a> Pump<'a> {
             ringing_at: self.ringing_at,
             answered_at: self.answered_at,
             transcript: self.transcript,
-            recording_artifact_id: None,
+            recording_file_id: None,
         }
     }
 }

@@ -313,7 +313,7 @@ async fn rest_send(daemon: &TestDaemon, pending_id: &str, text: &str) {
 
 /// The computer acceptance flow on one provider vocabulary: the model
 /// drives the browser, reads the screen, and reports; the screenshot
-/// lands as a downloadable run artifact.
+/// lands as a downloadable run file.
 async fn open_a_page_and_report(computer_call: serde_json::Value) {
     let runtime = Arc::new(FakeComputerRuntime::with_image());
     runtime.set_frame(&display_png());
@@ -329,7 +329,7 @@ async fn open_a_page_and_report(computer_call: serde_json::Value) {
 
     rest_send(&daemon, "p1", "open example.com and tell me what it says").await;
 
-    // The screenshot is in the run transcript as an artifact.
+    // The screenshot is in the run transcript as a file.
     let completed = loop {
         let frame = next_frame_of(&mut socket, "tool.completed").await;
         if frame["payload"]["payload"]["name"] == "computer" {
@@ -337,15 +337,12 @@ async fn open_a_page_and_report(computer_call: serde_json::Value) {
         }
     };
     assert_eq!(completed["payload"]["payload"]["ok"], true);
-    let artifact_id = completed["payload"]["payload"]["artifact_ids"][0]
+    let file_id = completed["payload"]["payload"]["file_ids"][0]
         .as_str()
         .unwrap()
         .to_string();
     let bytes = reqwest::Client::new()
-        .get(format!(
-            "{}/api/v1/artifacts/{artifact_id}",
-            daemon.base_url
-        ))
+        .get(format!("{}/api/v1/files/{file_id}", daemon.base_url))
         .header("cookie", daemon.cookie())
         .send()
         .await

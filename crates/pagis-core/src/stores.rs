@@ -22,12 +22,12 @@ use crate::push_subscription::PushSubscriptionStore;
 use crate::usage::UsageStore;
 
 use crate::store::{
-    AgentMailboxStore, AgentStore, ArtifactStore, BriefStore, CallStore, CapabilitySnapshotStore,
-    ChannelStore, ConnectionStore, ContributionStore, CredentialStore, EventLog,
-    EventSubscriptionStore, GrantStore, MessageStore, ModelAliasStore, OnboardingStore,
-    ParticipantStore, PendingEvidenceStore, PhoneNumberStore, PluginStore, PluginToolStore,
-    RequestStore, RetentionPolicyStore, RunStore, ScheduleStore, SentMailStore, SoftwareStore,
-    TextRecordStore, TriggerStore, TrustListStore, WorkspaceStore,
+    AgentMailboxStore, AgentStore, BriefStore, CallStore, CapabilitySnapshotStore, ChannelStore,
+    ConnectionStore, ContributionStore, CredentialStore, EventLog, EventSubscriptionStore,
+    FileStore, GrantStore, MessageStore, ModelAliasStore, OnboardingStore, ParticipantStore,
+    PendingEvidenceStore, PhoneNumberStore, PluginStore, PluginToolStore, RequestStore,
+    RetentionPolicyStore, RunStore, ScheduleStore, SentMailStore, SoftwareStore, TextRecordStore,
+    TriggerStore, TrustListStore, WorkspaceStore,
 };
 
 /// Every repository of one installation, behind its trait.
@@ -38,7 +38,7 @@ use crate::store::{
 pub struct Stores {
     pub agent_mailboxes: Arc<dyn AgentMailboxStore>,
     pub agents: Arc<dyn AgentStore>,
-    pub artifacts: Arc<dyn ArtifactStore>,
+    pub files: Arc<dyn FileStore>,
     pub briefs: Arc<dyn BriefStore>,
     pub calls: Arc<dyn CallStore>,
     pub capability_snapshots: Arc<dyn CapabilitySnapshotStore>,

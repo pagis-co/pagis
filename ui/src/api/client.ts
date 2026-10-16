@@ -2,7 +2,7 @@
 // session is an HTTP-only cookie, which the browser sends with
 // every same-origin request, so no request carries a credential of its
 // own. The schema is generated from the daemon's OpenAPI spec
-// (`pnpm run api:generate`); CI fails on drift. Artifact bytes go
+// (`pnpm run api:generate`); CI fails on drift. File bytes go
 // through plain fetch: multipart up, Blob down, always via the daemon.
 
 import createClient from 'openapi-fetch'
@@ -18,7 +18,7 @@ export type ReplyAuthorDto = components['schemas']['ReplyAuthorDto']
 export type EventRow = components['schemas']['EventRow']
 export type DeltaFrame = components['schemas']['DeltaFrame']
 export type ProgressFrame = components['schemas']['ProgressFrame']
-export type ArtifactDto = components['schemas']['ArtifactDto']
+export type FileDto = components['schemas']['FileDto']
 export type GrantDto = components['schemas']['GrantDto']
 export type SessionApprovalMode = components['schemas']['SessionApprovalMode']
 export type CodingSessionDto = components['schemas']['CodingSessionDto']
@@ -120,12 +120,12 @@ export async function fetchSpeech(
   return response.blob()
 }
 
-/** Upload one file as an artifact. Duplicate content returns the
+/** Upload one File. Duplicate content returns the
  *  stored original (same id), so re-pasting a screenshot is cheap. */
-export async function uploadArtifact(file: File): Promise<ArtifactDto> {
+export async function uploadFile(file: File): Promise<FileDto> {
   const form = new FormData()
   form.append('file', file, file.name)
-  const response = await fetch('/api/v1/artifacts', {
+  const response = await fetch('/api/v1/files', {
     method: 'POST',
     body: form,
   })
@@ -135,7 +135,7 @@ export async function uploadArtifact(file: File): Promise<ArtifactDto> {
     } | null
     throw new Error(body?.error?.message ?? `upload failed (${response.status})`)
   }
-  return (await response.json()) as ArtifactDto
+  return (await response.json()) as FileDto
 }
 
 /** The agent's screen preview as a Blob, or null when none
@@ -162,9 +162,9 @@ export async function fetchWidgetPage(
   return response.text()
 }
 
-/** Fetch artifact bytes through the daemon (never from storage). */
-export async function fetchArtifactBlob(artifactId: string): Promise<Blob> {
-  const response = await fetch(`/api/v1/artifacts/${artifactId}`)
+/** Fetch file bytes through the daemon (never from storage). */
+export async function fetchFileBlob(fileId: string): Promise<Blob> {
+  const response = await fetch(`/api/v1/files/${fileId}`)
   if (!response.ok) throw new Error(`download failed (${response.status})`)
   return response.blob()
 }

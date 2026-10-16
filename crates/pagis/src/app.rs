@@ -89,9 +89,9 @@ pub struct AppOptions {
     /// The restart the System tab asks for. `main` waits on it and
     /// exits with the reserved code.
     pub restart: Arc<RestartSwitch>,
-    /// The artifact upload size cap. Production reads it from
+    /// The file upload size cap. Production reads it from
     /// the config file; tests shrink it for the 413 scenario.
-    pub artifact_max_bytes: u64,
+    pub file_max_bytes: u64,
     /// The computer runtime seam: `None` uses bollard; tests
     /// inject a fake.
     pub computer: Option<Arc<dyn pagis_computer::ComputerRuntime>>,
@@ -241,7 +241,7 @@ impl AppOptions {
             docker_discovery,
             system: Arc::new(crate::system::FileSystemConfig::new(&booted.home)),
             restart,
-            artifact_max_bytes: booted.config.artifact_max_bytes,
+            file_max_bytes: booted.config.file_max_bytes,
             computer: None,
             computer_idle_stop: booted.config.computer.idle_stop(),
             computer_limits: booted.config.computer.limits(),
@@ -355,7 +355,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     let requests = stores.requests.clone();
     let grants = stores.grants.clone();
     let agent_store = stores.agents.clone();
-    let artifacts = stores.artifacts.clone();
+    let files = stores.files.clone();
     let runs = stores.runs.clone();
     let model_aliases = stores.model_aliases.clone();
     let onboarding = stores.onboarding.clone();
@@ -365,9 +365,9 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     let schedule_store = stores.schedules.clone();
     let trigger_store = stores.triggers.clone();
     let subscription_store = stores.subscriptions.clone();
-    // Artifact bytes live under the data directory, behind the
+    // File bytes live under the data directory, behind the
     // ObjectStore seam.
-    let blob_dir = booted.home.join("artifacts");
+    let blob_dir = booted.home.join("files");
     std::fs::create_dir_all(&blob_dir)?;
     let blobs: Arc<dyn ObjectStore> = Arc::new(LocalFileSystem::new_with_prefix(&blob_dir)?);
     // Memory repositories live under the data directory:
@@ -538,7 +538,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         crate::retention::RetentionDeps {
             workspaces: Arc::clone(&workspaces) as _,
             policies: Arc::clone(&retention_policies) as _,
-            artifacts: Arc::clone(&artifacts) as _,
+            files: Arc::clone(&files) as _,
             blobs: Arc::clone(&blobs),
             capture: Arc::clone(&capture),
             captures: stores.model_request_captures.clone(),
@@ -982,7 +982,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
                     )),
                     tools: Arc::new(pagis_telephony::BrokerCallTools::new(Arc::clone(&broker))),
                     calls: Arc::clone(&calls) as _,
-                    artifacts: Arc::clone(&artifacts) as _,
+                    files: Arc::clone(&files) as _,
                     blobs: Arc::clone(&blobs),
                     recordings,
                     live: Arc::clone(&live_calls),
@@ -1021,7 +1021,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
             transport: Arc::clone(&call_transport),
             bridge: Arc::clone(&call_bridge),
             live: Arc::clone(&live_calls),
-            artifacts: Arc::clone(&artifacts) as _,
+            files: Arc::clone(&files) as _,
             blobs: Arc::clone(&blobs),
             bus: Arc::clone(&bus),
         },
@@ -1050,7 +1050,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
             transport: call_transport,
             bridge: call_bridge,
             live: Arc::clone(&live_calls),
-            artifacts: Arc::clone(&artifacts) as _,
+            files: Arc::clone(&files) as _,
             blobs: Arc::clone(&blobs),
             bus: Arc::clone(&bus),
             events: Arc::clone(&call_events) as _,
@@ -1270,7 +1270,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         requests: Arc::clone(&requests) as _,
         grants: Arc::clone(&grants) as _,
         connections: Arc::clone(&connections) as _,
-        artifacts: Arc::clone(&artifacts) as _,
+        files: Arc::clone(&files) as _,
         blobs: Arc::clone(&blobs),
         memory: Arc::clone(&memory),
         pending_evidence: Arc::clone(&pending_evidence) as _,
@@ -1514,9 +1514,9 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         calls: calls as _,
         texts: texts as _,
         voice,
-        artifacts,
+        files,
         blobs,
-        artifact_max_bytes: options.artifact_max_bytes,
+        file_max_bytes: options.file_max_bytes,
         events,
         memory,
         knowledge,

@@ -1394,13 +1394,13 @@ fn store_provider_key(
         .expect("known provider has a status"))
 }
 
-// ---- Artifact retention ----
+// ---- File retention ----
 
 /// One class's retention window. `retain_days` of `null` keeps the
 /// class for ever, which is the default (ADR-0020).
 #[derive(Debug, Serialize, ToSchema)]
 pub struct RetentionPolicyDto {
-    /// `screenshot`, `call_recording`, `call_transcript`, or `file`.
+    /// `screenshot`, `call_recording`, `call_transcript`, or `other`.
     pub kind: String,
     pub retain_days: Option<i64>,
 }
@@ -1448,7 +1448,7 @@ pub async fn list_retention_policies(
 #[utoipa::path(
     put,
     path = "/api/v1/settings/retention/{kind}",
-    params(("kind" = String, Path, description = "The artifact class")),
+    params(("kind" = String, Path, description = "The file class")),
     request_body = SetRetentionPolicyRequest,
     responses(
         (status = 200, body = RetentionPolicyDto),
@@ -1463,8 +1463,8 @@ pub async fn set_retention_policy(
     Path(kind): Path<String>,
     Json(request): Json<SetRetentionPolicyRequest>,
 ) -> Result<Json<RetentionPolicyDto>, ApiError> {
-    let kind = pagis_core::ArtifactKind::parse(&kind)
-        .ok_or_else(|| ApiError::not_found("artifact class"))?;
+    let kind =
+        pagis_core::FileKind::parse(&kind).ok_or_else(|| ApiError::not_found("file class"))?;
     if let Some(days) = request.retain_days
         && days < 1
     {

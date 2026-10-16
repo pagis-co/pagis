@@ -56,18 +56,15 @@ async fn sweep(world: TwoTenants) {
     );
 }
 
-/// The Artifact download reads the row under the Workspace of the
-/// caller, so person A's Artifact is absent for person B.
+/// The File download reads the row under the Workspace of the
+/// caller, so person A's File is absent for person B.
 #[tokio::test]
-async fn person_b_gets_404_for_person_as_artifact() {
+async fn person_b_gets_404_for_person_as_file() {
     let world = TwoTenants::start().await;
-    let artifact_id = world.a_id("artifact_id").to_string();
+    let file_id = world.a_id("file_id").to_string();
 
     let as_a = reqwest::Client::new()
-        .get(format!(
-            "{}/api/v1/artifacts/{artifact_id}",
-            world.daemon.base_url
-        ))
+        .get(format!("{}/api/v1/files/{file_id}", world.daemon.base_url))
         .header("cookie", &world.a.cookie)
         .send()
         .await
@@ -75,23 +72,16 @@ async fn person_b_gets_404_for_person_as_artifact() {
     // Person A owns the row. The blob was never written, so the daemon
     // fails on the bytes and not on the row: what matters is that it is
     // not a 404.
-    assert_ne!(as_a.status(), 404, "person A owns the Artifact row");
+    assert_ne!(as_a.status(), 404, "person A owns the File row");
 
     let as_b = reqwest::Client::new()
-        .get(format!(
-            "{}/api/v1/artifacts/{artifact_id}",
-            world.daemon.base_url
-        ))
+        .get(format!("{}/api/v1/files/{file_id}", world.daemon.base_url))
         .header("cookie", &world.b.cookie)
         .send()
         .await
         .expect("GET as B");
 
-    assert_eq!(
-        as_b.status(),
-        404,
-        "person B must not read person A's Artifact"
-    );
+    assert_eq!(as_b.status(), 404, "person B must not read person A's File");
 }
 
 /// Each person sets the Keypad Code of their own Workspace (ADR-0021).

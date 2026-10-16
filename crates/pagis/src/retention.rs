@@ -1,8 +1,8 @@
-//! The retention sweep: one workflow for every Artifact class, and for
+//! The retention sweep: one workflow for every File class, and for
 //! the Model Request Captures.
 //!
-//! ADR-0020 keeps every Artifact by default. The user sets a window per
-//! class, and this sweep is the only code that deletes an Artifact for
+//! ADR-0020 keeps every File by default. The user sets a window per
+//! class, and this sweep is the only code that deletes a File for
 //! age. A class with no window is never swept. A Model Request Capture
 //! lives for the retention of its System Setting (ADR-0031).
 
@@ -11,7 +11,7 @@ use std::sync::Arc;
 use object_store::ObjectStore;
 use object_store::ObjectStoreExt as _;
 use pagis_core::{
-    ArtifactStore, CaptureSetting, ModelRequestCaptureStore, RetentionPolicyStore, UnixMillis,
+    CaptureSetting, FileStore, ModelRequestCaptureStore, RetentionPolicyStore, UnixMillis,
     WorkspaceStore, now_ms,
 };
 use tokio_util::sync::CancellationToken;
@@ -24,7 +24,7 @@ const SWEEP_INTERVAL: std::time::Duration = std::time::Duration::from_secs(24 * 
 pub struct RetentionDeps {
     pub workspaces: Arc<dyn WorkspaceStore>,
     pub policies: Arc<dyn RetentionPolicyStore>,
-    pub artifacts: Arc<dyn ArtifactStore>,
+    pub files: Arc<dyn FileStore>,
     pub blobs: Arc<dyn ObjectStore>,
     /// The live Model Request Capture setting, whose retention the sweep
     /// reads at each pass.
@@ -34,7 +34,7 @@ pub struct RetentionDeps {
 
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 
-/// Delete every expired Artifact in every Workspace, and every Model
+/// Delete every expired File in every Workspace, and every Model
 /// Request Capture past its retention. Returns the number of rows
 /// deleted.
 pub async fn sweep(deps: &RetentionDeps, now: UnixMillis) -> anyhow::Result<u64> {
@@ -57,35 +57,31 @@ pub async fn sweep(deps: &RetentionDeps, now: UnixMillis) -> anyhow::Result<u64>
 async fn sweep_class(
     deps: &RetentionDeps,
     workspace_id: &pagis_core::WorkspaceId,
-    kind: pagis_core::ArtifactKind,
+    kind: pagis_core::FileKind,
     cutoff: UnixMillis,
 ) -> anyhow::Result<u64> {
     let mut deleted = 0;
     loop {
         let batch = deps
-            .artifacts
+            .files
             .expired_before(workspace_id, kind, cutoff, SWEEP_BATCH)
             .await?;
         if batch.is_empty() {
             return Ok(deleted);
         }
         let mut removed_in_batch = 0;
-        for artifact in batch {
-            let path = object_store::path::Path::from(artifact.storage_key.clone());
+        for file in batch {
+            let path = object_store::path::Path::from(file.storage_key.clone());
             match deps.blobs.delete(&path).await {
                 Ok(()) => {}
                 // A missing blob is already what the sweep wants.
                 Err(object_store::Error::NotFound { .. }) => {}
                 Err(err) => {
-                    tracing::error!(error = %err, artifact_id = %artifact.id, "blob delete failed");
+                    tracing::error!(error = %err, file_id = %file.id, "blob delete failed");
                     continue;
                 }
             }
-            if deps
-                .artifacts
-                .delete(&artifact.workspace_id, &artifact.id)
-                .await?
-            {
+            if deps.files.delete(&file.workspace_id, &file.id).await? {
                 deleted += 1;
                 removed_in_batch += 1;
             }

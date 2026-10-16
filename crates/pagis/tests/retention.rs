@@ -4,10 +4,8 @@
 use std::sync::Arc;
 
 use object_store::ObjectStoreExt as _;
-use pagis_core::{
-    Artifact, ArtifactId, ArtifactKind, Workspace, WorkspaceId, WorkspaceStore as _, now_ms,
-};
-use pagis_storage_sqlite::{SqliteArtifactStore, SqliteRetentionPolicyStore, SqliteWorkspaceStore};
+use pagis_core::{File, FileId, FileKind, Workspace, WorkspaceId, WorkspaceStore as _, now_ms};
+use pagis_storage_sqlite::{SqliteFileStore, SqliteRetentionPolicyStore, SqliteWorkspaceStore};
 use sqlx::SqlitePool;
 
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
@@ -39,7 +37,7 @@ async fn fixture(pool: SqlitePool) -> Fixture {
         deps: pagis::retention::RetentionDeps {
             workspaces,
             policies: Arc::new(SqliteRetentionPolicyStore::new(pool.clone())),
-            artifacts: Arc::new(SqliteArtifactStore::new(pool.clone())),
+            files: Arc::new(SqliteFileStore::new(pool.clone())),
             blobs: Arc::new(object_store::memory::InMemory::new()),
             capture: Arc::new(pagis_core::CaptureSetting::new(true, 7)),
             captures: Arc::new(pagis_storage_sqlite::SqliteModelRequestCaptureStore::new(
@@ -50,10 +48,10 @@ async fn fixture(pool: SqlitePool) -> Fixture {
     }
 }
 
-/// Store one artifact with its blob and return the row.
-async fn store(fixture: &Fixture, kind: ArtifactKind, sha: &str, created_at: i64) -> Artifact {
-    let artifact = Artifact {
-        id: ArtifactId::generate(),
+/// Store one file with its blob and return the row.
+async fn store(fixture: &Fixture, kind: FileKind, sha: &str, created_at: i64) -> File {
+    let file = File {
+        id: FileId::generate(),
         workspace_id: fixture.workspace_id.clone(),
         creator_agent_id: None,
         run_id: None,
@@ -69,22 +67,20 @@ async fn store(fixture: &Fixture, kind: ArtifactKind, sha: &str, created_at: i64
         .deps
         .blobs
         .put(
-            &object_store::path::Path::from(artifact.storage_key.clone()),
+            &object_store::path::Path::from(file.storage_key.clone()),
             b"bin".to_vec().into(),
         )
         .await
         .unwrap();
-    fixture.deps.artifacts.insert(&artifact).await.unwrap();
-    artifact
+    fixture.deps.files.insert(&file).await.unwrap();
+    file
 }
 
-async fn blob_exists(fixture: &Fixture, artifact: &Artifact) -> bool {
+async fn blob_exists(fixture: &Fixture, file: &File) -> bool {
     fixture
         .deps
         .blobs
-        .get(&object_store::path::Path::from(
-            artifact.storage_key.clone(),
-        ))
+        .get(&object_store::path::Path::from(file.storage_key.clone()))
         .await
         .is_ok()
 }
@@ -93,13 +89,7 @@ async fn blob_exists(fixture: &Fixture, artifact: &Artifact) -> bool {
 async fn nothing_is_swept_while_every_class_is_kept_for_ever(pool: SqlitePool) {
     let fixture = fixture(pool).await;
     let now = now_ms();
-    let old = store(
-        &fixture,
-        ArtifactKind::Screenshot,
-        "old",
-        now - 400 * DAY_MS,
-    )
-    .await;
+    let old = store(&fixture, FileKind::Screenshot, "old", now - 400 * DAY_MS).await;
 
     let deleted = pagis::retention::sweep(&fixture.deps, now).await.unwrap();
 
@@ -107,7 +97,7 @@ async fn nothing_is_swept_while_every_class_is_kept_for_ever(pool: SqlitePool) {
     assert!(
         fixture
             .deps
-            .artifacts
+            .files
             .get(&fixture.workspace_id, &old.id)
             .await
             .unwrap()
@@ -120,23 +110,11 @@ async fn nothing_is_swept_while_every_class_is_kept_for_ever(pool: SqlitePool) {
 async fn the_sweep_removes_expired_rows_and_blobs_of_the_set_class_only(pool: SqlitePool) {
     let fixture = fixture(pool).await;
     let now = now_ms();
-    let expired = store(
-        &fixture,
-        ArtifactKind::Screenshot,
-        "expired",
-        now - 31 * DAY_MS,
-    )
-    .await;
-    let fresh = store(
-        &fixture,
-        ArtifactKind::Screenshot,
-        "fresh",
-        now - 3 * DAY_MS,
-    )
-    .await;
+    let expired = store(&fixture, FileKind::Screenshot, "expired", now - 31 * DAY_MS).await;
+    let fresh = store(&fixture, FileKind::Screenshot, "fresh", now - 3 * DAY_MS).await;
     let other_class = store(
         &fixture,
-        ArtifactKind::CallTranscript,
+        FileKind::CallTranscript,
         "transcript",
         now - 31 * DAY_MS,
     )
@@ -145,12 +123,7 @@ async fn the_sweep_removes_expired_rows_and_blobs_of_the_set_class_only(pool: Sq
     fixture
         .deps
         .policies
-        .set(
-            &fixture.workspace_id,
-            ArtifactKind::Screenshot,
-            Some(30),
-            now,
-        )
+        .set(&fixture.workspace_id, FileKind::Screenshot, Some(30), now)
         .await
         .unwrap();
     let deleted = pagis::retention::sweep(&fixture.deps, now).await.unwrap();
@@ -159,7 +132,7 @@ async fn the_sweep_removes_expired_rows_and_blobs_of_the_set_class_only(pool: Sq
     assert!(
         fixture
             .deps
-            .artifacts
+            .files
             .get(&fixture.workspace_id, &expired.id)
             .await
             .unwrap()
@@ -169,7 +142,7 @@ async fn the_sweep_removes_expired_rows_and_blobs_of_the_set_class_only(pool: Sq
     assert!(
         fixture
             .deps
-            .artifacts
+            .files
             .get(&fixture.workspace_id, &fresh.id)
             .await
             .unwrap()
@@ -178,12 +151,12 @@ async fn the_sweep_removes_expired_rows_and_blobs_of_the_set_class_only(pool: Sq
     assert!(
         fixture
             .deps
-            .artifacts
+            .files
             .get(&fixture.workspace_id, &other_class.id)
             .await
             .unwrap()
             .is_some(),
-        "a class with no window keeps its artifacts"
+        "a class with no window keeps its files"
     );
 }
 
@@ -191,18 +164,18 @@ async fn the_sweep_removes_expired_rows_and_blobs_of_the_set_class_only(pool: Sq
 async fn a_window_that_returns_to_keep_for_ever_stops_the_sweep(pool: SqlitePool) {
     let fixture = fixture(pool).await;
     let now = now_ms();
-    let old = store(&fixture, ArtifactKind::File, "old", now - 90 * DAY_MS).await;
+    let old = store(&fixture, FileKind::Other, "old", now - 90 * DAY_MS).await;
 
     fixture
         .deps
         .policies
-        .set(&fixture.workspace_id, ArtifactKind::File, Some(30), now)
+        .set(&fixture.workspace_id, FileKind::Other, Some(30), now)
         .await
         .unwrap();
     fixture
         .deps
         .policies
-        .set(&fixture.workspace_id, ArtifactKind::File, None, now)
+        .set(&fixture.workspace_id, FileKind::Other, None, now)
         .await
         .unwrap();
     let deleted = pagis::retention::sweep(&fixture.deps, now).await.unwrap();
@@ -211,7 +184,7 @@ async fn a_window_that_returns_to_keep_for_ever_stops_the_sweep(pool: SqlitePool
     assert!(
         fixture
             .deps
-            .artifacts
+            .files
             .get(&fixture.workspace_id, &old.id)
             .await
             .unwrap()
@@ -220,7 +193,7 @@ async fn a_window_that_returns_to_keep_for_ever_stops_the_sweep(pool: SqlitePool
 }
 
 /// A Model Request Capture lives for the retention of the setting
-/// (ADR-0031), whatever the Artifact windows say.
+/// (ADR-0031), whatever the File windows say.
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
 async fn the_sweep_removes_the_model_request_captures_past_their_retention(pool: SqlitePool) {
     let fixture = fixture(pool.clone()).await;

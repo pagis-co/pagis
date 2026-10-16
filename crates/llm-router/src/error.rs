@@ -53,7 +53,7 @@ pub enum Error {
     #[error("realtime connection to provider `{provider}` failed: {message}")]
     Realtime { provider: String, message: String },
 
-    #[error("video job `{id}` has no artifact yet: status {status:?}")]
+    #[error("video job `{id}` has no file yet: status {status:?}")]
     JobNotReady {
         id: String,
         status: crate::types::VideoStatus,

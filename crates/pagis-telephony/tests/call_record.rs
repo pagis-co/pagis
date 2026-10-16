@@ -224,7 +224,7 @@ async fn desk(pool: SqlitePool) -> Desk {
         sessions: Arc::clone(&sessions) as _,
         tools: Arc::new(NoTools),
         calls: Arc::clone(&calls) as _,
-        artifacts: Arc::new(pagis_storage_sqlite::SqliteArtifactStore::new(pool.clone())),
+        files: Arc::new(pagis_storage_sqlite::SqliteFileStore::new(pool.clone())),
         blobs: Arc::new(object_store::memory::InMemory::new()),
         recordings: tempfile::tempdir().unwrap().keep(),
         live: Arc::new(pagis_telephony::LiveCalls::default()),

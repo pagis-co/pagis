@@ -1,4 +1,4 @@
-//! Full-daemon artifact tests: multipart upload with dedup and
+//! Full-daemon file tests: multipart upload with dedup and
 //! the size cap, byte download through the daemon only, the served
 //! type of each download, and the image/file context feed into the
 //! model turn.
@@ -26,7 +26,7 @@ pub(crate) async fn upload(
         .mime_str(mime)
         .unwrap();
     reqwest::Client::new()
-        .post(format!("{}/api/v1/artifacts", daemon.base_url))
+        .post(format!("{}/api/v1/files", daemon.base_url))
         .header("cookie", daemon.cookie())
         .multipart(reqwest::multipart::Form::new().part("file", part))
         .send()
@@ -34,11 +34,11 @@ pub(crate) async fn upload(
         .unwrap()
 }
 
-async fn send_with_artifacts(
+async fn send_with_files(
     daemon: &TestDaemon,
     pending_id: &str,
     text: &str,
-    artifact_ids: &[&str],
+    file_ids: &[&str],
 ) -> reqwest::Response {
     reqwest::Client::new()
         .post(format!(
@@ -49,7 +49,7 @@ async fn send_with_artifacts(
         .json(&serde_json::json!({
             "pending_id": pending_id,
             "text": text,
-            "artifact_ids": artifact_ids,
+            "file_ids": file_ids,
         }))
         .send()
         .await
@@ -98,7 +98,7 @@ async fn upload_stores_and_serves_bytes_through_the_daemon() {
 
     // The bytes come back through the daemon with the stored mime.
     let download = reqwest::Client::new()
-        .get(format!("{}/api/v1/artifacts/{id}", daemon.base_url))
+        .get(format!("{}/api/v1/files/{id}", daemon.base_url))
         .header("cookie", daemon.cookie())
         .send()
         .await
@@ -108,14 +108,14 @@ async fn upload_stores_and_serves_bytes_through_the_daemon() {
     assert_eq!(download.bytes().await.unwrap().as_ref(), b"png-bytes");
 
     // Without a Session the daemon serves nothing.
-    let unauthorized = reqwest::get(format!("{}/api/v1/artifacts/{id}", daemon.base_url))
+    let unauthorized = reqwest::get(format!("{}/api/v1/files/{id}", daemon.base_url))
         .await
         .unwrap();
     assert_eq!(unauthorized.status(), 401);
 
-    // An unknown artifact is a JSON 404.
+    // An unknown file is a JSON 404.
     let missing = reqwest::Client::new()
-        .get(format!("{}/api/v1/artifacts/01UNKNOWN", daemon.base_url))
+        .get(format!("{}/api/v1/files/01UNKNOWN", daemon.base_url))
         .header("cookie", daemon.cookie())
         .send()
         .await
@@ -123,7 +123,7 @@ async fn upload_stores_and_serves_bytes_through_the_daemon() {
     assert_eq!(missing.status(), 404);
 }
 
-/// Upload one file and download it again by its Artifact URL.
+/// Upload one file and download it again by its File URL.
 async fn round_trip(
     daemon: &TestDaemon,
     filename: &str,
@@ -137,7 +137,7 @@ async fn round_trip(
         .unwrap();
     let download = reqwest::Client::new()
         .get(format!(
-            "{}/api/v1/artifacts/{}",
+            "{}/api/v1/files/{}",
             daemon.base_url,
             dto["id"].as_str().unwrap()
         ))
@@ -162,7 +162,7 @@ fn header<'a>(response: &'a reqwest::Response, name: &str) -> &'a str {
 /// or an SVG image with a script, comes back as bytes to save and
 /// never as a page at the Product App origin.
 #[tokio::test]
-async fn an_active_artifact_downloads_as_inert_bytes() {
+async fn an_active_file_downloads_as_inert_bytes() {
     let daemon = TestDaemon::start().await;
 
     for (filename, mime, bytes) in [
@@ -203,7 +203,7 @@ async fn an_active_artifact_downloads_as_inert_bytes() {
 /// A passive image, audio, video or plain-text file keeps its type and
 /// shows inline, under the same two headers.
 #[tokio::test]
-async fn a_passive_artifact_keeps_its_type_inline() {
+async fn a_passive_file_keeps_its_type_inline() {
     let daemon = TestDaemon::start().await;
 
     for (filename, mime) in [
@@ -247,7 +247,7 @@ async fn the_served_type_is_the_allowlisted_one() {
 }
 
 #[tokio::test]
-async fn duplicate_content_dedups_to_the_original_artifact() {
+async fn duplicate_content_dedups_to_the_original_file() {
     let daemon = TestDaemon::start().await;
 
     let first = upload(&daemon, "shot.png", "image/png", b"same-bytes".to_vec()).await;
@@ -265,7 +265,7 @@ async fn duplicate_content_dedups_to_the_original_artifact() {
 #[tokio::test]
 async fn oversize_upload_is_payload_too_large() {
     let daemon = TestDaemon::start_with(TestDaemonOptions {
-        artifact_max_bytes: 1024,
+        file_max_bytes: 1024,
         ..TestDaemonOptions::default()
     })
     .await;
@@ -288,15 +288,14 @@ async fn an_image_attachment_reaches_the_model_as_an_image_part() {
         .json()
         .await
         .unwrap();
-    let artifact_id = dto["id"].as_str().unwrap();
+    let file_id = dto["id"].as_str().unwrap();
 
-    let sent =
-        send_with_artifacts(&daemon, "p1", "What is in this screenshot?", &[artifact_id]).await;
+    let sent = send_with_files(&daemon, "p1", "What is in this screenshot?", &[file_id]).await;
     assert_eq!(sent.status(), 201);
     let message: serde_json::Value = sent.json().await.unwrap();
     assert_eq!(message["blocks"][0]["type"], "markdown");
     assert_eq!(message["blocks"][1]["type"], "image");
-    assert_eq!(message["blocks"][1]["artifact_id"], artifact_id);
+    assert_eq!(message["blocks"][1]["file_id"], file_id);
 
     let reply = wait_for_agent_reply(&daemon).await;
     assert_eq!(reply["text_content"], "A red square.");
@@ -328,9 +327,9 @@ async fn a_non_image_file_is_referenced_but_not_fed() {
         .json()
         .await
         .unwrap();
-    let artifact_id = dto["id"].as_str().unwrap();
+    let file_id = dto["id"].as_str().unwrap();
 
-    let sent = send_with_artifacts(&daemon, "p1", "Keep this file.", &[artifact_id]).await;
+    let sent = send_with_files(&daemon, "p1", "Keep this file.", &[file_id]).await;
     assert_eq!(sent.status(), 201);
     let message: serde_json::Value = sent.json().await.unwrap();
     assert_eq!(message["blocks"][1]["type"], "file");
@@ -354,10 +353,10 @@ async fn a_non_image_file_is_referenced_but_not_fed() {
 }
 
 #[tokio::test]
-async fn send_with_an_unknown_artifact_is_rejected() {
+async fn send_with_an_unknown_file_is_rejected() {
     let daemon = TestDaemon::start().await;
 
-    let response = send_with_artifacts(&daemon, "p1", "look", &["01NOSUCHARTIFACT"]).await;
+    let response = send_with_files(&daemon, "p1", "look", &["01NOSUCHFILE"]).await;
 
     assert_eq!(response.status(), 422);
     let body: serde_json::Value = response.json().await.unwrap();
