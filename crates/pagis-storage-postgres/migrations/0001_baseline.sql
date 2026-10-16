@@ -775,6 +775,7 @@ CREATE TABLE address_ledger (
 );
 CREATE TABLE workspace_mailboxes (
     author TEXT COLLATE "C" NOT NULL,
+    visibility TEXT COLLATE "C" NOT NULL DEFAULT 'all_mail' CHECK (visibility IN ('agent_only', 'escalations', 'all_mail')),
     workspace_id TEXT COLLATE "C" PRIMARY KEY REFERENCES workspaces (id),
     connection_id TEXT COLLATE "C" NOT NULL,
     address TEXT COLLATE "C" NOT NULL UNIQUE,
@@ -1763,3 +1764,10 @@ CREATE TABLE agent_versions (
     FOREIGN KEY (workspace_id, agent_id) REFERENCES agents(workspace_id, id)
 );
 CREATE INDEX idx_agent_versions_agent ON agent_versions(workspace_id, agent_id, version DESC);
+
+CREATE TABLE workspace_mail_escalations (
+    workspace_id TEXT COLLATE "C" NOT NULL REFERENCES workspace_mailboxes (workspace_id) ON DELETE CASCADE,
+    message_id TEXT COLLATE "C" NOT NULL,
+    agent_id TEXT COLLATE "C" NOT NULL,
+    PRIMARY KEY (workspace_id, message_id)
+);

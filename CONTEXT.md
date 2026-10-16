@@ -461,20 +461,21 @@ Not built: conversion to a Shared Workspace on departure (ADR-0039).
 ### Reader
 The role of a Person in a Shared Workspace who reads within its
 visibility level. A Reader cannot send or decide Requests (ADR-0039).
-Not built: Shared Workspace visibility levels.
 
 ### Responder
 The role of a Person in a Shared Workspace who reads within its
 visibility level, sends as the Shared Workspace and decides its
 Requests. A Responder does not manage its
 People, roles or Agents (ADR-0039).
-Not built: Shared Workspace visibility levels.
 
 ### Search
 The Product App query across every Workspace the Person can read and each
 conversation whose participants include their Private Workspace. Search
 sends the query to each Workspace. Each Workspace checks access to its
 Channel messages, memory files, Calendar Events and Workspace Mailbox mail.
+Mailbox searches apply Mail Visibility and record the Person in the Org
+Audit Log. At Escalations, Search omits mail unless the request has a stated
+reason. The Mail place has the reason prompt.
 Memory Search applies its read and Forget rules. Conversations use their
 participation check. Results merge newest first and name their Workspace.
 A Workspace that fails or exceeds the three-second time limit appears in
@@ -1618,10 +1619,15 @@ Person's mail Connections under a Grant (ADR-0019, ADR-0040).
 ### Mail Visibility
 The ordered human read levels for a Shared Workspace Mailbox: Agent only,
 Escalations and All mail. The product calls Agent only **Sprite only**.
-Shared Workspace Limits set the highest level a Manager can select. The
-level type and limit check are built.
-Not built: the selected mailbox level and enforcement on human reads
-(ADR-0040, ADR-0047).
+A Manager selects the level on the Workspace
+Mailbox. Shared Workspace Limits set the highest level. Each human read
+uses the lower of the selected level and the current limit. All mail
+permits every message. Escalations permits only messages an Agent marks
+as Needs you. Agent only hides all messages and keeps mailbox settings
+visible. A search at Escalations needs a stated reason and returns only
+escalated messages. Each message, thread, attachment and search read writes
+an Org Audit Log entry with its Person and Workspace. A Manager reads the
+mail entries of that Workspace. Agents use their Grants (ADR-0040, ADR-0047).
 
 ### Mailbox Provider
 The Installation Connection through which Agent Mailboxes and Workspace
@@ -1711,8 +1717,12 @@ Allow Rules cover every recipient. An Agent replies from its own Agent
 Mailbox with the Workspace Mailbox in Cc by default and keeps the original
 thread. In a Private Workspace that address is the Person's mailbox; in
 a Shared Workspace it is the team mailbox.
-Not built: Junk handling, Agent triage, Needs you items,
-Shared Workspace visibility, assignments and saved drafts.
+A Shared Workspace Mailbox uses Mail Visibility. A Responder or Manager
+sends as it, and the send records its Person author in the Org Audit Log.
+An Agent with a live Grant marks a message as Needs you through its
+escalation tool. The escalation keeps the Agent author and the message
+identity across folder moves.
+Not built: Junk handling, automatic Agent triage, assignments and saved drafts.
 
 ### Workspace Mailbox Grant
 The Grant that gives one active Agent access to its Workspace Mailbox.

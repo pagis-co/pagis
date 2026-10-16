@@ -3356,6 +3356,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspace/mail/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_workspace_mail_audit"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspace/mail/folders": {
         parameters: {
             query?: never;
@@ -3574,6 +3590,22 @@ export interface paths {
         get: operations["get_workspace_mailbox"];
         put?: never;
         post: operations["create_workspace_mailbox"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspace/mailbox/visibility": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["set_workspace_mail_visibility"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -7234,6 +7266,9 @@ export interface components {
             /** @description 6 to 8 digits. It is hashed at once and never read back. */
             code: string;
         };
+        SetMailVisibility: {
+            visibility: components["schemas"]["MailVisibility"];
+        };
         /** @description Turn Model Request Capture on or off, and set its retention. */
         SetModelRequestCaptureRequest: {
             enabled: boolean;
@@ -8146,7 +8181,10 @@ export interface components {
             connection_id: string;
             /** Format: int64 */
             created_at: number;
+            effective_visibility: components["schemas"]["MailVisibility"];
+            max_visibility: components["schemas"]["MailVisibility"];
             spam_mode: string;
+            visibility: components["schemas"]["MailVisibility"];
             workspace_id: string;
         };
         WorkspaceMailboxPage: {
@@ -14427,6 +14465,7 @@ export interface operations {
         parameters: {
             query: {
                 q: string;
+                reason?: string | null;
                 limit?: number | null;
             };
             header?: never;
@@ -17107,6 +17146,36 @@ export interface operations {
             };
         };
     };
+    list_workspace_mail_audit: {
+        parameters: {
+            query?: {
+                offset?: number | null;
+                limit?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditPage"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     list_workspace_mail_folders: {
         parameters: {
             query?: never;
@@ -17306,6 +17375,7 @@ export interface operations {
             query?: {
                 folder?: string | null;
                 q?: string | null;
+                reason?: string | null;
                 cursor?: string | null;
             };
             header?: never;
@@ -17920,6 +17990,45 @@ export interface operations {
                 };
             };
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    set_workspace_mail_visibility: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetMailVisibility"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceMailboxDto"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

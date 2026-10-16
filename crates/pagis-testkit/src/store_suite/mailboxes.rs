@@ -446,10 +446,11 @@ pub async fn workspace_mailbox_record_and_ledger(backend: &Backend) {
     let (ws, agent, _) = seed(backend).await;
     let store = &backend.stores().workspace_mailboxes;
     let record = pagis_core::WorkspaceMailbox {
-        author: pagis_core::Author::System,
+        author: pagis_core::Author::Person(pagis_core::UserId::generate()),
         workspace_id: ws.id.clone(),
         connection_id: ConnectionId::generate(),
         address: "person@example.com".into(),
+        visibility: pagis_core::MailVisibility::Escalations,
         spam_mode: pagis_core::MailScoringMode::ScoreOnly,
         outgoing_cap: 20,
         created_at: now_ms(),
@@ -457,6 +458,42 @@ pub async fn workspace_mailbox_record_and_ledger(backend: &Backend) {
     assert!(store.get(&ws.id).await.unwrap().is_none());
     store.create(&record).await.unwrap();
     assert_eq!(store.get(&ws.id).await.unwrap(), Some(record.clone()));
+    for level in [
+        pagis_core::MailVisibility::AgentOnly,
+        pagis_core::MailVisibility::Escalations,
+        pagis_core::MailVisibility::AllMail,
+    ] {
+        store.set_visibility(&ws.id, level).await.unwrap();
+        let stored = store.get(&ws.id).await.unwrap().unwrap();
+        assert_eq!(stored.visibility, level);
+        assert_eq!(stored.author, record.author);
+    }
+    assert!(
+        !store
+            .is_escalated(&ws.id, "<mail@example.com>")
+            .await
+            .unwrap()
+    );
+    store
+        .escalate(&ws.id, "<mail@example.com>", &agent.id)
+        .await
+        .unwrap();
+    store
+        .escalate(&ws.id, "<mail@example.com>", &agent.id)
+        .await
+        .unwrap();
+    assert!(
+        store
+            .is_escalated(&ws.id, "<mail@example.com>")
+            .await
+            .unwrap()
+    );
+    assert!(
+        !store
+            .is_escalated(&WorkspaceId::generate(), "<mail@example.com>")
+            .await
+            .unwrap()
+    );
     for _ in 0..20 {
         assert!(store.reserve_send(&ws.id, 1).await.unwrap());
     }

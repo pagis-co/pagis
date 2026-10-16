@@ -105,6 +105,8 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         workspace_mail::label_workspace_mail,
         workspace_mail::unlabel_workspace_mail,
         workspace_mail::download_workspace_mail_attachment,
+        workspace_mail::set_workspace_mail_visibility,
+        workspace_mail::list_workspace_mail_audit,
         workspace_mail::get_workspace_mailbox,
         workspace_mail::create_workspace_mailbox,
         workspace_mail::list_workspace_mail_folders,

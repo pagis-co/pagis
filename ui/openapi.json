@@ -8721,6 +8721,17 @@
             }
           },
           {
+            "name": "reason",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
             "name": "limit",
             "in": "query",
             "required": false,
@@ -12138,6 +12149,65 @@
         "x-workspace-role": "manager"
       }
     },
+    "/api/v1/workspace/mail/audit": {
+      "get": {
+        "tags": [
+          "workspace_mail"
+        ],
+        "operationId": "list_workspace_mail_audit",
+        "parameters": [
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditPage"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "x-workspace-role": "manager"
+      }
+    },
     "/api/v1/workspace/mail/folders": {
       "get": {
         "tags": [
@@ -12397,6 +12467,17 @@
           },
           {
             "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "reason",
             "in": "query",
             "required": false,
             "schema": {
@@ -13249,6 +13330,57 @@
             }
           },
           "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "x-workspace-role": "manager"
+      }
+    },
+    "/api/v1/workspace/mailbox/visibility": {
+      "put": {
+        "tags": [
+          "workspace_mail"
+        ],
+        "operationId": "set_workspace_mail_visibility",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetMailVisibility"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceMailboxDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
             "description": "",
             "content": {
               "application/json": {
@@ -23426,6 +23558,17 @@
           }
         }
       },
+      "SetMailVisibility": {
+        "type": "object",
+        "required": [
+          "visibility"
+        ],
+        "properties": {
+          "visibility": {
+            "$ref": "#/components/schemas/MailVisibility"
+          }
+        }
+      },
       "SetModelRequestCaptureRequest": {
         "type": "object",
         "description": "Turn Model Request Capture on or off, and set its retention.",
@@ -26047,6 +26190,9 @@
       "WorkspaceMailboxDto": {
         "type": "object",
         "required": [
+          "visibility",
+          "effective_visibility",
+          "max_visibility",
           "spam_mode",
           "workspace_id",
           "connection_id",
@@ -26064,8 +26210,17 @@
             "type": "integer",
             "format": "int64"
           },
+          "effective_visibility": {
+            "$ref": "#/components/schemas/MailVisibility"
+          },
+          "max_visibility": {
+            "$ref": "#/components/schemas/MailVisibility"
+          },
           "spam_mode": {
             "type": "string"
+          },
+          "visibility": {
+            "$ref": "#/components/schemas/MailVisibility"
           },
           "workspace_id": {
             "type": "string"

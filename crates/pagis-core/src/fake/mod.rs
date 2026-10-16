@@ -320,6 +320,7 @@ struct Data {
     versions: Vec<crate::AgentVersion>,
     workspace_mail_sends: BTreeMap<WorkspaceId, (i64, u32)>,
     mail_assessments: BTreeMap<(WorkspaceId, String, String), crate::MailAssessment>,
+    workspace_mail_escalations: BTreeMap<(WorkspaceId, String), AgentId>,
     workspace_mailboxes: BTreeMap<WorkspaceId, crate::WorkspaceMailbox>,
     agents: Table<AgentId, Agent>,
     model_aliases: Table<String, ModelAlias>,

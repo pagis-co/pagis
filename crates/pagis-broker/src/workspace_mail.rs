@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum WorkspaceMailTool {
+    Escalate,
     Search,
     GetMessage,
     GetThread,
@@ -54,6 +55,13 @@ pub fn workspace_mail_manifest() -> CapabilityManifest {
         namespace: "workspace_mail".into(),
         source_version: env!("CARGO_PKG_VERSION").into(),
         tools: vec![
+            tool(
+                WorkspaceMailTool::Escalate,
+                "workspace_mail_escalate",
+                "Mark a Workspace Mailbox message as Needs you. This permits human reads at Escalations.",
+                serde_json::json!({"message_id":{"type":"string","minLength":1}}),
+                vec!["message_id"],
+            ),
             tool(
                 WorkspaceMailTool::Search,
                 "workspace_mail_search",

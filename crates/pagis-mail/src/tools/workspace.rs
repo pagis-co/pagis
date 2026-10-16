@@ -104,6 +104,23 @@ impl MailToolRuntime {
     ) -> Result<serde_json::Value, ToolResult> {
         use pagis_broker::WorkspaceMailTool;
         match tool {
+            WorkspaceMailTool::Escalate => {
+                let message = store
+                    .message(&MessageId::new(text(&call.arguments, "message_id")))
+                    .await
+                    .map_err(transport_error)?;
+                self.deps
+                    .workspace
+                    .workspace_mailbox_records()
+                    .escalate(
+                        &call.workspace_id,
+                        message.message.summary.assessment_key(),
+                        &call.agent_id,
+                    )
+                    .await
+                    .map_err(|e| workspace_error(MailboxError::Store(e)))?;
+                Ok(serde_json::json!({"outcome":"needs_you"}))
+            }
             WorkspaceMailTool::Search => {
                 let page = store
                     .messages(

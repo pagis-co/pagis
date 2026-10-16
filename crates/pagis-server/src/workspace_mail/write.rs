@@ -75,10 +75,8 @@ async fn prepare(
     id: &str,
     action: &str,
 ) -> Result<OutgoingMessage, ApiError> {
-    let original = store
-        .message(&MessageId::new(id))
-        .await
-        .map_err(read_error)?
+    let original = super::read_message(state, tenant, store, id, "mail.composer.read")
+        .await?
         .message;
     let mailbox = state
         .mailbox_desk
@@ -152,6 +150,13 @@ async fn send(
             .send_workspace(&tenant.workspace_id, store.as_mut(), &mail)
             .await
             .map_err(mailbox_error)?;
+        super::audit_read(
+            state,
+            tenant,
+            "mail.sent",
+            serde_json::json!({"message_id":sent.message_id}),
+        )
+        .await?;
         Ok((
             StatusCode::CREATED,
             Json(SentMailDto {
@@ -294,9 +299,16 @@ pub async fn download_workspace_mail_attachment(
     Path((id, index)): Path<(String, usize)>,
 ) -> Result<Response, ApiError> {
     let mut store = open(&state, &tenant).await?;
-    let result = store.attachment(&MessageId::new(id), index).await;
+    let result = async {
+        super::read_message(&state, &tenant, store.as_mut(), &id, "mail.attachment.read").await?;
+        store
+            .attachment(&MessageId::new(id), index)
+            .await
+            .map_err(read_error)
+    }
+    .await;
     let _ = store.close().await;
-    let file = result.map_err(read_error)?;
+    let file = result?;
     Ok((
         crate::served_file::headers(&file.content_type, Some(&file.name)),
         file.data,

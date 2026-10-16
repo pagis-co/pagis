@@ -9,12 +9,30 @@ pub struct WorkspaceMailbox {
     pub connection_id: ConnectionId,
     pub address: String,
     pub outgoing_cap: u32,
+    pub visibility: crate::MailVisibility,
     pub spam_mode: MailScoringMode,
     pub created_at: UnixMillis,
 }
 
 #[async_trait]
 pub trait WorkspaceMailboxRecordStore: Send + Sync {
+    async fn set_visibility(
+        &self,
+        workspace: &WorkspaceId,
+        visibility: crate::MailVisibility,
+    ) -> Result<(), StoreError>;
+    /// Record an Agent escalation by the stable Message-ID header or host id.
+    async fn escalate(
+        &self,
+        workspace: &WorkspaceId,
+        message: &str,
+        agent: &crate::AgentId,
+    ) -> Result<(), StoreError>;
+    async fn is_escalated(
+        &self,
+        workspace: &WorkspaceId,
+        message: &str,
+    ) -> Result<bool, StoreError>;
     /// Reserve one daily send before SMTP. Concurrent sends share the cap.
     async fn reserve_send(&self, workspace: &WorkspaceId, day: i64) -> Result<bool, StoreError>;
     /// Return the allowance when SMTP refuses a send.

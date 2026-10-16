@@ -51,8 +51,10 @@ Connection Grants through those live reads. Lowering limits does not delete
 Grants. Removing a restriction permits the existing Grants again.
 
 Mail Visibility is ordered: Agent only, Escalations, All mail. The shared
-limit check refuses a selected level above the highest level. Not built:
-the selected level on a Workspace Mailbox and human read enforcement.
+limit check refuses a selected level above the highest level. A Manager
+stores the selected level on the Workspace Mailbox. Each human read uses
+the lower of the stored level and the current limit. A lower limit takes
+effect without a change to the stored level (ADR-0040).
 
 ## Consequences
 

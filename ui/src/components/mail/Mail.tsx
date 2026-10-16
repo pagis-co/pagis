@@ -11,7 +11,7 @@ import {
   useWorkspaceMailMessages,
   workspaceMailMessagesKey,
 } from '../../queries'
-import { useCurrentWorkspaceId } from '../../workspace'
+import { useCurrentWorkspaceId, useWorkspaceAccess } from '../../workspace'
 import { MessageList } from './MessageList'
 import { MailThread } from './MailThread'
 import { Composer } from './Composer'
@@ -32,19 +32,22 @@ export function Mail({
   const phone = useIsMobile()
   const navigate = useNavigate()
   const mailbox = useWorkspaceMailbox(api)
+  const { canRespond } = useWorkspaceAccess()
+  const visibility = mailbox.data?.mailbox?.effective_visibility
+  const hidden = visibility === 'agent_only'
   const [messageId, setMessageId] = useState<string | null>(null)
   const [composing, setComposing] = useState(false)
   const [view, setView] = useState<'needs-you' | 'all'>('needs-you')
   const reading = phone && messageId !== null && view === 'all'
 
-  if (searched) return <MailThread api={api} messageId={searched} onBack={() => onCloseMessage?.()} />
+  if (searched && !hidden) return <MailThread api={api} messageId={searched} onBack={() => onCloseMessage?.()} />
 
   return (
     <section className={`mail-place${phone ? ' mail-phone' : ''}`}>
       {phone && !reading && (
         <NavBar
           back={{ label: 'You', onBack: () => void navigate({ to: '/you' }) }}
-          actions={mailbox.data?.mailbox && (
+          actions={mailbox.data?.mailbox && canRespond && (
             <Button variant="link" onClick={() => setComposing(true)}>Compose</Button>
           )}
         />
@@ -55,6 +58,7 @@ export function Mail({
           {mailbox.data?.mailbox && <p>{mailbox.data.mailbox.address}</p>}
         </header>
       )}
+      {composing && canRespond && <Composer api={api} onClose={() => setComposing(false)} />}
       {mailbox.isError ? (
         <p role="alert">Could not load the Workspace Mailbox.</p>
       ) : !mailbox.data ? (
@@ -66,11 +70,17 @@ export function Mail({
             Set up your Workspace Mailbox
           </Link>
         </div>
+      ) : hidden ? (
+        <>
+          {!phone && canRespond && <Button onClick={() => setComposing(true)}>Compose</Button>}
+          <p>Sprites work this mailbox. Mail is hidden.</p>
+          <Link to="/settings/$section" params={{ section: 'mailbox' }}>Workspace Mailbox settings</Link>
+        </>
       ) : (
         <>
           {!reading && (
             <nav className="mail-views" aria-label="Mail views">
-              {!phone && <Button onClick={() => setComposing(true)}>Compose</Button>}
+              {!phone && canRespond && <Button onClick={() => setComposing(true)}>Compose</Button>}
               <Button
                 aria-pressed={view === 'needs-you'}
                 onClick={() => {
@@ -84,17 +94,14 @@ export function Mail({
                 aria-pressed={view === 'all'}
                 onClick={() => setView('all')}
               >
-                All mail
+                {visibility === 'escalations' ? 'Escalations' : 'All mail'}
               </Button>
             </nav>
-          )}
-          {composing && (
-            <Composer api={api} onClose={() => setComposing(false)} />
           )}
           {view === 'needs-you' ? (
             <p className="mail-empty">No mail needs you.</p>
           ) : (
-            <AllMail api={api} messageId={messageId} onOpen={setMessageId} />
+            <AllMail api={api} messageId={messageId} onOpen={setMessageId} needsReason={visibility === 'escalations'} />
           )}
         </>
       )}
@@ -106,20 +113,26 @@ function AllMail({
   api,
   messageId,
   onOpen,
+  needsReason,
 }: {
   api: ApiClient
   messageId: string | null
   onOpen: (id: string | null) => void
+  needsReason: boolean
 }) {
   const workspaceId = useCurrentWorkspaceId()
+  const { canManage } = useWorkspaceAccess()
   const client = useQueryClient()
   const phone = useIsMobile()
   const [managingFolders, setManagingFolders] = useState(false)
   const [folder, setFolder] = useState('')
   const [q, setQ] = useState('')
+  const [draftQuery, setDraftQuery] = useState('')
+  const [reason, setReason] = useState('')
+  const [searchReason, setSearchReason] = useState('')
   const [cursor, setCursor] = useState<string>()
   const folders = useWorkspaceMailFolders(api)
-  const messages = useWorkspaceMailMessages(api, { folder, q, cursor })
+  const messages = useWorkspaceMailMessages(api, { folder, q, cursor, ...(needsReason && q ? { reason: searchReason } : {}) })
 
   function backToMail() {
     onOpen(null)
@@ -137,14 +150,34 @@ function AllMail({
               Search mail
               <Input
                 type="search"
-                value={q}
+                value={needsReason ? draftQuery : q}
                 onChange={(event) => {
-                  setQ(event.target.value)
+                  if (needsReason) {
+                    setDraftQuery(event.target.value)
+                    if (!event.target.value) setQ('')
+                  } else setQ(event.target.value)
                   setCursor(undefined)
                   onOpen(null)
                 }}
               />
             </label>
+            {needsReason && (
+              <>
+                <label>
+                  Search reason
+                  <Input value={reason} onChange={(event) => setReason(event.target.value)} />
+                </label>
+                <Button
+                  disabled={!reason.trim() || !draftQuery.trim()}
+                  onClick={() => {
+                    setSearchReason(reason.trim())
+                    setQ(draftQuery)
+                    setCursor(undefined)
+                    onOpen(null)
+                  }}
+                >Search</Button>
+              </>
+            )}
             <Select
               label="Folder"
               value={folder ? `folder:${folder}` : 'all'}
@@ -162,7 +195,7 @@ function AllMail({
               ]}
             />
           </div>
-          {phone ? (
+          {canManage && (phone ? (
             <>
               <Button onClick={() => setManagingFolders(true)}>Folders</Button>
               <Sheet open={managingFolders} onOpenChange={setManagingFolders} title="Folders">
@@ -171,7 +204,7 @@ function AllMail({
                 </div>
               </Sheet>
             </>
-          ) : <FolderManager api={api} folders={folders.data?.items ?? []} />}
+          ) : <FolderManager api={api} folders={folders.data?.items ?? []} />)}
           {folders.isError && <p role="alert">Could not load mail folders.</p>}
         </>
       )}

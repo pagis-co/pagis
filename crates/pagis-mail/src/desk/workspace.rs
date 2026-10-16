@@ -135,6 +135,7 @@ impl MailboxDesk {
             workspace_id: workspace.clone(),
             connection_id: connection.id.clone(),
             address,
+            visibility: pagis_core::MailVisibility::AllMail,
             spam_mode: pagis_core::MailScoringMode::ScoreOnly,
             outgoing_cap,
             created_at: now_ms(),

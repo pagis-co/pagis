@@ -54,6 +54,8 @@ impl Route {
         use pagis_core::WorkspaceRole::{Manager, Reader, Responder};
         if !self.shared || !self.methods.contains(&method) {
             None
+        } else if self.path == "/api/v1/workspace/mail/audit" {
+            Some(Manager)
         } else if method == "get" {
             Some(Reader)
         } else if RESPONDER_WRITES.contains(&(self.path, method)) {
@@ -668,6 +670,20 @@ pub const ROUTES: &[Route] = &[
         shared: true,
         path: "/api/v1/workspaces/{workspace_id}/members/{person_id}",
         methods: &["delete", "patch"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
+        shared: true,
+        path: "/api/v1/workspace/mailbox/visibility",
+        methods: &["put"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
+        shared: true,
+        path: "/api/v1/workspace/mail/audit",
+        methods: &["get"],
         authenticated: true,
         part: None,
     },
