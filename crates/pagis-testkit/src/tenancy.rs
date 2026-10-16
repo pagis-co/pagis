@@ -31,7 +31,6 @@ use pagis_telephony::fake::{FakeCallTransport, RemoteParty, TokioClock};
 use pagis_telephony::hub::MediaHub;
 use pagis_telephony::{
     CallArguments, CallBrief, CallLog, CallTransport, PlacedCall, SipCredential, TierGate,
-    VoicemailPolicy,
 };
 
 use crate::TestDaemon;
@@ -964,11 +963,7 @@ async fn make_live(daemon: &TestDaemon, call: &Call, number: &PhoneNumber) -> Ar
         .expect("A's Agent");
     let arguments = CallArguments {
         to: call.remote_e164.clone(),
-        brief: call.purpose.clone(),
-        success_criteria: "The room is booked".to_string(),
-        voicemail: VoicemailPolicy::default(),
-        max_duration_s: None,
-        tools: None,
+        purpose: call.purpose.clone(),
     };
     let placed = PlacedCall {
         id: call.id.clone(),

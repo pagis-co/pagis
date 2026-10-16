@@ -32,10 +32,10 @@ pub struct GrantDto {
     pub agent_id: String,
     /// Denormalized so the settings page renders standalone.
     pub agent_name: String,
-    /// `host`, `credential`, or `connection`.
+    /// The resource kind, including `workspace_number`.
     pub resource_kind: String,
-    /// What the grant reaches: the Connection, the Plugin, or the machine
-    /// of a host grant. A credential grant names none.
+    /// The Connection, Plugin, Host or Workspace Number the Grant reaches.
+    /// A credential Grant names none.
     pub resource_id: Option<String>,
     /// The allow rules — command prefixes on a host grant, registrable
     /// domains on a credential grant. Empty is per-action mode.
@@ -76,6 +76,14 @@ pub struct CreateConnectionGrantRequest {
     pub agent_id: String,
     pub connection_id: String,
     pub capabilities: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(not(feature = "native"), allow(dead_code))]
+pub struct CreateWorkspaceNumberGrantRequest {
+    pub agent_id: String,
+    pub number_id: String,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -259,6 +267,62 @@ pub async fn create_connection_grant(
 }
 
 #[utoipa::path(
+    post,
+    path = "/api/v1/grants/workspace-number",
+    request_body = CreateWorkspaceNumberGrantRequest,
+    responses(
+        (status = 201, body = GrantDto),
+        (status = 401, body = crate::error::ErrorBody),
+        (status = 404, body = crate::error::ErrorBody),
+        (status = 409, body = crate::error::ErrorBody),
+        (status = 422, body = crate::error::ErrorBody),
+    )
+)]
+#[cfg(feature = "native")]
+pub async fn create_workspace_number_grant(
+    State(state): State<Arc<AppState>>,
+    tenant: Tenant,
+    Json(request): Json<CreateWorkspaceNumberGrantRequest>,
+) -> Result<(StatusCode, Json<GrantDto>), ApiError> {
+    let agent = state
+        .agent_store
+        .get(&tenant.workspace_id, &AgentId::from(request.agent_id))
+        .await?
+        .filter(|agent| agent.status == pagis_core::AgentStatus::Active)
+        .ok_or_else(|| ApiError::not_found("agent"))?;
+    let number = state
+        .native
+        .numbers
+        .list(&tenant.workspace_id)
+        .await
+        .map_err(crate::phone_numbers::number_error)?
+        .into_iter()
+        .find(|number| {
+            number.id.as_str() == request.number_id
+                && number.status == pagis_core::PhoneNumberStatus::Active
+        })
+        .ok_or_else(|| ApiError::not_found("Workspace Number"))?;
+    let grant = Grant {
+        id: GrantId::generate(),
+        workspace_id: tenant.workspace_id.clone(),
+        agent_id: agent.id,
+        resource_kind: Grant::WORKSPACE_NUMBER_KIND.into(),
+        resource_id: Some(number.id.to_string()),
+        scope: serde_json::json!({}),
+        revision: 1,
+        created_by: pagis_core::Author::Person(tenant.user_id),
+        created_at: now_ms(),
+        revoked_at: None,
+    };
+    state.grants.create(&grant).await?;
+    publish_grant_event(&state, &grant, "grant.created").await?;
+    Ok((
+        StatusCode::CREATED,
+        Json(grant_dto(&state, &grant, &agent.name).await?),
+    ))
+}
+
+#[utoipa::path(
     put,
     path = "/api/v1/grants/{grant_id}/capabilities",
     params(("grant_id" = String, Path,)),
@@ -354,7 +418,9 @@ pub async fn set_grant_rules(
     if grant.revoked_at.is_some() {
         return Err(ApiError::conflict("grant is revoked"));
     }
-    if grant.resource_kind == Grant::CONNECTION_KIND {
+    if [Grant::CONNECTION_KIND, Grant::WORKSPACE_NUMBER_KIND]
+        .contains(&grant.resource_kind.as_str())
+    {
         return Err(ApiError::validation(
             "only host and credential grants have allow rules",
         ));

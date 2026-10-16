@@ -1387,18 +1387,20 @@ _Avoid_: yolo mode, bypass mode
 
 ### Call
 One telephone conversation between an Agent and a Remote Party. An inbound
-Call to the Workspace Number reaches the Chief of Staff. It can hand the
-Call to another active Agent of the same Workspace. The Call record names
+Call to the Workspace Number reaches the Chief of Staff, or the active
+Agent of the latest outbound Call to that caller within seven days. The
+Chief of Staff can hand the Call to another active Agent of the same Workspace. The Call record names
 the current Agent and its Run, the direction, Remote Party, Trust Tier,
 times, outcome, ended reason, recording and transcript. The Remote Party
 stays connected during hand-off (ADR-0020, ADR-0041).
-Not built: outbound Calls from the Workspace Number under a Grant.
+An Agent with a live Workspace Number Grant places an outbound Call with
+`phone_call`. The tool takes the Remote Party's E.164 number and the purpose.
 
 ### Call Brief
 What one Call is for and the tools it may use. The daemon supplies the
 Agent name, Person name, personality and fixed honesty rule. The first
-sentence names the Agent and the Person. An inbound Call reads the Chief
-of Staff's Standing Brief. A hand-off uses the target Agent's Standing
+sentence names the Agent and the Person. An inbound Call reads the
+answering Agent's Standing Brief. A hand-off uses the target Agent's Standing
 Brief and voice. With no Standing Brief, the Agent takes a message
 (ADR-0020, ADR-0041).
 
@@ -1471,8 +1473,12 @@ same Workspace. Text Conversations and Text Records belong to the number.
 Inbound texts wake the Chief of Staff with the sender's Trust Tier and the
 words inside the untrusted envelope. The number is unique across the
 installation (ADR-0041). The number never reaches emergency services.
-Not built: outbound Calls and outbound texts from the Workspace Number,
-number Grants and routing a callback to the Agent that called.
+An Agent with a live Workspace Number Grant calls out from this number.
+A callback within seven days reaches the active Agent of the latest outbound
+Call to that caller. Otherwise the Chief of Staff answers. Routing does not
+raise the Trust Tier.
+Not built: outbound texts, default number Grants and the Chief of Staff's
+default Grant.
 
 ## Mail and texting
 

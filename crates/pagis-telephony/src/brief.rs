@@ -15,9 +15,7 @@ use pagis_broker::ToolDef;
 use pagis_core::{Agent, AgentId, CallDirection, PhoneNumber, PhoneNumberId, TrustTier};
 use serde::{Deserialize, Serialize};
 
-/// The workspace cap on one call. It is one workspace setting with
-/// this default (ADR-0020); a per-call `max_duration_s` can shorten it
-/// and never lengthen it.
+/// The duration cap of one Call (ADR-0020).
 pub const DEFAULT_DURATION_CAP: Duration = Duration::from_secs(10 * 60);
 
 /// The source name the transcript's untrusted envelope carries.
@@ -84,21 +82,12 @@ pub enum VoicemailPolicy {
 }
 
 /// The arguments of an outbound transport Call (ADR-0020): the part of the brief
-/// the Agent writes. The broker has already validated the shape and
-/// the E.164 form of `to`.
+/// the Agent writes. The tool checks the E.164 form of `to`.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CallArguments {
     pub to: String,
-    pub brief: String,
-    pub success_criteria: String,
-    #[serde(default)]
-    pub voicemail: VoicemailPolicy,
-    #[serde(default)]
-    pub max_duration_s: Option<u64>,
-    /// The tools the call may use, by name. `None` names every tool
-    /// the Run holds that needs no approval.
-    #[serde(default)]
-    pub tools: Option<Vec<String>>,
+    pub purpose: String,
 }
 
 /// What one Call is for, and under which limits it runs.
@@ -126,8 +115,7 @@ pub struct CallBrief {
     pub success_criteria: Option<String>,
     pub voicemail: VoicemailPolicy,
     pub duration_cap: Duration,
-    /// The tools the call may use: the tools the brief names, made
-    /// smaller by the tools the Run holds that need no approval.
+    /// The tools the Run holds that need no approval.
     pub tools: Vec<ToolDef>,
     pub ivr_mode_prompt: &'static str,
     pub classify_prompt: &'static str,
@@ -164,11 +152,11 @@ impl CallBrief {
             // established by the dialing and the listed tier holds with
             // no further proof (ADR-0021).
             tier,
-            purpose: arguments.brief.clone(),
-            success_criteria: Some(arguments.success_criteria.clone()),
-            voicemail: arguments.voicemail,
-            duration_cap: duration_cap(arguments.max_duration_s),
-            tools: narrow_tools(arguments.tools.as_deref(), free_tools),
+            purpose: arguments.purpose.clone(),
+            success_criteria: None,
+            voicemail: VoicemailPolicy::HangUp,
+            duration_cap: DEFAULT_DURATION_CAP,
+            tools: free_tools,
             ivr_mode_prompt: IVR_MODE_PROMPT,
             classify_prompt: CLASSIFY_PROMPT,
             emergency_rule: EMERGENCY_RULE,
@@ -206,7 +194,7 @@ impl CallBrief {
             success_criteria: None,
             voicemail: VoicemailPolicy::HangUp,
             duration_cap: DEFAULT_DURATION_CAP,
-            tools: narrow_tools(None, free_tools),
+            tools: free_tools,
             ivr_mode_prompt: IVR_MODE_PROMPT,
             classify_prompt: CLASSIFY_PROMPT,
             emergency_rule: EMERGENCY_RULE,
@@ -222,29 +210,6 @@ fn call_voice(agent: &Agent) -> Option<String> {
         .voice
         .clone()
         .filter(|voice| llm_router::OPENAI_VOICES.contains(&voice.as_str()))
-}
-
-/// The cap of one call: the per-call override when it is shorter than
-/// the workspace cap, and the workspace cap otherwise.
-fn duration_cap(max_duration_s: Option<u64>) -> Duration {
-    match max_duration_s {
-        Some(seconds) => Duration::from_secs(seconds).min(DEFAULT_DURATION_CAP),
-        None => DEFAULT_DURATION_CAP,
-    }
-}
-
-/// The tools the brief names, intersected with the tools the Run
-/// holds that need no approval. A brief makes the set smaller and
-/// never larger: a name the Run does not hold is dropped without an
-/// error, because the intersection decides (ADR-0020).
-fn narrow_tools(requested: Option<&[String]>, free_tools: Vec<ToolDef>) -> Vec<ToolDef> {
-    match requested {
-        None => free_tools,
-        Some(names) => free_tools
-            .into_iter()
-            .filter(|tool| names.iter().any(|name| name == &tool.name))
-            .collect(),
-    }
 }
 
 /// The one tool the classify phase binds (ADR-0020). The verdict

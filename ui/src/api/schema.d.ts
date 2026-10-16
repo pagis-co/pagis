@@ -1261,6 +1261,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/grants/workspace-number": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["create_workspace_number_grant"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/grants/{grant_id}": {
         parameters: {
             query?: never;
@@ -4456,6 +4472,10 @@ export interface components {
             name: string;
             root_message_id?: string | null;
         };
+        CreateWorkspaceNumberGrantRequest: {
+            agent_id: string;
+            number_id: string;
+        };
         CreateWorkspaceRequest: {
             manager_id: string;
             name: string;
@@ -4747,11 +4767,11 @@ export interface components {
             created_by: components["schemas"]["AuthorDto"];
             id: string;
             /**
-             * @description What the grant reaches: the Connection, the Plugin, or the machine
-             *     of a host grant. A credential grant names none.
+             * @description The Connection, Plugin, Host or Workspace Number the Grant reaches.
+             *     A credential Grant names none.
              */
             resource_id?: string | null;
-            /** @description `host`, `credential`, or `connection`. */
+            /** @description The resource kind, including `workspace_number`. */
             resource_kind: string;
             /** Format: int64 */
             revision: number;
@@ -11121,6 +11141,61 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["CreateConnectionGrantRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GrantDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    create_workspace_number_grant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateWorkspaceNumberGrantRequest"];
             };
         };
         responses: {

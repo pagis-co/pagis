@@ -131,6 +131,7 @@ impl ActorHost {
             presence: presence.clone(),
         }));
         let broker = Arc::new(Broker::new(BrokerDeps {
+            numbers: self.stores.phone_numbers.clone(),
             run_journal: self.stores.run_journal.clone(),
             forget: self.stores.forget.clone(),
             grants: self.stores.grants.clone(),

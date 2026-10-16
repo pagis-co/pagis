@@ -130,6 +130,10 @@ pub(crate) fn product_routes() -> Router<Arc<AppState>> {
             post(coding_sessions::stop_coding_session),
         )
         .route("/api/v1/calls/{call_id}/control", post(calls::control))
+        .route(
+            "/api/v1/grants/workspace-number",
+            post(grants::create_workspace_number_grant),
+        )
         .route("/api/v1/calls", get(calls::list_calls))
         .route("/api/v1/calls/{call_id}", get(calls::get_call))
         .route("/api/v1/calls/{call_id}/dismiss", post(calls::dismiss_call))

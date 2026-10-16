@@ -86,6 +86,22 @@ fn from_row(row: &sqlx::sqlite::SqliteRow) -> Result<Call, StoreError> {
 
 #[async_trait]
 impl CallStore for SqliteCallStore {
+    async fn latest_outbound_since(
+        &self,
+        workspace_id: &WorkspaceId,
+        number_id: &PhoneNumberId,
+        remote_e164: &str,
+        since: UnixMillis,
+    ) -> Result<Option<Call>, StoreError> {
+        let row = sqlx::query(&format!("SELECT {COLUMNS} FROM calls WHERE workspace_id = ? AND phone_number_id = ? AND remote_e164 = ? AND direction = 'outbound' AND created_at >= ? ORDER BY created_at DESC, id DESC LIMIT 1"))
+            .bind(workspace_id.as_str())
+            .bind(number_id.as_str())
+            .bind(remote_e164)
+            .bind(since)
+            .fetch_optional(&self.pool).await.map_err(db_err)?;
+        row.as_ref().map(from_row).transpose()
+    }
+
     async fn insert(&self, call: &Call) -> Result<(), StoreError> {
         sqlx::query(&format!(
             "INSERT INTO calls ({COLUMNS}) \

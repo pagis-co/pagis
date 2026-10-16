@@ -1437,6 +1437,15 @@ pub trait SentMailStore: Send + Sync {
 /// Run read one source of truth.
 #[async_trait]
 pub trait CallStore: Send + Sync {
+    /// The latest outbound Call from this Workspace Number to this Remote Party,
+    /// at or after `since`. Equal times sort by Call id.
+    async fn latest_outbound_since(
+        &self,
+        workspace_id: &WorkspaceId,
+        number_id: &PhoneNumberId,
+        remote_e164: &str,
+        since: UnixMillis,
+    ) -> Result<Option<Call>, StoreError>;
     async fn insert(&self, call: &Call) -> Result<(), StoreError>;
     /// Write the record again, with the state it has reached. `false`
     /// when no such record exists.

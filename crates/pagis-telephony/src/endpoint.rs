@@ -108,6 +108,8 @@ impl RegistrationState {
 /// tool result and the tests.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum CallError {
+    #[error("emergency numbers are refused")]
+    EmergencyRefused,
     /// The number is on a call.
     #[error("the number is on a call")]
     Busy,
@@ -127,6 +129,7 @@ pub enum CallError {
 impl CallError {
     pub fn as_str(self) -> &'static str {
         match self {
+            CallError::EmergencyRefused => "emergency_number_refused",
             CallError::Busy => "busy",
             CallError::Unregistered => "unregistered",
             CallError::Transport(_) => "transport",
@@ -316,6 +319,7 @@ async fn dial_on(
     number: &PhoneNumber,
     to_e164: &str,
 ) -> Result<Arc<MediaHub>, CallError> {
+    crate::emergency::check_dial(to_e164, &number.e164).map_err(|_| CallError::EmergencyRefused)?;
     let (reply, answer) = oneshot::channel();
     commands
         .send(Command::Dial {

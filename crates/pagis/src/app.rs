@@ -931,6 +931,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         blocks: Arc::clone(&mail_blocks),
     }));
     let broker = Arc::new(pagis_broker::Broker::new(pagis_broker::BrokerDeps {
+        numbers: phone_numbers.clone(),
         run_journal: stores.run_journal.clone(),
         forget: stores.forget.clone(),
         grants: Arc::clone(&grants) as _,
@@ -1036,6 +1037,19 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     };
     phone_tools.set(Arc::new(pagis_telephony::PhoneToolRuntime::new(
         pagis_telephony::PhoneToolDeps {
+            numbers: phone_numbers.clone(),
+            grants: grants.clone(),
+            agents: agent_store.clone(),
+            workspaces: workspaces.clone(),
+            users: stores.users.clone(),
+            runs: Arc::new(crate::tools::BrokerRunTools(broker.clone())),
+            run_records: runs.clone(),
+            messages: messages.clone(),
+            tiers: trust_list.clone(),
+            transport: call_transport.clone(),
+            bridge: call_bridge.clone(),
+            live: live_calls.clone(),
+            bus: bus.clone(),
             calls: Arc::clone(&calls) as _,
             blobs: Arc::clone(&blobs),
             files: Arc::clone(&files) as _,

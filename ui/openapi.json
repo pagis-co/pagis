@@ -4698,6 +4698,77 @@
         "x-workspace-role": "manager"
       }
     },
+    "/api/v1/grants/workspace-number": {
+      "post": {
+        "tags": [
+          "grants"
+        ],
+        "operationId": "create_workspace_number_grant",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateWorkspaceNumberGrantRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GrantDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "x-workspace-role": "manager"
+      }
+    },
     "/api/v1/grants/{grant_id}": {
       "delete": {
         "tags": [
@@ -15368,6 +15439,22 @@
           }
         }
       },
+      "CreateWorkspaceNumberGrantRequest": {
+        "type": "object",
+        "required": [
+          "agent_id",
+          "number_id"
+        ],
+        "properties": {
+          "agent_id": {
+            "type": "string"
+          },
+          "number_id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
       "CreateWorkspaceRequest": {
         "type": "object",
         "required": [
@@ -16174,11 +16261,11 @@
               "string",
               "null"
             ],
-            "description": "What the grant reaches: the Connection, the Plugin, or the machine\nof a host grant. A credential grant names none."
+            "description": "The Connection, Plugin, Host or Workspace Number the Grant reaches.\nA credential Grant names none."
           },
           "resource_kind": {
             "type": "string",
-            "description": "`host`, `credential`, or `connection`."
+            "description": "The resource kind, including `workspace_number`."
           },
           "revision": {
             "type": "integer",

@@ -41,7 +41,8 @@ The Chief of Staff answers inbound Calls and receives inbound texts to the
 Workspace Number. Routing reads the designation and grants no outbound
 authority (ADR-0041). The designation grants no access to the Workspace
 Mailbox (ADR-0040).
-Not built: outbound Calls and texts from the Workspace Number, and the
+Outbound Calls need a Workspace Number Grant (ADR-0041).
+Not built: outbound texts from the Workspace Number, and the
 default Grants of the Workspace Mailbox and the Workspace Number.
 
 The sidebar lists the Private Workspace and each Shared Workspace the

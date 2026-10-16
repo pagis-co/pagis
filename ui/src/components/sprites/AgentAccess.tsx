@@ -7,9 +7,11 @@
 import { useState } from 'react'
 
 import type { AgentDto, ApiClient } from '../../api/client'
-import { Button } from '../../primitives'
+import { Button, Switch } from '../../primitives'
 import {
   useConnections,
+  usePhoneNumbers,
+  useCreateWorkspaceNumberGrant,
   useCreateConnectionGrant,
   useGrants,
   useHosts,
@@ -50,12 +52,18 @@ function hostLabel(grant: GrantDto, hosts: HostDto[]): string | undefined {
 }
 
 export function AgentAccess({ api, agent }: { api: ApiClient; agent: AgentDto }) {
+  const numbers = usePhoneNumbers(api)
+  const createNumberGrant = useCreateWorkspaceNumberGrant(api)
+  const number = numbers.data?.number
   const connections = useConnections(api)
   const grants = useGrants(api)
   const hosts = useHosts(api)
   const createGrant = useCreateConnectionGrant(api)
   const setCapabilities = useSetGrantCapabilities(api)
   const revokeGrant = useRevokeGrant(api)
+  const numberGrant = (grants.data ?? []).find((item) =>
+    item.agent_id === agent.id && item.resource_kind === 'workspace_number' && item.resource_id === number?.id,
+  )
   const [selected, setSelected] = useState<Record<string, string[]>>({})
   // The hint that no Google account is connected stands here, where
   // the grant it feeds is made.
@@ -70,6 +78,25 @@ export function AgentAccess({ api, agent }: { api: ApiClient; agent: AgentDto })
         names the capabilities, and you can revoke it at any time.
       </p>
       <SoftwareAccess api={api} />
+      {number && (
+        <div className="agent-access-connection">
+          <strong>Workspace Number: {number.e164}</strong>
+          <Switch
+            checked={numberGrant !== undefined}
+            disabled={grants.isPending || createNumberGrant.isPending || revokeGrant.isPending}
+            onCheckedChange={(checked) => {
+              if (checked) createNumberGrant.mutate({ agent_id: agent.id, number_id: number.id })
+              else if (numberGrant) revokeGrant.mutate(numberGrant.id)
+            }}
+          >
+            Call from the Workspace Number
+          </Switch>
+          {(createNumberGrant.isError || revokeGrant.isError) && (
+            <p role="alert">Workspace Number access did not change.</p>
+          )}
+        </div>
+      )}
+
       {noGoogle && (
         <p className="settings-hint" data-testid="agent-access-no-google" role="status">
           No Google account is connected. Connect one in Settings → Connections
@@ -153,7 +180,7 @@ export function AgentAccess({ api, agent }: { api: ApiClient; agent: AgentDto })
       {(grants.data ?? [])
         .filter(
           (grant) =>
-            grant.agent_id === agent.id && grant.resource_kind !== 'connection',
+            grant.agent_id === agent.id && !['connection', 'workspace_number'].includes(grant.resource_kind),
         )
         .map((grant) => (
           <GrantRow

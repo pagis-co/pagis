@@ -189,6 +189,7 @@ impl CoreToolRuntime {
             | CoreTool::ScheduleCreate
             | CoreTool::ScheduleList
             | CoreTool::ScheduleUpdate
+            | CoreTool::PhoneCall
             | CoreTool::CallTranscript
             | CoreTool::SoftwarePublish
             | CoreTool::ToolSearch

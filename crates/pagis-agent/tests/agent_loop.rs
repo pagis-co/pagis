@@ -540,6 +540,9 @@ where
         calls: std::sync::Mutex::new(Vec::new()),
     });
     let broker = Arc::new(pagis_broker::Broker::new(pagis_broker::BrokerDeps {
+        numbers: Arc::new(pagis_storage_sqlite::SqlitePhoneNumberStore::new(
+            pool.clone(),
+        )),
         run_journal: Arc::new(pagis_storage_sqlite::SqliteRunJournal::new(pool.clone())),
         forget: Arc::new(pagis_storage_sqlite::SqliteForgetStore::new(pool.clone())),
         grants: Arc::clone(&grants) as _,

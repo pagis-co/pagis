@@ -24,8 +24,8 @@ Record has no Agent field. The Run names the Agent that handles the message.
 
 ### The Chief of Staff answers and can hand off a Call
 
-An inbound Call reads the Workspace's Chief of Staff designation at Call
-time (ADR-0022). A Workspace with no active Chief of Staff refuses the Call
+An inbound Call with no recent callback record reads the Workspace's Chief
+of Staff designation at Call time (ADR-0022). A Workspace with no active Chief of Staff refuses the Call
 before answer. Its Call Brief uses that Agent's Standing Brief. A change of
 Chief of Staff changes the Agent that answers the next Call. No brief or
 rule is copied to the new Agent.
@@ -42,10 +42,20 @@ reach the Run inside the untrusted envelope.
 
 ### Outbound Calls and texts need a Grant
 
-Not built: outbound Calls and outbound texts from the Workspace Number,
-number Grants, default number Grants and callback routing to the Agent that
-called. No Agent tool places a Call or sends a text from a number it owns.
-The designation grants no outbound authority.
+Outbound Calls need a live Workspace Number Grant. Its resource is the
+active Workspace Number of the same Workspace, and its scope is empty.
+The Agent Access tab creates and revokes this Grant. The broker offers
+`phone_call` only to an Agent with the Grant and checks it before dispatch.
+The tool checks the Grant again before it places the Call. Emergency numbers
+are refused. The designation grants no outbound authority.
+
+A callback within seven days reaches the active Agent of the latest outbound
+Call from this Workspace Number to the caller's number. With no such Call,
+or when that Agent is archived, the Chief of Staff answers. The Call store
+supplies the record; routing does not change the Trust Tier.
+
+Not built: outbound texts, default number Grants and the Chief of Staff's
+default Grant.
 
 ### Trust remains separate from access
 

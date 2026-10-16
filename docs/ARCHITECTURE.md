@@ -313,8 +313,12 @@ Chief of Staff through a Standing Text Rule. The sender's Trust Tier and
 the words in the untrusted envelope reach its Run. The cursor and event
 identity prevent duplicate delivery.
 
-Not built: outbound Calls and outbound texts from the Workspace Number,
-number Grants, callback routing, text tools and MMS media storage.
+Outbound Calls need a live Workspace Number Grant. The Call store routes
+callbacks within seven days to the active Agent of the latest outbound Call
+to that caller. Otherwise the Chief of Staff answers. Routing does not
+raise the Trust Tier.
+Not built: outbound texts, default number Grants, text tools and MMS media
+storage.
 
 ### Mail
 

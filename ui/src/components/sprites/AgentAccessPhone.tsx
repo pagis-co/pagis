@@ -6,6 +6,8 @@ import { Badge, Button, Frame, Row, SectionLabel, Switch } from '../../primitive
 import {
   errorMessage,
   useConnections,
+  usePhoneNumbers,
+  useCreateWorkspaceNumberGrant,
   useCreateConnectionGrant,
   useGrants,
   useHosts,
@@ -33,6 +35,8 @@ export function AgentAccessPhone({
   resourceId?: string
 }) {
   const navigate = useNavigate()
+  const number = usePhoneNumbers(api).data?.number
+  const createNumberGrant = useCreateWorkspaceNumberGrant(api)
   const connections = useConnections(api)
   const grants = useGrants(api)
   const hosts = useHosts(api)
@@ -42,6 +46,7 @@ export function AgentAccessPhone({
   const revoke = useRevokeGrant(api)
   const [selected, setSelected] = useState<string[] | null>(null)
   const own = (grants.data ?? []).filter((row) => row.agent_id === agent.id)
+  const numberGrant = own.find((row) => row.resource_kind === 'workspace_number' && row.resource_id === number?.id)
   const connection = connections.data?.find((row) => row.id === resourceId)
   const grant = own.find((row) => row.resource_id === resourceId)
   const capabilities = selected ?? grant?.capabilities ?? []
@@ -196,6 +201,25 @@ export function AgentAccessPhone({
                 capabilities, and you can revoke it at any time.
               </p>
             </div>
+            {number && (
+              <section className="phone-section">
+                <SectionLabel>Workspace Number: {number.e164}</SectionLabel>
+                <Frame>
+                  <Switch
+                    row
+                    checked={numberGrant !== undefined}
+                    disabled={grants.isPending || createNumberGrant.isPending || revoke.isPending}
+                    onCheckedChange={(checked) => {
+                      if (checked) createNumberGrant.mutate({ agent_id: agent.id, number_id: number.id })
+                      else if (numberGrant) revoke.mutate(numberGrant.id)
+                    }}
+                  >
+                    Call from the Workspace Number
+                  </Switch>
+                </Frame>
+                {createNumberGrant.isError && <p role="alert">Workspace Number access did not change.</p>}
+              </section>
+            )}
             <section className="phone-section">
               <SectionLabel>Connections</SectionLabel>
               <Frame>

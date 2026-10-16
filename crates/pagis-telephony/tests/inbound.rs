@@ -584,3 +584,58 @@ async fn a_call_the_bridge_never_ran_reports_nothing(pool: SqlitePool) {
     // There is no message to take, so the Agent is not woken.
     assert!(world.call_events.batches.lock().unwrap().is_empty());
 }
+
+async fn callback_recipient(pool: SqlitePool, age: i64, archived: bool) {
+    use pagis_core::CallStore;
+    let world = World::build(
+        pool.clone(),
+        FakeCallBridge::reporting(FakeCallBridge::answered_report("Call back")),
+    )
+    .await;
+    let number = world.held_line().await;
+    let mut agent = world.agent.clone();
+    agent.id = AgentId::generate();
+    agent.name = "Wren".into();
+    if archived {
+        agent.status = AgentStatus::Archived;
+    }
+    world.agents.create(&agent).await.unwrap();
+    let run = world
+        .runs
+        .open(&world.workspace_id, &agent.id, &CallId::generate(), REMOTE)
+        .await
+        .unwrap();
+    let call: pagis_core::Call = serde_json::from_value(serde_json::json!({
+        "id":CallId::generate(),"workspace_id":world.workspace_id,"agent_id":agent.id,
+        "run_id":run.id,"phone_number_id":number.id,"direction":"outbound",
+        "remote_e164":REMOTE,"agent_name":agent.name,"own_e164":OWN,"purpose":"Book a table",
+        "tools":[],"tier":"owner","state":"ended","ended_reason":"remote_hangup","ended_at":now_ms(),"message_left":false,"transcript":[],"created_at":now_ms()-age,
+    })).unwrap();
+    pagis_storage_sqlite::SqliteCallStore::new(pool)
+        .insert(&call)
+        .await
+        .unwrap();
+    let (incoming, _, task) = world.ring(&number).await;
+    world.calls.answer(incoming).await.unwrap();
+    let answered = world.bridge.answered();
+    let expected = if archived || age > pagis_telephony::CALLBACK_WINDOW_MS {
+        &world.agent.id
+    } else {
+        &agent.id
+    };
+    assert_eq!(&answered[0].brief.agent_id, expected);
+    assert_eq!(answered[0].brief.tier, TrustTier::Unknown);
+    task.stop().await;
+}
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn recent_callback_reaches_calling_agent_without_raising_trust(pool: SqlitePool) {
+    callback_recipient(pool, 1000, false).await;
+}
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn expired_callback_reaches_chief_of_staff(pool: SqlitePool) {
+    callback_recipient(pool, pagis_telephony::CALLBACK_WINDOW_MS + 1000, false).await;
+}
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn archived_callback_agent_sends_call_to_chief_of_staff(pool: SqlitePool) {
+    callback_recipient(pool, 1000, true).await;
+}
