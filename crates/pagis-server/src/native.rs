@@ -44,9 +44,6 @@ pub struct NativeState {
     /// The harnesses that need a Harness Sign-In on each Host. The Host
     /// list reads it.
     pub sign_in_reports: Arc<pagis_coding::SignInReports>,
-    /// The calls that run right now. Listen-Live and hang up find the
-    /// media hub of a live call here, under the Person's own Workspace.
-    pub live_calls: Arc<pagis_telephony::LiveCalls>,
     /// The text half of every carrier (ADR-0020), one per provider.
     /// The number surfaces and the text tools read it to learn whether
     /// the carrier that carries the number carries a text.
@@ -54,9 +51,6 @@ pub struct NativeState {
     /// The number desk: the path that buys
     /// and releases a Workspace Number.
     pub numbers: Arc<pagis_telephony::NumberDesk>,
-    /// The tier gate of every call that runs now, so the user can drop
-    /// a live call of their own Workspace to Unknown.
-    pub live_tiers: Arc<pagis_telephony::LiveTiers>,
     /// The Version tree behind the records: the manifest of one
     /// Version and the bytes of one file of it. A Widget page reads
     /// through it.
@@ -129,16 +123,10 @@ pub(crate) fn product_routes() -> Router<Arc<AppState>> {
             "/api/v1/coding-sessions/{coding_session_id}/stop",
             post(coding_sessions::stop_coding_session),
         )
-        .route("/api/v1/calls/{call_id}/control", post(calls::control))
         .route(
             "/api/v1/grants/workspace-number",
             post(grants::create_workspace_number_grant),
         )
-        .route("/api/v1/calls", get(calls::list_calls))
-        .route("/api/v1/calls/{call_id}", get(calls::get_call))
-        .route("/api/v1/calls/{call_id}/dismiss", post(calls::dismiss_call))
-        .route("/api/v1/calls/{call_id}/hangup", post(calls::hang_up))
-        .route("/api/v1/calls/{call_id}/tier", post(calls::drop_call_tier))
         .route(
             "/api/v1/workspace/number",
             get(phone_numbers::get_workspace_number)
@@ -275,4 +263,44 @@ pub(crate) fn public_routes() -> Router<Arc<AppState>> {
             "/api/v1/widgets/{workspace_id}/{package}/{version}/{widget}/sandbox",
             get(widgets::widget_sandbox),
         )
+}
+
+/// The native live Call operations.
+pub struct NativeLiveCallControl {
+    pub calls: Arc<pagis_telephony::LiveCalls>,
+    pub tiers: Arc<pagis_telephony::LiveTiers>,
+}
+
+#[async_trait::async_trait]
+impl calls::LiveCallControl for NativeLiveCallControl {
+    fn hub(
+        &self,
+        workspace: &pagis_core::WorkspaceId,
+        call: &pagis_core::CallId,
+    ) -> Option<Arc<pagis_telephony::hub::MediaHub>> {
+        self.calls.hub(workspace, call)
+    }
+
+    async fn hang_up(
+        &self,
+        workspace: &pagis_core::WorkspaceId,
+        call: &pagis_core::CallId,
+    ) -> bool {
+        let Some(hub) = self.calls.hub(workspace, call) else {
+            return false;
+        };
+        hub.hangup().await;
+        true
+    }
+
+    async fn drop_to_unknown(
+        &self,
+        workspace: &pagis_core::WorkspaceId,
+        call: &pagis_core::CallId,
+    ) -> Option<Result<(), pagis_core::StoreError>> {
+        self.tiers
+            .drop_to_unknown(workspace, call)
+            .await
+            .map(|result| result.map(|_| ()))
+    }
 }

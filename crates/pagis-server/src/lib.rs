@@ -8,7 +8,6 @@ mod auth;
 #[cfg(feature = "native")]
 mod axum_socket;
 mod calendar;
-#[cfg(feature = "native")]
 pub mod calls;
 mod channels;
 mod client_name;
@@ -209,6 +208,8 @@ pub struct AppState {
     /// The Call records. The strip, the call inspector and the
     /// settled block read them: the record is the one source of truth.
     pub calls: Arc<dyn pagis_core::CallStore>,
+    /// The live Call operations supplied by the Embedder.
+    pub live_call_control: Arc<dyn calls::LiveCallControl>,
     /// The Text Records (ADR-0020). The text strip, the
     /// Conversation Inspector and the text tools read them: the
     /// record is the one source of truth for a text, and a Text
@@ -441,6 +442,12 @@ fn product_router(state: Arc<AppState>) -> Router {
             "/api/v1/knowledge/forget",
             get(forget::list).post(forget::confirm),
         )
+        .route("/api/v1/calls", get(calls::list_calls))
+        .route("/api/v1/calls/{call_id}", get(calls::get_call))
+        .route("/api/v1/calls/{call_id}/dismiss", post(calls::dismiss_call))
+        .route("/api/v1/calls/{call_id}/hangup", post(calls::hang_up))
+        .route("/api/v1/calls/{call_id}/tier", post(calls::drop_call_tier))
+        .route("/api/v1/calls/{call_id}/control", post(calls::control))
         .route("/api/v1/knowledge/forget/preview", post(forget::preview))
         .route("/api/v1/knowledge/forget/{id}", get(forget::get))
         .route("/api/v1/knowledge/forget/{id}/retry", post(forget::retry))

@@ -20,6 +20,7 @@
 use std::sync::Arc;
 
 use axum::Json;
+#[cfg(feature = "native")]
 use axum::extract::ws::WebSocketUpgrade;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
@@ -34,10 +35,44 @@ use utoipa::ToSchema;
 
 use crate::AppState;
 use crate::auth::Tenant;
+#[cfg(feature = "native")]
 use crate::axum_socket::AxumSocket;
 use crate::error::ApiError;
 use crate::live_connections::{LiveTenant, close_for_ended_session};
 use crate::{Message, MessageSocket};
+
+/// The live Call operations of one Workspace. An absent Call returns
+/// `None` or `false`, including a Call of another Workspace.
+#[async_trait::async_trait]
+pub trait LiveCallControl: Send + Sync {
+    fn hub(&self, workspace: &pagis_core::WorkspaceId, call: &CallId) -> Option<Arc<MediaHub>>;
+    async fn hang_up(&self, workspace: &pagis_core::WorkspaceId, call: &CallId) -> bool;
+    async fn drop_to_unknown(
+        &self,
+        workspace: &pagis_core::WorkspaceId,
+        call: &CallId,
+    ) -> Option<Result<(), pagis_core::StoreError>>;
+}
+
+/// An Embedder with no live Call operations.
+pub struct NoLiveCallControl;
+
+#[async_trait::async_trait]
+impl LiveCallControl for NoLiveCallControl {
+    fn hub(&self, _: &pagis_core::WorkspaceId, _: &CallId) -> Option<Arc<MediaHub>> {
+        None
+    }
+    async fn hang_up(&self, _: &pagis_core::WorkspaceId, _: &CallId) -> bool {
+        false
+    }
+    async fn drop_to_unknown(
+        &self,
+        _: &pagis_core::WorkspaceId,
+        _: &CallId,
+    ) -> Option<Result<(), pagis_core::StoreError>> {
+        None
+    }
+}
 
 /// Frames the daemon sends beside the audio. `ready` names the codec
 /// of the frames that follow; the socket ends after `ended` or
@@ -68,6 +103,7 @@ impl ListenServerFrame {
     }
 }
 
+#[cfg(feature = "native")]
 pub async fn listen(
     State(state): State<Arc<AppState>>,
     live: LiveTenant,
@@ -96,7 +132,7 @@ pub async fn serve_listen(
     let call_id = CallId::from(call_id);
     // The live hubs are keyed by the Workspace and the Call, so a Call
     // of another Workspace is a Call that is not live for this listener.
-    let Some(hub) = state.native.live_calls.hub(&tenant.workspace_id, &call_id) else {
+    let Some(hub) = state.live_call_control.hub(&tenant.workspace_id, &call_id) else {
         socket
             .send(ListenServerFrame::error("not_found", "no call of that id is live").to_ws())
             .await?;
@@ -215,8 +251,7 @@ pub async fn drop_call_tier(
     }
     let call_id = CallId::from(call_id);
     state
-        .native
-        .live_tiers
+        .live_call_control
         .drop_to_unknown(&tenant.workspace_id, &call_id)
         .await
         .ok_or_else(|| ApiError::not_found("that live call"))?
@@ -473,12 +508,13 @@ pub async fn hang_up(
     tenant: Tenant,
     Path(call_id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
-    let hub = state
-        .native
-        .live_calls
-        .hub(&tenant.workspace_id, &CallId::from(call_id))
-        .ok_or_else(|| ApiError::not_found("that live call"))?;
-    hub.hangup().await;
+    if !state
+        .live_call_control
+        .hang_up(&tenant.workspace_id, &CallId::from(call_id))
+        .await
+    {
+        return Err(ApiError::not_found("that live call"));
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 

@@ -18,7 +18,6 @@ native = [
     "pagis-plugin/native",
     "pagis-plugins/native",
     "dep:pagis-software",
-    "dep:pagis-telephony",
 ]
 
 [dependencies]
@@ -55,7 +54,7 @@ pagis-push.workspace = true
 pagis-rt.workspace = true
 pagis-software = { workspace = true, optional = true }
 pagis-mail.workspace = true
-pagis-telephony = { workspace = true, optional = true }
+pagis-telephony.workspace = true
 pagis-trigger.workspace = true
 pagis-vault.workspace = true
 pagis-versions.workspace = true
