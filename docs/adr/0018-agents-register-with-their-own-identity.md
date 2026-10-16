@@ -30,11 +30,15 @@ change when the Agent's mailbox or phone assignment changes.
 
 ### A phone number is a desk line
 
+ADR-0041 supersedes the per-Agent number assignment and authority rules here.
+Not built: Workspace Number. The daemon assigns each number to one Agent.
+The following record describes that built assignment.
+
 The carrier Connection backs the numbers. It is an Installation Connection:
-the Org owns it in the Org's Workspace (ADR-0023), and one carrier serves every
-person. It supplies the credential and the provisioning API, and carries no
-authority to call. An Agent Phone Number is its own record, in the Workspace of
-the Agent that holds it:
+the Org owns it in the Org's Workspace (ADR-0023), and one carrier serves
+every person. It supplies the credential and the provisioning API, and carries
+no authority to call. An assigned phone number has its own record, in the
+Workspace of the Agent that holds it:
 
 ```text
 id

@@ -99,7 +99,7 @@ finished Run shows the last state.
 A `table` holds columns (a key, a label, an optional alignment) and rows of
 cells. A cell is text, a number, a link or a timestamp. There is no server
 pagination and no sort configuration; the client sorts. Past 100 rows the
-Agent writes a CSV artifact and posts a `file` block.
+Agent writes a CSV File and posts a `file` block.
 
 ### Form fields are flat primitives
 

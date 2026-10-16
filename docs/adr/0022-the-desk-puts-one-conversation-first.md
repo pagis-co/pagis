@@ -37,6 +37,11 @@ Workspace with no active Agent has none. The setting grants nothing: the roster
 stays flat, and the Chief of Staff delegates through Channels as any Agent
 does.
 
+The Chief of Staff gets the Workspace Mailbox and the Workspace Number
+through a default Grant, not through its designation, so the designation
+still grants no power (ADR-0040, ADR-0041). Not built: the Workspace
+Mailbox, the Workspace Number and their default Grants.
+
 The sidebar has seven places at the top: Home, Sprites, Memory, Automations,
 Coding, Software and Settings. Home carries the count of the Needs-You Queue.
 Each place replaces the main pane. Below the places the sidebar lists the
