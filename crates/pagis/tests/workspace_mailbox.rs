@@ -16,11 +16,16 @@ struct MailboxApp {
 
 impl MailboxApp {
     async fn start() -> Self {
+        Self::start_with_source(Arc::new(pagis_mail::HostSpamVerdicts)).await
+    }
+
+    async fn start_with_source(source: Arc<dyn pagis_mail::SpamVerdictSource>) -> Self {
         let host = Arc::new(FakeMailboxHost::default());
         let transport = Arc::new(FakeMailTransport::default());
         let brain = Arc::new(ScriptedBrain::default());
         let daemon = TestDaemon::start_with(TestDaemonOptions {
             brain: brain.clone(),
+            spam_verdict_source: source,
             mail_host: host.clone(),
             mail_transport: transport.clone(),
             ..TestDaemonOptions::default()
@@ -976,6 +981,14 @@ async fn shared_workspace_mail_visibility_limits_reads_and_audits_searches() {
             .await;
         assert_eq!(status, if level == "all_mail" { 200 } else { 404 });
         let (status, _) = app
+            .post(
+                &format!("{prefix}/workspace/mail/messages/{id}/spam"),
+                json!({"spam": false}),
+            )
+            .await;
+        assert_eq!(status, if level == "all_mail" { 204 } else { 404 });
+
+        let (status, _) = app
             .request(
                 reqwest::Method::GET,
                 &format!("{prefix}/workspace/mail/messages?q=invoice"),
@@ -1269,5 +1282,268 @@ async fn mail_invitation_response_checks_message_visibility() {
             .unwrap()
             .iter()
             .any(|entry| entry["action"] == "mail.invitation.respond")
+    );
+}
+
+#[tokio::test]
+async fn junk_corrections_survive_host_headers_and_folder_moves() {
+    let app = MailboxApp::with_mailbox().await;
+    app.transport
+        .deliver("sender@example.com", "Offer", "Offer text");
+    let id = app.get("/api/v1/workspace/mail/messages").await["items"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let response = app
+        .client
+        .post(format!(
+            "{}/api/v1/workspace/mail/messages/{id}/spam",
+            app.daemon.base_url
+        ))
+        .header("cookie", app.daemon.cookie())
+        .json(&json!({"spam":true}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 204);
+    let junk = app.get("/api/v1/workspace/mail/messages?folder=Junk").await;
+    assert_eq!(junk["items"].as_array().unwrap().len(), 1);
+    assert_eq!(junk["items"][0]["spam_verdict"]["action"], "junk");
+    let id = junk["items"][0]["id"].as_str().unwrap();
+    let response = app
+        .client
+        .post(format!(
+            "{}/api/v1/workspace/mail/messages/{id}/spam",
+            app.daemon.base_url
+        ))
+        .header("cookie", app.daemon.cookie())
+        .json(&json!({"spam":false}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 204);
+    let inbox = app
+        .get("/api/v1/workspace/mail/messages?folder=INBOX")
+        .await;
+    assert_eq!(inbox["items"][0]["spam_verdict"]["action"], "no action");
+}
+
+impl MailboxApp {
+    async fn put_junk_policy(&self, org: bool, policy: Value) {
+        let base = if org {
+            &self.daemon.administration_base_url
+        } else {
+            &self.daemon.base_url
+        };
+        let path = if org {
+            "/api/v1/administration/mail/junk-policy"
+        } else {
+            "/api/v1/workspace/mail/junk-policy"
+        };
+        let response = self
+            .client
+            .put(format!("{base}{path}"))
+            .header("cookie", self.daemon.cookie())
+            .json(&policy)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 204);
+    }
+}
+
+#[tokio::test]
+async fn junk_sensitivity_and_score_only_control_host_moves() {
+    let app = MailboxApp::with_mailbox().await;
+    app.transport.deliver_raw(b"From: sender@example.com\r\nMessage-ID: <threshold@example.com>\r\nX-Spam-Score: 5\r\n\r\nOffer");
+    app.put_junk_policy(
+        true,
+        json!({"sensitivity":"high","lists":{"allow":[],"block":[]}}),
+    )
+    .await;
+    let inbox = app
+        .get("/api/v1/workspace/mail/messages?folder=INBOX")
+        .await;
+    assert_eq!(inbox["items"][0]["junk"], true);
+    assert_eq!(app.transport.summaries("INBOX").len(), 1);
+    app.put_junk_policy(
+        false,
+        json!({"spam_mode":"move_to_junk","lists":{"allow":[],"block":[]}}),
+    )
+    .await;
+    assert!(
+        app.get("/api/v1/workspace/mail/messages?folder=INBOX")
+            .await["items"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        app.get("/api/v1/workspace/mail/messages?folder=Junk").await["items"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn junk_org_lists_take_priority_and_a_person_mark_overrides_the_message() {
+    let source = Arc::new(pagis_mail::fake::FakeSpamVerdicts::default());
+    let app = MailboxApp::start_with_source(source.clone()).await;
+    assert_eq!(app.create("person").await.0, 201);
+    app.put_junk_policy(false, json!({"spam_mode":"move_to_junk","lists":{"allow":["sender@example.com"],"block":["example.com"]}})).await;
+    app.put_junk_policy(true, json!({"sensitivity":"low","lists":{"allow":["example.com"],"block":["blocked@example.com"]}})).await;
+    app.transport
+        .deliver("sender@example.com", "Allowed", "Allowed");
+    app.transport
+        .deliver("blocked@example.com", "Blocked", "Blocked");
+    let inbox = app
+        .get("/api/v1/workspace/mail/messages?folder=INBOX")
+        .await;
+    assert_eq!(inbox["items"].as_array().unwrap().len(), 1);
+    assert_eq!(inbox["items"][0]["subject"], "Allowed");
+    let junk = app.get("/api/v1/workspace/mail/messages?folder=Junk").await;
+    let id = junk["items"][0]["id"].as_str().unwrap();
+    let response = app
+        .client
+        .post(format!(
+            "{}/api/v1/workspace/mail/messages/{id}/spam",
+            app.daemon.base_url
+        ))
+        .header("cookie", app.daemon.cookie())
+        .json(&json!({"spam":false}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 204);
+    assert_eq!(
+        source.corrections(),
+        vec![(pagis_mail::MessageId::new(id), false)]
+    );
+    assert_eq!(
+        app.get("/api/v1/workspace/mail/messages?folder=INBOX")
+            .await["items"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+}
+
+#[tokio::test]
+async fn quarantine_blocks_every_product_read_and_release_is_audited() {
+    let app = MailboxApp::with_mailbox().await;
+    let id = app.transport.deliver_raw(b"From: sender@example.com\r\nMessage-ID: <malware@example.com>\r\nSubject: Unsafe\r\nX-Spamd-Result: default: False [20 / 15]; CLAM_VIRUS(20)[]\r\n\r\nUnsafe content");
+    let thread = app.transport.summaries("INBOX")[0].thread_id.clone();
+    assert!(
+        app.get("/api/v1/workspace/mail/messages").await["items"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    for suffix in [
+        format!("messages/{id}"),
+        format!("messages/{id}/attachments/0"),
+    ] {
+        let response = app
+            .client
+            .get(format!(
+                "{}/api/v1/workspace/mail/{suffix}",
+                app.daemon.base_url
+            ))
+            .header("cookie", app.daemon.cookie())
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 404);
+    }
+    let mut url = reqwest::Url::parse(&format!(
+        "{}/api/v1/workspace/mail/threads/",
+        app.daemon.base_url
+    ))
+    .unwrap();
+    url.path_segments_mut()
+        .unwrap()
+        .pop_if_empty()
+        .push(&thread);
+    let response = app
+        .client
+        .get(url)
+        .header("cookie", app.daemon.cookie())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 404);
+    let page: Value = app
+        .client
+        .get(format!(
+            "{}/api/v1/administration/mail/quarantine",
+            app.daemon.administration_base_url
+        ))
+        .header("cookie", app.daemon.cookie())
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(page["items"].as_array().unwrap().len(), 1);
+    let entry = &page["items"][0];
+    let request = json!({"workspace_id": entry["workspace_id"], "mailbox": entry["mailbox"], "message_key": entry["message_key"]});
+    let read = app
+        .client
+        .post(format!(
+            "{}/api/v1/administration/mail/quarantine/read",
+            app.daemon.administration_base_url
+        ))
+        .header("cookie", app.daemon.cookie())
+        .json(&request)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(read.status(), 200);
+    assert_eq!(
+        read.json::<Value>().await.unwrap()["text"],
+        "Unsafe content"
+    );
+    let release = app
+        .client
+        .post(format!(
+            "{}/api/v1/administration/mail/quarantine/release",
+            app.daemon.administration_base_url
+        ))
+        .header("cookie", app.daemon.cookie())
+        .json(&request)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(release.status(), 204);
+    assert_eq!(
+        app.get("/api/v1/workspace/mail/messages").await["items"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    let audit: Value = app
+        .client
+        .get(format!(
+            "{}/api/v1/admin/audit",
+            app.daemon.administration_base_url
+        ))
+        .header("cookie", app.daemon.cookie())
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(
+        audit["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["action"] == "mail.quarantine_released")
     );
 }

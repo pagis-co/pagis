@@ -109,6 +109,14 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         workspace_mail::download_workspace_mail_attachment,
         workspace_mail::set_workspace_mail_visibility,
         workspace_mail::list_workspace_mail_audit,
+        crate::junk::correct,
+        crate::junk::get_workspace_policy,
+        crate::junk::set_workspace_policy,
+        crate::junk::get_org_policy,
+        crate::junk::set_org_policy,
+        crate::junk::quarantine,
+        crate::junk::read_quarantine,
+        crate::junk::release,
         workspace_mail::get_workspace_mailbox,
         workspace_mail::create_workspace_mailbox,
         workspace_mail::list_workspace_mail_folders,
@@ -653,5 +661,25 @@ impl ApiDoc {
 
     pub fn to_pretty_json() -> String {
         serde_json::to_string_pretty(&Self::openapi()).expect("the API contract serializes")
+    }
+}
+
+#[cfg(test)]
+mod junk_schema_tests {
+    use super::*;
+    #[test]
+    fn junk_modes_are_typed_in_both_contracts() {
+        let api = serde_json::to_value(ApiDoc::openapi()).unwrap();
+        let schemas = &api["components"]["schemas"];
+        assert_eq!(
+            schemas["MailScoringMode"]["enum"],
+            serde_json::json!(["score_only", "move_to_junk"])
+        );
+        for name in ["WorkspaceJunkPolicy", "WorkspaceMailboxDto"] {
+            assert_eq!(
+                schemas[name]["properties"]["spam_mode"]["$ref"],
+                "#/components/schemas/MailScoringMode"
+            );
+        }
     }
 }

@@ -78,7 +78,7 @@ pub(super) async fn audit_read(
         .await?;
     Ok(())
 }
-pub(super) async fn read_message(
+pub(crate) async fn read_message(
     state: &AppState,
     tenant: &Tenant,
     store: &mut dyn WorkspaceMailStore,

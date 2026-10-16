@@ -357,6 +357,8 @@ impl Embedder {
             }),
             grants: stores.grants.clone(),
             intake: Arc::new(pagis_mail::MailIntake {
+                workspace_mailboxes: stores.workspace_mailboxes.clone(),
+                junk: stores.junk.clone(),
                 opinions: std::sync::Arc::new(pagis_mail::fake::FakeMailOpinions::default()),
                 calendar: stores.calendar.clone(),
                 workspaces: stores.workspaces.clone(),

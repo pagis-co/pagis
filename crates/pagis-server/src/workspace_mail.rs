@@ -21,7 +21,7 @@ pub struct WorkspaceMailboxDto {
     pub visibility: pagis_core::MailVisibility,
     pub effective_visibility: pagis_core::MailVisibility,
     pub max_visibility: pagis_core::MailVisibility,
-    pub spam_mode: String,
+    pub spam_mode: pagis_core::MailScoringMode,
     pub workspace_id: String,
     pub connection_id: String,
     pub address: String,
@@ -33,9 +33,7 @@ impl From<pagis_core::WorkspaceMailbox> for WorkspaceMailboxDto {
             visibility: m.visibility,
             effective_visibility: m.visibility,
             max_visibility: pagis_core::MailVisibility::AllMail,
-            spam_mode: match m.spam_mode {
-                pagis_core::MailScoringMode::ScoreOnly => "score_only".into(),
-            },
+            spam_mode: m.spam_mode,
             workspace_id: m.workspace_id.to_string(),
             connection_id: m.connection_id.to_string(),
             address: m.address,
@@ -50,6 +48,7 @@ pub struct WorkspaceMailboxPage {
 }
 #[derive(Debug, Serialize, ToSchema)]
 pub struct WorkspaceMailSummaryDto {
+    pub junk: bool,
     pub id: String,
     pub thread_id: String,
     pub from: String,
@@ -70,6 +69,7 @@ impl From<pagis_mail::WorkspaceMailSummary> for WorkspaceMailSummaryDto {
             .assessment
             .expect("Workspace Mailbox intake precedes a read");
         Self {
+            junk: assessment.junk,
             spam_verdict: assessment.verdict.into(),
             trust_tier: assessment.trust_tier.as_str().into(),
             id: m.summary.id.to_string(),
@@ -254,7 +254,7 @@ async fn open(state: &AppState, tenant: &Tenant) -> Result<Box<dyn WorkspaceMail
         .await
         .map_err(mailbox_error)
 }
-fn read_error(error: pagis_mail::TransportError) -> ApiError {
+pub(crate) fn read_error(error: pagis_mail::TransportError) -> ApiError {
     match error.0 {
         pagis_mail::TransportErrorCode::InvalidRequest => {
             ApiError::validation("the mail request is not valid")

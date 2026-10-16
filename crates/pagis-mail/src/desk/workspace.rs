@@ -24,21 +24,32 @@ impl MailboxDesk {
         }
         let mut store = self.open_workspace(workspace).await?;
         let result = async {
-            let mut page = crate::PageRequest {
-                limit: 100,
-                token: None,
-            };
-            let mut ids = Vec::new();
-            loop {
-                let found = store.messages("INBOX", "", &page).await?;
-                ids.extend(found.items.into_iter().map(|m| m.summary.id));
-                page.token = found.next;
-                if page.token.is_none() {
-                    break;
+            let junk = store.junk_folder().await?;
+            let mut messages = Vec::new();
+            // INBOX can move mail to Junk. Read Junk after those moves.
+            for folder in ["INBOX", junk.as_str()] {
+                let mut page = crate::PageRequest {
+                    limit: 100,
+                    token: None,
+                };
+                loop {
+                    let found = store.messages(folder, "", &page).await?;
+                    messages.extend(found.items.into_iter().map(|m| m.summary));
+                    page.token = found.next;
+                    if page.token.is_none() {
+                        break;
+                    }
                 }
             }
-            for id in ids.into_iter().rev() {
-                store.message(&id).await?;
+            messages.reverse();
+            messages.sort_by_key(|m| m.date);
+            for message in messages {
+                match store.message(&message.id).await {
+                    Ok(_) => {}
+                    // A message can enter quarantine after the list read.
+                    Err(crate::TransportError(crate::TransportErrorCode::StaleId)) => {}
+                    Err(error) => return Err(error.into()),
+                }
             }
             Ok::<_, MailboxError>(())
         }
@@ -47,6 +58,58 @@ impl MailboxDesk {
         result?;
         close?;
         Ok(())
+    }
+
+    pub async fn read_quarantine(
+        &self,
+        entry: &pagis_core::JunkMessage,
+    ) -> Result<crate::WorkspaceMailMessage, MailboxError> {
+        if self
+            .workspace_mailboxes
+            .get(&entry.workspace_id)
+            .await?
+            .is_some_and(|m| m.address == entry.mailbox)
+        {
+            let mut store = self.open_workspace(&entry.workspace_id).await?;
+            let result = store
+                .quarantined_message(&crate::MessageId::new(entry.host_id.clone()))
+                .await;
+            let _ = store.close().await;
+            return Ok(result?);
+        }
+        let mailbox = self
+            .mailboxes
+            .list(&entry.workspace_id)
+            .await?
+            .into_iter()
+            .find(|m| m.address == entry.mailbox)
+            .ok_or(MailboxError::NotFound)?;
+        let mut session = self.open_session(&mailbox).await?;
+        let result = async {
+            let id = crate::MessageId::new(entry.host_id.clone());
+            session
+                .select(&id.as_str().parse::<crate::ImapMessageId>()?.folder)
+                .await?;
+            let mut message = session.fetch(&id).await?;
+            self.read_context(&mailbox)
+                .await
+                .map_err(|_| crate::TransportError(crate::TransportErrorCode::Unreachable))?
+                .assess(&mut message.summary, false)
+                .await?;
+            let flags = session.metadata(&id).await?;
+            Ok::<_, crate::TransportError>(crate::WorkspaceMailMessage {
+                labels: flags.labels.clone(),
+                flags,
+                message,
+            })
+        }
+        .await;
+        let _ = session.logout().await;
+        Ok(result?)
+    }
+
+    pub fn junk(&self) -> &dyn pagis_core::JunkStore {
+        self.intake.junk.as_ref()
     }
 
     pub fn workspace_mailbox_records(&self) -> &dyn pagis_core::WorkspaceMailboxRecordStore {

@@ -2,7 +2,10 @@
 //! gives back become one [`Message`], and one [`OutgoingMessage`]
 //! becomes the bytes a host accepts. No socket opens.
 
-use pagis_mail::{Message, MessageId, OutgoingMessage, TransportErrorCode, build_mime, read_mime};
+use pagis_mail::{
+    Message, MessageId, OutgoingAttachment, OutgoingMessage, TransportErrorCode, build_mime,
+    read_attachment, read_mime,
+};
 
 fn read(raw: &str) -> Message {
     read_mime(raw.as_bytes(), MessageId::new("INBOX:7")).expect("the message reads")
@@ -222,6 +225,35 @@ fn the_date_header_comes_from_the_given_clock() {
     assert!(
         raw.contains("Date: Tue, 14 Nov 2023 22:13:20 +0000"),
         "{raw}"
+    );
+}
+
+#[test]
+fn an_attachment_reads_back_from_the_raw_message() {
+    let attachment = OutgoingAttachment {
+        name: "plan.txt".into(),
+        content_type: "text/plain".into(),
+        data: b"Fix the roof.".to_vec(),
+    };
+    let built = build_mime(
+        "agent@pagis.test",
+        &OutgoingMessage {
+            to: vec!["ada@example.test".into()],
+            subject: "The plan".into(),
+            body: "The plan is attached.".into(),
+            attachments: vec![attachment.clone()],
+            ..OutgoingMessage::default()
+        },
+        SENT_AT,
+    )
+    .expect("the message builds");
+    assert_eq!(
+        read_attachment(&built.raw, 0).expect("the attachment reads"),
+        attachment
+    );
+    assert_eq!(
+        read_attachment(&built.raw, 1).unwrap_err().0,
+        TransportErrorCode::StaleId
     );
 }
 

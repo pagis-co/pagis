@@ -14,6 +14,15 @@ pub(crate) struct CalendarMailStore {
 
 #[async_trait]
 impl WorkspaceMailReader for CalendarMailStore {
+    async fn quarantined_message(
+        &mut self,
+        id: &MessageId,
+    ) -> Result<WorkspaceMailMessage, TransportError> {
+        self.inner.quarantined_message(id).await
+    }
+    async fn junk_folder(&mut self) -> Result<String, TransportError> {
+        self.inner.junk_folder().await
+    }
     async fn attachment(
         &mut self,
         id: &MessageId,
@@ -54,6 +63,9 @@ impl WorkspaceMailReader for CalendarMailStore {
 
 #[async_trait]
 impl WorkspaceMailWriter for CalendarMailStore {
+    async fn mark_spam(&mut self, id: &MessageId, spam: bool) -> Result<(), TransportError> {
+        self.inner.mark_spam(id, spam).await
+    }
     async fn send(&mut self, message: &OutgoingMessage) -> Result<SentMessage, TransportError> {
         self.inner.send(message).await
     }

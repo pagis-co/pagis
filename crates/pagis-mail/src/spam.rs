@@ -1,10 +1,25 @@
-//! Host Spam Verdicts. These records describe mail; they never move it.
+//! Host Spam Verdicts and Person corrections.
 use crate::{MessageSummary, TransportError};
 use async_trait::async_trait;
 use pagis_core::{SpamAction, SpamVerdict};
 
 #[async_trait]
 pub trait SpamVerdictSource: Send + Sync {
+    /// Send a Person correction to the host through the same verdict seam.
+    async fn correct(
+        &self,
+        store: &mut dyn crate::WorkspaceMailStore,
+        id: &crate::MessageId,
+        spam: bool,
+    ) -> Result<(), TransportError> {
+        let folder = if spam {
+            store.junk_folder().await?
+        } else {
+            "INBOX".into()
+        };
+        store.move_message(id, &folder).await
+    }
+
     async fn verdict(
         &self,
         message: &MessageSummary,
@@ -164,4 +179,15 @@ pub trait MailOpinionSource: Send + Sync {
         workspace: &pagis_core::WorkspaceId,
         message: &MessageSummary,
     ) -> Result<Option<pagis_core::MailOpinion>, TransportError>;
+}
+
+/// These host symbols report malware or high-confidence phishing.
+pub fn quarantine_required(verdict: &SpamVerdict) -> bool {
+    verdict.action == SpamAction::Quarantine
+        || verdict.reasons.iter().any(|reason| {
+            let symbol = reason.split_whitespace().next().unwrap_or_default();
+            ["CLAM_VIRUS", "VIRUS_FOUND", "MALWARE"].contains(&symbol)
+                || (verdict.score >= 15000
+                    && ["PHISHING", "PHISHED", "PHISHING_CONFIRMED"].contains(&symbol))
+        })
 }

@@ -29,6 +29,7 @@ const SECTIONS: &[&str] = &[
     "settings",
     "plugins",
     "health",
+    "junk",
     "restart",
 ];
 

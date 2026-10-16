@@ -72,11 +72,15 @@ an attendee's response. The sender address must match the organizer for a
 REQUEST or CANCEL, or the attendee for a REPLY. This address check does not
 make the sender's text trusted input for Agents.
 
-The desk reads INBOX through the supplied Workspace Mailbox store, with
-opaque message ids and page tokens. It reads all pages and applies messages
-oldest first. The intake layer wraps every supplied store. It applies calendar
+The desk reads INBOX and the Junk folder through the supplied Workspace
+Mailbox store, with opaque message ids and page tokens. It reads INBOX
+before Junk so an automatic move does not hide an invitation. It reads all
+pages and applies messages oldest first. Junk is readable mail and its
+invitations apply to the Calendar. Quarantine prevents Calendar intake and
+invitation responses. An Administrator read of quarantine does not apply
+an invitation. The intake layer wraps every supplied store. It applies calendar
 messages when the Person or an Agent opens a message or a thread, and when
-the Calendar reads INBOX. The IMAP store does not own calendar intake.
+the Calendar reads INBOX and Junk. The IMAP store does not own calendar intake.
 The Workspace Mailbox record has no calendar cursor. Scheduling UID,
 SEQUENCE and occurrence state make repeated reads safe. A failed read can
 repeat the pass. Reading a message does not mark it seen.

@@ -518,6 +518,14 @@ fn product_router(state: Arc<AppState>) -> Router {
             get(workspace_mail::list_workspace_mail_audit),
         )
         .route(
+            "/api/v1/workspace/mail/junk-policy",
+            get(junk::get_workspace_policy).put(junk::set_workspace_policy),
+        )
+        .route(
+            "/api/v1/workspace/mail/messages/{message_id}/spam",
+            post(junk::correct),
+        )
+        .route(
             "/api/v1/workspace/mailbox",
             get(workspace_mail::get_workspace_mailbox)
                 .post(workspace_mail::create_workspace_mailbox),
@@ -1072,4 +1080,5 @@ mod calls_portable_tests;
 mod legal_hold;
 pub mod mail_opinion;
 
+mod junk;
 mod person_defaults;

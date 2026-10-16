@@ -96,7 +96,7 @@ pub use imap_mailbox::{ImapMailbox, ImapMessageId};
 pub use mailbox::{Mailbox, Mailboxes, MessageChange, MessageId, Page, PageRequest};
 pub use manual::ManualHost;
 pub use migadu::MigaduHost;
-pub use mime::{BuiltMessage, build_mime, read_mime};
+pub use mime::{BuiltMessage, build_mime, read_attachment, read_mime};
 pub use no_transport::NoMailTransport;
 pub use proof::{
     Backoff, LOGIN_PROOF_WINDOW, RECONNECT_BACKOFF_MAX, RECONNECT_BACKOFF_START, prove_login,
@@ -165,7 +165,9 @@ pub fn mailbox_password_secret_name(
 }
 
 mod spam;
-pub use spam::{HostSpamVerdicts, MailOpinionSource, SpamVerdictSource, parse_spam_verdict};
+pub use spam::{
+    HostSpamVerdicts, MailOpinionSource, SpamVerdictSource, parse_spam_verdict, quarantine_required,
+};
 
 mod intake;
 pub use intake::{MailIntake, MailReadContext};

@@ -37,8 +37,8 @@ export function Mail({
   const hidden = visibility === 'agent_only'
   const [messageId, setMessageId] = useState<string | null>(null)
   const [composing, setComposing] = useState(false)
-  const [view, setView] = useState<'needs-you' | 'all'>('needs-you')
-  const reading = phone && messageId !== null && view === 'all'
+  const [view, setView] = useState<'needs-you' | 'all' | 'junk'>('needs-you')
+  const reading = phone && messageId !== null && view !== 'needs-you'
 
   if (searched && !hidden) return <MailThread api={api} messageId={searched} onBack={() => onCloseMessage?.()} />
 
@@ -96,12 +96,13 @@ export function Mail({
               >
                 {visibility === 'escalations' ? 'Escalations' : 'All mail'}
               </Button>
+              <Button aria-pressed={view === 'junk'} onClick={() => { setView('junk'); setMessageId(null) }}>Junk</Button>
             </nav>
           )}
           {view === 'needs-you' ? (
             <p className="mail-empty">No mail needs you.</p>
           ) : (
-            <AllMail api={api} messageId={messageId} onOpen={setMessageId} needsReason={visibility === 'escalations'} />
+            <AllMail key={view} api={api} initialFolder={view === 'junk' ? 'Junk' : ''} messageId={messageId} onOpen={setMessageId} needsReason={visibility === 'escalations'} />
           )}
         </>
       )}
@@ -111,11 +112,13 @@ export function Mail({
 
 function AllMail({
   api,
+  initialFolder,
   messageId,
   onOpen,
   needsReason,
 }: {
   api: ApiClient
+  initialFolder: string
   messageId: string | null
   onOpen: (id: string | null) => void
   needsReason: boolean
@@ -125,7 +128,7 @@ function AllMail({
   const client = useQueryClient()
   const phone = useIsMobile()
   const [managingFolders, setManagingFolders] = useState(false)
-  const [folder, setFolder] = useState('')
+  const [folder, setFolder] = useState(initialFolder)
   const [q, setQ] = useState('')
   const [draftQuery, setDraftQuery] = useState('')
   const [reason, setReason] = useState('')

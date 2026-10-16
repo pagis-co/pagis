@@ -39,6 +39,7 @@ pub struct Stores {
     pub governance: Arc<dyn crate::WorkspaceGovernanceStore>,
     pub audit: Arc<dyn crate::AuditLog>,
     pub workspace_members: Arc<dyn crate::WorkspaceMemberStore>,
+    pub junk: Arc<dyn crate::JunkStore>,
     pub mail_assessments: Arc<dyn crate::MailAssessmentStore>,
     pub workspace_mailboxes: Arc<dyn crate::WorkspaceMailboxRecordStore>,
     pub agent_mailboxes: Arc<dyn AgentMailboxStore>,

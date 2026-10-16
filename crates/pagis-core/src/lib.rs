@@ -180,6 +180,9 @@ pub use workspace_governance::{
     AgentVersion, MailVisibility, SharedWorkspaceLimits, WorkspaceGovernanceStore,
 };
 pub mod imip;
+
+mod junk;
+pub use junk::*;
 #[cfg(test)]
 mod person_defaults_tests;
 
