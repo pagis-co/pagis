@@ -37,6 +37,8 @@
     "@capacitor/app": "catalog:",
     "@capacitor/browser": "catalog:",
     "@capacitor/core": "catalog:",
+    "@capacitor/file-viewer": "catalog:",
+    "@capacitor/filesystem": "catalog:",
     "@fontsource-variable/inter": "catalog:",
     "@radix-ui/react-alert-dialog": "^1.1.24",
     "@radix-ui/react-avatar": "^1.2.6",

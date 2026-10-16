@@ -136,7 +136,7 @@ it('shows one column on a phone and refreshes Seen when the reader goes back', a
       ([path]) => path === '/api/v1/workspace/mail/messages',
     )
   expect(listCalls()).toHaveLength(1)
-  fireEvent.click(screen.getByRole('button', { name: 'Back to mail' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Mail' }))
   await waitFor(() => expect(listCalls()).toHaveLength(2))
   const row = await screen.findByRole('button', { name: /Invoice/ })
   await waitFor(() => expect(within(row).queryByLabelText('Unread')).toBeNull())

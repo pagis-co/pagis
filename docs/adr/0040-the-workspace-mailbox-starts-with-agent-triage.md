@@ -97,8 +97,7 @@ attachments use the same passive content types as File downloads.
 The Person creates, renames and deletes folders, moves mail, and applies
 or removes labels as IMAP keywords. System folders cannot be renamed or
 deleted.
-Not built: triage, Needs you items, the Mobile App Mail place, Junk
-handling, saved drafts and Agent notes.
+Not built: triage, Needs you items, Junk handling, saved drafts and Agent notes.
 
 A Person's own send needs no Approval. Agents do not use the Person's
 send path.

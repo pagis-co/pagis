@@ -190,6 +190,12 @@ catalogs:
     '@capacitor/core':
       specifier: ^8.5.2
       version: 8.5.2
+    '@capacitor/file-viewer':
+      specifier: ^2.0.4
+      version: 2.0.4
+    '@capacitor/filesystem':
+      specifier: ^8.1.4
+      version: 8.1.5
     '@fontsource-variable/inter':
       specifier: ^5.3.0
       version: 5.3.0
@@ -349,6 +355,12 @@ importers:
       '@capacitor/core':
         specifier: 'catalog:'
         version: 8.5.2
+      '@capacitor/file-viewer':
+        specifier: 'catalog:'
+        version: 2.0.4(@capacitor/core@8.5.2)
+      '@capacitor/filesystem':
+        specifier: 'catalog:'
+        version: 8.1.5(@capacitor/core@8.5.2)
       '@capacitor/ios':
         specifier: ^8.5.2
         version: 8.5.2(@capacitor/core@8.5.2)
@@ -395,6 +407,12 @@ importers:
       '@capacitor/core':
         specifier: 'catalog:'
         version: 8.5.2
+      '@capacitor/file-viewer':
+        specifier: 'catalog:'
+        version: 2.0.4(@capacitor/core@8.5.2)
+      '@capacitor/filesystem':
+        specifier: 'catalog:'
+        version: 8.1.5(@capacitor/core@8.5.2)
       '@fontsource-variable/inter':
         specifier: 'catalog:'
         version: 5.3.0
@@ -602,10 +620,23 @@ packages:
   '@capacitor/core@8.5.2':
     resolution: {integrity: sha512-agnQbGdhGw/KZFuLf7H9SY2o+oE7upkr/WPQsYaokXP6f9chaE8iVmbKkfN6SVl4w3pmz7oZ3Ur1hbkmy1hx+w==}
 
+  '@capacitor/file-viewer@2.0.4':
+    resolution: {integrity: sha512-i08NgV1zTeL+p+0qAkXb9hgf5LGLUnU/fWOWjyNT6yW6sK/XFn4Rk2PoU67Zfa7YJhHVSF4FC7+kygQCJsmM2Q==}
+    peerDependencies:
+      '@capacitor/core': '>=8.0.0'
+
+  '@capacitor/filesystem@8.1.5':
+    resolution: {integrity: sha512-m1RkI8L83NJeppEKyRWioK3MDp2vjlA+QfUQcF8/xRlcXNC2HYxqoyYJ+K4M0EcVovy+g+4F24S05+bhK4Vgdg==}
+    peerDependencies:
+      '@capacitor/core': '>=8.0.0'
+
   '@capacitor/ios@8.5.2':
     resolution: {integrity: sha512-eOT2S67AfTFG7KN0T3oxwAajrJz4rSye+ODfvChiwrk0F/+kWufFM1qU6cDjGJUOfwdAoeuEpZyWHSwZlu4GFg==}
     peerDependencies:
       '@capacitor/core': ^8.5.0
+
+  '@capacitor/synapse@1.0.4':
+    resolution: {integrity: sha512-/C1FUo8/OkKuAT4nCIu/34ny9siNHr9qtFezu4kxm6GY1wNFxrCFWjfYx5C1tUhVGz3fxBABegupkpjXvjCHrw==}
 
   '@cloudflare/kv-asset-handler@0.5.0':
     resolution: {integrity: sha512-jxQYkj8dSIzc0cD6cMMNdOc1UVjqSqu8BZdor5s8cGjW2I8BjODt/kWPVdY+u9zj3ms75Q5qaZgnxUad83+eAg==}
@@ -5460,9 +5491,21 @@ snapshots:
     dependencies:
       tslib: 2.8.1
 
+  '@capacitor/file-viewer@2.0.4(@capacitor/core@8.5.2)':
+    dependencies:
+      '@capacitor/core': 8.5.2
+      '@capacitor/synapse': 1.0.4
+
+  '@capacitor/filesystem@8.1.5(@capacitor/core@8.5.2)':
+    dependencies:
+      '@capacitor/core': 8.5.2
+      '@capacitor/synapse': 1.0.4
+
   '@capacitor/ios@8.5.2(@capacitor/core@8.5.2)':
     dependencies:
       '@capacitor/core': 8.5.2
+
+  '@capacitor/synapse@1.0.4': {}
 
   '@cloudflare/kv-asset-handler@0.5.0': {}
 

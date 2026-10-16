@@ -1,3 +1,4 @@
+import { Capacitor } from '@capacitor/core'
 import { useState } from 'react'
 
 import type { ApiClient } from '../../api/client'
@@ -10,6 +11,10 @@ import {
 import { Composer } from './Composer'
 import { MessageControls } from './MessageControls'
 import { formatMoment } from '../../timeline'
+import { formatBytes } from '../../blocks/BlockView'
+import { useIsMobile } from '../../primitives/useMediaQuery'
+import { NavBar } from '../phone/TopBar'
+import { openAttachment } from './openAttachment'
 
 export function MailThread({
   api,
@@ -20,13 +25,19 @@ export function MailThread({
   messageId: string
   onBack: () => void
 }) {
+  const phone = useIsMobile()
+  const native = phone && Capacitor.isNativePlatform()
+  const [attachmentError, setAttachmentError] = useState(false)
   const [source, setSource] = useState<MailSource>()
   const message = useWorkspaceMailMessage(api, messageId)
   const thread = useWorkspaceMailThread(api, message.data?.thread_id)
 
   return (
     <section className="mail-thread" aria-label="Mail thread">
-      <Button onClick={onBack}>Back to mail</Button>
+      {phone ? (
+        <NavBar back={{ label: 'Mail', onBack }} />
+      ) : <Button onClick={onBack}>Back to mail</Button>}
+      {attachmentError && <p role="alert">Could not open the attachment. Try again.</p>}
       {source && (
         <Composer
           key={`${source.id}:${source.action}`}
@@ -63,19 +74,30 @@ export function MailThread({
                   </ul>
                 </details>
                 <pre>{item.text}</pre>
-                <ul>
-                  {item.attachments?.map((file, index) => (
-                    <li key={index}>
-                      <a
-                        href={`/api/v1/workspace/mail/messages/${encodeURIComponent(
-                          item.id,
-                        )}/attachments/${index}`}
-                        download
-                      >
-                        {file.name} ({file.bytes} bytes)
-                      </a>
-                    </li>
-                  ))}
+                <ul className="mail-attachments">
+                  {item.attachments?.map((file, index) => {
+                    const url = `/api/v1/workspace/mail/messages/${encodeURIComponent(item.id)}/attachments/${index}`
+                    const label = `${file.name} · ${formatBytes(file.bytes)}`
+                    return (
+                      <li key={index}>
+                        {native ? (
+                          <Button onClick={() => {
+                            setAttachmentError(false)
+                            void openAttachment(url, file.name).catch(() => setAttachmentError(true))
+                          }}>{label}</Button>
+                        ) : (
+                          <a
+                            href={url}
+                            download={phone ? undefined : true}
+                            target={phone ? '_blank' : undefined}
+                            rel={phone ? 'noopener' : undefined}
+                          >
+                            {label}
+                          </a>
+                        )}
+                      </li>
+                    )
+                  })}
                 </ul>
                 <div className="mail-controls">
                   <Button

@@ -146,6 +146,9 @@ describe('appPath', () => {
 })
 
 describe('phoneParent', () => {
+  it('returns from Mail to You', () => {
+    expect(phoneParent('/mail')).toEqual({ label: 'You', path: '/you' })
+  })
   it.each([
     ['/sprites/agent-1', undefined, 'Sprites', '/sprites'],
     ['/sprites/agent-1/work', undefined, 'Sprite', '/sprites/agent-1'],

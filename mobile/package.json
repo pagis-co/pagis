@@ -18,6 +18,8 @@
     "@capacitor/barcode-scanner": "^3.1.2",
     "@capacitor/browser": "catalog:",
     "@capacitor/core": "catalog:",
+    "@capacitor/file-viewer": "catalog:",
+    "@capacitor/filesystem": "catalog:",
     "@capacitor/ios": "^8.5.2",
     "@fontsource-variable/inter": "catalog:",
     "semver": "catalog:"
