@@ -21,16 +21,18 @@ who creates the accounts, with no public sign-up.
 One installation is one Org, and every Person belongs to it. Nothing joins two
 Orgs or moves a Person between them. Any installation can hold several People.
 
-A Person has a name, a role and one Workspace. The role is `administrator` or
-`member` and applies to the whole installation. An Administrator changes what
-the Org holds and what other People may do; a Member changes only their own
-Workspace. Every Org has at least one Administrator, its first Person: the
-seeded Person of a local installation, or the one from server setup
-(ADR-0024). An Administrator changes a Person's role in the
-Administration Interface. A role change keeps at least one enabled
-Administrator in the Org. An Administrator can demote themselves when
-another enabled Administrator exists. Each role change adds an audit event
-in the Org's Workspace, with the Administrator, the Person and both roles.
+A Person has a name, an Org role and exactly one Private Workspace. The role
+is `administrator` or `member` and applies to the whole installation. An
+Administrator changes what the Org holds and what other People may do; a
+Member changes only their own Private Workspace. Not built: a Member also
+enters Shared Workspaces through the separate roles Manager, Responder and
+Reader (ADR-0039). Every Org has at least one Administrator, its first Person:
+the seeded Person of a Local Installation, or the one from Server Setup
+(ADR-0024). An Administrator changes a Person's role in the Administration
+Interface. A role change keeps at least one enabled Administrator in the Org.
+An Administrator can demote themselves when another enabled Administrator
+exists. Each role change adds an audit event in the Org's Workspace, with the
+Administrator, the Person and both roles.
 
 There is no sign-up. An Administrator creates every account in the
 Administration Interface, and also disables and restores an account, resets a
@@ -45,14 +47,20 @@ keys reach, enters their name and timezone, and can rename the Chief of Staff.
 A Person on a Server enters no provider key. Completion marks their Workspace
 as onboarded.
 
-### A Workspace is one Person's private scope
+### Private and Shared Workspaces have different access rules
 
-A Workspace belongs to one Person, and no Person reads another's. It holds the
-Person's Agents, memory, conversations, Connections, Grants, Vault, Trust List,
-Software List, Agent Phone Numbers, Agent Mailboxes, Hosts and Retention
-windows. A **tenant** is a Workspace as the unit of isolation: a Tenant Data
-Key seals its secrets (ADR-0013), a Tenant Network joins its containers
-(ADR-0014), and the broker keeps a manifest registry for it (ADR-0005).
+A Private Workspace has exactly one Person and never gains others. A Shared
+Workspace has no owner. Persons in it have the roles Manager,
+Responder or Reader. Each record has one owning Workspace or conversation,
+and its owner decides access (ADR-0039). Not built: these Workspace kinds and
+Shared Workspace access. The daemon gives each Person one Workspace.
+
+A Workspace holds Agents, memory, conversations, Connections, Grants, Vault,
+Trust List, Software List, Agent Mailboxes, Files and Retention Policies.
+Not built: its Workspace Mailbox, Workspace Number and calendar (ADR-0040,
+ADR-0041, ADR-0042). A **tenant** is a Workspace as the unit of isolation: a
+Tenant Data Key seals its secrets (ADR-0013), a Tenant Network joins its
+containers (ADR-0014), and the broker keeps its manifest registry (ADR-0005).
 
 ### The Workspace is part of every lookup
 
@@ -65,7 +73,8 @@ Workspace and Call.
 The named exceptions are the Workspace store itself; the Org, the Person and
 the Session, which sit above a Workspace; the boot sweeps that cross every
 Workspace; the Address Ledger, installation-wide so an address is never
-reused; and the index of one live Agent Phone Number for each E.164 number.
+reused; and the index of one live assigned phone number for each E.164 number.
+Not built: access through a record's owning conversation (ADR-0039).
 
 ### The Org's own records live in the Org's Workspace
 
@@ -96,24 +105,26 @@ alone reads or writes it, on the Administration Port (ADR-0024).
 | --- | --- |
 | The provider keys, one for each model provider | The Model Aliases each Agent thinks on |
 | The Installation OAuth Client | The Person's own Connections, their Google account above all |
-| The Installation Connections: the carrier and the mail domain | The Agent Phone Numbers and Agent Mailboxes on them |
+| The Installation Connections: the carrier and the mail domain | Agent Mailboxes; Workspace Mailbox and Workspace Number are not built |
 | The installed Plugins and their Bindings | Which Agent holds a Grant to a Plugin |
 | The System Settings: the ports, the Docker endpoint, the log level, the data directory | The timezone |
-| The roster, each role, each Spend Cap | The Agents, the memory, the conversations, the files, the Vault, the Software List |
+| The roster and each Org role | The Spend Cap; independent Workspace caps are not built |
+| | The Agents, the memory, the conversations, the Files, the Vault, the Software List |
 | The Awake Cap on Computers | The Retention windows |
 | The Home Exit System Setting, which turns the Home Exit off for every Person (ADR-0029) | The Home Exit: which Host of the Person their Computers reach the internet through |
 
 A Person holds and reads no provider key. The Administrator supplies one key
 for each provider, and each Person chooses what to think with.
 
-A Spend Cap is what one Person may spend on model calls in a calendar month of
-their Workspace timezone, in US dollars. A Person with no cap is never
-stopped. A Run checks the Spend Cap before each model call, in its first
-Turn and in each later Turn. It stops before the call that would go over
-the cap, or use a model with no known price. It ends `failed` with
-`SpendCapReached`. Its earlier replies stay in the conversation, and a
-note says why it stopped. The Harness Model Endpoint makes the same check
-before each model request of a Coding Session.
+A Spend Cap belongs to a Workspace. It is the most it may spend on model calls
+in a calendar month of its timezone, in US dollars (ADR-0039). Not built: a
+cap independent of a Person. The daemon sets each Person's cap and counts
+spend for each Workspace. No cap means no stop. A Run checks the Spend Cap
+before each model call, in every Turn. It stops before the call that would go
+over the cap, or use a model with no known price. It ends `failed` with
+`SpendCapReached`. Its earlier replies stay in the conversation, and a note
+says why it stopped. The Harness Model Endpoint makes the same check before
+each model request of a Coding Session.
 
 Each model call of a Run goes through one function that prepares the
 request and checks its budget before it asks the Embedder's
@@ -138,6 +149,9 @@ A Person signs in before any client reads or writes their data. A Session
 names the Person and the client kind (`browser` or `desktop`), records when it
 was made and last used, ends at sign-out, and expires 30 days after its last
 use (ADR-0028). It grants nothing by itself; the role and the Workspace decide.
+It stays bound to the Person's Private Workspace. Not built: Shared Workspace
+requests name `/api/v1/workspaces/:id/...`. The server checks the Session,
+then the role at the entrance of each Shared Workspace route (ADR-0039).
 
 The Session travels in an HTTP-only cookie with no `Domain` (host-only) and
 `SameSite=Strict`, so the page cannot read it and it never appears in an

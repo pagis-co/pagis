@@ -44,7 +44,7 @@ features that Pagis does not use.
   Backend, whether Remote Access is on, whether Docker answers, the number
   of People and of Agents as ranges (0, 1, 2-5, 6-20, 21+), and one flag
   for each feature in use: Connections, Schedules, Event Subscriptions,
-  Plugins, Software, Hosts, Agent Phone Numbers and Agent Mailboxes.
+  Plugins, Software, Hosts, assigned phone numbers and Agent Mailboxes.
 - Every property is an enum, a number or a flag. The types allow no
   content, no names, no addresses, no paths and no identifier but the
   Installation ID. A test holds the report to its list of properties.

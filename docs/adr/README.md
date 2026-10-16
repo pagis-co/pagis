@@ -1,7 +1,7 @@
 # Architecture decision records
 
-Each record states one standing decision that the code follows. Read the
-records that touch an area before you change it.
+Each record states one standing decision and names the parts that are not
+built. Read the records that touch an area before you change it.
 
 ## The agent and the Run
 
@@ -55,3 +55,11 @@ records that touch an area before you change it.
 - [0035](0035-the-javascript-projects-are-one-pnpm-workspace.md): The JavaScript projects are one pnpm workspace
 - [0037](0037-each-release-ships-the-notices-of-its-third-party-software.md): Each release ships the notices of its third-party software
 - [0038](0038-the-routers-build-without-the-native-parts.md): The routers build without the Native Parts
+
+## Workspaces and shared communication
+
+- [0039](0039-each-record-has-one-owner-that-decides-access.md): Each record has one owner that decides access
+- [0040](0040-the-workspace-mailbox-starts-with-agent-triage.md): The Workspace Mailbox starts with Agent triage
+- [0041](0041-a-workspace-has-one-number-that-its-chief-of-staff-answers.md): A Workspace has one number that its Chief of Staff answers
+- [0042](0042-each-workspace-holds-a-calendar.md): Each Workspace holds a calendar
+- [0043](0043-messages-between-workspaces-follow-disclosure-rules.md): Messages between Workspaces follow Disclosure Rules

@@ -38,6 +38,11 @@ number reaches an Agent that binds no tools.
 
 ### A keypad code confirms an inbound tier
 
+ADR-0041 supersedes per-Agent number routing. Not built: Workspace Number.
+The daemon assigns each number to one Agent. The Keypad Code applies only to
+a Private Workspace in the Workspace model (ADR-0039). A Shared Workspace
+has no Keypad Code. These Workspace kinds are not built.
+
 Each Workspace holds one code of 6 to 8 digits, ended by a hash key or by its
 length. The secret store (ADR-0013) keeps only its Argon2 hash, under a name
 that carries the Workspace, so one person's code confirms nothing on another

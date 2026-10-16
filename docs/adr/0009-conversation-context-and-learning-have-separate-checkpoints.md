@@ -29,7 +29,7 @@ Messages use immutable `MessageId` order. A source range is
 `(after_exclusive, through_inclusive]`. A writer fixes the upper cursor before
 model work starts, and later messages stay outside the range as verbatim
 input. A cursor never splits a tool call from its result within an active Run.
-A record refers to durable messages and artifacts where an earlier Run kept no
+A record refers to durable messages and Files where an earlier Run kept no
 full tool transcript.
 
 A foreground memory commit records the conversation range that was available
@@ -53,7 +53,7 @@ questions, the next step, and the references needed to recover omitted
 detail. It records each source exposure and Forget dependency it used. Its
 text reaches the model inside the untrusted envelope.
 
-The record is not memory and grants no authority; the messages and artifacts
+The record is not memory and grants no authority; the messages and Files
 stay the evidence. Replacement is a compare-and-swap on the revision, and the
 daemon writes the record and advances its cursor in one transaction. A model,
 validation or storage failure keeps the previous record and cursor. A writer
@@ -88,7 +88,7 @@ Search uses the full-text index of each Storage Backend (ADR-0008) and applies
 scope, Grant and Forget checks before its limit. It orders results by message
 id and stable reference. Read takes one stable reference or a bounded range
 and checks access again rather than trust a snippet. Results keep the speaker,
-time, text, artifact references and whether each artifact is available.
+time, text, File references and whether each File is available.
 
 Pagis keeps exact tool evidence only when a trusted provider opts the read
 tool in, the model call has a stable tool-call id, the broker selected one

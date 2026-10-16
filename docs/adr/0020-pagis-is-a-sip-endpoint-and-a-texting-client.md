@@ -4,7 +4,7 @@ Status: accepted.
 
 ## Context
 
-An Agent Phone Number must call and text on every installation, including a
+A telephone number must call and text on every installation, including a
 laptop behind NAT with no public address or tunnel. The numbers live on the
 Org's own carrier account.
 
@@ -17,12 +17,21 @@ unchanged, with no transcode.
 
 Texting is REST in both directions, and no carrier offers a channel that a
 daemon behind NAT can dial. A text differs from mail: there is no host to fetch
-it from later, no message id the counterpart echoes, and a number moves between
-Agents where a mailbox never does. A United States number also needs
+it from storage, no message id the counterpart echoes, and a Workspace Number
+belongs to a Workspace while an Agent Mailbox belongs to an Agent (ADR-0041).
+Not built: Workspace Number. A United States number also needs
 registration (local) or verification (toll-free) before carriers deliver its
 texts; two of three carriers accept the API call and fail the message later.
 
 ## Decision
+
+### Workspace Number replaces per-Agent assignment and routing
+
+ADR-0041 supersedes the per-Agent number ownership, assignment, authority,
+routing and text ownership rules in this record. Not built: Workspace Number.
+The daemon assigns each number to one Agent. The per-Agent descriptions here
+state the daemon's built behavior. They do not define the Workspace Number.
+
 
 ### Pagis terminates SIP and RTP itself
 
@@ -73,7 +82,9 @@ needs something the installation lacks, the entry says so before a number is
 bought. A person manages their own numbers on the product port (ADR-0018).
 
 The carrier's line routes an inbound call by its dialed number, normalized to
-E.164, to the stored Agent Phone Number, which names the Workspace and Agent.
+E.164, to the assigned number record, which names the Workspace and Agent.
+Not built: routing to the Chief of Staff through the Workspace Number
+(ADR-0041).
 It refuses a call before answering when the dialed number is missing, not held
 by the installation, held by no Agent, or matches more than one record.
 
@@ -184,13 +195,13 @@ created_at, answered_at?, ended_at?
 
 The outcome and the ended reason answer two questions: a call can reach its
 purpose and end with a media timeout. The transcript and recording are
-Artifacts with a class; each class has a retention window, none by default, and
-a daily sweep deletes expired Artifacts. The audit log gets placed, answered,
+Files with a class; each class has a retention window, none by default, and
+a daily sweep deletes expired Files. The audit log gets placed, answered,
 ended and tier-changed events with the number, the Agent and the Run, and no
 credential.
 
 The tool result carries the outcome, the ended reason, the classification,
-whether a message was left, the duration, the transcript Artifact id and the
+whether a message was left, the duration, the transcript File id and the
 transcript itself inside the untrusted envelope with its tier, so the Agent
 can judge its success criteria. The recording is a pointer.
 
@@ -208,14 +219,15 @@ a bye. An outbound call whose model session does not open is not placed.
 A settled call raises a `call.ended` Incoming Event, declared once for each
 carrier provider, from the inbound runner, with no collector. Its metadata is
 the Call id (its identity), the direction, the line, the caller, the tier, the
-outcome, the ended reason, the duration and the transcript Artifact, never the
+outcome, the ended reason, the duration and the transcript File, never the
 words. Its filter takes callers, a minimum trust and answered or not.
 
-A Standing Call Rule is written when a number becomes an Agent's: every call,
-the Agent's own Channel with the user, the user's provenance, an instruction to
-read the call. Taking the line back archives it. A `Free` core tool reads one
-of the Agent's own Calls and returns the words inside the untrusted envelope
-with their tier; another Agent's Call reads as absent.
+Not built: the Chief of Staff answers the Workspace Number (ADR-0041). The
+daemon writes a Standing Call Rule when it assigns a number to an Agent: every
+Call, the Agent's own Channel with the user, the user's provenance, an
+instruction to read the call. Taking the line back archives it. A `Free` core
+tool reads one of the Agent's own Calls and returns the words inside the
+untrusted envelope with their tier; another Agent's Call reads as absent.
 
 Listen-live is a WebSocket on the daemon's authenticated server that sends a
 mono mix of both directions as G.711, which the browser decodes. A listener
@@ -268,7 +280,7 @@ session has emitted audio takes a change at the next Call.
 
 ### Texting
 
-Messaging Readiness is a state of an Agent Phone Number, read from the
+Messaging Readiness is a state of an assigned number, read from the
 carrier: `unknown`, `not_capable`, `unregistered`, `pending`, `ready` or
 `rejected(reason)`. The number record keeps the state, its reason, the read
 time and the last failed read's error. Readiness never gates an inbound text,
@@ -311,7 +323,7 @@ exist. No path sends, receives or shows a text. The design of that path:
   texting polls every ten seconds, backs off to five minutes on a rate limit
   or error, and saves the cursor on the number after each batch. The cursor
   starts at assignment. The carrier joins inbound segments. Media is fetched at
-  ingest with the account key and stored as an Artifact before the event.
+  ingest with the account key and stored as a File before the event.
   Deduplication on the Connection, the kind and the carrier message id.
 - **Relay.** Where a carrier has no listable inbound store, the daemon installs
   a small first-party relay in the carrier account: it downloads the pinned CLI
@@ -346,7 +358,7 @@ exist. No path sends, receives or shows a text. The design of that path:
   `text_send(to, body)` returns the id, a queued status, the segment count and
   the cap left; `text_conversation(with, max <= 50, before)` returns the
   records with one counterpart, bodies inside the untrusted envelope, media as
-  Artifact pointers; `text_conversations(max <= 25)` returns recent
+  File pointers; `text_conversations(max <= 25)` returns recent
   counterparts. An Agent with no number has no text tools; with one, the tools
   exist whatever the readiness, and a send that is not ready answers
   `number_not_messaging_ready`. Reads are `Free`, send is `Outbound`; the card

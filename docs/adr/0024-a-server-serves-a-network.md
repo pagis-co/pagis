@@ -298,7 +298,7 @@ follow it: a test daemon that boots as a server runs on Postgres.
 `pagis-core::Stores` holds every repository behind its trait. A storage crate
 builds one from its own pool, and no source outside a storage crate names a
 pool type. Postgres holds the records, not the files: memory repositories,
-Artifacts, recordings, the sealed secret file, Plugins, Software and Computer
+Files, recordings, the sealed secret file, Plugins, Software and Computer
 volumes stay on the server's disk. Two daemons do not share a database: one
 VM, one daemon, one state directory.
 

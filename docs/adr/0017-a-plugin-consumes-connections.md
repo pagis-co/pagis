@@ -224,7 +224,7 @@ The portable product router serves the Org's Plugin list and detail,
 the Grant for an Agent in the Person's Workspace, and that Workspace's
 log. The portable administration router serves the list, detail,
 install, update, Binding, start and uninstall behind its Administrator
-guard. An upload reads a tar from an Artifact in the Administrator's
+guard. An upload reads a tar from a File in the Administrator's
 Workspace. A source install uses `PackageSource`; a refused source
 answers `422`. Plugin route rows have no Native Part, and the OpenAPI
 contract is the same in every build (ADR-0038).

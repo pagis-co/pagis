@@ -279,11 +279,11 @@ trades the Client Credential (ADR-0024).
 _Avoid_: bootstrap, first boot
 
 ### State Directory
-The directory that holds the files of one installation: the
-configuration, the SQLite records, the memory repositories, the sealed
-secrets, the Client Credential, the Release Marker, the Installation ID,
-the Artifacts, the Plugins, the Software and the logs. `PAGIS_HOME` names it, and the default
-is `~/.pagis`. One daemon owns one State Directory (ADR-0024).
+The directory that holds the files of one installation: the configuration, the
+SQLite records, the memory repositories, the sealed secrets, the Client
+Credential, the Release Marker, the Installation ID, the Files, the Plugins,
+the Software and the logs. `PAGIS_HOME` names it, and the default is
+`~/.pagis`. One daemon owns one State Directory (ADR-0024).
 _Avoid_: workspace home, workspace directory
 
 ### Storage Backend
@@ -346,6 +346,12 @@ Harness in one directory of one Host (a **session Allow Rule**), or mail to
 one domain. The Person makes one from an approval card or in settings. It
 reaches no further than its Grant (ADR-0005, ADR-0033).
 
+### Disclosure Rule
+A rule that says what a Chief of Staff may reveal to whom. Defaults share
+free/busy, the Person's profile and Files or Artifacts already shared with
+the asker. Anything else needs an Approval. An approved disclosure can
+become a standing rule. Not built: Disclosure Rules (ADR-0043).
+
 ### Exposure Stamp
 The record of which Grants the author of a message or a memory file held
 when it wrote the words. When the Person revokes one of them, the words are
@@ -358,39 +364,83 @@ command Allow Rules, session Allow Rules and the widest Session Approval
 Mode of its Agent on that machine, or a Plugin. A Grant has numbered revisions. An action that
 matches the live revision needs no new approval (ADR-0005).
 
+### guest
+A login with the Org role guest. A guest has no Private Workspace and has
+access only to Shared Workspaces that a Manager names. Not built
+(ADR-0039).
+
+### Manager
+The role of a Person in a Shared Workspace who manages its People, roles,
+Agents, Chief of Staff and settings within Org policy. A Manager can also
+send and decide Requests. Not built: the Manager role (ADR-0039).
+
 ### Member
-The role of a Person who changes only their own Workspace. A Member reads
-no Org settings and gets nothing on the Administration Port (ADR-0023).
+The Org role of a Person who has no Administration Port access and reads
+no Org settings. A Member changes their own Private Workspace. This role
+does not name a Person's role in a Shared Workspace (ADR-0023, ADR-0039).
+Not built: access to a Shared Workspace through its own role.
 
 ### Org
 The installation, as the People in it share it. One installation is one
-Org. The Org holds what decides what the installation can reach or spend:
-the provider keys, the Installation OAuth Client, the Installation
-Connections, the installed Plugins, the System Settings, the People with
-their roles and Spend Caps, and the Awake Cap (ADR-0023).
+Org. It holds the provider keys, Installation OAuth Client, Installation
+Connections, installed Plugins, System Settings, People with their Org
+roles, and Awake Cap. An Administrator sets each Spend Cap (ADR-0023).
+Not built: Shared Workspaces, guests and Org policy for their access and
+resources. The Spend Cap belongs to a Workspace in this model (ADR-0039).
 
 ### Org's Workspace
-The one Workspace that the Org owns and no Person owns. It holds the
-installed Plugins with their Bindings and the Installation Connections. No
-Session, seed, per-Workspace sweep or Tenant Data Key touches it
-(ADR-0023).
+The Workspace that the Org owns and no Person owns. It holds the installed
+Plugins with their Bindings and the Installation Connections. No Session,
+seed, per-Workspace sweep or Tenant Data Key touches it (ADR-0023).
+Not built: its use as an Org-wide Shared Workspace with every Person in it
+(ADR-0039).
 
 ### Person
-One human in the Org, with a name, a role and one Workspace. A Person signs
-in before any client reads or writes their data (ADR-0023).
+One human in the Org, with a name, an Org role and exactly one Private
+Workspace. A Person signs in before a client reads or writes their data.
+The daemon gives each Person one Workspace (ADR-0023).
+Not built: the Private Workspace kind and roles in Shared Workspaces
+(ADR-0039).
 _Avoid_: user record, account (for a Person; an account is at an external provider)
+
+### Private Workspace
+The Workspace of exactly one Person, made with that Person. It has no
+membership list and never gains another Person. Hosts, the Home Exit,
+personal Connections and the Keypad Code exist only here. The daemon gives
+each Person one private scope. Not built: the Private Workspace kind and
+its conversion to a Shared Workspace on departure (ADR-0039).
+
+### Reader
+The role of a Person in a Shared Workspace who reads within its visibility
+level. A Reader cannot send or decide Requests. Not built: the Reader role
+(ADR-0039).
+
+### Responder
+The role of a Person in a Shared Workspace who reads within its visibility
+level, sends as the Shared Workspace and decides its Requests. A Responder
+does not manage its People, roles or Agents. Not built: the Responder role
+(ADR-0039).
 
 ### Session
 What a client holds after a Person signs in: an HTTP-only, host-only,
 `SameSite=Strict` cookie that names the Person and the kind of client. A
-browser's Session also carries the name of the browser and its system, such
-as "Safari on macOS", or "Pagis on macOS" for the product window of a
-connected Client App. The Mobile App holds a `browser` Session named "Pagis
-on iPhone", "Pagis on iPad" or "Pagis on Android". A Session ends at sign-out, when the Person removes it from their
-Sessions list, and 30 days after its last use. A password sign-in, the
-trade of a Client Credential and a Sign-In Link hand one out. It grants
-nothing on its own (ADR-0023, ADR-0028, ADR-0032).
+browser's Session also carries the name of the browser and its system, such as
+"Safari on macOS", or "Pagis on macOS" for the product window of a connected
+Client App. The Mobile App holds a `browser` Session named "Pagis on iPhone",
+"Pagis on iPad" or "Pagis on Android". A Session ends at sign-out, when the
+Person removes it from their Sessions list, and 30 days after its last use. A
+password sign-in, the trade of a Client Credential and a Sign-In Link hand one
+out. It grants nothing on its own. It belongs to the Person and stays bound to
+their Private Workspace. Not built: Shared Workspace requests with a Workspace
+id in the route and a role check at its entrance (ADR-0023, ADR-0028,
+ADR-0032, ADR-0039).
 _Avoid_: bearer, login token
+
+### Shared Workspace
+A Workspace with no owner. Persons in it have the roles Manager, Responder or
+Reader. It has its own Chief of Staff, Agents, memory and Connections. The
+product calls it a **team**. Not built: Shared Workspaces (ADR-0039).
+_Avoid_: team (in code and ADRs), Member (for a Shared Workspace role)
 
 ### Sign-In Link
 A one-use URL whose secret trades for a Session. There are two kinds. The
@@ -419,12 +469,14 @@ of the server (ADR-0032).
 _Avoid_: pairing code, magic link, invite token
 
 ### Spend Cap
-What one Person may spend on model calls in a calendar month of their own
-timezone, in US dollars, set by an Administrator. A Run checks the cap
-before each model call, in its first Turn and in each later Turn. It stops
-before the call that would go over the cap, or use a model with no known
-price. Its earlier replies stay in the conversation, and a note says why
-it stopped. A Person under no cap is never stopped (ADR-0023).
+The most a Workspace may spend on model calls in a calendar month of its
+timezone, in US dollars. An Administrator sets it. A Run checks the cap of
+the Workspace it runs in before each model call. It stops before a call
+that exceeds the cap or uses a model with no known price. Its earlier
+replies stay, with a note that says why it stopped. No cap means no stop
+(ADR-0023, ADR-0039).
+Not built: a Spend Cap independent of a Person. The daemon sets a cap for
+each Person and counts spend for each Workspace.
 _Avoid_: quota, spend limit
 
 ### Usage Record
@@ -435,30 +487,33 @@ record, not a bill (ADR-0010, ADR-0023).
 _Avoid_: usage row, token log, billing record
 
 ### Workspace
-One Person's private scope: their Agents, memory, conversations,
-Connections, Grants, Vault, Trust List, Software List, Agent Phone Numbers,
-Agent Mailboxes, Hosts, Retention Policies and timezone. The timezone comes
-from the browser or Client App at the first sign-in, and the Person changes
-it in Settings. No Person reads another Person's Workspace, and every store
-lookup names the Workspace beside the record, except the lookups of the
-installation-wide records. A **tenant** is a Workspace seen as the unit of
-isolation, as in the Tenant Data Key and the Tenant Network (ADR-0006,
-ADR-0023).
+The scope that owns Agents, memory, conversations, Connections, Grants,
+Vault, Trust List, Software List, Agent Mailboxes, Files, Retention Policies
+and a timezone. A **tenant** is a Workspace as the unit of isolation, as in
+the Tenant Data Key and Tenant Network. Store lookups name the Workspace
+beside the record, except installation-wide records (ADR-0006, ADR-0023).
+The daemon gives each Person one Workspace. Its timezone comes from the
+browser or Client App at first sign-in and changes in Settings.
+Not built: Private and Shared Workspace kinds, Workspace Mailbox, Workspace
+Number, calendar, messages between Workspaces and access through each
+record's owning Workspace or conversation (ADR-0039, ADR-0040, ADR-0041,
+ADR-0042, ADR-0043).
 
 ## Agents and conversations
 
 ### Agent
-One of a Person's persistent helpers: a job, a description, a personality,
-memory and history, capabilities, a Computer, an Agent Voice, and
-optionally an Agent Mailbox and an Agent Phone Number. The job is the first
-thing the Agent reads about itself; the description is the one line other
-Agents read. An Agent is not a chat session. The product calls an Agent a
-**sprite** in the words it shows the Person.
-When an Agent speaks to someone other than its Person, it introduces itself
-with its name and the name of its Person. When anyone asks whether it is an
-AI, a bot or a person, it says that it is an AI assistant. It never says or
-suggests that it is human. This fixed rule is stronger than its personality
-and any message instruction.
+A persistent helper of a Workspace: a job, a description, a personality,
+memory and history, capabilities, a Computer, an Agent Voice, and an
+optional Agent Mailbox. The job is the first thing it reads about itself.
+The description is the line other Agents read. An Agent is not a chat
+session. The product calls it a **sprite**.
+Outside its Private Workspace, it introduces itself with its name and the
+Person's name. It says it is an AI assistant when asked. It never says or
+suggests that it is human. This rule is stronger than its personality and
+any message instruction.
+Not built: Shared Workspace Agents, whose introduction names the Shared
+Workspace, and Calls or texts through a Workspace Number under a Grant
+(ADR-0039, ADR-0041).
 _Avoid_: sprite (in the glossary, code and ADRs), bot
 
 ### Agent Voice
@@ -468,22 +523,31 @@ default, says so, and the Call records the voice it used (ADR-0020).
 
 ### Briefing
 The part of the system prompt that tells a Run about its Channel: who
-shares it, whether the Person is one of them, who asked, and which
-conversation waits for the answer (ADR-0003).
+shares it, whether the Person is in it, who asked, and which conversation
+waits for the answer (ADR-0003).
+Not built: naming the Person who asks and the Persons who are present in a
+Shared Workspace (ADR-0039).
 
 ### Channel
-The container for a conversation: the Person with one Agent, the Person
-with a group of Agents, or Agents with each other. The direct Channel
-between the Person and one Agent is that Agent's **DM Channel**. The
-Person reads every Channel. A Channel that Agents opened between
+The container for a conversation. Inside one Workspace it holds the Person
+and Agents, or Agents with each other. The direct Channel of the Person
+and one Agent is that Agent's **DM Channel**. The Person reads every
+Channel of their private scope. A Channel that Agents open between
 themselves is read-only to the Person (ADR-0003).
+Not built: Persons read a Shared Workspace's Channels within their roles.
+A Channel can also have Workspaces as participants. That conversation is
+stored once outside the participant Workspaces. Each participant Workspace
+reads it there (ADR-0039, ADR-0043).
 
 ### Chief of Staff
-The one active Agent a Workspace addresses by default. The Product App
-pins it at the top of the sidebar, Home is its Report, and the composer on
-Home speaks to it. The seed makes one Agent, Pixie, and names it; the
-Person can move the designation to any active Agent. It grants no power
-(ADR-0022).
+The main Agent of a Workspace: the active Agent it addresses by default.
+The Product App pins it at the top of the sidebar. Home is its Report, and
+the composer on Home speaks to it. The seed makes Pixie and names it. The
+Person can move the designation to any active Agent. The designation
+grants no power (ADR-0022).
+Not built: a Chief of Staff in a Shared Workspace, the default Grant that
+gives it the Workspace Mailbox and Workspace Number, reading mail first,
+and answering the number (ADR-0039, ADR-0040, ADR-0041).
 
 ### Compaction
 The step that summarizes the older part of a conversation into a
@@ -512,6 +576,15 @@ belongs to the Org. The `default` alias starts as the one model the Person
 picks at Onboarding from the Provider Model List (ADR-0023, ADR-0025).
 _Avoid_: model group, route list
 
+### Model Preference
+The models the product prefers for a well-known Model Alias, best first,
+grouped by provider. A route takes the preferred models of the first
+provider that holds a key and serves the alias's Provider Use. For the
+`default` alias it selects one model from the Provider Model List and
+never replaces the list: the daemon takes the first preferred model whose
+provider holds a key and lists it (ADR-0025).
+_Avoid_: model profile, recommended models
+
 ### Model Request Capture
 A copy of one model request of a Run and of the provider's answer, which
 the daemon keeps while an Administrator has the Model Request Capture
@@ -528,15 +601,6 @@ Compaction and the rest of the Run. Earlier captures stay under the
 retention rules. The request summary stays, and the Run page tells an
 Administrator why the request has no capture.
 _Avoid_: request log, trace, prompt log
-
-### Model Preference
-The models the product prefers for a well-known Model Alias, best first,
-grouped by provider. A route takes the preferred models of the first
-provider that holds a key and serves the alias's Provider Use. For the
-`default` alias it selects one model from the Provider Model List and
-never replaces the list: the daemon takes the first preferred model whose
-provider holds a key and lists it (ADR-0025).
-_Avoid_: model profile, recommended models
 
 ### Origin
 The conversation a delegation chain owes an answer to: the Agent that owes
@@ -602,16 +666,20 @@ reason (ADR-0010).
 ### Event Subscription
 A durable rule that matches Incoming Events from one source and asks one
 Agent to act in a target Channel and optional Thread (ADR-0006). The
-source is a Connection, which includes the Agent's own mailbox or number,
+source is a Connection, which includes the Agent's own mailbox,
 or a Coding Session, as for a Session Rule (ADR-0033). The Person and the
 Agent do not see or manage the rule of a Coding Session.
+Not built: subscriptions for a Workspace Mailbox or Workspace Number
+(ADR-0040, ADR-0041).
 
 ### Incoming Event
 An occurrence that may wake an Agent: a provider occurrence received
-through a Connection, an Agent Mailbox or an Agent Phone Number, or an
+through a Connection or an Agent Mailbox, or an
 event of a Coding Session. It is not an audit event (ADR-0006). The events
 of a Coding Session are the end of a turn, a decision that waits, and the
 end of the session (ADR-0033).
+Not built: events from a Workspace Mailbox or Workspace Number
+(ADR-0040, ADR-0041).
 
 ### Review Run
 The Run that reflects one claimed batch of due Pending Evidence. It uses
@@ -878,8 +946,8 @@ A Connection that the Org owns: the carrier and the mail domain. An
 Administrator sets it up on the Administration Port, it lives in the Org's
 Workspace, and its key, when required, is an installation secret. The
 connection list of every Person shows it, flagged as the installation's.
-The Agent Phone Numbers and Agent Mailboxes on it stay per Workspace
-(ADR-0012, ADR-0023).
+Agent Mailboxes on it belong to a Workspace (ADR-0012, ADR-0023).
+Not built: the Workspace Number on the carrier Connection (ADR-0041).
 _Avoid_: shared connection, global connection, org connection
 
 ### Installation Key
@@ -1285,35 +1353,33 @@ _Avoid_: yolo mode, bypass mode
 
 ## Telephony
 
-### Agent Phone Number
-The telephone number of one Agent: its desk line. An Agent holds at most
-one, and holding it is the authority to call. The Workspace owns and pays
-for it and can move it to another Agent, unassign it or release it. A
-number is unique across the installation, and it never reaches emergency
-services (ADR-0018, ADR-0020).
-
 ### Call
 One telephone conversation between an Agent and a Remote Party. The **Call
 Record** holds the direction, the Remote Party, the Trust Tier, the times,
 the outcome, the ended reason, the recording and the transcript. The
 outcome says whether the Call did its job, and the ended reason says why
 the audio stopped (ADR-0020).
+Not built: inbound Calls to a Workspace Number answered by the Chief of
+Staff, Call handoff and outbound Calls under a Grant (ADR-0041).
 
 ### Call Brief
 What one Call is for, which the Agent writes, and the tools the Call may
 use. The daemon supplies the Agent name, the Person name, the personality
 and the fixed honesty rule. The first sentence names the Agent and the
-Person. An Agent answers its desk line under its **Standing Brief**, a field
-of the Agent; with none, it takes a message (ADR-0020).
+Person. An Agent answers under its **Standing Brief**, a field of the
+Agent; with none, it takes a message (ADR-0020).
+Not built: the Chief of Staff answers the Workspace Number (ADR-0041).
 
 ### Keypad Code
 The 6 to 8 digits a caller enters to confirm a Trust Tier above Unknown on
-a Call that Pagis answers. Each Workspace holds one code, and it confirms
-only calls to the Agents of that Workspace. The daemon collects it from
+a Call that Pagis answers. Each Private Workspace holds one code. It
+confirms only Calls in that private scope. The daemon collects it from
 the keypad, so it never reaches the model or the transcript. After 6
 failed attempts across the Workspace, the code is refused for a delay that
 starts at 1 minute and doubles with each further failure, up to 24 hours.
 A correct code or the Person in Settings clears the count (ADR-0021).
+Not built: the Private Workspace kind. A Shared Workspace has no Keypad
+Code (ADR-0039).
 
 ### Listen-Live
 The Person hearing a Call while it happens, with no way to speak or act on
@@ -1343,17 +1409,33 @@ A tool that exists only inside a live Call: hang up, and send keypad
 digits (ADR-0020).
 
 ### Trust List
-The Workspace's list of who is owner and who is trusted: numbers for Calls
-and texts, and addresses or domains for mail. Anyone absent is Unknown
-(ADR-0021, ADR-0019).
+A Workspace's list of identities for Calls, texts and mail: numbers,
+addresses or domains. It names Owner and Trusted identities. An identity
+absent from the list is Unknown (ADR-0021, ADR-0019).
+Not built: the Team trust tier in place of Owner for Persons in a Shared
+Workspace (ADR-0039).
 
 ### Trust Tier
-What the words of one Remote Party, mail sender or text sender are worth:
-owner words are instructions, trusted words are requests, and Unknown words
-are data only. A mail sender's tier holds only on an aligned DMARC pass in
-the Mailbox Provider's own authentication result, and a message with more
-than one such result is Unknown. A tier gates authority,
-never access (ADR-0021, ADR-0019).
+What the words of a Remote Party, mail sender or text sender are worth:
+Owner words are instructions, Trusted words are requests, and Unknown
+words are data only. A mail sender's tier holds only on an aligned DMARC
+pass in the Mailbox Provider's authentication result. More than one such
+result means Unknown. A tier gates authority, never access (ADR-0021,
+ADR-0019).
+Not built: the **Team** trust tier in a Shared Workspace. A Manager's words
+are instructions. A Responder's or Reader's words are requests. Colleagues
+and their Agents in other Workspaces are trusted senders whose words are
+requests. Mail gets its tier after the spam verdict (ADR-0039, ADR-0040,
+ADR-0043).
+
+### Workspace Number
+The optional telephone number of a Workspace, at most one. The Chief of
+Staff answers it and can hand the Call to another Agent. An Agent with a
+Grant calls out from it. A record of recent outbound Calls routes a
+callback to the Agent that called. Texts belong to this number. The number
+is unique across the installation and never reaches emergency services.
+Not built: Workspace Number. The daemon assigns each number to one Agent
+(ADR-0020, ADR-0041).
 
 ## Mail and texting
 
@@ -1366,10 +1448,16 @@ The email address of one Agent, which it reads and sends from as its own
 identity with no Grant. It is on the Org's mail domain, belongs to one
 Workspace, and never changes its address (ADR-0019).
 
+### Junk
+The folder for mail whose spam verdict passes the Junk threshold. Spam and
+Not spam actions correct the verdict through its seam. The Trust Tier
+applies after the verdict. Not built: Junk and spam verdict filtering
+(ADR-0040).
+
 ### Mail Tool
 One of the tools an Agent uses to search, read, send and file mail, in its
 own Agent Mailbox or in one of the Person's mail Connections under a Grant
-(ADR-0019).
+(ADR-0019). Not built: Workspace Mailbox access under a Grant (ADR-0040).
 
 ### Mailbox Provider
 The Installation Connection through which Agent Mailboxes exist: one
@@ -1378,30 +1466,31 @@ Person makes each mailbox. An Embedder names its provider and can supply
 mail reads and sends through `Mailboxes` with no IMAP or SMTP endpoints.
 The Connection holds the domain and capabilities. The host declares
 whether it needs an API key. A host that needs no key reads no host secret.
-Migadu and manual providers hold both endpoints. A host refusal can carry
+An ordinary mail host holds both endpoints. A host refusal can carry
 a message for the Person, bounded to 512 UTF-8 bytes. Logs hold the code
 only (ADR-0019).
+Not built: Workspace Mailboxes through this transport (ADR-0040).
 
 ### Messaging Readiness
-Whether the carrier delivers a text from an Agent Phone Number: `unknown`,
+Whether the carrier delivers a text from a Workspace Number: `unknown`,
 `not_capable`, `unregistered`, `pending`, `ready` or `rejected`. The type
-exists. Not built: reading it from the carrier, showing it, and refusing a
-send on it (ADR-0020).
+exists. Not built: Workspace Number, reading readiness from the carrier,
+showing it, and refusing a send on it (ADR-0020, ADR-0041).
 
 ### Outgoing Cap
-The most messages one Agent Mailbox or one Agent Phone Number may send in a
+The most messages one Agent Mailbox or one Workspace Number may send in a
 day, whatever the host or carrier allows. The daemon refuses a mail past
-the mailbox's cap. The number's cap counts texts, which are not built
-(ADR-0019, ADR-0020).
+the mailbox's cap. Not built: the Workspace Number and its cap on texts
+(ADR-0019, ADR-0020, ADR-0041).
 
 ### Text Conversation
-The texts between one Agent Phone Number and one counterpart number: a
-pair, not a stored thing. Not built: where an inbound text lands
-(ADR-0020).
+The texts between one Workspace Number and one counterpart number: a
+pair, not a stored thing. The Chief of Staff receives inbound texts.
+Not built: Workspace Number and text delivery (ADR-0020, ADR-0041).
 
 ### Text Message
-One SMS between an Agent Phone Number and a counterpart number. Not built:
-sending and receiving (ADR-0020).
+One SMS between a Workspace Number and a counterpart number. Not built:
+Workspace Number, sending and receiving (ADR-0020, ADR-0041).
 
 ### Text Record
 The one row that holds one Text Message and, for an outbound one, its Run,
@@ -1412,18 +1501,15 @@ Thread and delivery status. The table exists and nothing writes it
 One of the three core tools to send a text, read one Text Conversation, or
 list recent ones. Not built (ADR-0020).
 
+### Workspace Mailbox
+The mailbox of a Workspace on the Org's mail domain, one per Workspace.
+The Chief of Staff reads it first through a default Grant. Other Agents
+need a Grant. Spam filtering precedes the Trust Tier and every Agent read.
+An Agent replies from its Agent Mailbox with the Person in Cc. A send as
+the Workspace Mailbox needs an Approval until a standing Grant allows
+that kind of mail. Not built: Workspace Mailboxes (ADR-0040).
+
 ## Messages and UI
-
-### Person Notice
-The one notice a server or an Embedder chooses for a Person on each user
-answer: an optional neutral or waiting tone, a short label, text of at
-most 120 characters, and an optional link with a label. The sidebar shows
-it above the profile row, and the phone layout shows it at the top of You.
-The daemon gives none.
-
-### Phone layout
-The layout of the Product App at 760 px and below: a tab bar of four places,
-pushed screens and bottom sheets (ADR-0034).
 
 ### Activity
 What one Agent does now, in one word: **Working** while a Run is queued or
@@ -1446,23 +1532,23 @@ approval card is a view of it. Only an Approval takes a scope, which is how
 "Always allow" writes an Allow Rule (ADR-0004, ADR-0033).
 
 ### Artifact
-A binary file that the Workspace stores outside the database, such as a
-screenshot, a call recording or a file an Agent made. A client reads it
-only through the daemon, which shows only a passive image, audio, video or
-plain-text Artifact inline and serves every other one as a download.
+A collaborative document, sheet, slide deck or site. It belongs to one
+Workspace and is shared by an access grant, never by a copy. Its storage
+can be separate from its owning Workspace. Not built: collaborative
+Artifacts (ADR-0039).
 
 ### Automations
 The place of the Product App that shows every Schedule and Event
 Subscription, with a Needs-You Queue at the top (ADR-0022).
 
-### Coding
-The place of the Product App that lists every Coding Session of the
-Workspace (ADR-0022).
-
 ### Block
 One typed element of a message. It shows content, or it views a Request
 and holds only its identifier and display fields. A client shows a
 fallback for a type it does not know (ADR-0004).
+
+### Coding
+The place of the Product App that lists every Coding Session of the
+Workspace (ADR-0022).
 
 ### Desk
 An Agent's Computer as the Person sees it: the live screen, the site, the
@@ -1476,6 +1562,12 @@ Channel: every Desk on Home, and the Chief of Staff's Desk in its Channel
 ### Dictation
 The Person speaking a message into a Thread with a button held down. It
 makes a draft in the composer, and Pagis keeps no audio (ADR-0020).
+
+### File
+A binary file that a Workspace stores outside the database, such as a
+screenshot, a Call recording or a file an Agent makes. A client reads it
+only through the daemon. The daemon shows passive images, audio, video
+and plain text inline and serves every other File as a download.
 
 ### Home
 The first place of the Product App: the Needs-You Queue, the Chief of
@@ -1504,6 +1596,17 @@ Needs-You Queue. It waits while the Person is active in a client: a
 visible client had input in the last 120 s (ADR-0030).
 _Avoid_: alert, push message
 
+### Person Notice
+The one notice a server or an Embedder chooses for a Person on each user
+answer: an optional neutral or waiting tone, a short label, text of at
+most 120 characters, and an optional link with a label. The sidebar shows
+it above the profile row, and the phone layout shows it at the top of You.
+The daemon gives none.
+
+### Phone layout
+The layout of the Product App at 760 px and below: a tab bar of four places,
+pushed screens and bottom sheets (ADR-0034).
+
 ### Progress
 The daemon's derived line for one Run: what it does now, from the Run
 state and the tool call in flight (ADR-0004).
@@ -1525,7 +1628,7 @@ Request with no Run: it waits on its Coding Session, and it expires when
 the harness stops waiting for it (ADR-0033).
 
 ### Retention Policy
-How long one Artifact class is kept in a Workspace. With no policy a class
+How long one File class is kept in a Workspace. With no policy a class
 is kept for ever (ADR-0020, ADR-0022).
 
 ### Rich Message
