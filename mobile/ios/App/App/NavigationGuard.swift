@@ -18,6 +18,8 @@ final class NavigationGuard: NSObject, WKNavigationDelegate {
     private let next: WKNavigationDelegate
     private let openOutside: (URL) -> Void
     private let failed: (Error) -> Void
+    /// A permanent move starts a new bridge with the new origin.
+    var moved: ((WebOrigin) -> Void)?
 
     /// WebKit calls this form of the policy method in place of the form
     /// that the guard has, when the delegate has it. The guard says that it
@@ -69,8 +71,24 @@ final class NavigationGuard: NSObject, WKNavigationDelegate {
         if opensOutside(navigationAction), let url = navigationAction.request.url {
             openOutside(url)
             decisionHandler(.cancel)
-        } else if next.responds(to: NavigationGuard.policy) {
-            next.webView?(webView, decidePolicyFor: navigationAction, decisionHandler: decisionHandler)
+        } else if moved != nil, navigationAction.targetFrame?.isMainFrame == true,
+                  let url = navigationAction.request.url, WebOrigin(url: url) == origin {
+            Task { @MainActor in
+                if let target = await PublicOriginProbe.read(origin) {
+                    decisionHandler(.cancel)
+                    moved?(target)
+                } else {
+                    pass(webView, action: navigationAction, decisionHandler: decisionHandler)
+                }
+            }
+        } else {
+            pass(webView, action: navigationAction, decisionHandler: decisionHandler)
+        }
+    }
+
+    private func pass(_ webView: WKWebView, action: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        if next.responds(to: NavigationGuard.policy) {
+            next.webView?(webView, decidePolicyFor: action, decisionHandler: decisionHandler)
         } else {
             decisionHandler(.allow)
         }
@@ -96,5 +114,30 @@ final class NavigationGuard: NSObject, WKNavigationDelegate {
 
     override func forwardingTarget(for aSelector: Selector!) -> Any? {
         next.responds(to: aSelector) ? next : super.forwardingTarget(for: aSelector)
+    }
+}
+
+/// Read the health route with no cookies and no automatic redirect.
+/// WebKit gives no status code in its redirect callback.
+private final class PublicOriginProbe: NSObject, URLSessionTaskDelegate {
+    static func read(_ origin: WebOrigin) async -> WebOrigin? {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.httpCookieStorage = nil
+        configuration.urlCache = nil
+        configuration.timeoutIntervalForRequest = 5
+        configuration.timeoutIntervalForResource = 5
+        let session = URLSession(configuration: configuration, delegate: PublicOriginProbe(), delegateQueue: nil)
+        defer { session.invalidateAndCancel() }
+        guard let url = URL(string: origin.serverURL + "/api/v1/health"),
+              let (_, response) = try? await session.data(from: url),
+              let http = response as? HTTPURLResponse,
+              let target = http.value(forHTTPHeaderField: "Location")
+        else { return nil }
+        return origin.permanentRedirect(status: http.statusCode, target: target)
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(nil)
     }
 }

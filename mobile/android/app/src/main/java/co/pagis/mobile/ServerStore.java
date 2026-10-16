@@ -36,6 +36,19 @@ final class ServerStore {
         preferences.edit().remove(ORIGIN).apply();
     }
 
+    /** The Public Origin and server record of the device's Push Subscription. */
+    String pushOrigin() {
+        return preferences.getString("pushOrigin", null);
+    }
+
+    String pushSubscriptionId() {
+        return preferences.getString("pushSubscriptionId", null);
+    }
+
+    void keepSubscription(ServerOrigin origin, String id) {
+        preferences.edit().putString("pushOrigin", origin.serverUrl()).putString("pushSubscriptionId", id).apply();
+    }
+
     /**
      * Whether a Notification of an Approval shows Approve once and Deny. It
      * is off when the phone stores no value (ADR-0032).

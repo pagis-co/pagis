@@ -17,7 +17,7 @@ vi.mock('electron', async () => {
           set: vi.fn(async (cookie: any) => { cookies.held = [cookie]; cookies.emit('changed', {}, cookie, 'explicit', false) }),
         })
         mocks.partitions.set(partition, {
-          cookies, clearStorageData: vi.fn(async () => { cookies.held = [] }), clearCache: vi.fn(async () => {}),
+          cookies, webRequest: { onBeforeRedirect: vi.fn() }, clearStorageData: vi.fn(async () => { cookies.held = [] }), clearCache: vi.fn(async () => {}),
           setPermissionRequestHandler: vi.fn(), setPermissionCheckHandler: vi.fn(), setDevicePermissionHandler: vi.fn(), setBluetoothPairingHandler: vi.fn(),
         })
       }
@@ -26,6 +26,7 @@ vi.mock('electron', async () => {
     BrowserWindow: class extends EventEmitter {
       webContents = Object.assign(new EventEmitter(), { setWindowOpenHandler: vi.fn(), setWebRTCIPHandlingPolicy: vi.fn(), mainFrame: { url: '', origin: '' } })
       loadURL = vi.fn(async (url: string) => { this.webContents.mainFrame.url = url; this.webContents.mainFrame.origin = new URL(url).origin })
+      setTitle = vi.fn()
       show = vi.fn()
       focus = vi.fn(() => this.emit('focus'))
       hide = vi.fn()
@@ -150,4 +151,28 @@ it('refuses a verifier on another origin or page and after five minutes', async 
     vi.advanceTimersByTime(300_000)
     expect(windows.takeVerifier({ sender: contents, senderFrame: contents.mainFrame }, 'secret')).toBeUndefined()
   } finally { vi.useRealTimers() }
+})
+
+describe('a permanent main-frame redirect', () => {
+  it.each([301, 308])('keeps the partition and uses the new origin after %s on a reload', async (statusCode) => {
+    const server = connections.add('https://old.example/')
+    await windows.open(server, server.origin)
+    const partition = mocks.partitions.get(`persist:server-${server.id}`)
+    const redirect = partition.webRequest.onBeforeRedirect.mock.calls[0][0]
+    redirect({ resourceType: 'mainFrame', url: server.origin, statusCode, redirectURL: 'https://new.example/page' })
+    await vi.waitFor(() => expect(connections.list()[0].origin).toBe('https://new.example/'))
+    expect(connections.list()[0].id).toBe(server.id)
+    const event = { preventDefault: vi.fn(), url: 'https://new.example/page', isMainFrame: true }
+    mocks.windows[0].webContents.emit('will-redirect', event)
+    expect(event.preventDefault).not.toHaveBeenCalled()
+    expect(partition.clearStorageData).not.toHaveBeenCalled()
+  })
+  it('ignores a subframe and a redirect from another origin', async () => {
+    const server = connections.add('https://old.example/')
+    await windows.open(server, server.origin)
+    const redirect = mocks.partitions.get(`persist:server-${server.id}`).webRequest.onBeforeRedirect.mock.calls[0][0]
+    redirect({ resourceType: 'subFrame', url: server.origin, statusCode: 301, redirectURL: 'https://new.example/' })
+    redirect({ resourceType: 'mainFrame', url: 'https://other.example/', statusCode: 301, redirectURL: 'https://new.example/' })
+    expect(connections.list()).toEqual([server])
+  })
 })

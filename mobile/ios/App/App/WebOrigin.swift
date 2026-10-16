@@ -60,6 +60,17 @@ struct WebOrigin: Hashable {
         return nil
     }
 
+    /// The new Public Origin of a permanent redirect, or nil.
+    func permanentRedirect(status: Int, target: String) -> WebOrigin? {
+        guard status == 301 || status == 308,
+              let base = URL(string: serverURL),
+              let url = URL(string: target, relativeTo: base)?.absoluteURL,
+              url.user == nil, url.password == nil,
+              let moved = WebOrigin(url: url), moved.scheme == "https", moved != self
+        else { return nil }
+        return moved
+    }
+
     /// A page on this origin, such as a Sign-In Link, or nil for a page of
     /// any other origin.
     func page(_ text: String) -> URL? {

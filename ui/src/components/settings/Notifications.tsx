@@ -3,9 +3,9 @@
 //
 // In the Mobile App, the `PagisPush` plugin takes the place of
 // `PushManager` (ADR-0032). The app is On when the daemon lists a Push
-// Subscription of its Session. A new Session has none, so the section
-// shows Off, and Turn on uses the registration with the Push Relay that
-// the app holds.
+// Subscription of its Session at the current Public Origin. A new
+// Session has none, so the section shows Off. Turn on uses the
+// registration with the Push Relay that the app holds.
 //
 // The key loads when the section opens. A click on Turn on calls
 // `subscribe()` before it returns, with no network wait: a wait inside
@@ -22,6 +22,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ApiClient, PushOutcomeDto, PushSubscriptionDto } from '../../api/client'
 import type { components } from '../../api/schema'
 import { Badge, Button, Frame, Row, SectionLabel, Switch } from '../../primitives'
+import { browserSubscription, keepBrowserSubscription } from '../../push/deviceSubscription'
 import { PagisPush } from '../../push/pagisPush'
 import { base64UrlBytes, pushState, pushSupport, type PushState } from '../../push/support'
 import {
@@ -50,7 +51,7 @@ function useBrowserPush(enabled: boolean) {
     queryKey: browserPushKey,
     queryFn: async () => {
       const registration = await navigator.serviceWorker.ready
-      return { registration, held: await registration.pushManager.getSubscription() }
+      return { registration, held: await registration.pushManager.getSubscription(), device: browserSubscription() }
     },
     enabled,
   })
@@ -223,11 +224,12 @@ export function useNotificationControl(api: ApiClient) {
     else if (key.data === undefined || list.data === undefined || app.data === undefined)
       view = 'reading'
     else if (app.data.permission === 'denied') view = 'blocked'
-    else view = listed ? 'on' : 'off'
+    else view = listed && app.data.origin === window.location.origin ? 'on' : 'off'
   } else if (!supported) view = support
   else if (key.isError || list.isError || browser.isError) view = 'unreadable'
   else if (key.data === undefined || list.data === undefined || browser.data === undefined)
     view = 'reading'
+  else if (held && browser.data.device && browser.data.device.origin !== window.location.origin) view = 'stale'
   else view = pushState(window, held, { listed, key: key.data })
 
   const reread = () =>
@@ -236,7 +238,14 @@ export function useNotificationControl(api: ApiClient) {
   // The browser waits on `subscribe()`, which the click started.
   const turnOn = useMutation({
     mutationFn: async (subscribing: Promise<components['schemas']['SubscribeRequest']>) => {
-      await subscribe.mutateAsync(await subscribing)
+      const subscription = await subscribing
+      const previous = mobileApp ? app.data : browser.data?.device
+      for (const row of rows.filter((row) => row.current || row.id === previous?.id)) {
+        await remove.mutateAsync(row.id)
+      }
+      const saved = await subscribe.mutateAsync(subscription)
+      if (mobileApp) await PagisPush.keepSubscription({ id: saved.id })
+      else keepBrowserSubscription(saved.id)
     },
     onSettled: reread,
   })

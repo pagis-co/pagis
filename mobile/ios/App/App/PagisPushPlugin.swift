@@ -12,6 +12,7 @@ final class PagisPushPlugin: CAPPlugin, CAPBridgedPlugin {
     let identifier = "PagisPushPlugin"
     let jsName = "PagisPush"
     let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "keepSubscription", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "state", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "subscribe", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "unsubscribe", returnType: CAPPluginReturnPromise),
@@ -22,8 +23,25 @@ final class PagisPushPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func state(_ call: CAPPluginCall) {
         Task { @MainActor in
             let settings = await UNUserNotificationCenter.current().notificationSettings()
-            call.resolve(["permission": PagisPushPlugin.permission(settings.authorizationStatus)])
+            let store = ServerStore()
+            call.resolve([
+                "permission": PagisPushPlugin.permission(settings.authorizationStatus),
+                "origin": store.pushOrigin as Any? ?? NSNull(),
+                "id": store.pushSubscriptionId as Any? ?? NSNull(),
+            ])
         }
+    }
+
+    /// The Product App calls this after the server takes the subscription.
+    @objc func keepSubscription(_ call: CAPPluginCall) {
+        let store = ServerStore()
+        guard let id = call.getString("id"), !id.isEmpty, let origin = store.server else {
+            call.reject("keepSubscription needs a server and a Push Subscription id.")
+            return
+        }
+        store.pushOrigin = origin.serverURL
+        store.pushSubscriptionId = id
+        call.resolve()
     }
 
     @objc func subscribe(_ call: CAPPluginCall) {

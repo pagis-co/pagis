@@ -135,8 +135,8 @@ describe('the Connect screen checks a server', () => {
     const request = server({ '/api/v1/health': healthy(), '/api/v1/setup': setUp(), [route]: redirect })
 
     await expect(connect('pagis.example.com', request)).rejects.toThrow(
-      'The server at https://pagis.example.com/ sent this app to another address. Pagis follows no ' +
-        'redirect before it opens a server. Type the address that the server answers on.',
+      'The server at https://pagis.example.com/ sent this app to another address. Pagis follows only a permanent ' +
+        'redirect to another HTTPS origin. Type the address that the server answers on.',
     )
 
     expect(paths(request).at(-1)).toBe(route)
@@ -216,4 +216,14 @@ describe('the Connect screen checks a scanned sign-in link', () => {
     await expect(scan('', request)).rejects.toThrow(message)
     expect(request).not.toHaveBeenCalled()
   })
+})
+
+it.each([301, 308])('checks the new Public Origin after %s and returns the address to keep', async (status) => {
+  const request = vi.fn().mockResolvedValueOnce({ status, headers: { Location: 'https://new.example/api/v1/health' }, data: null })
+    .mockResolvedValueOnce({ ...healthy(), headers: {} })
+    .mockResolvedValueOnce({ ...setUp(), headers: {} })
+  expect(await connect('https://old.example/', request)).toEqual({ origin: 'https://new.example/', opens: 'https://new.example/' })
+  expect(request.mock.calls.map(([options]) => options.url)).toEqual([
+    'https://old.example/api/v1/health', 'https://new.example/api/v1/health', 'https://new.example/api/v1/setup',
+  ])
 })

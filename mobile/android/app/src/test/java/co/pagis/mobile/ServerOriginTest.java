@@ -17,6 +17,20 @@ public class ServerOriginTest {
     private final ServerOrigin server = ServerOrigin.parse("https://a.example", false);
 
     @Test
+    public void permanentRedirect() {
+        for (int status : new int[] {301, 308}) {
+            assertEquals("https://new.example", server.permanentRedirect(status, "https://new.example/page").serverUrl());
+        }
+        assertNull(server.permanentRedirect(302, "https://new.example"));
+        assertNull(server.permanentRedirect(307, "https://new.example"));
+        assertNull(server.permanentRedirect(301, "http://new.example"));
+        assertNull(server.permanentRedirect(308, "https://a.example:443/page"));
+        assertNull(server.permanentRedirect(301, "/page"));
+        assertNull(server.permanentRedirect(301, "https://user:secret@new.example"));
+        assertNull(server.permanentRedirect(301, "invalid"));
+    }
+
+    @Test
     public void theServerOriginMatchesItself() {
         assertNotNull(server);
         assertTrue(server.matches("https://a.example"));

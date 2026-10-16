@@ -82,6 +82,13 @@ final class PagisViewController: CAPBridgeViewController, PlaceShell, ServerShel
         let navigationGuard = NavigationGuard(allowing: shown, next: bridge.webViewDelegationHandler) { [weak self] error in
             self?.loadFailed(error)
         }
+        if server != nil {
+            navigationGuard.moved = { [weak self] origin in
+                guard let self, self.store.server == self.server,
+                      let page = URL(string: origin.serverURL + "/") else { return }
+                self.open(server: origin, firstPage: page)
+            }
+        }
         navigationGuard.install(in: webView)
         self.navigationGuard = navigationGuard
         if let server {

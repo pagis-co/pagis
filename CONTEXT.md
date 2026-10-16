@@ -67,7 +67,10 @@ whether to install on this computer ("just me" or "several people") or to
 connect to a server. On this computer it installs and supervises one Server
 Runtime. Connected to servers, it keeps a list in `servers.json`, with an id,
 origin and host label for each. Each server has one window and one
-persistent Electron session partition. The Person signs in through the
+persistent Electron session partition. A 301 or 308 from a saved server to
+another HTTPS Public Origin changes its stored origin and host label. The
+server id and session partition stay the same. The next start uses the new
+origin. The Person signs in through the
 system browser with a bound, one-use Sign-In Link, with a pasted link, or
 on the server's page in its window. The application menu and tray list
 the servers, add a server and remove the selected server. Each signed-in
@@ -143,7 +146,10 @@ signs in through the system browser or with a scanned or pasted Sign-In
 Link, and shows Notifications with **Approve once**
 and **Deny** for an Approval. It connects to a Server, or to a Local
 Installation in Remote Access, over `https://`. It installs nothing, and it
-is not a Host (ADR-0032).
+is not a Host (ADR-0032). At the first load and each reload, a native probe
+checks the saved server for a 301 or 308 to another HTTPS Public Origin.
+The app stores that origin and starts its bridge there. The next start
+uses the new origin.
 _Avoid_: phone app, mobile client, native app
 
 ### Native Part
@@ -196,7 +202,13 @@ The origin a browser reaches an installation at: the scheme, the host and
 the port. On a server it is the name the proxy answers on, over TLS. On a
 Local Installation it derives from the Bind Address and the port, unless
 Remote Access sets it to the public name of the owner's Tailscale Funnel.
-The CORS answer names it (ADR-0024, ADR-0028).
+The CORS answer names it (ADR-0024, ADR-0028). When an Administrator changes
+it, the proxy at the old host serves a 301 or 308 to the new Public Origin.
+The daemon serves no such redirect. The Client App and Mobile App store a
+permanent move to another HTTPS origin. A temporary redirect, an HTTP
+target and a redirect to the same origin change no stored address. The
+cookie store decides whether the Session works at the new origin. A
+host-only cookie needs a new sign-in.
 _Avoid_: base URL, external URL, site address
 
 ### Push Relay
@@ -1613,7 +1625,12 @@ state and the tool call in flight (ADR-0004).
 
 ### Push Subscription
 The push endpoint and the keys of one client. It belongs to one Session
-and ends with it (ADR-0030).
+and ends with it (ADR-0030). The device keeps the Public Origin and server
+record id with its subscription state. A browser keeps this state in the
+storage of its origin; the Mobile App keeps it in native storage. At a
+new Public Origin, the Product App shows the control to turn Notifications
+on again. When the Person turns them on, it deletes the old device
+subscription record from the server before it stores the new one.
 
 ### Report
 The message that the Chief of Staff writes for Home in its DM Channel: what

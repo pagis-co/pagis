@@ -90,7 +90,10 @@ class Shell {
   // Connected servers have their own windows and partitions.
   private readonly connections = new ServerConnections(app.getPath('userData'))
   private readonly servers = new ServerWindows(this.connections, {
-    changed: () => this.renderMenus(),
+    changed: () => {
+      this.serverList = this.connections.list()
+      this.renderMenus()
+    },
     openExternal: openInBrowser,
     quitting: () => this.quitting,
   })
@@ -427,7 +430,13 @@ class Shell {
     this.servers.currentId = connection.id
     this.retryConnection = connection
     try {
-      await assertServerIsReady(connection.origin, app.getVersion())
+      await assertServerIsReady(connection.origin, app.getVersion(), fetch, undefined, (status, source, target) => {
+        const moved = this.connections.followRedirect(connection.id, status, source, target)
+        if (!moved) return null
+        Object.assign(connection, moved)
+        this.followConnection()
+        return moved.origin
+      })
       await this.finishHandoff(connection.origin)
     } catch (error) {
       // The client installed nothing on this computer, so the page offers

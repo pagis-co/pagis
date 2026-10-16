@@ -96,7 +96,10 @@ public class MainActivity extends BridgeActivity {
         // run on the main thread.
         ServerOrigin shown = ServerOrigin.parse(bridge.getLocalUrl(), BuildConfig.DEBUG);
         if (shown != null) {
-            bridge.setWebViewClient(new PagisWebViewClient(bridge, shown, this::followSession, this::loadFailed));
+            bridge.setWebViewClient(new PagisWebViewClient(bridge, shown, this::followSession, this::loadFailed,
+                server == null ? null : target -> {
+                    if (shown.equals(new ServerStore(this).server())) open(target, target.serverUrl() + "/");
+                }));
         }
         // The microphone goes to the main frame of the server alone.
         bridge.getWebView().setWebChromeClient(new PagisChromeClient(bridge, server));

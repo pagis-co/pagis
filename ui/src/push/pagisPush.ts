@@ -5,17 +5,20 @@
 
 import { registerPlugin, type PermissionState } from '@capacitor/core'
 
+import type { DeviceSubscription } from './deviceSubscription'
 import type { components } from '../api/schema'
 
 export interface PagisPushPlugin {
   /** Whether the phone lets Pagis show notifications. */
-  state(): Promise<{ permission: PermissionState }>
+  state(): Promise<{ permission: PermissionState } & DeviceSubscription>
   /** Ask the phone for the permission, register with the Push Relay for
    *  the VAPID Key of the server, and answer the Push Subscription in the
    *  shape of `PushSubscription.toJSON()`. A second call with the same
    *  key answers the stored subscription while the relay knows it, and
    *  registers again when the relay does not. */
   subscribe(options: { vapidKey: string }): Promise<components['schemas']['SubscribeRequest']>
+  /** Keep the server record and its origin after the server takes the subscription. */
+  keepSubscription(options: { id: string }): Promise<void>
   /** Delete the registration with the Push Relay, then the keys. */
   unsubscribe(): Promise<void>
 }

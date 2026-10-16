@@ -8,6 +8,15 @@ final class WebOriginTests: XCTestCase {
     /// A `WKSecurityOrigin` names the default port of its scheme as 0.
     private let frameOfServer = WebOrigin(scheme: "https", host: "a.example", port: 0)
 
+    func testPermanentRedirect() throws {
+        for status in [301, 308] {
+            XCTAssertEqual(frameOfServer.permanentRedirect(status: status, target: "https://new.example/page")?.serverURL, "https://new.example")
+        }
+        for (status, target) in [(302, "https://new.example"), (307, "https://new.example"), (301, "http://new.example"), (301, "/page"), (308, "https://a.example:443/page"), (301, "https://user:secret@new.example"), (301, "invalid")] {
+            XCTAssertNil(frameOfServer.permanentRedirect(status: status, target: target))
+        }
+    }
+
     func testTheServerOriginMatchesItsOwnFrame() throws {
         let server = try XCTUnwrap(WebOrigin(url: URL(string: "https://a.example")!))
 

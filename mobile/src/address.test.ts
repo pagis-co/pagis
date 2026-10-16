@@ -1,3 +1,4 @@
+import { permanentRedirect } from './address'
 import { describe, expect, it } from 'vitest'
 
 import { isTrustedServerOrigin, serverAddress } from './address'
@@ -126,5 +127,14 @@ describe('the server origin the app trusts', () => {
     expect(isTrustedServerOrigin('file:///etc/passwd', DEBUG)).toBe(false)
     expect(isTrustedServerOrigin('pagis.example.com', DEBUG)).toBe(false)
     expect(isTrustedServerOrigin('', DEBUG)).toBe(false)
+  })
+})
+
+describe('a changed Public Origin', () => {
+  it.each([301, 308])('takes a %s to another HTTPS origin', (status) => {
+    expect(permanentRedirect('https://old.example/', status, 'https://new.example/page')).toBe('https://new.example/')
+  })
+  it.each([[302, 'https://new.example/'], [307, 'https://new.example/'], [301, 'http://new.example/'], [308, '/page'], [301, 'https://user:secret@new.example/'], [301, 'invalid']])('refuses %s to %s', (status, target) => {
+    expect(permanentRedirect('https://old.example/', status as number, target as string)).toBeNull()
   })
 })

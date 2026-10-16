@@ -101,7 +101,11 @@ in the product window of the Client App (ADR-0025).
   of the same host. Capacitor alone keeps a URL that starts with the text
   of the server URL on iOS, and a URL of the same scheme and host on
   Android, so the shell makes this check in front of Capacitor on both
-  platforms. `allowNavigation` stays empty.
+  platforms. `allowNavigation` stays empty. Before the first main-frame
+  load and each reload, a native probe reads the health route with no
+  cookies and no automatic redirect. A 301 or 308 to another HTTPS origin
+  changes the stored server and starts a new bridge there. Each other
+  answer leaves the stored server as it is.
 
 ### The Mobile App signs in with a Sign-In Link
 
@@ -202,7 +206,12 @@ a remote origin without App-Bound Domains, and the Android System WebView
 has no Push API. So the native side receives each Notification.
 
 The plugin `PagisPush` of the app target has `state()`,
-`subscribe({vapidKey})` and `unsubscribe()`. Where
+`subscribe({vapidKey})`, `keepSubscription({id})` and `unsubscribe()`.
+`state` gives the permission and the stored origin and server record id of
+the device's Push Subscription. After the server takes a subscription,
+`keepSubscription` stores its id with the current Public Origin. A changed
+Public Origin shows Notifications as Off. Turn on deletes the old device
+record before it posts the new subscription. Where
 `Capacitor.isNativePlatform()` is true, the Notifications section of
 Settings uses it in place of `PushManager`. `subscribe` does these steps
 in this order:
