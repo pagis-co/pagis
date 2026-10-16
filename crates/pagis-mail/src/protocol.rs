@@ -563,7 +563,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> MailSession for StandardSession<S
     }
 
     async fn send(&mut self, message: &OutgoingMessage) -> Result<SentMessage, TransportError> {
-        let built = build_mime(&self.address, message)?;
+        let built = build_mime(&self.address, message, pagis_core::now_ms())?;
         let envelope = Envelope::new(
             Some(mailbox_address(&self.address)?),
             built
