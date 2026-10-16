@@ -303,7 +303,11 @@ pub trait MailSession: Send {
     async fn delete_folder(&mut self, name: &str) -> Result<(), TransportError>;
     async fn junk_folders(&mut self) -> Result<Vec<String>, TransportError>;
     async fn system_folders(&mut self) -> Result<Vec<String>, TransportError>;
-    async fn move_message(&mut self, id: &MessageId, folder: &str) -> Result<(), TransportError>;
+    async fn move_message(
+        &mut self,
+        id: &MessageId,
+        folder: &str,
+    ) -> Result<MessageId, TransportError>;
     async fn set_label(
         &mut self,
         id: &MessageId,

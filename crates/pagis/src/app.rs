@@ -827,6 +827,8 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         )),
         grants: stores.grants.clone(),
         intake: Arc::new(pagis_mail::MailIntake {
+            workspace_mailboxes: stores.workspace_mailboxes.clone(),
+            junk: stores.junk.clone(),
             opinions: Arc::new(pagis_server::mail_opinion::ModelMailOpinions {
                 brain: brain.clone(),
                 aliases: stores.model_aliases.clone(),

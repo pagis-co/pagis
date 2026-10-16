@@ -165,7 +165,9 @@ pub fn mailbox_password_secret_name(
 }
 
 mod spam;
-pub use spam::{HostSpamVerdicts, MailOpinionSource, SpamVerdictSource, parse_spam_verdict};
+pub use spam::{
+    HostSpamVerdicts, MailOpinionSource, SpamVerdictSource, parse_spam_verdict, quarantine_required,
+};
 
 mod intake;
 pub use intake::{MailIntake, MailReadContext};

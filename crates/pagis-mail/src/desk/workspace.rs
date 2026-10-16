@@ -4,6 +4,58 @@ use crate::WorkspaceMailStore;
 use pagis_core::WorkspaceMailbox;
 
 impl MailboxDesk {
+    pub async fn read_quarantine(
+        &self,
+        entry: &pagis_core::JunkMessage,
+    ) -> Result<crate::WorkspaceMailMessage, MailboxError> {
+        if self
+            .workspace_mailboxes
+            .get(&entry.workspace_id)
+            .await?
+            .is_some_and(|m| m.address == entry.mailbox)
+        {
+            let mut store = self.open_workspace(&entry.workspace_id).await?;
+            let result = store
+                .quarantined_message(&crate::MessageId::new(entry.host_id.clone()))
+                .await;
+            let _ = store.close().await;
+            return Ok(result?);
+        }
+        let mailbox = self
+            .mailboxes
+            .list(&entry.workspace_id)
+            .await?
+            .into_iter()
+            .find(|m| m.address == entry.mailbox)
+            .ok_or(MailboxError::NotFound)?;
+        let mut session = self.open_session(&mailbox).await?;
+        let result = async {
+            let id = crate::MessageId::new(entry.host_id.clone());
+            session
+                .select(&id.as_str().parse::<crate::ImapMessageId>()?.folder)
+                .await?;
+            let mut message = session.fetch(&id).await?;
+            self.read_context(&mailbox)
+                .await
+                .map_err(|_| crate::TransportError(crate::TransportErrorCode::Unreachable))?
+                .assess(&mut message.summary, false)
+                .await?;
+            let flags = session.metadata(&id).await?;
+            Ok::<_, crate::TransportError>(crate::WorkspaceMailMessage {
+                labels: flags.labels.clone(),
+                flags,
+                message,
+            })
+        }
+        .await;
+        let _ = session.logout().await;
+        Ok(result?)
+    }
+
+    pub fn junk(&self) -> &dyn pagis_core::JunkStore {
+        self.intake.junk.as_ref()
+    }
+
     pub fn workspace_mailbox_records(&self) -> &dyn pagis_core::WorkspaceMailboxRecordStore {
         self.workspace_mailboxes.as_ref()
     }

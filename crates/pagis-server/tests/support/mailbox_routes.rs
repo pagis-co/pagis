@@ -794,7 +794,7 @@ async fn workspace_mail_routes_use_the_supplied_store_without_imap() {
         StatusCode::NO_CONTENT
     );
     let (_, folders) = response(&embedder, "GET", &format!("{root}/folders"), Value::Null).await;
-    assert_eq!(folders["items"], json!(["INBOX"]));
+    assert_eq!(folders["items"], json!(["INBOX", "Junk"]));
     let agent = embedder.agent(&embedder.workspace, "Reader").await;
     let desk = &embedder.routers.state.mailbox_desk;
     assert!(
@@ -836,4 +836,181 @@ async fn workspace_mail_routes_use_the_supplied_store_without_imap() {
     );
     assert!(embedder.mail_transport.logins().is_empty());
     assert!(embedder.mailbox_host.addresses().is_empty());
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+async fn junk_mail_policy_and_corrections_use_the_supplied_store() {
+    let host = std::sync::Arc::new(pagis_mail::fake::MemoryWorkspaceMailHost::default());
+    let embedder = Embedder::with_workspace_mail(host.clone()).await;
+    let connection = provider(&embedder).await;
+    assert_eq!(
+        response(
+            &embedder,
+            "POST",
+            "/api/v1/workspace/mailbox",
+            json!({"connection_id": connection, "local_part":"person"})
+        )
+        .await
+        .0,
+        StatusCode::CREATED
+    );
+    let mail = host.store(&embedder.workspace).unwrap();
+    mail.deliver("sender@example.com", "Offer", "Offer");
+    let root = "/api/v1/workspace/mail";
+    let policy = format!("{root}/junk-policy");
+    assert_eq!(
+        response(
+            &embedder,
+            "PUT",
+            &policy,
+            json!({"spam_mode":"score_only", "lists":{"allow":[],"block":["example.com"]}})
+        )
+        .await
+        .0,
+        StatusCode::NO_CONTENT
+    );
+    let (_, inbox) = response(
+        &embedder,
+        "GET",
+        &format!("{root}/messages?folder=INBOX"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(inbox["items"][0]["junk"], true);
+    assert_eq!(
+        response(
+            &embedder,
+            "PUT",
+            &policy,
+            json!({"spam_mode":"move_to_junk", "lists":{"allow":[],"block":["example.com"]}})
+        )
+        .await
+        .0,
+        StatusCode::NO_CONTENT
+    );
+    let (_, inbox) = response(
+        &embedder,
+        "GET",
+        &format!("{root}/messages?folder=INBOX"),
+        Value::Null,
+    )
+    .await;
+    assert!(inbox["items"].as_array().unwrap().is_empty());
+    let (_, junk) = response(
+        &embedder,
+        "GET",
+        &format!("{root}/messages?folder=Junk"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(junk["items"].as_array().unwrap().len(), 1);
+    let id = junk["items"][0]["id"].as_str().unwrap();
+    assert_eq!(
+        response(
+            &embedder,
+            "POST",
+            &format!("{root}/messages/{id}/spam"),
+            json!({"spam":false})
+        )
+        .await
+        .0,
+        StatusCode::NO_CONTENT
+    );
+    let (_, inbox) = response(
+        &embedder,
+        "GET",
+        &format!("{root}/messages?folder=INBOX"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(inbox["items"].as_array().unwrap().len(), 1);
+    assert_eq!(inbox["items"][0]["spam_verdict"]["source"], "person");
+    assert_eq!(
+        response(
+            &embedder,
+            "PUT",
+            &policy,
+            json!({"spam_mode":"other", "lists":{"allow":[],"block":[]}})
+        )
+        .await
+        .0,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+async fn spam_corrections_check_shared_workspace_message_visibility() {
+    let host = std::sync::Arc::new(pagis_mail::fake::MemoryWorkspaceMailHost::default());
+    let embedder = Embedder::with_workspace_mail(host.clone()).await;
+    let connection = provider(&embedder).await;
+    let person = embedder
+        .stores
+        .workspaces
+        .get(&embedder.workspace)
+        .await
+        .unwrap()
+        .unwrap()
+        .user_id
+        .unwrap();
+    let shared = pagis_server::provisioning::WorkspaceSeed::from(&embedder.stores)
+        .shared(
+            &WorkspaceMember {
+                workspace_id: WorkspaceId::generate(),
+                person_id: person,
+                role: WorkspaceRole::Manager,
+                author: Author::System,
+            },
+            "Team",
+            "UTC",
+            now_ms(),
+            embedder.stores.workspace_members.as_ref(),
+        )
+        .await
+        .unwrap();
+    let prefix = format!("/api/v1/workspaces/{}", shared.id);
+    assert_eq!(
+        response(
+            &embedder,
+            "POST",
+            &format!("{prefix}/workspace/mailbox"),
+            json!({"connection_id":connection,"local_part":"team"})
+        )
+        .await
+        .0,
+        StatusCode::CREATED
+    );
+    let mail = host.store(&shared.id).unwrap();
+    let id = mail.deliver("sender@test", "Message", "Body");
+    for level in [
+        MailVisibility::AgentOnly,
+        MailVisibility::Escalations,
+        MailVisibility::AllMail,
+    ] {
+        embedder
+            .stores
+            .workspace_mailboxes
+            .set_visibility(&shared.id, level)
+            .await
+            .unwrap();
+        for spam in [false, true] {
+            let status = response(
+                &embedder,
+                "POST",
+                &format!("{prefix}/workspace/mail/messages/{id}/spam"),
+                json!({"spam":spam}),
+            )
+            .await
+            .0;
+            assert_eq!(
+                status,
+                if level == MailVisibility::AllMail {
+                    StatusCode::NO_CONTENT
+                } else {
+                    StatusCode::NOT_FOUND
+                }
+            );
+        }
+    }
 }

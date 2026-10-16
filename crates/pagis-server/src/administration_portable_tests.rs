@@ -41,7 +41,8 @@ async fn sections_name_neither_settings_nor_restart() {
             "resources",
             "providers",
             "plugins",
-            "health"
+            "health",
+            "junk"
         ])
     );
 }

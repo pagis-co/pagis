@@ -251,3 +251,65 @@ async fn role_changes_refuse_unknown_roles_missing_people_and_other_orgs() {
     );
     assert!(audit(&embedder, &first.org_id).await.is_empty());
 }
+
+#[tokio::test]
+async fn junk_org_policy_and_quarantine_are_administrator_only() {
+    let embedder = Embedder::new().await;
+    let (_, member) = people(&embedder).await;
+    assert_eq!(
+        set_role(&embedder, &member.id, "member", &embedder.cookie)
+            .await
+            .0,
+        StatusCode::OK
+    );
+    for (method, path, body) in [
+        (
+            "GET",
+            "/api/v1/administration/mail/junk-policy",
+            Value::Null,
+        ),
+        (
+            "PUT",
+            "/api/v1/administration/mail/junk-policy",
+            json!({"sensitivity":"high", "lists":{"allow":[],"block":[]}}),
+        ),
+        ("GET", "/api/v1/administration/mail/quarantine", Value::Null),
+        (
+            "POST",
+            "/api/v1/administration/mail/quarantine/read",
+            json!({"workspace_id":embedder.workspace,"mailbox":"person@example.com","message_key":"<unsafe@example.com>"}),
+        ),
+        (
+            "POST",
+            "/api/v1/administration/mail/quarantine/release",
+            json!({"workspace_id":embedder.workspace,"mailbox":"person@example.com","message_key":"<unsafe@example.com>"}),
+        ),
+    ] {
+        let request = || {
+            Request::builder()
+                .method(method)
+                .uri(path)
+                .extension(pagis_server::Peer("127.0.0.1:1234".parse().unwrap()))
+                .header("content-type", "application/json")
+                .header("cookie", &embedder.other_cookie)
+                .body(Body::from(body.to_string()))
+                .unwrap()
+        };
+        let response = embedder
+            .routers
+            .administration
+            .clone()
+            .oneshot(request())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN, "{method} {path}");
+        let response = embedder
+            .routers
+            .product
+            .clone()
+            .oneshot(request())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND, "{method} {path}");
+    }
+}

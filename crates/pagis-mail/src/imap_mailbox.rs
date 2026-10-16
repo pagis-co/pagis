@@ -111,7 +111,12 @@ impl Mailbox for ImapMailbox {
         let next = (found.len() > skip.saturating_add(page.limit))
             .then(|| skip.saturating_add(page.limit).to_string());
         Ok(Page {
-            items: found.into_iter().skip(skip).take(page.limit).collect(),
+            items: found
+                .into_iter()
+                .filter(|m| m.require_visible().is_ok())
+                .skip(skip)
+                .take(page.limit)
+                .collect(),
             next,
         })
     }
@@ -121,6 +126,7 @@ impl Mailbox for ImapMailbox {
         self.select_checked(&imap.folder).await?;
         let mut message = self.session.fetch(id).await?;
         self.assess(&mut message.summary).await?;
+        message.summary.require_visible()?;
         Ok(message)
     }
 
@@ -135,6 +141,7 @@ impl Mailbox for ImapMailbox {
         for message in &mut found {
             self.assess(&mut message.summary).await?;
         }
+        found.retain(|m| m.summary.require_visible().is_ok());
         let end = found.len().saturating_sub(skip);
         let start = end.saturating_sub(page.limit);
         let next = (start > 0).then(|| skip.saturating_add(end - start).to_string());
@@ -149,8 +156,7 @@ impl Mailbox for ImapMailbox {
         id: &MessageId,
         change: MessageChange,
     ) -> Result<(), TransportError> {
-        let imap = id.as_str().parse::<ImapMessageId>()?;
-        self.select_checked(&imap.folder).await?;
+        self.message(id).await?;
         if change.flags.seen.is_some() || change.flags.flagged.is_some() {
             self.session.set_flags(id, change.flags).await?;
         }

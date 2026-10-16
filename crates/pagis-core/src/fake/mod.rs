@@ -21,6 +21,8 @@ mod evidence;
 mod forget;
 mod governance;
 mod identity;
+mod junk;
+use junk::FakeJunkStore;
 mod knowledge;
 mod memory;
 mod resources;
@@ -256,6 +258,7 @@ impl FakeDatabase {
     }
     pub fn stores(&self) -> Stores {
         Stores {
+            junk: Arc::new(FakeJunkStore(self.0.clone())),
             mail_assessments: Arc::new(FakeMailAssessmentStore(self.0.clone())),
             audit: Arc::new(FakeAuditLog(self.0.clone())),
             governance: Arc::new(FakeWorkspaceGovernanceStore(self.0.clone())),
@@ -319,6 +322,9 @@ struct Data {
     limits: BTreeMap<WorkspaceId, crate::SharedWorkspaceLimits>,
     versions: Vec<crate::AgentVersion>,
     workspace_mail_sends: BTreeMap<WorkspaceId, (i64, u32)>,
+    junk_org: crate::OrgJunkPolicy,
+    junk_lists: BTreeMap<WorkspaceId, crate::MailLists>,
+    junk_messages: BTreeMap<(WorkspaceId, String, String), crate::JunkMessage>,
     mail_assessments: BTreeMap<(WorkspaceId, String, String), crate::MailAssessment>,
     workspace_mail_escalations: BTreeMap<(WorkspaceId, String), AgentId>,
     workspace_mailboxes: BTreeMap<WorkspaceId, crate::WorkspaceMailbox>,

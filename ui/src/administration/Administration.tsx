@@ -26,6 +26,7 @@ import { SettingsNav } from '../components/settings/SettingsNav'
 import { NavBar } from '../components/phone/TopBar'
 import { useIsMobile } from '../primitives/useMediaQuery'
 import { errorCode, useAdministrationSections, useSetupState, useSignOut, useUser, useUserName } from '../queries'
+import { Junk } from './Junk'
 import { Health } from './Health'
 import { Providers } from './Providers'
 import { Resources } from './Resources'
@@ -125,6 +126,7 @@ export function AdministrationShell({
           )}
           {view === 'plugins' && <Plugins api={api} />}
           {view === 'health' && <Health api={api} />}
+          {view === 'junk' && <Junk api={api} />}
         </ReadingColumn>
       </main>
     </div>

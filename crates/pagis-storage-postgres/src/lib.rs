@@ -130,6 +130,7 @@ pub async fn open(url: &str) -> Result<pagis_core::Stores, sqlx::Error> {
 /// Every store of this backend, over one pool.
 pub fn stores(pool: PgPool) -> pagis_core::Stores {
     pagis_core::Stores {
+        junk: Arc::new(PostgresJunkStore::new(pool.clone())),
         mail_assessments: Arc::new(PostgresMailAssessmentStore::new(pool.clone())),
         governance: Arc::new(PostgresWorkspaceGovernanceStore::new(pool.clone())),
         audit: Arc::new(PostgresAuditLog::new(pool.clone())),
@@ -206,3 +207,6 @@ pub use audit_log::PostgresAuditLog;
 
 mod workspace_governance;
 pub use workspace_governance::PostgresWorkspaceGovernanceStore;
+
+mod junk_store;
+pub use junk_store::PostgresJunkStore;

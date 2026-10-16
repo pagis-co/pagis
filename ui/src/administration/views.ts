@@ -9,6 +9,7 @@ export type AdministrationView =
   | 'settings'
   | 'plugins'
   | 'health'
+  | 'junk'
 
 export const ADMINISTRATION_VIEWS: { value: AdministrationView; label: string }[] = [
   { value: 'spend', label: 'Spend' },
@@ -20,5 +21,6 @@ export const ADMINISTRATION_VIEWS: { value: AdministrationView; label: string }[
   { value: 'settings', label: 'Settings' },
   { value: 'plugins', label: 'Plugins' },
   { value: 'health', label: 'Health' },
+  { value: 'junk', label: 'Junk' },
 ]
 

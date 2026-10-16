@@ -5,6 +5,7 @@ import type { ApiClient } from '../../api/client'
 import { Button, Input, Select } from '../../primitives'
 import { useWorkspaceMailbox, workspaceMailKey } from '../../queries'
 import { useCurrentWorkspaceId, useWorkspaceAccess } from '../../workspace'
+import { WorkspaceJunkPolicy } from '../mail/JunkPolicy'
 
 export function WorkspaceMailbox({ api }: { api: ApiClient }) {
   const workspaceId = useCurrentWorkspaceId()
@@ -88,7 +89,7 @@ export function WorkspaceMailbox({ api }: { api: ApiClient }) {
               {visibility.isError && <p role="alert">{visibility.error.message}</p>}
             </>
           )}
-          <p>Spam filtering uses score-only mode. Messages stay in their folders.</p>
+          {canManage && <WorkspaceJunkPolicy key={workspaceId} api={api} />}
         </>
       ) : (
         page.data && canManage && (

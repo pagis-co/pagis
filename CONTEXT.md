@@ -1604,11 +1604,18 @@ The email address of one Agent, which it reads and sends from as its own
 identity with no Grant. It is on the Org's mail domain, belongs to one
 Workspace, and never changes its address (ADR-0019).
 
+### Allow and block lists
+Address and domain entries for the Org and each Workspace. The Org block
+list takes priority, then the Org allow list, then the Workspace block
+list and allow list. A Person's Spam or Not spam mark overrides the verdict
+for that message. Quarantine applies before these lists (ADR-0040).
+
 ### Junk
-The folder for mail whose spam verdict passes the Junk threshold. Spam and
-Not spam actions correct the verdict through its seam. The Trust Tier
-applies after the verdict. Not built: Junk and spam verdict filtering
-(ADR-0040).
+The mail host folder for mail that meets the score threshold or a block
+list rule. The Org sensitivity sets the threshold. The Person sends Spam
+and Not spam corrections through the verdict seam. The daemon moves the
+message into or out of the host's Junk folder. Score-only mode records
+verdicts and makes no automatic moves (ADR-0040).
 
 ### Mail Opinion
 A model's bounded second opinion on Uncertain mail: a label, confidence
@@ -1654,11 +1661,24 @@ The type exists. It does not gate inbound texts.
 Not built: reading readiness from the carrier, showing it and checking it
 before an outbound text (ADR-0020, ADR-0041).
 
+### Org sensitivity
+The Org setting that selects the Junk score threshold: low at 15.0 points,
+normal at 8.0 points and high at 4.0 points. The low and high thresholds
+use the Junk and Uncertain Spam Band boundaries. Normal uses a score in
+the Uncertain band. Host Junk and Reject actions also mean Junk (ADR-0040).
+
 ### Outgoing Cap
 The most messages one Agent Mailbox, Workspace Mailbox or Workspace
 Number may send in a day, whatever the host or carrier allows. The daemon
 refuses mail past the mailbox's cap. Not built: outbound texts from the Workspace Number and its
 text cap (ADR-0019, ADR-0041).
+
+### Quarantine
+Mail with malware or high-confidence phishing that only Administrators
+read and release. Members and Agents cannot read the message, its
+attachments, or its content in a thread or search result until release.
+A release and its Org Audit Log entry share one transaction. Message
+bodies stay at the mail host (ADR-0040).
 
 ### Spam Band
 The host score range that selects a Mail Opinion: Clean below 4.0 points,
@@ -1666,20 +1686,22 @@ Uncertain from 4.0 inclusive to 15.0 exclusive, and Junk at 15.0 or more.
 The host's Junk folder and Reject action always mean Junk (ADR-0046).
 
 ### Spam Verdict
-The score, action, reasons and source that describe one mail message.
-The daemon reads the mail host's spam headers and Junk folder through a
-verdict seam. It computes the Spam Verdict before the Trust Tier and stores
-both before a Wake-up or Agent read. Scores use thousandths of one point in
-storage. The Mail place shows decimal points and the host's action.
-The record uses the Message-ID header within its Workspace and mailbox;
-mail without that header uses its IMAP id. Workspace Mailbox mail uses the
-reading Agent's Trust List when read under a Grant. A human read uses the
-current active Chief of Staff's Trust List. Without one, its tier is Unknown.
-A Workspace Mailbox uses score-only mode: it records verdicts and moves
-nothing. Each read computes the host verdict again. Uncertain mail reuses
-a stored Mail Opinion or asks the model when no opinion is stored.
-Clean and Junk mail use no opinion (ADR-0046). Not built: Junk moves,
-corrections, lists, sensitivity and quarantine (ADR-0040).
+The score, action, reasons and source that describe one mail message. The
+daemon reads the mail host's spam headers and Junk folder through a
+verdict seam. It computes the Spam Verdict before the Trust Tier and
+stores both before a Wake-up or Agent read. Scores use thousandths of one
+point in storage. The Mail place shows decimal points and the host's
+action. The record uses the Message-ID header within its Workspace and
+mailbox; mail without that header uses its IMAP id. Workspace Mailbox mail
+uses the reading Agent's Trust List when read under a Grant. A human read
+uses the current active Chief of Staff's Trust List. Without one, its tier
+is Unknown. A Workspace Mailbox uses score-only mode or moves mail to
+Junk. Score-only mode records verdicts and makes no automatic moves. Each
+read computes the host verdict again. Uncertain mail reuses a stored Mail
+Opinion or asks the model when no opinion is stored. Clean and Junk mail
+use no opinion (ADR-0046). The Org and Workspace lists, Org sensitivity
+and Person corrections apply to the verdict. Malware and high-confidence
+phishing enter quarantine until an Administrator releases them (ADR-0040).
 
 ### Text Conversation
 The texts between one Workspace Number and one counterpart number: a
@@ -1706,28 +1728,27 @@ list recent ones. Not built (ADR-0020).
 The mailbox of a Workspace on the Org's mail domain, at most one per
 Workspace. The Person creates it in Settings and reads it in the Mail
 place: All mail, folders, messages, threads and search. Opening a message
-marks it as seen. The Person composes, replies, replies to all and forwards
-mail with Files as attachments. A Person's send needs no Approval. Sent
-mail appears in the host's Sent folder. The Person creates, renames and
-deletes folders, moves mail and applies or removes labels. System folders
-cannot be renamed or deleted. The mail host holds bodies, labels and flags.
-The store uses the mail transport. Its conformance suite checks the
-operations (ADR-0040).
-The store records a Spam Verdict and Trust Tier before each read. The Mail
-place shows the score, action and reasons. Score-only mode moves nothing.
-The Chief of Staff holds its default Workspace Mailbox Grant. Other Agents
-need a Grant from the owner or a Manager. An Agent send as the Workspace
-Mailbox needs an Approval for each message unless its Grant's recipient-domain
-Allow Rules cover every recipient. An Agent replies from its own Agent
-Mailbox with the Workspace Mailbox in Cc by default and keeps the original
-thread. In a Private Workspace that address is the Person's mailbox; in
-a Shared Workspace it is the team mailbox.
-A Shared Workspace Mailbox uses Mail Visibility. A Responder or Manager
-sends as it, and the send records its Person author in the Org Audit Log.
-An Agent with a live Grant marks a message as Needs you through its
-escalation tool. The escalation keeps the Agent author and the message
-identity across folder moves.
-Not built: Junk handling, automatic Agent triage, assignments and saved drafts.
+marks it as seen. The Person composes, replies, replies to all and
+forwards mail with Files as attachments. A Person's send needs no
+Approval. Sent mail appears in the host's Sent folder. The Person creates,
+renames and deletes folders, moves mail and applies or removes labels.
+System folders cannot be renamed or deleted. The mail host holds bodies,
+labels and flags. The store uses the mail transport. Its conformance suite
+checks the operations (ADR-0040). The store records a Spam Verdict and
+Trust Tier before each read. The Mail place shows the score, action and
+reasons. Score-only mode moves nothing. The Chief of Staff holds its
+default Workspace Mailbox Grant. Other Agents need a Grant from the owner
+or a Manager. An Agent send as the Workspace Mailbox needs an Approval for
+each message unless its Grant's recipient-domain Allow Rules cover every
+recipient. An Agent replies from its own Agent Mailbox with the Workspace
+Mailbox in Cc by default and keeps the original thread. In a Private
+Workspace that address is the Person's mailbox; in a Shared Workspace it
+is the team mailbox. A Shared Workspace Mailbox uses Mail Visibility. A
+Responder or Manager sends as it, and the send records its Person author
+in the Org Audit Log. An Agent with a live Grant marks a message as Needs
+you through its escalation tool. The escalation keeps the Agent author and
+the message identity across folder moves. Not built: automatic Agent
+triage, assignments and saved drafts.
 
 ### Workspace Mailbox Grant
 The Grant that gives one active Agent access to its Workspace Mailbox.

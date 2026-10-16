@@ -614,7 +614,16 @@ impl FakeMailSession {
 impl MailSession for FakeMailSession {
     async fn junk_folders(&mut self) -> Result<Vec<String>, TransportError> {
         self.refuse()?;
-        Ok(vec!["Junk".into()])
+        Ok(self
+            .shared
+            .inbox
+            .lock()
+            .unwrap()
+            .folders
+            .keys()
+            .filter(|name| name.eq_ignore_ascii_case("Junk"))
+            .cloned()
+            .collect())
     }
     async fn system_folders(&mut self) -> Result<Vec<String>, TransportError> {
         self.refuse()?;
@@ -666,7 +675,7 @@ impl MailSession for FakeMailSession {
         &mut self,
         id: &MessageId,
         destination: &str,
-    ) -> Result<(), TransportError> {
+    ) -> Result<MessageId, TransportError> {
         self.refuse()?;
         let mut inbox = self.shared.inbox.lock().unwrap();
         if !inbox.folders.contains_key(destination) {
@@ -682,8 +691,9 @@ impl MailSession for FakeMailSession {
         let folder = inbox.folder(destination);
         stored.message.summary.id = ImapMessageId::new(destination, folder.next_uid).into();
         folder.next_uid += 1;
+        let moved = stored.message.summary.id.clone();
         folder.messages.push(stored);
-        Ok(())
+        Ok(moved)
     }
     async fn set_label(
         &mut self,
@@ -1060,8 +1070,12 @@ impl MailIngest for FakeMailIngest {
 pub struct FakeSpamVerdicts(
     pub std::sync::Mutex<Result<pagis_core::SpamVerdict, TransportError>>,
     std::sync::atomic::AtomicUsize,
+    std::sync::Mutex<Vec<(MessageId, bool)>>,
 );
 impl FakeSpamVerdicts {
+    pub fn corrections(&self) -> Vec<(MessageId, bool)> {
+        self.2.lock().unwrap().clone()
+    }
     pub fn calls(&self) -> usize {
         self.1.load(std::sync::atomic::Ordering::SeqCst)
     }
@@ -1077,11 +1091,26 @@ impl Default for FakeSpamVerdicts {
                 source: "fake".into(),
             })),
             std::sync::atomic::AtomicUsize::new(0),
+            std::sync::Mutex::new(Vec::new()),
         )
     }
 }
 #[async_trait]
 impl crate::SpamVerdictSource for FakeSpamVerdicts {
+    async fn correct(
+        &self,
+        store: &mut dyn crate::WorkspaceMailStore,
+        id: &MessageId,
+        spam: bool,
+    ) -> Result<(), TransportError> {
+        self.2.lock().unwrap().push((id.clone(), spam));
+        let folder = if spam {
+            store.junk_folder().await?
+        } else {
+            "INBOX".into()
+        };
+        store.move_message(id, &folder).await
+    }
     async fn verdict(
         &self,
         _: &MessageSummary,
