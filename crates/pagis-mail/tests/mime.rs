@@ -330,7 +330,7 @@ fn imip_mail_has_readable_text_and_a_calendar_method() {
         }],
         ..Default::default()
     };
-    let built = build_mime("organizer@example.org", &outgoing).unwrap();
+    let built = build_mime("organizer@example.org", &outgoing, SENT_AT).unwrap();
     let parsed = read_mime(&built.raw, MessageId::new("INBOX:1")).unwrap();
     assert_eq!(parsed.text.trim(), outgoing.body);
     assert_eq!(parsed.calendar.as_deref(), Some(calendar));
