@@ -98,6 +98,7 @@ impl From<pagis_core::SpamVerdict> for SpamVerdictDto {
 }
 #[derive(Debug, Serialize, ToSchema)]
 pub struct WorkspaceMailMessageDto {
+    pub invitation: Option<pagis_core::CalendarEvent>,
     #[serde(flatten)]
     pub summary: WorkspaceMailSummaryDto,
     /// HTML mail is converted to text by the mail transport.
@@ -107,6 +108,7 @@ pub struct WorkspaceMailMessageDto {
 impl From<pagis_mail::WorkspaceMailMessage> for WorkspaceMailMessageDto {
     fn from(m: pagis_mail::WorkspaceMailMessage) -> Self {
         Self {
+            invitation: None,
             summary: pagis_mail::WorkspaceMailSummary {
                 summary: m.message.summary,
                 flags: m.flags,
@@ -286,7 +288,9 @@ pub async fn get_workspace_mail_message(
     }
     .await;
     let _ = store.close().await;
-    Ok(Json(result.map_err(read_error)?.into()))
+    Ok(Json(
+        message_dto(&state, &tenant, result.map_err(read_error)?).await?,
+    ))
 }
 #[utoipa::path(get, path = "/api/v1/workspace/mail/threads/{thread_id}", params(("thread_id" = String, Path)), responses(
     (status = 200, body = WorkspaceMailThread), (status = 401, body = crate::error::ErrorBody), (status = 404, body = crate::error::ErrorBody)
@@ -315,11 +319,10 @@ pub async fn get_workspace_mail_thread(
     }
     .await;
     let _ = store.close().await;
-    let items = result
-        .map_err(read_error)?
-        .into_iter()
-        .map(Into::into)
-        .collect();
+    let mut items = Vec::new();
+    for message in result.map_err(read_error)? {
+        items.push(message_dto(&state, &tenant, message).await?);
+    }
     Ok(Json(WorkspaceMailThread { items }))
 }
 
@@ -327,4 +330,40 @@ pub async fn get_workspace_mail_thread(
 pub struct MailAttachmentDto {
     pub name: String,
     pub bytes: u64,
+}
+
+async fn message_dto(
+    state: &AppState,
+    tenant: &Tenant,
+    message: pagis_mail::WorkspaceMailMessage,
+) -> Result<WorkspaceMailMessageDto, ApiError> {
+    let scheduling = message
+        .message
+        .calendar
+        .as_deref()
+        .and_then(|s| pagis_core::imip::SchedulingMessage::parse(s).ok());
+    let mut dto = WorkspaceMailMessageDto::from(message);
+    if let Some(scheduling) = scheduling {
+        dto.invitation = if let Some(id) = scheduling.recurrence_id {
+            state
+                .calendar
+                .linked_occurrences(&tenant.workspace_id, &scheduling.uid)
+                .await?
+                .into_iter()
+                .find(|event| {
+                    event
+                        .data
+                        .invitation
+                        .as_ref()
+                        .and_then(|i| i.occurrence.as_ref())
+                        .is_some_and(|o| o.recurrence_id == id)
+                })
+        } else {
+            state
+                .calendar
+                .get_by_uid(&tenant.workspace_id, &scheduling.uid)
+                .await?
+        };
+    }
+    Ok(dto)
 }

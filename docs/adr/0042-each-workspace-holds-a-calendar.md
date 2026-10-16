@@ -54,12 +54,61 @@ Invitations, replies and cancellations to and from people outside the Org
 travel as iCalendar messages over iMIP (RFC 6047). They use the Workspace
 Mailbox and its transport (ADR-0040). The calendar reads invitation state
 from these messages. It does not require a calendar server shared with the
-other attendees. Not built: iMIP invitation handling.
+other attendees.
+
+The `icalendar` library reads and writes iCalendar. The Workspace Mailbox
+sends a readable text part and a `text/calendar` part with the iTIP method
+REQUEST, REPLY or CANCEL. Only attendees outside the Org receive this mail.
+The organizer address is the Workspace Mailbox address. Each Event keeps
+its organizer, SEQUENCE and scheduling status with its data. The UID is
+unique within its Workspace.
+
+Mail intake matches UID and checks SEQUENCE before a change. A REQUEST
+creates a tentative Event with the local attendee at NEEDS-ACTION. A REPLY
+changes only the sender's attendee status. A CANCEL marks the Event cancelled;
+it does not delete it. Cancelled Events do not block Free/Busy. Older
+sequences cannot replace newer sequences. A duplicate REQUEST does not reset
+an attendee's response. The sender address must match the organizer for a
+REQUEST or CANCEL, or the attendee for a REPLY. This address check does not
+make the sender's text trusted input for Agents.
+
+The desk reads INBOX through the supplied Workspace Mailbox store, with
+opaque message ids and page tokens. It reads all pages and applies messages
+oldest first. The intake layer wraps every supplied store. It applies calendar
+messages when the Person or an Agent opens a message or a thread, and when
+the Calendar reads INBOX. The IMAP store does not own calendar intake.
+The Workspace Mailbox record has no calendar cursor. Scheduling UID,
+SEQUENCE and occurrence state make repeated reads safe. A failed read can
+repeat the pass. Reading a message does not mark it seen.
+Accept, maybe and decline in Calendar and Mail send a REPLY through the
+Workspace Mailbox and store the attendee's PARTSTAT. These controls also
+serve the Mobile App. Responses keep the organizer's SEQUENCE. Changes by
+the organizer increase it. A cancellation keeps the Event as a record.
+REQUEST messages use DTSTART with DTEND or DURATION. A DATE start with
+neither end nor duration lasts one day. Duration days and weeks use local
+calendar dates. Hours, minutes and seconds use elapsed time.
+
+The calendar resolves TZID through the IANA zone database first, then through
+the CLDR Windows zone mapping. An unknown TZID makes the message invalid.
+Stored Events and sent messages use IANA names. The zone database supplies
+the offsets. The calendar ignores the VTIMEZONE body.
+
+RECURRENCE-ID identifies the original occurrence by its UTC time or all-day
+date. A CANCEL for one occurrence adds that start to the series EXDATE values.
+A REPLY for one occurrence is handled without a change to attendee PARTSTAT.
+A REQUEST for a known series adds the original start to EXDATE and stores
+the moved occurrence as a separate single Event. Its invitation holds the
+series UID and RECURRENCE-ID. An unknown series does not create an occurrence.
+Each occurrence record keeps its SEQUENCE. Cancelled occurrence records
+prevent an older or equal-sequence REQUEST from restoring an occurrence.
+A series CANCEL marks the series and its linked occurrence records cancelled.
+The store keeps these records. This is not a general recurrence override model.
 
 ### Availability and event details have separate access rules
 
 Free/Busy reads return merged busy intervals in a half-open UTC range.
-Timed occurrences are busy. All-day Events are free. Overlapping and touching
+Timed occurrences are busy unless their Event is cancelled. All-day Events
+are free. Overlapping and touching
 intervals merge. Each Org member can read Free/Busy by a Person's login
 email or a Workspace Mailbox address. The answer holds start and end times
 only, with no Event details. The planner shows the Free/Busy of attendees

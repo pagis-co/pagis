@@ -167,6 +167,8 @@ pub struct MessageSummary {
 /// of an attachment stay at the host.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Message {
+    /// Calendar content is untrusted input from the sender.
+    pub calendar: Option<String>,
     pub summary: MessageSummary,
     /// The headers the tools show, in the order the message carries
     /// them.

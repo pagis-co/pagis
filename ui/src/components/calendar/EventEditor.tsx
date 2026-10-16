@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import type { ApiClient } from '../../api/client'
 import { Button, Combobox, Input, Select, Textarea } from '../../primitives'
+import { InvitationActions } from './InvitationActions'
 import { FreeBusy } from './FreeBusy'
 import { errorMessage } from '../../queries'
 import { AttendeesEditor } from './AttendeesEditor'
@@ -129,12 +130,24 @@ export function EventEditor({ api, date, event, occurrenceStart, onClose }: {
     })
   }
 
+  if (event?.created_by.kind === 'system' && event.data.invitation) {
+    return <section className="calendar-editor" aria-label="Invitation details">
+      <h3>{event.data.title}</h3>
+      <p>{event.data.start} – {event.data.end} ({event.data.timezone})</p>
+      <p>{event.data.location}</p>
+      <p>{event.data.description}</p>
+      <InvitationActions api={api} event={event} />
+      <Button type="button" onClick={onClose}>Close</Button>
+    </section>
+  }
+
   return (
     <form
       className="calendar-editor"
       aria-label="Event editor"
       onSubmit={submit}
     >
+      {event?.data.invitation && <InvitationActions api={api} event={event} />}
       {event?.data.rrule && <p>
         Changes apply to the complete series.
       </p>}

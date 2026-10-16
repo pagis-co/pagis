@@ -210,6 +210,7 @@ impl MailCollector {
     /// Read active Agent Mailboxes without an IDLE task, then log out.
     /// A failed mailbox does not stop the other mailboxes of this Workspace.
     pub async fn poll_workspace(&self, workspace_id: &WorkspaceId) -> Result<(), MailboxError> {
+        self.desk.poll_workspace_calendar(workspace_id).await?;
         for mailbox in self.desk.list(workspace_id).await? {
             if mailbox.state != AgentMailboxState::Active {
                 continue;

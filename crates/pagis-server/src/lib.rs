@@ -8,6 +8,7 @@ mod auth;
 #[cfg(feature = "native")]
 mod axum_socket;
 mod calendar;
+mod calendar_mail;
 pub mod calls;
 mod channels;
 mod client_name;
@@ -503,6 +504,10 @@ fn product_router(state: Arc<AppState>) -> Router {
             get(calendar::get_calendar_event)
                 .put(calendar::update_calendar_event)
                 .delete(calendar::delete_calendar_event),
+        )
+        .route(
+            "/api/v1/calendar/events/{event_id}/response",
+            post(calendar_mail::answer_invitation),
         )
         .route(
             "/api/v1/workspace/mailbox",

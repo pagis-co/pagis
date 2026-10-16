@@ -1,4 +1,7 @@
 //! A Spam Verdict precedes the Trust Tier and every Agent read.
+mod workspace;
+pub(crate) use workspace::CalendarMailStore;
+
 use crate::{
     MessageSummary, SenderEvidence, SenderTrust, SpamVerdictSource, TransportError,
     TransportErrorCode,
@@ -11,6 +14,7 @@ use std::sync::Arc;
 
 pub struct MailIntake {
     pub opinions: Arc<dyn crate::MailOpinionSource>,
+    pub calendar: Arc<dyn pagis_core::CalendarStore>,
     pub workspaces: Arc<dyn WorkspaceStore>,
     pub agents: Arc<dyn AgentStore>,
     pub source: Arc<dyn SpamVerdictSource>,
@@ -27,6 +31,24 @@ pub struct MailReadContext {
     pub authserv_ids: Vec<String>,
 }
 impl MailReadContext {
+    pub async fn calendar_message(&self, message: &crate::Message) -> Result<(), TransportError> {
+        if message.summary.from_mailboxes == 1
+            && let Some(calendar) = &message.calendar
+            && let Ok(scheduling) = pagis_core::imip::SchedulingMessage::parse(calendar)
+        {
+            scheduling
+                .apply(
+                    self.intake.calendar.as_ref(),
+                    &self.workspace,
+                    &self.address,
+                    &message.summary.from,
+                )
+                .await
+                .map_err(store_error)?;
+        }
+        Ok(())
+    }
+
     pub async fn assess(
         &self,
         summary: &mut MessageSummary,

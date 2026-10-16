@@ -25,6 +25,7 @@ pub struct Route {
 
 /// Writes that a Responder can make in a Shared Workspace.
 pub const RESPONDER_WRITES: &[(&str, &str)] = &[
+    ("/api/v1/calendar/events/{event_id}/response", "post"),
     ("/api/v1/channels/{channel_id}/messages", "post"),
     ("/api/v1/requests/{request_id}/decision", "post"),
     ("/api/v1/files", "post"),
@@ -566,6 +567,13 @@ pub const ADMINISTRATION_ROUTES: &[Route] = &[
 
 /// Every route the daemon serves.
 pub const ROUTES: &[Route] = &[
+    Route {
+        shared: true,
+        path: "/api/v1/calendar/events/{event_id}/response",
+        methods: &["post"],
+        authenticated: true,
+        part: None,
+    },
     Route {
         shared: true,
         path: "/api/v1/calendar/events",

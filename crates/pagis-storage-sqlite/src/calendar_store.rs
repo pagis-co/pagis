@@ -36,6 +36,30 @@ fn encode(value: &CalendarEventData) -> Result<String, StoreError> {
 }
 #[async_trait]
 impl CalendarStore for SqliteCalendarStore {
+    async fn linked_occurrences(
+        &self,
+        workspace: &WorkspaceId,
+        uid: &str,
+    ) -> Result<Vec<CalendarEvent>, StoreError> {
+        sqlx::query("SELECT * FROM calendar_events WHERE workspace_id = ? AND json_extract(data, '$.invitation.occurrence.series_uid') = ?")
+            .bind(workspace.as_str()).bind(uid).fetch_all(&self.pool).await.map_err(db_err)?
+            .into_iter().map(decode).collect()
+    }
+    async fn get_by_uid(
+        &self,
+        workspace: &WorkspaceId,
+        uid: &str,
+    ) -> Result<Option<CalendarEvent>, StoreError> {
+        sqlx::query("SELECT * FROM calendar_events WHERE workspace_id = ? AND uid = ?")
+            .bind(workspace.as_str())
+            .bind(uid)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(db_err)?
+            .map(decode)
+            .transpose()
+    }
+
     async fn search(
         &self,
         workspace: &WorkspaceId,
@@ -83,23 +107,26 @@ impl CalendarStore for SqliteCalendarStore {
     ) -> Result<bool, StoreError> {
         let bounds = data.bounds()?;
         let mut tx = crate::begin_write(&self.pool).await.map_err(db_err)?;
-        if !data.exdates.is_empty() {
-            let previous =
-                sqlx::query("SELECT * FROM calendar_events WHERE workspace_id=?1 AND id=?2")
-                    .bind(workspace.as_str())
-                    .bind(id.as_str())
-                    .fetch_optional(&mut *tx)
-                    .await
-                    .map_err(db_err)?
-                    .map(decode)
-                    .transpose()?;
-            if previous.is_some_and(|old| {
-                data.exdates
-                    .iter()
-                    .any(|date| !old.data.exdates.contains(date))
-            }) {
-                crate::audit_log::refuse_delete(&mut tx, workspace).await?;
-            }
+        let previous = sqlx::query("SELECT * FROM calendar_events WHERE workspace_id=?1 AND id=?2")
+            .bind(workspace.as_str())
+            .bind(id.as_str())
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(db_err)?
+            .map(decode)
+            .transpose()?;
+        let Some(previous) = previous else {
+            return Ok(false);
+        };
+        if !data.can_replace(&previous.data) {
+            return Ok(false);
+        }
+        if data
+            .exdates
+            .iter()
+            .any(|date| !previous.data.exdates.contains(date))
+        {
+            crate::audit_log::refuse_delete(&mut tx, workspace).await?;
         }
         let updated = sqlx::query("UPDATE calendar_events SET data = ?, starts_at = ?, ends_by = ? WHERE workspace_id = ? AND id = ?")
             .bind(encode(data)?).bind(bounds.starts_at).bind(bounds.ends_by).bind(workspace.as_str()).bind(id.as_str())

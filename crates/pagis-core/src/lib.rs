@@ -179,3 +179,4 @@ pub mod workspace_governance;
 pub use workspace_governance::{
     AgentVersion, MailVisibility, SharedWorkspaceLimits, WorkspaceGovernanceStore,
 };
+pub mod imip;

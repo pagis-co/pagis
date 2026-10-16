@@ -286,6 +286,7 @@ impl World {
             grants: stores.grants.clone(),
             intake: Arc::new(pagis_mail::MailIntake {
                 opinions: std::sync::Arc::new(pagis_mail::fake::FakeMailOpinions::default()),
+                calendar: stores.calendar.clone(),
                 workspaces: stores.workspaces.clone(),
                 agents: stores.agents.clone(),
                 source: Arc::new(pagis_mail::HostSpamVerdicts),

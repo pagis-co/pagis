@@ -15,6 +15,7 @@
 # gives. OFL-1.1 covers the Inter font of the Product App.
 # BlueOak-1.0.0 and Python-2.0 cover npm packages of the Client App.
 # Unlicense covers an npm package of a Coding Harness.
+# Unicode-DFS-2016 covers the CLDR time zone names of a calendar crate.
 accepted = [
     "MIT",
     "Apache-2.0",
@@ -31,6 +32,7 @@ accepted = [
     "BlueOak-1.0.0",
     "Python-2.0",
     "Unlicense",
+    "Unicode-DFS-2016",
 ]
 
 # The targets that a release ships, which `[graph] targets` of deny.toml

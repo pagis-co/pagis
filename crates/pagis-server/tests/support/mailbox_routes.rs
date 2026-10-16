@@ -639,6 +639,384 @@ async fn workspace_mailbox_shared_grants_need_a_manager_and_always_allow_edits_t
     assert_eq!(changed.revision, 2);
 }
 
+async fn calendar_mailbox(e: &Embedder) {
+    let connection = provider(e).await;
+    let mut record = e
+        .stores
+        .connections
+        .get(&e.routers.state.org_workspace_id, &connection)
+        .await
+        .unwrap()
+        .unwrap();
+    record.config["imap_host"] = json!("imap.example.com");
+    record.config["imap_port"] = json!(993);
+    record.config["smtp_host"] = json!("smtp.example.com");
+    record.config["smtp_port"] = json!(465);
+    e.stores
+        .connections
+        .set_config(&record.workspace_id, &record.id, &record.config)
+        .await
+        .unwrap();
+    let (status, _) = response(
+        e,
+        "POST",
+        "/api/v1/workspace/mailbox",
+        json!({"connection_id": connection, "local_part": "reader"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+async fn imip_http_flow_receives_answers_and_cancels_through_fake_mail() {
+    let e = Embedder::new().await;
+    calendar_mailbox(&e).await;
+    let fixture = include_str!("../../../pagis-core/tests/fixtures/imip/google-request.ics");
+    let built = pagis_mail::build_mime(
+        "organizer@example.org",
+        &pagis_mail::OutgoingMessage {
+            to: vec!["reader@example.com".into()],
+            body: "Please join.".into(),
+            attachments: vec![pagis_mail::OutgoingAttachment {
+                name: "invite.ics".into(),
+                content_type: "text/calendar; method=REQUEST".into(),
+                data: fixture.as_bytes().to_vec(),
+            }],
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let id = e.mail_transport.deliver_raw(&built.raw);
+    let (status, events) = response(
+        &e,
+        "GET",
+        "/api/v1/calendar/events?from=1792454400000&to=1792627200000",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{events}");
+    assert_eq!(events[0]["event"]["uid"], "meeting@example.org");
+    assert_eq!(
+        events[0]["event"]["data"]["attendees"][0]["status"],
+        "needs-action"
+    );
+    let (_, message) = response(
+        &e,
+        "GET",
+        &format!("/api/v1/workspace/mail/messages/{id}"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(message["invitation"]["uid"], "meeting@example.org");
+    let path = format!(
+        "/api/v1/calendar/events/{}/response",
+        events[0]["event"]["id"].as_str().unwrap()
+    );
+    let day = now_ms() / 86_400_000;
+    let mailbox = e
+        .stores
+        .workspace_mailboxes
+        .get(&e.workspace)
+        .await
+        .unwrap()
+        .unwrap();
+    for _ in 0..mailbox.outgoing_cap {
+        assert!(
+            e.stores
+                .workspace_mailboxes
+                .reserve_send(&e.workspace, day)
+                .await
+                .unwrap()
+        );
+    }
+    assert!(
+        response(&e, "POST", &path, json!({"status":"accepted"}))
+            .await
+            .0
+            .is_client_error()
+    );
+    let stored = e
+        .stores
+        .calendar
+        .get_by_uid(&e.workspace, "meeting@example.org")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        stored.data.attendees[0].status,
+        ParticipationStatus::NeedsAction
+    );
+    assert!(e.mail_transport.sent().is_empty());
+    for _ in 0..mailbox.outgoing_cap {
+        e.stores
+            .workspace_mailboxes
+            .release_send(&e.workspace, day)
+            .await
+            .unwrap();
+    }
+    for answer in ["accepted", "tentative", "declined"] {
+        let (status, changed) = response(&e, "POST", &path, json!({"status": answer})).await;
+        assert_eq!(status, StatusCode::OK, "{changed}");
+        assert_eq!(changed["data"]["attendees"][0]["status"], answer);
+        let sent = e.mail_transport.sent();
+        let reply = sent.last().unwrap();
+        assert_eq!(reply.to, ["organizer@example.org"]);
+        let calendar = pagis_core::imip::SchedulingMessage::parse(
+            std::str::from_utf8(&reply.attachments[0].data).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(calendar.method, pagis_core::imip::SchedulingMethod::Reply);
+        assert_eq!(
+            serde_json::to_value(&calendar.attendees[0].status).unwrap(),
+            answer
+        );
+    }
+    let cancel = include_str!("../../../pagis-core/tests/fixtures/imip/google-cancel.ics");
+    let built = pagis_mail::build_mime(
+        "organizer@example.org",
+        &pagis_mail::OutgoingMessage {
+            to: vec!["reader@example.com".into()],
+            body: "Cancelled.".into(),
+            attachments: vec![pagis_mail::OutgoingAttachment {
+                name: "invite.ics".into(),
+                content_type: "text/calendar; method=CANCEL".into(),
+                data: cancel.as_bytes().to_vec(),
+            }],
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    e.mail_transport.deliver_raw(&built.raw);
+    let (_, events) = response(
+        &e,
+        "GET",
+        "/api/v1/calendar/events?from=1792454400000&to=1792627200000",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(
+        events[0]["event"]["data"]["invitation"]["status"],
+        "cancelled"
+    );
+    assert_eq!(
+        response(&e, "POST", &path, json!({"status":"accepted"}))
+            .await
+            .0,
+        StatusCode::CONFLICT
+    );
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+async fn imip_http_flow_sends_only_outside_the_org_and_applies_replies() {
+    let e = Embedder::new().await;
+    calendar_mailbox(&e).await;
+    let other = e
+        .stores
+        .workspaces
+        .get(&e.other_workspace)
+        .await
+        .unwrap()
+        .unwrap();
+    e.stores
+        .users
+        .set_email_and_password(
+            other.user_id.as_ref().unwrap(),
+            "colleague@example.com",
+            "hash",
+            now_ms(),
+        )
+        .await
+        .unwrap();
+    let mut body = serde_json::to_value(
+        pagis_core::imip::SchedulingMessage::parse(include_str!(
+            "../../../pagis-core/tests/fixtures/imip/google-request.ics"
+        ))
+        .unwrap()
+        .data
+        .unwrap(),
+    )
+    .unwrap();
+    body["attendees"] = json!([
+        {"email":"colleague@example.com", "name":"Colleague", "status":"needs-action"},
+        {"email":"guest@example.org", "name":"Guest", "status":"needs-action"},
+        {"email":"second@example.org", "name":"Second", "status":"needs-action"}
+    ]);
+    let (status, event) = response(&e, "POST", "/api/v1/calendar/events", body.clone()).await;
+    assert_eq!(status, StatusCode::CREATED, "{event}");
+    let sent = e.mail_transport.sent();
+    assert_eq!(sent.len(), 2);
+    assert_eq!(sent[0].to, ["guest@example.org"]);
+    assert_eq!(sent[1].to, ["second@example.org"]);
+    for message in &sent {
+        let built = pagis_mail::build_mime("reader@example.com", message).unwrap();
+        let parsed =
+            pagis_mail::read_mime(&built.raw, pagis_mail::MessageId::new("INBOX:1")).unwrap();
+        let calendar =
+            pagis_core::imip::SchedulingMessage::parse(parsed.calendar.as_deref().unwrap())
+                .unwrap();
+        assert_eq!(calendar.method, pagis_core::imip::SchedulingMethod::Request);
+        assert_eq!(calendar.organizer, "reader@example.com");
+        assert_eq!(calendar.uid, event["uid"]);
+        assert!(!parsed.text.is_empty());
+    }
+    let reply = include_str!("../../../pagis-core/tests/fixtures/imip/google-reply.ics")
+        .replace("meeting@example.org", event["uid"].as_str().unwrap())
+        .replace("reader@example.com", "guest@example.org")
+        .replace("organizer@example.org", "reader@example.com")
+        .replace("SEQUENCE:1", "SEQUENCE:0");
+    let built = pagis_mail::build_mime(
+        "guest@example.org",
+        &pagis_mail::OutgoingMessage {
+            to: vec!["reader@example.com".into()],
+            body: "Accepted.".into(),
+            attachments: vec![pagis_mail::OutgoingAttachment {
+                name: "reply.ics".into(),
+                content_type: "text/calendar; method=REPLY".into(),
+                data: reply.into_bytes(),
+            }],
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    e.mail_transport.deliver_raw(&built.raw);
+    let (_, events) = response(
+        &e,
+        "GET",
+        "/api/v1/calendar/events?from=1792454400000&to=1792627200000",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(
+        events[0]["event"]["data"]["attendees"][1]["status"],
+        "accepted"
+    );
+    let path = format!("/api/v1/calendar/events/{}", event["id"].as_str().unwrap());
+    body["title"] = json!("Changed");
+    let (status, changed) = response(&e, "PUT", &path, body).await;
+    assert_eq!(status, StatusCode::OK, "{changed}");
+    assert_eq!(changed["data"]["invitation"]["sequence"], 1);
+    assert_eq!(
+        response(&e, "DELETE", &path, Value::Null).await.0,
+        StatusCode::NO_CONTENT
+    );
+    let (_, cancelled) = response(&e, "GET", &path, Value::Null).await;
+    assert_eq!(cancelled["data"]["invitation"]["status"], "cancelled");
+    let sent = e.mail_transport.sent();
+    assert_eq!(sent.len(), 6);
+    assert!(
+        sent[4].attachments[0]
+            .content_type
+            .contains("method=CANCEL")
+    );
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+async fn imip_http_requires_a_mailbox_only_for_outside_attendees() {
+    let e = Embedder::new().await;
+    let data = pagis_core::imip::SchedulingMessage::parse(include_str!(
+        "../../../pagis-core/tests/fixtures/imip/google-request.ics"
+    ))
+    .unwrap()
+    .data
+    .unwrap();
+    let body = serde_json::to_value(data).unwrap();
+    assert_eq!(
+        response(&e, "POST", "/api/v1/calendar/events", body.clone())
+            .await
+            .0,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    let owner = e
+        .stores
+        .workspaces
+        .get(&e.workspace)
+        .await
+        .unwrap()
+        .unwrap()
+        .user_id
+        .unwrap();
+    e.stores
+        .users
+        .set_email_and_password(&owner, "reader@example.com", "hash", now_ms())
+        .await
+        .unwrap();
+    let (status, event) = response(&e, "POST", "/api/v1/calendar/events", body).await;
+    assert_eq!(status, StatusCode::CREATED, "{event}");
+    assert!(event["data"]["invitation"].is_null());
+    assert!(e.mail_transport.sent().is_empty());
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+async fn imip_http_mail_actions_answer_the_moved_occurrence() {
+    let e = Embedder::new().await;
+    calendar_mailbox(&e).await;
+    let mut moved_id = String::new();
+    for fixture in [
+        include_str!("../../../pagis-core/tests/fixtures/imip/google-request.ics"),
+        include_str!("../../../pagis-core/tests/fixtures/imip/google-occurrence-request.ics"),
+    ] {
+        let raw = pagis_mail::build_mime(
+            "organizer@example.org",
+            &pagis_mail::OutgoingMessage {
+                to: vec!["reader@example.com".into()],
+                body: "Please join.".into(),
+                attachments: vec![pagis_mail::OutgoingAttachment {
+                    name: "invite.ics".into(),
+                    content_type: "text/calendar; method=REQUEST".into(),
+                    data: fixture.as_bytes().to_vec(),
+                }],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        moved_id = e.mail_transport.deliver_raw(&raw.raw).to_string();
+        let (status, _) = response(
+            &e,
+            "GET",
+            &format!("/api/v1/workspace/mail/messages/{moved_id}"),
+            Value::Null,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+    }
+    let (_, mail) = response(
+        &e,
+        "GET",
+        &format!("/api/v1/workspace/mail/messages/{moved_id}"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(mail["invitation"]["data"]["start"], "2026-11-03T11:00:00");
+    assert_eq!(
+        mail["invitation"]["data"]["invitation"]["occurrence"]["series_uid"],
+        "meeting@example.org"
+    );
+    let path = format!(
+        "/api/v1/calendar/events/{}/response",
+        mail["invitation"]["id"].as_str().unwrap()
+    );
+    let (status, event) = response(&e, "POST", &path, json!({"status": "accepted"})).await;
+    assert_eq!(status, StatusCode::OK, "{event}");
+    let sent = e.mail_transport.sent();
+    let reply = pagis_core::imip::SchedulingMessage::parse(
+        std::str::from_utf8(&sent[0].attachments[0].data).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(reply.uid, "meeting@example.org");
+    assert_eq!(
+        reply.recurrence_id.as_deref(),
+        Some("2026-11-03T14:00:00+00:00")
+    );
+    assert_eq!(
+        reply.attendees[0].status,
+        pagis_core::ParticipationStatus::Accepted
+    );
+}
+
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
 async fn workspace_mail_routes_use_the_supplied_store_without_imap() {
@@ -836,4 +1214,93 @@ async fn workspace_mail_routes_use_the_supplied_store_without_imap() {
     );
     assert!(embedder.mail_transport.logins().is_empty());
     assert!(embedder.mailbox_host.addresses().is_empty());
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+async fn imip_request_reaches_the_calendar_through_the_supplied_memory_store() {
+    for access in ["calendar", "message", "thread"] {
+        let host = std::sync::Arc::new(pagis_mail::fake::MemoryWorkspaceMailHost::default());
+        let e = Embedder::with_workspace_mail(host.clone()).await;
+        let connection = provider(&e).await;
+        let (status, mailbox) = response(
+            &e,
+            "POST",
+            "/api/v1/workspace/mailbox",
+            json!({"connection_id": connection, "local_part": "reader"}),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED, "{mailbox}");
+        let raw = pagis_mail::build_mime(
+            "organizer@example.org",
+            &pagis_mail::OutgoingMessage {
+                to: vec!["reader@example.com".into()],
+                body: "Please join.".into(),
+                attachments: vec![pagis_mail::OutgoingAttachment {
+                    name: "invite.ics".into(),
+                    content_type: "text/calendar; method=REQUEST".into(),
+                    data: include_bytes!(
+                        "../../../pagis-core/tests/fixtures/imip/google-request.ics"
+                    )
+                    .to_vec(),
+                }],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let mail = host.store(&e.workspace).unwrap();
+        let id = mail.deliver_raw(&raw.raw).unwrap();
+        if access == "calendar" {
+            for _ in 0..101 {
+                mail.deliver("sender@example.org", "Notes", "Mail without an invitation.");
+            }
+        }
+        if access != "calendar" {
+            let path = if access == "message" {
+                format!("/api/v1/workspace/mail/messages/{id}")
+            } else {
+                let message = pagis_mail::read_mime(&raw.raw, id.clone()).unwrap();
+                let thread: String =
+                    url::form_urlencoded::byte_serialize(message.summary.thread_id.as_bytes())
+                        .collect();
+                format!("/api/v1/workspace/mail/threads/{thread}")
+            };
+            assert_eq!(
+                response(&e, "GET", &path, Value::Null).await.0,
+                StatusCode::OK
+            );
+            assert!(
+                e.stores
+                    .calendar
+                    .get_by_uid(&e.workspace, "meeting@example.org")
+                    .await
+                    .unwrap()
+                    .is_some(),
+                "{access}"
+            );
+        }
+        let (status, events) = response(
+            &e,
+            "GET",
+            "/api/v1/calendar/events?from=1792454400000&to=1792627200000",
+            Value::Null,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{events}");
+        assert_eq!(events[0]["event"]["uid"], "meeting@example.org");
+        assert_eq!(
+            events[0]["event"]["data"]["attendees"][0]["status"],
+            "needs-action"
+        );
+        let (_, message) = response(
+            &e,
+            "GET",
+            &format!("/api/v1/workspace/mail/messages/{id}"),
+            Value::Null,
+        )
+        .await;
+        assert_eq!(message["invitation"]["uid"], "meeting@example.org");
+        assert!(e.mail_transport.logins().is_empty());
+        assert!(e.mailbox_host.addresses().is_empty());
+    }
 }

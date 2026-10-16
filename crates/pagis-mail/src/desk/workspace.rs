@@ -4,6 +4,41 @@ use crate::WorkspaceMailStore;
 use pagis_core::WorkspaceMailbox;
 
 impl MailboxDesk {
+    /// Read scheduling messages through the supplied store, oldest first.
+    pub async fn poll_workspace_calendar(
+        &self,
+        workspace: &WorkspaceId,
+    ) -> Result<(), MailboxError> {
+        if self.workspace_mailboxes.get(workspace).await?.is_none() {
+            return Ok(());
+        }
+        let mut store = self.open_workspace(workspace).await?;
+        let result = async {
+            let mut page = crate::PageRequest {
+                limit: 100,
+                token: None,
+            };
+            let mut ids = Vec::new();
+            loop {
+                let found = store.messages("INBOX", "", &page).await?;
+                ids.extend(found.items.into_iter().map(|m| m.summary.id));
+                page.token = found.next;
+                if page.token.is_none() {
+                    break;
+                }
+            }
+            for id in ids.into_iter().rev() {
+                store.message(&id).await?;
+            }
+            Ok::<_, MailboxError>(())
+        }
+        .await;
+        let close = store.close().await;
+        result?;
+        close?;
+        Ok(())
+    }
+
     pub fn workspace_mailbox_records(&self) -> &dyn pagis_core::WorkspaceMailboxRecordStore {
         self.workspace_mailboxes.as_ref()
     }
@@ -178,9 +213,14 @@ impl MailboxDesk {
             .ok_or(MailboxError::NotFound)?;
         let (connection, _) = self.connected_provider(&mailbox.connection_id).await?;
         let context = self.workspace_read_context(&mailbox, &connection, agent);
-        self.workspace_mail
-            .open(&connection, &mailbox, context)
-            .await
+        let inner = self
+            .workspace_mail
+            .open(&connection, &mailbox, context.clone())
+            .await?;
+        Ok(Box::new(crate::intake::CalendarMailStore {
+            inner,
+            context,
+        }))
     }
 
     fn workspace_read_context(

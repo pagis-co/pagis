@@ -835,6 +835,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
                 models: models.clone(),
                 clock: options.clock.clone(),
             }),
+            calendar: stores.calendar.clone(),
             workspaces: stores.workspaces.clone(),
             agents: stores.agents.clone(),
             source: options

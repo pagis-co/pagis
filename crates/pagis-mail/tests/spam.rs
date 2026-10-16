@@ -68,6 +68,7 @@ pub fn context() -> pagis_mail::MailReadContext {
     pagis_mail::MailReadContext {
         intake: std::sync::Arc::new(pagis_mail::MailIntake {
             opinions: std::sync::Arc::new(pagis_mail::fake::FakeMailOpinions::default()),
+            calendar: stores.calendar.clone(),
             workspaces: stores.workspaces.clone(),
             agents: stores.agents.clone(),
             source: std::sync::Arc::new(HostSpamVerdicts),
@@ -91,6 +92,7 @@ async fn a_failed_source_stores_nothing_and_retries() {
     let records = context.intake.records.clone();
     context.intake = std::sync::Arc::new(pagis_mail::MailIntake {
         opinions: std::sync::Arc::new(pagis_mail::fake::FakeMailOpinions::default()),
+        calendar: context.intake.calendar.clone(),
         workspaces: context.intake.workspaces.clone(),
         agents: context.intake.agents.clone(),
         source: source.clone(),
@@ -171,6 +173,7 @@ async fn verdict_precedes_trust_and_storage_precedes_a_read() {
     context.agent = Some(pagis_core::AgentId::generate());
     context.intake = Arc::new(pagis_mail::MailIntake {
         opinions: std::sync::Arc::new(pagis_mail::fake::FakeMailOpinions::default()),
+        calendar: context.intake.calendar.clone(),
         workspaces: context.intake.workspaces.clone(),
         agents: context.intake.agents.clone(),
         source: Arc::new(Source(order.clone())),
@@ -248,6 +251,7 @@ async fn only_uncertain_mail_gets_one_opinion_and_stored_mail_is_not_judged_agai
         });
         context.intake = Arc::new(pagis_mail::MailIntake {
             opinions: opinion.clone(),
+            calendar: context.intake.calendar.clone(),
             workspaces: context.intake.workspaces.clone(),
             agents: context.intake.agents.clone(),
             source: context.intake.source.clone(),
@@ -285,6 +289,7 @@ async fn context_with_stored_opinion() -> (
     let opinions = Arc::new(pagis_mail::fake::FakeMailOpinions::default());
     context.intake = Arc::new(pagis_mail::MailIntake {
         opinions: opinions.clone(),
+        calendar: context.intake.calendar.clone(),
         workspaces: context.intake.workspaces.clone(),
         agents: context.intake.agents.clone(),
         source: context.intake.source.clone(),

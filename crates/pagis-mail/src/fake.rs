@@ -454,6 +454,7 @@ impl FakeMailTransport {
                 attachments: Vec::new(),
                 labels: Vec::new(),
                 message: Message {
+                    calendar: None,
                     summary,
                     headers,
                     text: body,

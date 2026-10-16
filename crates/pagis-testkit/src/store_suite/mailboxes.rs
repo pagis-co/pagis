@@ -613,6 +613,7 @@ pub async fn mail_assessment_survives_a_folder_move(backend: &Backend) {
     let context = pagis_mail::MailReadContext {
         intake: Arc::new(pagis_mail::MailIntake {
             opinions: std::sync::Arc::new(pagis_mail::fake::FakeMailOpinions::default()),
+            calendar: stores.calendar.clone(),
             workspaces: stores.workspaces.clone(),
             agents: stores.agents.clone(),
             records: stores.mail_assessments.clone(),

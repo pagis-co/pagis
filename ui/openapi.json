@@ -3212,6 +3212,53 @@
         "x-workspace-role": "manager"
       }
     },
+    "/api/v1/calendar/events/{event_id}/response": {
+      "post": {
+        "tags": [
+          "calendar"
+        ],
+        "operationId": "answer_invitation",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InvitationResponse"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CalendarEvent"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": ""
+          },
+          "409": {
+            "description": ""
+          }
+        },
+        "x-workspace-role": "responder"
+      }
+    },
     "/api/v1/calls": {
       "get": {
         "tags": [
@@ -14418,6 +14465,16 @@
               "type": "string"
             }
           },
+          "invitation": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CalendarInvitation"
+              }
+            ]
+          },
           "location": {
             "type": "string"
           },
@@ -14453,6 +14510,38 @@
           }
         },
         "additionalProperties": false
+      },
+      "CalendarInvitation": {
+        "type": "object",
+        "description": "Scheduling state received or sent through the Workspace Mailbox.",
+        "required": [
+          "organizer",
+          "sequence",
+          "status"
+        ],
+        "properties": {
+          "occurrence": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/InvitationOccurrence"
+              }
+            ]
+          },
+          "organizer": {
+            "type": "string"
+          },
+          "sequence": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "status": {
+            "$ref": "#/components/schemas/EventStatus"
+          }
+        }
       },
       "CalendarOccurrence": {
         "type": "object",
@@ -16960,6 +17049,14 @@
           }
         }
       },
+      "EventStatus": {
+        "type": "string",
+        "enum": [
+          "confirmed",
+          "tentative",
+          "cancelled"
+        ]
+      },
       "ExitSwitchFailureDto": {
         "type": "object",
         "description": "An awake Computer whose Exit Proxy did not switch. It keeps its mode,\nand it takes the choice at its next wake.",
@@ -17968,6 +18065,34 @@
           "total": {
             "$ref": "#/components/schemas/UsageTotalDto",
             "description": "Every Workspace's spend added up."
+          }
+        }
+      },
+      "InvitationOccurrence": {
+        "type": "object",
+        "description": "A separate Event for one occurrence of an invitation series.",
+        "required": [
+          "series_uid",
+          "recurrence_id"
+        ],
+        "properties": {
+          "recurrence_id": {
+            "type": "string",
+            "description": "The original start as a UTC RFC 3339 time or an all-day date."
+          },
+          "series_uid": {
+            "type": "string"
+          }
+        }
+      },
+      "InvitationResponse": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/ParticipationStatus"
           }
         }
       },
@@ -25770,6 +25895,16 @@
                 "items": {
                   "$ref": "#/components/schemas/MailAttachmentDto"
                 }
+              },
+              "invitation": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CalendarEvent"
+                  }
+                ]
               },
               "text": {
                 "type": "string",

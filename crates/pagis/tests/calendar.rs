@@ -12,7 +12,7 @@ async fn calendar_crud_and_occurrences() {
         "start": "2026-03-07T09:00:00", "end": "2026-03-07T10:00:00",
         "all_day": false, "timezone": "America/New_York",
         "rrule": "FREQ=DAILY;COUNT=3", "exdates": [],
-        "attendees": [{"email": "reader@example.com", "name": "Reader", "status": "needs-action"}],
+        "attendees": [],
         "reminders": [15], "meeting_url": "https://meet.example.com/review"
     });
     let response = client

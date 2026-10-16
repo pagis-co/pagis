@@ -166,6 +166,7 @@ impl World {
             grants: Arc::new(pagis_storage_sqlite::SqliteGrantStore::new(pool.clone())),
             intake: Arc::new(pagis_mail::MailIntake {
                 opinions: std::sync::Arc::new(pagis_mail::fake::FakeMailOpinions::default()),
+                calendar: Arc::new(pagis_storage_sqlite::SqliteCalendarStore::new(pool.clone())),
                 workspaces: Arc::new(pagis_storage_sqlite::SqliteWorkspaceStore::new(
                     pool.clone(),
                 )),
@@ -1449,4 +1450,254 @@ async fn workspace_mailbox_an_agent_needs_a_live_grant_and_must_be_active(pool: 
             .await
             .is_err()
     );
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn imip_intake_matches_uid_and_sequence_through_the_mail_host(pool: SqlitePool) {
+    use pagis_core::CalendarStore;
+    let world = World::new(pool.clone()).await;
+    world
+        .desk
+        .provision_workspace(&world.workspace_id, world.hosted("reader"))
+        .await
+        .unwrap();
+    let calendar = pagis_storage_sqlite::SqliteCalendarStore::new(pool);
+    for (fixture, sender, expected) in [
+        (
+            include_str!("../../pagis-core/tests/fixtures/imip/google-request.ics"),
+            "organizer@example.org",
+            "tentative",
+        ),
+        (
+            include_str!("../../pagis-core/tests/fixtures/imip/google-cancel.ics"),
+            "organizer@example.org",
+            "cancelled",
+        ),
+        (
+            include_str!("../../pagis-core/tests/fixtures/imip/google-request.ics"),
+            "organizer@example.org",
+            "cancelled",
+        ),
+        (
+            include_str!("../../pagis-core/tests/fixtures/imip/outlook-request.ics"),
+            "organizer@example.org",
+            "tentative",
+        ),
+        (
+            include_str!("../../pagis-core/tests/fixtures/imip/outlook-cancel.ics"),
+            "organizer@example.org",
+            "cancelled",
+        ),
+        (
+            include_str!("../../pagis-core/tests/fixtures/imip/apple-request.ics"),
+            "organizer@example.org",
+            "tentative",
+        ),
+        (
+            include_str!("../../pagis-core/tests/fixtures/imip/apple-cancel.ics"),
+            "organizer@example.org",
+            "cancelled",
+        ),
+    ] {
+        let uid = if fixture.contains("outlook Calendar") {
+            "outlook@example.org"
+        } else if fixture.contains("apple Calendar") {
+            "apple@example.org"
+        } else {
+            "meeting@example.org"
+        };
+        let fixture = fixture.replace("meeting@example.org", uid);
+        let raw = pagis_mail::build_mime(
+            sender,
+            &pagis_mail::OutgoingMessage {
+                to: vec!["reader@example.com".into()],
+                body: "Calendar message".into(),
+                attachments: vec![pagis_mail::OutgoingAttachment {
+                    name: "invite.ics".into(),
+                    content_type: "text/calendar".into(),
+                    data: fixture.as_bytes().to_vec(),
+                }],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let id = world.transport.deliver_raw(&raw.raw);
+        let mut store = world
+            .desk
+            .open_workspace(&world.workspace_id)
+            .await
+            .unwrap();
+        let mail = store.message(&id).await.unwrap();
+        assert_eq!(mail.message.text.trim(), "Calendar message");
+        store.close().await.unwrap();
+        let event = calendar
+            .get_by_uid(&world.workspace_id, uid)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(&event.data.invitation.unwrap().status).unwrap(),
+            expected
+        );
+    }
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn imip_reply_samples_update_participation_through_the_mail_host(pool: SqlitePool) {
+    use pagis_core::{Author, CalendarEvent, CalendarStore, ParticipationStatus};
+    let world = World::new(pool.clone()).await;
+    world
+        .desk
+        .provision_workspace(&world.workspace_id, world.hosted("organizer"))
+        .await
+        .unwrap();
+    let calendar = pagis_storage_sqlite::SqliteCalendarStore::new(pool);
+    for (request, reply) in [
+        (
+            include_str!("../../pagis-core/tests/fixtures/imip/google-request.ics"),
+            include_str!("../../pagis-core/tests/fixtures/imip/google-reply.ics"),
+        ),
+        (
+            include_str!("../../pagis-core/tests/fixtures/imip/outlook-request.ics"),
+            include_str!("../../pagis-core/tests/fixtures/imip/outlook-reply.ics"),
+        ),
+        (
+            include_str!("../../pagis-core/tests/fixtures/imip/apple-request.ics"),
+            include_str!("../../pagis-core/tests/fixtures/imip/apple-reply.ics"),
+        ),
+    ] {
+        let request = pagis_core::imip::SchedulingMessage::parse(request).unwrap();
+        let mut data = request.data.unwrap();
+        data.invitation.as_mut().unwrap().organizer = "organizer@example.com".into();
+        let event = CalendarEvent::new(world.workspace_id.clone(), Author::System, data);
+        calendar.create(&event).await.unwrap();
+        let reply = reply
+            .replace("meeting@example.org", &event.uid)
+            .replace("organizer@example.org", "organizer@example.com");
+        let raw = pagis_mail::build_mime(
+            "reader@example.com",
+            &pagis_mail::OutgoingMessage {
+                to: vec!["organizer@example.com".into()],
+                body: "Accepted.".into(),
+                attachments: vec![pagis_mail::OutgoingAttachment {
+                    name: "reply.ics".into(),
+                    content_type: "text/calendar; method=REPLY".into(),
+                    data: reply.into_bytes(),
+                }],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        world.transport.deliver_raw(&raw.raw);
+        world
+            .desk
+            .poll_workspace_calendar(&world.workspace_id)
+            .await
+            .unwrap();
+        let updated = calendar
+            .get(&world.workspace_id, &event.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            updated.data.attendees[0].status,
+            ParticipationStatus::Accepted
+        );
+    }
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn imip_occurrences_pass_through_the_mail_host_and_ignored_replies_do_not_change_events(
+    pool: SqlitePool,
+) {
+    use pagis_core::calendar::EventStatus;
+    use pagis_core::{CalendarStore, ParticipationStatus};
+    let world = World::new(pool.clone()).await;
+    world
+        .desk
+        .provision_workspace(&world.workspace_id, world.hosted("reader"))
+        .await
+        .unwrap();
+    let calendar = pagis_storage_sqlite::SqliteCalendarStore::new(pool.clone());
+    for (index, fixture) in [
+        include_str!("../../pagis-core/tests/fixtures/imip/google-request.ics"),
+        include_str!("../../pagis-core/tests/fixtures/imip/google-occurrence-reply.ics"),
+        include_str!("../../pagis-core/tests/fixtures/imip/google-occurrence-request.ics"),
+        include_str!("../../pagis-core/tests/fixtures/imip/google-occurrence-cancel.ics"),
+        include_str!("../../pagis-core/tests/fixtures/imip/google-cancel.ics"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let raw = pagis_mail::build_mime(
+            if index == 1 {
+                "reader@example.com"
+            } else {
+                "organizer@example.org"
+            },
+            &pagis_mail::OutgoingMessage {
+                to: vec!["reader@example.com".into()],
+                body: "Calendar message".into(),
+                attachments: vec![pagis_mail::OutgoingAttachment {
+                    name: "invite.ics".into(),
+                    content_type: "text/calendar".into(),
+                    data: fixture.as_bytes().to_vec(),
+                }],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        world.transport.deliver_raw(&raw.raw);
+        world
+            .desk
+            .poll_workspace_calendar(&world.workspace_id)
+            .await
+            .unwrap();
+        let master = calendar
+            .get_by_uid(&world.workspace_id, "meeting@example.org")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            master.data.attendees[0].status,
+            ParticipationStatus::NeedsAction
+        );
+        let linked = calendar
+            .linked_occurrences(&world.workspace_id, &master.uid)
+            .await
+            .unwrap();
+        match index {
+            0 | 1 => assert!(linked.is_empty()),
+            2 => {
+                assert_eq!(linked.len(), 1);
+                assert_eq!(linked[0].data.start, "2026-11-03T11:00:00");
+                assert!(master.data.exdates.contains(&"2026-11-03T09:00:00".into()));
+                assert_eq!(
+                    master.data.invitation.unwrap().status,
+                    EventStatus::Tentative
+                );
+            }
+            3 => {
+                assert_eq!(
+                    linked[0].data.invitation.as_ref().unwrap().status,
+                    EventStatus::Cancelled
+                );
+                assert_eq!(
+                    master.data.invitation.unwrap().status,
+                    EventStatus::Tentative
+                );
+            }
+            4 => {
+                assert_eq!(
+                    linked[0].data.invitation.as_ref().unwrap().status,
+                    EventStatus::Cancelled
+                );
+                assert_eq!(
+                    master.data.invitation.unwrap().status,
+                    EventStatus::Cancelled
+                );
+            }
+            _ => unreachable!(),
+        }
+    }
 }

@@ -103,6 +103,24 @@ impl MemoryWorkspaceMailStore {
         id
     }
 
+    pub fn deliver_raw(&self, raw: &[u8]) -> Result<MessageId, TransportError> {
+        let id = MessageId::new(ulid::Ulid::new().to_string());
+        let message = crate::read_mime(raw, id.clone())?;
+        let attachments = (0..message.attachments.len())
+            .map(|index| crate::mime::read_attachment(raw, index))
+            .collect::<Result<Vec<_>, _>>()?;
+        self.mail.insert(message);
+        self.state.lock().unwrap().entries.insert(
+            id.to_string(),
+            Entry {
+                folder: "INBOX".into(),
+                flags: MailMetadata::default(),
+                attachments,
+            },
+        );
+        Ok(id)
+    }
+
     pub fn attach(&self, id: &MessageId, attachment: OutgoingAttachment) {
         self.mail.attach(
             id,

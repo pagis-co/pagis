@@ -564,6 +564,7 @@ async fn seed_a(
             attendees: vec![],
             reminders: vec![15],
             meeting_url: None,
+            invitation: None,
         },
     );
     stores.calendar.create(&event).await.unwrap();
