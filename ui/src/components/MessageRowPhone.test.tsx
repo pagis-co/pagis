@@ -22,13 +22,14 @@ it('writes the time in the locale clock on the phone', () => {
 
   render(
     <MessageRow
+          personId="alice"
       api={{} as ApiClient}
       row={{
         key: 'msg-1',
         kind: 'message',
         authorKind: 'person',
         authorName: 'Ajay',
-        authorId: null,
+        authorId: 'alice',
         createdAt,
         sendState: 'sent',
         status: 'complete',

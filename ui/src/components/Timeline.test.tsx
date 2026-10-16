@@ -111,6 +111,7 @@ const runSteps = {
 function stubApi(timelineItems = items, unavailable = false) {
   return {
     GET: vi.fn(async (path: string) => {
+      if (path === '/api/v1/user') return { data: { id: 'person-1', name: 'Ajay' } }
       if (path === '/api/v1/channels/{channel_id}/messages') {
         if (unavailable) throw new Error('Unavailable')
         return { data: { items: timelineItems } }
@@ -275,7 +276,7 @@ describe('Timeline', () => {
     expect(rows[rows.length - 1]).toBe(working)
   })
 
-  it('says a stopped Run in a quiet line, and asks again from the composer', async () => {
+  it('asks again with the signed-in Person question, before a colleague reply', async () => {
     useComposerDraft.setState({ byScope: {} })
     mount([
       message('p9', {
@@ -283,6 +284,12 @@ describe('Timeline', () => {
         run_id: 'run-1',
         blocks: [{ type: 'progress', run_id: 'run-1', text: 'Stopped' }],
         text_content: 'Stopped',
+      }),
+      message('colleague', {
+        created_at: at + 2750,
+        author: { kind: 'person', id: 'person-2', name: 'Bob' },
+        text_content: 'A different question',
+        blocks: [{ type: 'markdown', text: 'A different question' }],
       }),
       message('u1', {
         created_at: at + 2500,

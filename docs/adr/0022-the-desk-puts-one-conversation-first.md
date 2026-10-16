@@ -44,9 +44,9 @@ Mailbox (ADR-0040).
 Not built: outbound Calls and texts from the Workspace Number, and the
 default Grants of the Workspace Mailbox and the Workspace Number.
 
-The sidebar has eight places at the top: Home, Sprites, Mail, Memory,
-Automations, Coding, Software and Settings. Home carries the count of the
-Needs-You Queue.
+The sidebar has nine places at the top: Home, People, Sprites, Mail,
+Memory, Automations, Coding, Software and Settings. Home carries the count
+of the Needs-You Queue.
 Each place replaces the main pane. Below the places the sidebar lists the
 conversations: the Chief of Staff first with its presence and caption, then
 the other Agents, then the groups. The composer on Home addresses the Chief of

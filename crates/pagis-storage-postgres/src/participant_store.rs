@@ -23,8 +23,8 @@ impl ParticipantStore for PostgresParticipantStore {
     async fn create(&self, participant: &ChannelParticipant) -> Result<(), StoreError> {
         sqlx::query(
             "INSERT INTO channel_participants \
-             (id, workspace_id, channel_id, participant_kind, person_id, agent_id, joined_at) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7)",
+             (id, workspace_id, channel_id, participant_kind, person_id, agent_id, participant_workspace_id, joined_at) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
         )
         .bind(participant.id.as_str())
         .bind(participant.workspace_id.as_str())
@@ -32,6 +32,7 @@ impl ParticipantStore for PostgresParticipantStore {
         .bind(participant.kind.as_str())
         .bind(participant.person_id.as_ref().map(|id| id.as_str()))
         .bind(participant.agent_id.as_ref().map(|a| a.as_str().to_owned()))
+        .bind(participant.participant_workspace_id.as_ref().map(|id| id.as_str()))
         .bind(participant.joined_at)
         .execute(&self.pool)
         .await
@@ -67,7 +68,7 @@ impl ParticipantStore for PostgresParticipantStore {
         channel_id: &ChannelId,
     ) -> Result<Vec<ChannelParticipant>, StoreError> {
         let rows = sqlx::query(
-            "SELECT id, workspace_id, channel_id, participant_kind, person_id, agent_id, joined_at \
+            "SELECT id, workspace_id, channel_id, participant_kind, person_id, agent_id, participant_workspace_id, joined_at \
              FROM channel_participants WHERE channel_id = $1 AND workspace_id = $2 \
              ORDER BY joined_at, id",
         )
@@ -86,6 +87,9 @@ impl ParticipantStore for PostgresParticipantStore {
                     id: ParticipantId::from(row.get::<String, _>("id")),
                     workspace_id: WorkspaceId::from(row.get::<String, _>("workspace_id")),
                     channel_id: ChannelId::from(row.get::<String, _>("channel_id")),
+                    participant_workspace_id: row
+                        .get::<Option<String>, _>("participant_workspace_id")
+                        .map(WorkspaceId::from),
                     kind: kind.parse().map_err(StoreError::Corrupt)?,
                     agent_id: row.get::<Option<String>, _>("agent_id").map(AgentId::from),
                     joined_at: row.get("joined_at"),

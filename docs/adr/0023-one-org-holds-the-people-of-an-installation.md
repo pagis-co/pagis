@@ -74,26 +74,29 @@ The named exceptions are the Workspace store itself; the Org, the Person and
 the Session, which sit above a Workspace; the boot sweeps that cross every
 Workspace; the Address Ledger, installation-wide so an address is never
 reused; and the index of one active Workspace Number for each E.164 number.
-Not built: access through a record's owning conversation (ADR-0039).
+Conversation routes read the Org's Workspace after they check that the
+Session's Private Workspace is a participant (ADR-0039, ADR-0043).
 
 ### The Org's own records live in the Org's Workspace
 
 The Org owns one Workspace that no Person owns: `orgs.workspace_id` names it,
 and its `user_id` is null. It holds the installed Plugins with their Bindings
 and checkouts, and the Installation Connections: the carrier and the mail
-domain. A Workspace row keeps every store call the same and the database
-refusal intact, so no Person may reach it by accident:
+domain. It also holds conversations between Workspaces, each stored once
+with its messages (ADR-0043). A Workspace row keeps every store call the
+same and the database refusal intact, so no Person reaches it by accident:
 
 - `WorkspaceStore::get` and `list` answer only Workspaces a Person owns. No
-  per-Workspace sweep, seed or Session reaches the Org's Workspace.
-- The seed never runs for it. It has no Agents, Channels, aliases or memory.
+  per-Workspace sweep or seed reaches the Org's Workspace.
+- The seed never runs for it. It has no Agents, aliases or memory.
 - It holds no Google Connection and needs no Tenant Data Key; the keys of
   an Installation Connection are installation secrets.
 
-A Person-scoped path names the Org's Workspace in one case: to read an
-Installation Connection. The number desk, the mailbox desk, the endpoint
-tasks, inbound calls and standing rules read the carrier and the mail domain
-from there.
+A Person-scoped path names the Org's Workspace to read an Installation
+Connection, or to read and write a conversation whose participants include
+the Person's Private Workspace. The number desk, the mailbox desk, the
+endpoint tasks, inbound calls and standing rules read the carrier and the
+mail domain from there.
 
 ### What belongs to the Org, and what belongs to a Workspace
 

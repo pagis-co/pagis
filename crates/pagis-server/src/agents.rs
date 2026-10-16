@@ -261,6 +261,7 @@ pub async fn create_agent(
             workspace_id: tenant.workspace_id.clone(),
             channel_id: dm.id.clone(),
             kind: ParticipantKind::Person,
+            participant_workspace_id: None,
             agent_id: None,
             joined_at: now,
         })
@@ -273,6 +274,7 @@ pub async fn create_agent(
             workspace_id: tenant.workspace_id.clone(),
             channel_id: dm.id.clone(),
             kind: ParticipantKind::Agent,
+            participant_workspace_id: None,
             agent_id: Some(agent.id.clone()),
             joined_at: now,
         })

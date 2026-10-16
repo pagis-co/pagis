@@ -518,6 +518,30 @@ async fn seed_a(
     let mut owned: BTreeMap<&'static str, String> = BTreeMap::new();
     owned.insert("agent_id", daemon.agent_id.clone());
     owned.insert("channel_id", daemon.dm_channel_id.clone());
+    // A's conversation includes a third Person, so B has no access.
+    let owner = stores.users.get(&daemon.user_id).await.unwrap().unwrap();
+    let colleague = User::new(owner.org_id, pagis_core::UserRole::Member, now);
+    stores.users.create(&colleague).await.unwrap();
+    let colleague_workspace = Workspace {
+        user_id: colleague.id,
+        ..fixture::workspace()
+    };
+    stores
+        .workspaces
+        .create(&colleague_workspace)
+        .await
+        .unwrap();
+    let org_workspace = stores.orgs.list().await.unwrap().remove(0).workspace_id;
+    let conversation = stores
+        .channels
+        .get_or_create_conversation(
+            &org_workspace,
+            &[workspace_id.clone(), colleague_workspace.id],
+        )
+        .await
+        .unwrap();
+    owned.insert("conversation_id", conversation.id.to_string());
+
     // Person A is the installation's administrator. Person B
     // drives the administration routes against A's own id, so a Member
     // who disabled, reset or capped the administrator would fail here.

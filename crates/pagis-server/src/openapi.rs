@@ -12,6 +12,7 @@ use crate::calls;
 use crate::channels;
 use crate::coding_sessions;
 use crate::connections;
+use crate::conversations;
 use crate::error::{ErrorBody, ErrorDetail};
 use crate::files;
 use crate::forget;
@@ -94,6 +95,11 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         mailboxes::provision_mailbox,
         mailboxes::reset_mailbox_password,
         mailboxes::delete_mailbox,
+        conversations::list_colleagues,
+        conversations::list_conversations,
+        conversations::start_conversation,
+        conversations::list_conversation_messages,
+        conversations::send_conversation_message,
         channels::list_channels,
         channels::create_channel,
         channels::list_messages,
@@ -357,6 +363,13 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         mailboxes::DeleteMailboxRequest,
         mailboxes::DeletedMailboxDto,
         channels::CreateChannelRequest,
+        conversations::ColleagueDto,
+        conversations::ColleaguePage,
+        conversations::ConversationDto,
+        conversations::ConversationPage,
+        conversations::ConversationMessages,
+        conversations::StartConversationRequest,
+        conversations::ConversationMessageRequest,
         channels::ChannelDto,
         channels::ChannelLastMessageDto,
         channels::ChannelPage,

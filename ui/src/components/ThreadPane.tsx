@@ -67,19 +67,25 @@ export function ThreadPane({
   const personName = person?.name ?? person?.email ?? 'Person'
   const agents = useAgents(api)
   const nameOf = (row: TimelineRow): string | undefined =>
-    row.authorKind === 'person' ? personName : row.authorId === null ? undefined : agentNames[row.authorId]
+    row.authorName ||
+    (row.authorId === person?.id
+      ? personName
+      : row.authorId === null
+        ? undefined
+        : agentNames[row.authorId])
 
   const rows = useMemo(() => {
     // The merge expects the newest-first server order.
     const replies = [...(thread.data?.replies ?? [])].reverse()
-    return mergeTimeline(replies, pending, live, progress)
-  }, [thread.data, pending, live])
+    return mergeTimeline(replies, pending, live, progress, {
+      kind: 'person',
+      id: person?.id,
+      name: personName,
+    })
+  }, [thread.data, pending, live, progress, person?.id, personName])
 
   const root = thread.data?.root
-  const rootName =
-    root === undefined
-      ? undefined
-      : root.author.name
+  const rootName = root === undefined ? undefined : root.author.name
 
   return (
     <aside className="thread-pane" data-testid="thread-pane">
@@ -90,7 +96,12 @@ export function ThreadPane({
             {rows.length === 1 ? '1 reply' : `${rows.length} replies`}
           </span>
         )}
-        <Button variant="ghost" size="md" className="thread-desk" onClick={onOpenDesk}>
+        <Button
+          variant="ghost"
+          size="md"
+          className="thread-desk"
+          onClick={onOpenDesk}
+        >
           <Monitor size={14} aria-hidden focusable="false" />
           Desk
         </Button>
@@ -124,16 +135,25 @@ export function ThreadPane({
                   api={api}
                   row={row}
                   agentName={nameOf(row) ?? 'Sprite'}
-                  agentAppearance={agents.data?.find((agent) => agent.id === row.authorId)?.avatar}
+                  agentAppearance={
+                    agents.data?.find((agent) => agent.id === row.authorId)
+                      ?.avatar
+                  }
                 />
               ) : (
                 <MessageRow
                   key={row.key}
                   api={api}
                   row={row}
-                  authorAppearance={agents.data?.find((agent) => agent.id === row.authorId)?.avatar}
+                  personId={person?.id}
+                  authorAppearance={
+                    agents.data?.find((agent) => agent.id === row.authorId)
+                      ?.avatar
+                  }
                   authorName={nameOf(row)}
-                  onRetry={(pendingId, text) => send.mutate({ pendingId, text })}
+                  onRetry={(pendingId, text) =>
+                    send.mutate({ pendingId, text })
+                  }
                 />
               ),
             )}

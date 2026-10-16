@@ -162,9 +162,9 @@ describe('mergeTimeline', () => {
     )
     expect(rows[0].replyAuthors).toEqual([
       { authorKind: 'agent',
-      authorName: 'Scout', agentId: 'ag-2' },
+      authorName: 'Scout', authorId: 'ag-2' },
       { authorKind: 'person',
-      authorName: 'Ajay', agentId: null },
+      authorName: 'Ajay', authorId: 'person-1' },
     ])
     expect(rows[1].replyAuthors).toEqual([])
   })

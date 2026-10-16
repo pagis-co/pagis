@@ -664,6 +664,24 @@ pub const ROUTES: &[Route] = &[
         part: Some("Computers"),
     },
     Route {
+        path: "/api/v1/colleagues",
+        methods: &["get"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
+        path: "/api/v1/conversations",
+        methods: &["get", "post"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
+        path: "/api/v1/conversations/{conversation_id}/messages",
+        methods: &["get", "post"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
         path: "/api/v1/channels",
         methods: &["get", "post"],
         authenticated: true,

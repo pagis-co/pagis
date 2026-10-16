@@ -4,60 +4,71 @@ Status: accepted.
 
 ## Context
 
-A Person needs to ask a colleague without making a Shared Workspace. An
-Agent can answer while its Person is away, but it must not reveal private
-mail or memory to a colleague. Group conversations also need one clear
-answer path so every Agent does not answer each message.
-
+A Person needs to ask a colleague without making a Shared Workspace.
 Chat systems keep one conversation and check participants at access time.
-Assistants need a separate rule for what they can disclose in that
-conversation. Not built: messages between Workspaces, Disclosure Rules and
-Person presence from a Private Workspace and calendar.
+An assistant also needs a rule for what it can disclose in a conversation.
 
 ## Decision
 
 ### A conversation has Workspaces as participants
 
-A Channel can have Workspaces as participants. Its conversation is stored
-once outside the participant Workspaces. Each participant Workspace reads
-it there, under the conversation's access rules. It is not copied into the
-Workspaces. This extends the Channel model of ADR-0003 and follows the
-ownership rule of ADR-0039. Not built: this conversation model.
+A Channel of kind `conversation` has Workspaces as participants, beside
+Person and Agent participant kinds. The conversation and its messages live
+once in the Org's Workspace (ADR-0023). They are never copied into the
+participant Workspaces. This extends ADR-0003 and follows ADR-0039.
 
-### Delivery follows activity and the Person's rules
+A Person lists the other enabled Persons of the Org in People. Each entry
+names the colleague and their Private Workspace. The Person selects one or
+more colleagues to start a conversation. The same set of Workspaces opens
+the same conversation, whatever their order. The store creates the Channel
+and its participants in one transaction, with a unique set key.
 
-A Person is active when a client has input in the last 120 s. Delivery goes
-to that Person while active. Otherwise the Chief of Staff answers within
-the Person's rules. Delegate everything sends the work to the Chief of
-Staff even while the Person is active. For the person only lets only the
-human answer. Not built: these delivery choices.
+Every conversation route checks that the Session's Private Workspace is a
+participant before it reads or writes content. A non-participant gets 404.
+The Session gives no access to other records in the Org's Workspace.
 
-A reply shows the Person or `<Agent>, for <Person>`. In a group, a Chief of
-Staff answers only when its Person is named or asked. A Person's Agent can
-message colleagues for them. Colleagues and their Agents are trusted
-senders: their words are requests, not instructions. The Delegation hop cap
-applies across Workspaces (ADR-0003). Not built: these sender, group and
-Delegation rules between Workspaces.
+### Delivery follows client activity
+
+A Person is active while a visible client had input in the last 120 s.
+Presence reads `PersonActivity::hold_until`, the same function and state
+that hold Notifications (ADR-0030). A ping or a query does not count.
+
+A new message publishes a live event to each participant Workspace through
+the existing event bus. The event carries the conversation and message ids,
+with no copy of the message content. Each client reads the one stored
+history. Each message records its Person author, and each reply shows that
+Person's name. A message starts no Agent Run.
+
+Not built: Notifications for an away Person. The Notification path takes
+Needs-You items and checks that queue again before each send. Conversation
+messages do not enter that queue.
+
+Not built: the Chief of Staff answering while the Person is away, Delegate
+everything, For the person only, Agents messaging colleagues, group answer
+rules, and Delegation between Workspaces. An Agent reply needs the name
+`<Agent>, for <Person>`. Colleagues' words give no authority to configure an
+Agent.
 
 ### A Disclosure Rule decides what the Chief of Staff can reveal
 
-A Disclosure Rule says what the Chief of Staff can reveal to whom. Defaults
-share free/busy, the Person's profile and Files or Artifacts already shared
-with the asker. Anything else needs an Approval. The Person can make an
-approved disclosure a standing rule. A request from a colleague gives no
-right to read private mail, memory or event details. Artifacts are not built.
-Not built: Disclosure Rules and these default disclosures.
+Not built: Disclosure Rules and their default disclosures. These rules
+must limit disclosure to free and busy times, the Person's profile and
+Files or Artifacts already shared with the asker. Other disclosure needs
+an Approval. An approved disclosure can become a standing rule. A request
+from a colleague gives no right to read private mail, memory or event
+details. Artifacts are not built.
 
 ### Presence has one source
 
-Active, away and in a meeting come from the Private Workspace and calendar.
-The conversation reads that state without another stored copy. Host Presence
-keeps its separate meaning (ADR-0015). Not built: Person presence from the
-Private Workspace and calendar.
+Active and away come from client activity in the Private Workspace. The
+conversation reads that state without a stored copy. Host Presence keeps
+its separate meaning (ADR-0015).
+
+Not built: calendar presence and the in-a-meeting state.
 
 ## Consequences
 
 - Each participant reads one conversation and one history.
-- Replies show whether a Person or an Agent speaks.
-- Activity controls delivery; Disclosure Rules control the answer's content.
-- A group question does not wake every participant's Chief of Staff.
+- Each reply shows its Person author.
+- Client activity and Notifications use one rule.
+- A group message starts no Run.

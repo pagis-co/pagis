@@ -31,6 +31,50 @@ fn row_to_channel(row: &sqlx::sqlite::SqliteRow) -> Result<Channel, StoreError> 
 
 #[async_trait]
 impl ChannelStore for SqliteChannelStore {
+    async fn get_or_create_conversation(
+        &self,
+        workspace_id: &WorkspaceId,
+        participants: &[WorkspaceId],
+    ) -> Result<Channel, StoreError> {
+        let ids: std::collections::BTreeSet<_> = participants.iter().collect();
+        if ids.len() < 2 {
+            return Err(StoreError::Conflict(
+                "a conversation needs two Workspaces".into(),
+            ));
+        }
+        let key = serde_json::to_string(&ids).expect("Workspace ids serialize");
+        let id = ChannelId::generate();
+        let now = pagis_core::now_ms();
+        let mut tx = self.pool.begin().await.map_err(db_err)?;
+        let inserted = sqlx::query(
+            "INSERT INTO channels (id, workspace_id, kind, created_at, updated_at, conversation_key) \
+             VALUES (?, ?, 'conversation', ?, ?, ?) \
+             ON CONFLICT (workspace_id, conversation_key) DO NOTHING",
+        ).bind(id.as_str()).bind(workspace_id.as_str()).bind(now).bind(now).bind(&key)
+            .execute(&mut *tx).await.map_err(db_err)?.rows_affected();
+        if inserted == 1 {
+            for participant in ids {
+                sqlx::query("INSERT INTO channel_participants \
+                    (id, workspace_id, channel_id, participant_kind, participant_workspace_id, joined_at) \
+                    VALUES (?, ?, ?, 'workspace', ?, ?)")
+                    .bind(pagis_core::ParticipantId::generate().as_str())
+                    .bind(workspace_id.as_str()).bind(id.as_str()).bind(participant.as_str()).bind(now)
+                    .execute(&mut *tx).await.map_err(db_err)?;
+            }
+        }
+        let row = sqlx::query(&format!(
+            "SELECT {COLUMNS} FROM channels WHERE workspace_id = ? AND conversation_key = ?"
+        ))
+        .bind(workspace_id.as_str())
+        .bind(&key)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(db_err)?;
+        let channel = row_to_channel(&row)?;
+        tx.commit().await.map_err(db_err)?;
+        Ok(channel)
+    }
+
     async fn create(&self, channel: &Channel) -> Result<(), StoreError> {
         sqlx::query(
             "INSERT INTO channels (id, workspace_id, kind, title, created_at, updated_at) \

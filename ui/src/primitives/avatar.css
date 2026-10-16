@@ -29,9 +29,9 @@
   font-size: var(--text-md);
 }
 
-/* The owner's face. It is not one of the six hues, so it never
+/* A Person's face. It is not one of the six hues, so it never
  * collides with the ground a group is drawn on. */
-.ui-avatar-owner {
+.ui-avatar-person {
   background: var(--text);
   color: var(--panel);
 }

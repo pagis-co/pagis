@@ -41,7 +41,9 @@ function stubApi() {
     ],
   }
   return {
-    GET: vi.fn(async () => ({ data: thread })),
+    GET: vi.fn(async (path: string) => path === '/api/v1/user'
+      ? { data: { id: 'person-1', name: 'Ajay' } }
+      : { data: thread }),
     POST: vi.fn(async () => ({
       data: message({
         id: 'reply-2',
@@ -75,6 +77,26 @@ function mount(
 }
 
 describe('ThreadPane', () => {
+  it('puts a colleague reply on the other side with its Person name', async () => {
+    const api = stubApi()
+    api.GET.mockImplementation(async (path: string) => path === '/api/v1/user'
+      ? { data: { id: 'person-1', name: 'Ajay' } }
+      : { data: {
+          root: message({ id: 'root-1' }),
+          replies: [
+            message({ id: 'own', author: { kind: 'person', id: 'person-1', name: 'Ajay' }, text_content: 'My reply' }),
+            message({ id: 'colleague', author: { kind: 'person', id: 'person-2', name: 'Bob' }, text_content: 'Their reply' }),
+          ],
+        } })
+    mount(api)
+    await screen.findByText('Their reply')
+    await waitFor(() => expect(screen.getByText('My reply').closest('.message')?.className).toContain('message-mine'))
+    const theirs = screen.getByText('Their reply').closest('.message')
+    expect(theirs?.className).toContain('message-said')
+    expect(theirs?.querySelector('.message-author')?.textContent).toBe('Bob')
+    expect(theirs?.querySelector('.message-face')?.textContent).toBe('B')
+  })
+
   it('renders the root and its replies', async () => {
     const api = stubApi()
     mount(api)

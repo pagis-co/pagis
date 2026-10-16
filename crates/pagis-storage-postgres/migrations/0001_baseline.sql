@@ -81,7 +81,11 @@ CREATE TABLE channels (
     updated_at BIGINT NOT NULL,
     -- Channel kinds: a DM triggers its agent on every user
     -- message; a group channel triggers only on @-mentions.
-    kind TEXT COLLATE "C" NOT NULL DEFAULT 'dm' CHECK (kind IN ('dm', 'group'))
+    -- A conversation between Workspaces starts no Run.
+    kind TEXT COLLATE "C" NOT NULL DEFAULT 'dm' CHECK (kind IN ('dm', 'group', 'conversation')),
+    conversation_key TEXT COLLATE "C",
+    UNIQUE (workspace_id, conversation_key),
+    CHECK ((kind = 'conversation') = (conversation_key IS NOT NULL))
 );
 CREATE INDEX idx_channels_workspace ON channels (workspace_id);
 
@@ -89,15 +93,18 @@ CREATE TABLE channel_participants (
     id TEXT COLLATE "C" PRIMARY KEY,
     workspace_id TEXT COLLATE "C" NOT NULL REFERENCES workspaces (id),
     channel_id TEXT COLLATE "C" NOT NULL REFERENCES channels (id),
-    participant_kind TEXT COLLATE "C" NOT NULL CHECK (participant_kind IN ('person', 'agent')),
+    participant_kind TEXT COLLATE "C" NOT NULL CHECK (participant_kind IN ('person', 'agent', 'workspace')),
     person_id TEXT COLLATE "C",
     agent_id TEXT COLLATE "C" REFERENCES agents (id),
+    participant_workspace_id TEXT COLLATE "C" REFERENCES workspaces (id),
     joined_at BIGINT NOT NULL,
-    CHECK ((participant_kind = 'person' AND person_id IS NOT NULL AND agent_id IS NULL)
-        OR (participant_kind = 'agent' AND person_id IS NULL AND agent_id IS NOT NULL))
+    CHECK ((participant_kind = 'person' AND person_id IS NOT NULL AND agent_id IS NULL AND participant_workspace_id IS NULL)
+        OR (participant_kind = 'agent' AND person_id IS NULL AND agent_id IS NOT NULL AND participant_workspace_id IS NULL)
+        OR (participant_kind = 'workspace' AND person_id IS NULL
+            AND agent_id IS NULL AND participant_workspace_id IS NOT NULL))
 );
 CREATE UNIQUE INDEX idx_channel_participants_unique
-    ON channel_participants (channel_id, participant_kind, COALESCE(person_id, ''), COALESCE(agent_id, ''));
+    ON channel_participants (channel_id, participant_kind, COALESCE(person_id, ''), COALESCE(agent_id, ''), COALESCE(participant_workspace_id, ''));
 
 CREATE TABLE messages (
     author_kind TEXT COLLATE "C" NOT NULL CHECK (author_kind IN ('person', 'agent', 'system')),

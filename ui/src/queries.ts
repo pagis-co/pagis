@@ -10,6 +10,7 @@ import {
   useQuery,
   useQueryClient,
   QueryClient,
+  type InfiniteData,
 } from "@tanstack/react-query";
 import type { components } from "./api/schema";
 import { useCurrentWorkspaceId, privateWorkspaceKey } from "./workspace";
@@ -595,6 +596,122 @@ export function useArchiveAgent(api: ApiClient) {
         }),
       ),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: agentsKey(workspaceId) }),
+  });
+}
+
+// Conversations cross Workspaces, so these keys have no Workspace id.
+export const colleaguesKey = ["colleagues"] as const;
+export const conversationsKey = ["conversations"] as const;
+export const conversationMessagesKey = (conversationId: string) =>
+  [...conversationsKey, conversationId, "messages"] as const;
+
+export function useColleagues(api: ApiClient) {
+  return useQuery({
+    queryKey: colleaguesKey,
+    queryFn: () =>
+      unwrap(api.GET("/api/v1/colleagues")).then((page) => page.items),
+    refetchInterval: 30_000,
+  });
+}
+
+export function useConversations(api: ApiClient) {
+  return useQuery({
+    queryKey: conversationsKey,
+    queryFn: () =>
+      unwrap(api.GET("/api/v1/conversations")).then((page) => page.items),
+    staleTime: Infinity,
+  });
+}
+
+export function useStartConversation(api: ApiClient) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (workspaceIds: string[]) =>
+      unwrap(
+        api.POST("/api/v1/conversations", {
+          body: { workspace_ids: workspaceIds },
+        }),
+      ),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: conversationsKey });
+    },
+  });
+}
+
+export function useConversationMessages(
+  api: ApiClient,
+  conversationId: string,
+) {
+  return useInfiniteQuery({
+    queryKey: conversationMessagesKey(conversationId),
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ pageParam }) =>
+      unwrap(
+        api.GET("/api/v1/conversations/{conversation_id}/messages", {
+          params: {
+            path: { conversation_id: conversationId },
+            query: { before: pageParam },
+          },
+        }),
+      ),
+    getNextPageParam: (page) => page.next_cursor ?? undefined,
+    staleTime: Infinity,
+  });
+}
+
+export function useSendConversationMessage(
+  api: ApiClient,
+  conversationId: string,
+) {
+  const queryClient = useQueryClient();
+  const pending = usePendingSends();
+  return useMutation({
+    mutationFn: ({ pendingId, text }: { pendingId: string; text: string }) =>
+      unwrap(
+        api.POST("/api/v1/conversations/{conversation_id}/messages", {
+          params: { path: { conversation_id: conversationId } },
+          body: { text, pending_id: pendingId },
+        }),
+      ),
+    onMutate: ({ pendingId, text }) => {
+      const existing = usePendingSends
+        .getState()
+        .byScope[conversationId]?.some((send) => send.pending_id === pendingId);
+      if (existing) {
+        pending.markPending(conversationId, pendingId);
+      } else {
+        pending.add(conversationId, {
+          pending_id: pendingId,
+          text,
+          created_at: Date.now(),
+          state: "pending",
+        });
+      }
+    },
+    onSuccess: (message, { pendingId }) => {
+      queryClient.setQueryData<
+        InfiniteData<components["schemas"]["ConversationMessages"]>
+      >(conversationMessagesKey(conversationId), (data) => {
+        if (
+          data === undefined ||
+          data.pages.some((page) =>
+            page.items.some((item) => item.id === message.id),
+          )
+        )
+          return data;
+        return {
+          ...data,
+          pages: data.pages.map((page, index) =>
+            index === 0 ? { ...page, items: [message, ...page.items] } : page,
+          ),
+        };
+      });
+      pending.remove(conversationId, pendingId);
+      void queryClient.invalidateQueries({ queryKey: conversationsKey });
+    },
+    onError: (_error, { pendingId }) => {
+      pending.markFailed(conversationId, pendingId);
+    },
   });
 }
 

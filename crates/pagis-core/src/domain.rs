@@ -702,10 +702,12 @@ impl std::str::FromStr for AgentStatus {
 
 /// The channel's trigger contract: every user message in a DM
 /// triggers its agent; a group channel triggers only on an @-mention,
-/// plus the thread re-mention rule.
+/// plus the thread re-mention rule. A conversation between Workspaces
+/// starts no Run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ChannelKind {
+    Conversation,
     Dm,
     Group,
 }
@@ -713,6 +715,7 @@ pub enum ChannelKind {
 impl ChannelKind {
     pub fn as_str(&self) -> &'static str {
         match self {
+            ChannelKind::Conversation => "conversation",
             ChannelKind::Dm => "dm",
             ChannelKind::Group => "group",
         }
@@ -724,6 +727,7 @@ impl std::str::FromStr for ChannelKind {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
+            "conversation" => Ok(ChannelKind::Conversation),
             "dm" => Ok(ChannelKind::Dm),
             "group" => Ok(ChannelKind::Group),
             other => Err(format!("unknown channel kind: {other}")),
@@ -917,6 +921,7 @@ pub struct Message {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ParticipantKind {
+    Workspace,
     Person,
     Agent,
 }
@@ -924,6 +929,7 @@ pub enum ParticipantKind {
 impl ParticipantKind {
     pub fn as_str(&self) -> &'static str {
         match self {
+            ParticipantKind::Workspace => "workspace",
             ParticipantKind::Person => "person",
             ParticipantKind::Agent => "agent",
         }
@@ -935,6 +941,7 @@ impl std::str::FromStr for ParticipantKind {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
+            "workspace" => Ok(ParticipantKind::Workspace),
             "person" => Ok(ParticipantKind::Person),
             "agent" => Ok(ParticipantKind::Agent),
             other => Err(format!("unknown participant kind: {other}")),
@@ -942,14 +949,16 @@ impl std::str::FromStr for ParticipantKind {
     }
 }
 
-/// One member of a channel: the user, or an agent. A DM channel has the
-/// user and exactly one agent.
+/// One Channel participant: a Person, an Agent or a Workspace.
+/// `workspace_id` names the owner; `participant_workspace_id` names a
+/// Workspace that participates in the conversation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChannelParticipant {
     pub id: ParticipantId,
     pub workspace_id: WorkspaceId,
     pub channel_id: ChannelId,
     pub kind: ParticipantKind,
+    pub participant_workspace_id: Option<WorkspaceId>,
     pub person_id: Option<UserId>,
     pub agent_id: Option<AgentId>,
     pub joined_at: UnixMillis,

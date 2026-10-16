@@ -404,18 +404,24 @@ resources. The Spend Cap belongs to a Workspace (ADR-0039).
 
 ### Org's Workspace
 The Workspace that the Org owns and no Person owns. It holds the installed
-Plugins with their Bindings and the Installation Connections. No Session,
-seed, per-Workspace sweep or Tenant Data Key touches it (ADR-0023).
+Plugins with their Bindings, the Installation Connections and conversations
+between Workspaces. A Session reads a conversation only when its Private
+Workspace is a participant. No seed, per-Workspace sweep or Tenant Data Key
+touches it (ADR-0023, ADR-0043).
 Not built: its use as an Org-wide Shared Workspace with every Person in it
 (ADR-0039).
 
 ### Person
 One human in the Org, with a name, an Org role and exactly one Private
 Workspace. A Person signs in before a client reads or writes their data.
-The daemon gives each Person one Workspace (ADR-0023).
+The daemon gives each Person one Workspace (ADR-0023). Presence is active
+while a visible client had input in the last 120 s, and away otherwise.
+It reads the Private Workspace's Notification activity state (ADR-0030).
+Not built: calendar presence (ADR-0043).
 Not built: the Private Workspace kind and roles in Shared Workspaces
 (ADR-0039).
-_Avoid_: user record, account (for a Person; an account is at an external provider)
+_Avoid_: user record, account (for a Person; an account is at an external
+provider)
 
 ### Private Workspace
 The Workspace of exactly one Person, made with that Person. It has no
@@ -507,9 +513,8 @@ Network. Store lookups name the Workspace beside the record, except
 installation-wide records (ADR-0006, ADR-0023, ADR-0040, ADR-0041).
 The daemon gives each Person one Workspace. Its timezone comes from the
 browser or Client App at first sign-in and changes in Settings.
-Not built: Private and Shared Workspace kinds, calendar, messages between
-Workspaces and access through each record's owning Workspace or
-conversation (ADR-0039, ADR-0042, ADR-0043).
+Not built: Private and Shared Workspace kinds, calendar and Shared
+Workspace access (ADR-0039, ADR-0042).
 
 ## Agents and conversations
 
@@ -541,16 +546,24 @@ The Briefing names the Person who asks and the Person who is present.
 Not built: Persons in a Shared Workspace (ADR-0039).
 
 ### Channel
-The container for a conversation. Each participant names a Person or an
-Agent. Each message records its author and shows their name. Inside one
+The container for a conversation. Each participant names a Person, an
+Agent or a Workspace. A Workspace participant names its Workspace id. Each
+message records its author and shows their name. Inside one
 Workspace it holds the Person and Agents, or Agents with each other. The
 direct Channel of the Person and one Agent is that Agent's **DM Channel**.
 The Person reads every Channel of their private scope. A Channel that
 Agents open between themselves is read-only to the Person (ADR-0003).
 Not built: Persons read a Shared Workspace's Channels within their roles.
 A Channel can also have Workspaces as participants. That conversation is
-stored once outside the participant Workspaces. Each participant Workspace
-reads it there (ADR-0039, ADR-0043).
+stored once in the Org's Workspace, outside the participant Workspaces.
+Each participant Workspace reads it there. The same set of Workspaces opens
+one conversation. Each route checks participation before access. A Person
+finds colleagues and their active or away presence in People. A message
+publishes a live event to each participant Workspace and starts no Agent
+Run (ADR-0039, ADR-0043).
+Not built: away Notifications, Chief of Staff answers, Delegate everything,
+For the person only, Disclosure Rules, Agents messaging colleagues, group
+answer rules and calendar presence.
 
 ### Chief of Staff
 The main Agent of a Workspace: the active Agent it addresses by default.

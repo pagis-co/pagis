@@ -590,3 +590,269 @@ async fn live_events_check_the_first_frame_channel_subscription_and_session_sign
     other.send(Frame::Close(None)).await.unwrap();
     other_task.await.unwrap();
 }
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+async fn workspace_conversations_share_one_history_and_check_participation() {
+    let e = Embedder::new().await;
+    let state = &e.routers.state;
+    let a = state.workspaces.get(&e.workspace).await.unwrap().unwrap();
+    let b = state
+        .workspaces
+        .get(&e.other_workspace)
+        .await
+        .unwrap()
+        .unwrap();
+    state
+        .users
+        .set_name(&a.user_id, "Alice", now_ms())
+        .await
+        .unwrap();
+    state
+        .users
+        .set_name(&b.user_id, "Bob", now_ms())
+        .await
+        .unwrap();
+    let colleagues = read(&e, "/api/v1/colleagues").await;
+    assert_eq!(colleagues["items"].as_array().unwrap().len(), 1);
+    assert_eq!(colleagues["items"][0]["name"], "Bob");
+    assert_eq!(colleagues["items"][0]["presence"], "away");
+    state
+        .person_activity
+        .record(&e.other_workspace, state.clock.now_ms());
+    assert_eq!(
+        read(&e, "/api/v1/colleagues").await["items"][0]["presence"],
+        "active"
+    );
+    let conversation = json_response(
+        &e,
+        "POST",
+        "/api/v1/conversations",
+        json!({"workspace_ids": [e.other_workspace]}),
+        &e.cookie,
+        StatusCode::OK,
+    )
+    .await;
+    let again = json_response(
+        &e,
+        "POST",
+        "/api/v1/conversations",
+        json!({"workspace_ids": [e.workspace]}),
+        &e.other_cookie,
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(conversation["id"], again["id"]);
+    let id = conversation["id"].as_str().unwrap();
+    let path = format!("/api/v1/conversations/{id}/messages");
+    let mut events = state
+        .bus
+        .subscribe(EventScope::workspace(&e.other_workspace), None)
+        .await;
+    let first = json_response(
+        &e,
+        "POST",
+        &path,
+        json!({"pending_id":"a", "text":"Hello Bob"}),
+        &e.cookie,
+        StatusCode::CREATED,
+    )
+    .await;
+    assert_eq!(first["author"]["name"], "Alice");
+    assert_eq!(
+        events.next().await.unwrap().event_type,
+        "conversation.message"
+    );
+    let duplicate = json_response(
+        &e,
+        "POST",
+        &path,
+        json!({"pending_id":"a", "text":"Hello Bob"}),
+        &e.cookie,
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(first["id"], duplicate["id"]);
+    json_response(
+        &e,
+        "POST",
+        &path,
+        json!({"pending_id":"b", "text":"Hello Alice"}),
+        &e.other_cookie,
+        StatusCode::CREATED,
+    )
+    .await;
+    let page = read(&e, &format!("{path}?limit=1")).await;
+    assert_eq!(page["items"][0]["author"]["name"], "Bob");
+    let before = page["next_cursor"].as_str().unwrap();
+    let older = read(&e, &format!("{path}?limit=1&before={before}")).await;
+    assert_eq!(older["items"][0]["author"]["name"], "Alice");
+    assert!(older["next_cursor"].is_null());
+    let list = read(&e, "/api/v1/conversations").await;
+    assert_eq!(
+        list["items"][0]["last_message"]["text_content"],
+        "Hello Alice"
+    );
+    let channel_id = ChannelId::from(id.to_string());
+    assert_eq!(
+        state
+            .messages
+            .list_top_level(&state.org_workspace_id, &channel_id, None, 10)
+            .await
+            .unwrap()
+            .len(),
+        2
+    );
+    assert!(
+        state
+            .messages
+            .list_top_level(&e.other_workspace, &channel_id, None, 10)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    // A new group excludes B and keeps B's read and post outside it.
+    let org = state.users.get(&a.user_id).await.unwrap().unwrap().org_id;
+    let c = User::new(org, UserRole::Member, now_ms());
+    state.users.create(&c).await.unwrap();
+    let c_workspace = Workspace {
+        id: WorkspaceId::generate(),
+        user_id: c.id,
+        ..a
+    };
+    state.workspaces.create(&c_workspace).await.unwrap();
+    let separate = json_response(
+        &e,
+        "POST",
+        "/api/v1/conversations",
+        json!({"workspace_ids": [c_workspace.id]}),
+        &e.cookie,
+        StatusCode::OK,
+    )
+    .await;
+    let hidden_path = format!(
+        "/api/v1/conversations/{}/messages",
+        separate["id"].as_str().unwrap()
+    );
+    for method in ["GET", "POST"] {
+        json_response(
+            &e,
+            method,
+            &hidden_path,
+            json!({"pending_id":"no", "text":"No"}),
+            &e.other_cookie,
+            StatusCode::NOT_FOUND,
+        )
+        .await;
+    }
+    let group = json_response(
+        &e,
+        "POST",
+        "/api/v1/conversations",
+        json!({"workspace_ids": [c_workspace.id, e.other_workspace]}),
+        &e.cookie,
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(group["participants"].as_array().unwrap().len(), 3);
+    assert_ne!(group["id"], conversation["id"]);
+    json_response(
+        &e,
+        "POST",
+        "/api/v1/conversations",
+        json!({"workspace_ids": [state.org_workspace_id]}),
+        &e.cookie,
+        StatusCode::NOT_FOUND,
+    )
+    .await;
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+async fn workspace_conversations_sort_by_message_time_then_id_and_empty_creation_time() {
+    let e = Embedder::new().await;
+    let state = &e.routers.state;
+    let owner = &state.org_workspace_id;
+    let person = state
+        .workspaces
+        .get(&e.workspace)
+        .await
+        .unwrap()
+        .unwrap()
+        .user_id;
+    // Explicit ids keep their order different from their creation times.
+    for (channel_id, created_at, message) in [
+        ("empty-new", 500, None),
+        ("new-message", 1, Some(("a", 400))),
+        ("tie-high", 1, Some(("z", 300))),
+        ("tie-low", 1, Some(("b", 300))),
+        ("old-message", 1, Some(("zz", 200))),
+        ("empty-old", 100, None),
+    ] {
+        let channel_id = ChannelId::from(channel_id.to_string());
+        state
+            .channels
+            .create(&Channel {
+                id: channel_id.clone(),
+                workspace_id: owner.clone(),
+                kind: ChannelKind::Conversation,
+                title: None,
+                created_at,
+                updated_at: created_at,
+            })
+            .await
+            .unwrap();
+        state
+            .participants
+            .create(&ChannelParticipant {
+                id: ParticipantId::generate(),
+                workspace_id: owner.clone(),
+                channel_id: channel_id.clone(),
+                kind: ParticipantKind::Workspace,
+                participant_workspace_id: Some(e.workspace.clone()),
+                person_id: None,
+                agent_id: None,
+                joined_at: created_at,
+            })
+            .await
+            .unwrap();
+        if let Some((id, at)) = message {
+            state
+                .messages
+                .insert(&Message {
+                    id: MessageId::from(id.to_string()),
+                    workspace_id: owner.clone(),
+                    channel_id,
+                    parent_message_id: None,
+                    author: Author::Person(person.clone()),
+                    run_id: None,
+                    status: MessageStatus::Complete,
+                    blocks: vec![Block::markdown("Hello")],
+                    text_content: "Hello".into(),
+                    pending_id: None,
+                    created_at: at,
+                    completed_at: Some(at),
+                })
+                .await
+                .unwrap();
+        }
+    }
+    let page = read(&e, "/api/v1/conversations").await;
+    let ids: Vec<_> = page["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| item["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        ids,
+        [
+            "empty-new",
+            "new-message",
+            "tie-high",
+            "tie-low",
+            "old-message",
+            "empty-old"
+        ]
+    );
+}

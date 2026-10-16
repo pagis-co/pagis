@@ -1,13 +1,14 @@
-// The eight places of the sidebar and the place a path belongs to.
+// The places of the sidebar and the place a path belongs to.
 
 import { describe, expect, it } from 'vitest'
 
 import { PLACES, placeForPath } from './places'
 
 describe('the places', () => {
-  it('lists the eight places in order', () => {
+  it('lists the places in order', () => {
     expect(PLACES.map((place) => place.label)).toEqual([
       'Home',
+      'People',
       'Sprites',
       'Mail',
       'Memory',
@@ -20,6 +21,7 @@ describe('the places', () => {
 
   it('reads the place from the path', () => {
     expect(placeForPath('/')).toBe('home')
+    expect(placeForPath('/people')).toBe('people')
     expect(placeForPath('/sprites')).toBe('sprites')
     // An Agent is one of the user's sprites.
     expect(placeForPath('/sprites/agent-1')).toBe('sprites')

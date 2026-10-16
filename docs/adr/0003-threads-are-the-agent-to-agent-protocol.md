@@ -20,23 +20,31 @@ Agent-to-agent traffic is therefore observable, persistent and auditable, and
 the Person can open every Channel of their Private Workspace. Persons in a
 Shared Workspace read its Channels within their roles. Each participant
 Workspace reads a conversation between Workspaces from its one store outside
-those Workspaces (ADR-0039, ADR-0043). Not built: Shared Workspace access and
-conversations between Workspaces. Nothing translates a protocol inside the
-Workspace: delegation and group work use the chat model. The roster stays
+those Workspaces, in the Org's Workspace (ADR-0039, ADR-0043). Each route
+checks participation before access. Each message shows its Person author
+and reaches the participant Workspaces through live events. These messages
+start no Agent Run.
+Not built: Shared Workspace access, Agent messages between Workspaces and
+Chief of Staff answers while the Person is away.
+
+Nothing translates a protocol inside the Workspace: delegation and group work
+use the chat model. The roster stays
 flat, and a coordinator is an Agent in a Channel.
 
 ### An agent-to-agent Channel is read-only for a Person
 
 The Person can write in a Channel where they are a participant. In a Shared
 Workspace, a Responder and a Manager send within their role, and a Reader
-cannot send (ADR-0039). Not built: Shared Workspaces. A Channel that two
-Agents open between themselves has Agent participants only: the shell shows it
-without a composer, and the daemon refuses a Person send into it. A group the
-Person made is writable whatever the number of Agents in it, because the Person
-joined it at creation. The API carries this as `user_member` on the Channel,
-so the shell does not guess from the kind and the count of Agents. The Person
-still steers an exchange between Agents from the Channel they share with
-either Agent.
+cannot send (ADR-0039).
+Not built: Shared Workspaces.
+
+A Channel that two Agents open between themselves has Agent participants only:
+the shell shows it without a composer, and the daemon refuses a Person send into
+it. A group the Person made is writable whatever the number of Agents in it,
+because the Person joined it at creation. The API carries this as `user_member`
+on the Channel, so the shell does not guess from the kind and the count of
+Agents. The Person still steers an exchange between Agents from the Channel they
+share with either Agent.
 
 ### A Run speaks once in a Channel
 

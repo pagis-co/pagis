@@ -4,6 +4,7 @@
 
 import {
   BookOpen,
+  Contact,
   Mail,
   Home,
   Package,
@@ -16,6 +17,7 @@ import {
 
 export type PlaceId =
   | 'home'
+  | 'people'
   | 'sprites'
   | 'mail'
   | 'memory'
@@ -32,6 +34,7 @@ export interface Place {
 
 export const PLACES: readonly Place[] = [
   { id: 'home', label: 'Home', icon: Home },
+  { id: 'people', label: 'People', icon: Contact },
   { id: 'sprites', label: 'Sprites', icon: Users },
   { id: 'mail', label: 'Mail', icon: Mail },
   { id: 'memory', label: 'Memory', icon: BookOpen },
@@ -49,6 +52,7 @@ export function placeForPath(pathname: string): PlaceId | null {
   // An Agent is one of the user's sprites.
   if (first === 'sprites' || first === 'agents') return 'sprites'
   if (first === 'mail') return 'mail'
+  if (first === 'people' || first === 'conversations') return 'people'
   if (first === 'memory') return 'memory'
   if (first === 'automations') return 'automations'
   if (first === 'coding') return 'coding'

@@ -407,6 +407,7 @@ impl AgentSystem {
                 continue;
             }
             let triggered = match channel.kind {
+                ChannelKind::Conversation => false,
                 ChannelKind::Dm => true,
                 ChannelKind::Group => {
                     crate::mention::is_mentioned(&message.text_content, &agent.name)
