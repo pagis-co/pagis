@@ -721,6 +721,7 @@ async fn workspace_mailbox_grant_creation_rules_and_revocation_have_versions() {
             outgoing_cap: 100,
             spam_mode: MailScoringMode::ScoreOnly,
             created_at: 1,
+            author: Author::Person(owner.clone()),
         })
         .await
         .unwrap();
