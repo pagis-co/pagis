@@ -1,11 +1,14 @@
 //! One integration test binary for this crate. Each file under `tests/`
 //! is a module here, so the crate links once instead of once per file.
 
+#![cfg(not(target_arch = "wasm32"))]
+
 mod audio;
 mod call_record;
 mod calls;
 mod dtmf;
 mod endpoint;
+mod frame_media;
 mod handoff;
 mod hub;
 mod inbound;

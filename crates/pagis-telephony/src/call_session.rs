@@ -184,7 +184,7 @@ struct Pump {
     control: mpsc::Receiver<Control>,
     hub: Arc<MediaHub>,
     downlink: mpsc::UnboundedSender<Downlink>,
-    writer: tokio::task::JoinHandle<()>,
+    writer: crate::task::JoinHandle<()>,
     classifying: bool,
     /// The model may hear the Remote Party from here on.
     answered: bool,
@@ -218,7 +218,7 @@ struct Pump {
 impl Pump {
     fn new(session: CallSession, hub: Arc<MediaHub>, log: &CallLog) -> Self {
         let (downlink, queue) = mpsc::unbounded_channel();
-        let writer = pagis_rt::spawn(write_downlink(Arc::clone(&hub), queue));
+        let writer = crate::task::spawn(write_downlink(Arc::clone(&hub), queue));
         let inbound = session.deps.brief.direction == pagis_core::CallDirection::Inbound;
         Self {
             deps: session.deps,

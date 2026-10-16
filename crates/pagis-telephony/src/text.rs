@@ -280,6 +280,7 @@ pub const TEXT_POLL_INTERVAL: Duration = Duration::from_secs(5);
 
 impl TextCollector {
     /// Poll each Workspace until shutdown. One failed Workspace does not stop the pass.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn spawn(
         self: &Arc<Self>,
         cancel: tokio_util::sync::CancellationToken,

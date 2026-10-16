@@ -11,10 +11,10 @@ async-trait.workspace = true
 base64.workspace = true
 audio-codec-algorithms.workspace = true
 bytes.workspace = true
+futures.workspace = true
 # An inbound text carries an RFC 3339 arrival time (ADR-0020), and
 # Twilio writes RFC 2822 in an answer and reads ISO-8601 in a filter.
 chrono.workspace = true
-hound.workspace = true
 # The call tool's transcript is an ordinary File (ADR-0020).
 object_store.workspace = true
 llm-router.workspace = true
@@ -27,20 +27,29 @@ rand.workspace = true
 regex.workspace = true
 sha2.workspace = true
 reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+hound.workspace = true
 rsipstack.workspace = true
 rustrtc.workspace = true
 # The root store the SIP TLS leg trusts: the same one reqwest trusts.
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 webpki-roots = "1"
-serde.workspace = true
-serde_json.workspace = true
-thiserror.workspace = true
 tokio = { workspace = true, features = ["fs", "io-util", "net", "rt"] }
-tokio-util.workspace = true
-tracing.workspace = true
 
-[dev-dependencies]
-futures.workspace = true
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+send_wrapper = { version = "0.6", features = ["futures"] }
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "0.3"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 # The carrier contract tests answer as the carrier's REST API.
 wiremock.workspace = true
 pagis-audit.workspace = true
@@ -57,3 +66,7 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread", "test-util"
 [[test]]
 name = "main"
 path = "tests/main.rs"
+
+[[test]]
+name = "wasm"
+path = "tests/wasm.rs"

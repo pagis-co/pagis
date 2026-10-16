@@ -12,9 +12,9 @@ use pagis_core::{
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+use crate::IncomingHub;
 use crate::bridge::{CallBridge, CallLog, PlacedCall};
 use crate::brief::CallBrief;
-use crate::endpoint::IncomingHub;
 use crate::events::{CALL_ENDED, CallEvents, SettledCall, call_ended_event};
 use crate::live::LiveCalls;
 use crate::phone_tool::{RunTools, mint_strip, store_transcript};
@@ -82,8 +82,8 @@ impl InboundCalls {
         self: Arc<Self>,
         mut answered: mpsc::Receiver<IncomingHub>,
         cancel: CancellationToken,
-    ) -> tokio::task::JoinHandle<()> {
-        pagis_rt::spawn(async move {
+    ) -> crate::task::JoinHandle<()> {
+        crate::task::spawn(async move {
             loop {
                 let incoming = tokio::select! {
                     incoming = answered.recv() => incoming,
@@ -91,7 +91,7 @@ impl InboundCalls {
                 };
                 let Some(incoming) = incoming else { return };
                 let runner = Arc::clone(&self);
-                pagis_rt::spawn(async move {
+                crate::task::spawn(async move {
                     if let Err(error) = runner.answer(incoming).await {
                         tracing::error!(%error, "an answered call did not run");
                     }

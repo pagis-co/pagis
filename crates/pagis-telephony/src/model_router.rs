@@ -24,6 +24,21 @@ use crate::model::{
     SessionConfig, function_tools,
 };
 
+// Router sockets and futures stay on the wasm runtime's one thread.
+#[cfg(target_arch = "wasm32")]
+use send_wrapper::SendWrapper as Host;
+#[cfg(not(target_arch = "wasm32"))]
+type Host<T> = T;
+
+#[cfg(target_arch = "wasm32")]
+fn on_host<T>(value: T) -> Host<T> {
+    Host::new(value)
+}
+#[cfg(not(target_arch = "wasm32"))]
+fn on_host<T>(value: T) -> T {
+    value
+}
+
 /// The Workspace-wide telephone model. The first candidate is the
 /// default. A user can reorder this alias in Settings.
 pub const PHONE_ALIAS: &str = "phone";
@@ -66,7 +81,7 @@ pub struct KeyedModelSessions {
     aliases: Arc<dyn ModelAliasStore>,
     http: reqwest::Client,
     base_urls: HashMap<Provider, String>,
-    realtime_transport: Option<Arc<dyn RealtimeTransport>>,
+    realtime_transport: Option<Host<Arc<dyn RealtimeTransport>>>,
 }
 
 impl KeyedModelSessions {
@@ -82,7 +97,7 @@ impl KeyedModelSessions {
 
     /// Use the host's transport for realtime connections.
     pub fn with_realtime_transport(mut self, transport: Arc<dyn RealtimeTransport>) -> Self {
-        self.realtime_transport = Some(transport);
+        self.realtime_transport = Some(on_host(transport));
         self
     }
 
@@ -178,20 +193,23 @@ impl KeyedModelSessions {
 #[async_trait]
 impl ModelSessions for KeyedModelSessions {
     async fn open(&self, workspace_id: &WorkspaceId) -> Result<Box<dyn ModelSession>, ModelError> {
-        let (router, backend_model) = self.router(workspace_id).await?;
-        Ok(Box::new(AdaptiveSession {
-            router: Arc::new(router),
-            backend_model,
-            active: None,
-            active_alias: None,
-            translate_classifier_result: false,
-        }))
+        on_host(async {
+            let (router, backend_model) = self.router(workspace_id).await?;
+            Ok(Box::new(AdaptiveSession {
+                router: Arc::new(on_host(router)),
+                backend_model,
+                active: None,
+                active_alias: None,
+                translate_classifier_result: false,
+            }) as Box<dyn ModelSession>)
+        })
+        .await
     }
 }
 
 /// Opens a fixed router alias. This is useful for injected routers.
 pub struct RouterModelSessions {
-    router: Arc<Router>,
+    router: Host<Arc<Router>>,
     model: String,
     backend_model: String,
 }
@@ -199,7 +217,7 @@ pub struct RouterModelSessions {
 impl RouterModelSessions {
     pub fn new(router: Arc<Router>, model: impl Into<String>) -> Self {
         Self {
-            router,
+            router: on_host(router),
             model: model.into(),
             backend_model: GPT_LIVE_REASONING_MODELS[0]
                 .split_once('/')
@@ -213,16 +231,20 @@ impl RouterModelSessions {
 #[async_trait]
 impl ModelSessions for RouterModelSessions {
     async fn open(&self, _workspace_id: &WorkspaceId) -> Result<Box<dyn ModelSession>, ModelError> {
-        Ok(Box::new(
-            RouterSession::connect(&self.router, &self.model, Some(&self.backend_model)).await?,
-        ))
+        on_host(async {
+            Ok(Box::new(
+                RouterSession::connect(&self.router, &self.model, Some(&self.backend_model))
+                    .await?,
+            ) as Box<dyn ModelSession>)
+        })
+        .await
     }
 }
 
 /// Selects the classifier or conversation alias from the typed session
 /// configuration. The call loop does not know which provider serves it.
 struct AdaptiveSession {
-    router: Arc<Router>,
+    router: Arc<Host<Router>>,
     backend_model: Option<String>,
     active: Option<RouterSession>,
     active_alias: Option<&'static str>,
@@ -264,35 +286,41 @@ impl AdaptiveSession {
 #[async_trait]
 impl ModelSession for AdaptiveSession {
     async fn send(&mut self, command: ClientCommand) -> Result<(), ModelError> {
-        match command {
-            ClientCommand::Configure(config) => self.configure(config).await,
-            ClientCommand::FunctionCallOutput { output, .. }
-                if self.translate_classifier_result =>
-            {
-                self.active_mut()?
-                    .send(ClientCommand::AddInstructions(format!(
-                        "The outbound answer detector completed: {output}. Follow the current conversation instructions now."
-                    )))
-                    .await
+        on_host(async {
+            match command {
+                ClientCommand::Configure(config) => self.configure(config).await,
+                ClientCommand::FunctionCallOutput { output, .. }
+                    if self.translate_classifier_result =>
+                {
+                    self.active_mut()?
+                        .send(ClientCommand::AddInstructions(format!(
+                            "The outbound answer detector completed: {output}. Follow the current conversation instructions now."
+                        )))
+                        .await
+                }
+                ClientCommand::ContinueResponse if self.translate_classifier_result => {
+                    self.translate_classifier_result = false;
+                    self.active_mut()?
+                        .send(ClientCommand::ContinueResponse)
+                        .await
+                }
+                command => self.active_mut()?.send(command).await,
             }
-            ClientCommand::ContinueResponse if self.translate_classifier_result => {
-                self.translate_classifier_result = false;
-                self.active_mut()?
-                    .send(ClientCommand::ContinueResponse)
-                    .await
-            }
-            command => self.active_mut()?.send(command).await,
-        }
+        })
+        .await
     }
 
     async fn next(&mut self) -> Option<Result<ServerEvent, ModelError>> {
-        self.active_mut().ok()?.next().await
+        on_host(async { self.active_mut().ok()?.next().await }).await
     }
 
     async fn close(mut self: Box<Self>) {
-        if let Some(active) = self.active.take() {
-            active.finish().await;
-        }
+        on_host(async {
+            if let Some(active) = self.active.take() {
+                active.finish().await;
+            }
+        })
+        .await
     }
 }
 
@@ -303,7 +331,7 @@ enum TranscriptSpeaker {
 }
 
 struct RouterSession {
-    connection: RealtimeConnection,
+    connection: Host<RealtimeConnection>,
     backend_model: Option<String>,
     started: bool,
     queued: VecDeque<ServerEvent>,
@@ -322,7 +350,7 @@ impl RouterSession {
             .await
             .map_err(|error| ModelError(error.to_string()))?;
         Ok(Self {
-            connection,
+            connection: on_host(connection),
             backend_model: backend_model.map(str::to_string),
             started: false,
             queued: VecDeque::new(),
@@ -568,7 +596,7 @@ impl RouterSession {
                 tracing::debug!("the live model session did not finalize before close");
             }
         }
-        if let Err(error) = self.connection.close().await {
+        if let Err(error) = on_host_close(self.connection).await {
             tracing::debug!(%error, "the model socket did not close cleanly");
         }
     }
@@ -577,15 +605,18 @@ impl RouterSession {
 #[async_trait]
 impl ModelSession for RouterSession {
     async fn send(&mut self, command: ClientCommand) -> Result<(), ModelError> {
-        RouterSession::send(self, command).await
+        on_host(async { RouterSession::send(self, command).await }).await
     }
 
     async fn next(&mut self) -> Option<Result<ServerEvent, ModelError>> {
-        RouterSession::next(self).await
+        on_host(async { RouterSession::next(self).await }).await
     }
 
     async fn close(self: Box<Self>) {
-        self.finish().await;
+        on_host(async {
+            self.finish().await;
+        })
+        .await
     }
 }
 
@@ -604,4 +635,10 @@ fn transcript_event(speaker: TranscriptSpeaker, text: String) -> ServerEvent {
         TranscriptSpeaker::Caller => ServerEvent::CallerTranscript(text),
         TranscriptSpeaker::Agent => ServerEvent::AgentTranscript(text),
     }
+}
+
+async fn on_host_close(connection: Host<RealtimeConnection>) -> Result<(), llm_router::Error> {
+    #[cfg(target_arch = "wasm32")]
+    let connection = connection.take();
+    connection.close().await
 }
