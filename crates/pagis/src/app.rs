@@ -1517,6 +1517,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
 
     let state = AppState {
         audit: stores.audit.clone(),
+        conversation_evidence: stores.conversation_evidence.clone(),
         workspace_members: stores.workspace_members.clone(),
         plugins: Arc::clone(&plugins),
         plugin_hosts: Arc::clone(&plugin_hosts),

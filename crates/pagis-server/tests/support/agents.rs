@@ -392,6 +392,7 @@ impl Embedder {
         }));
         let state = AppState {
             audit: stores.audit.clone(),
+            conversation_evidence: stores.conversation_evidence.clone(),
             workspace_members: stores.workspace_members.clone(),
             plugins,
             plugin_hosts,

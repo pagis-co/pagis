@@ -24,6 +24,177 @@ use crate::fixture::{
 
 use super::{Backend, Bind};
 
+pub async fn workspace_message_search_filters_participants_before_limit(backend: &Backend) {
+    let owner = backend.seeded_workspace().await;
+    let participant = backend.seeded_workspace().await;
+    let other = backend.seeded_workspace().await;
+    let outsider = backend.seeded_workspace().await;
+    let channels = &backend.stores().channels;
+    let own = channels
+        .get_or_create_conversation(&owner.id, &[participant.id.clone(), other.id.clone()])
+        .await
+        .unwrap();
+    let unrelated = channels
+        .get_or_create_conversation(&owner.id, &[other.id.clone(), outsider.id.clone()])
+        .await
+        .unwrap();
+    let mut own_message = person_message(
+        &owner.id,
+        owner.user_id.as_ref().unwrap(),
+        &own.id,
+        "sapphire participant",
+    );
+    own_message.created_at = 1;
+    backend
+        .stores()
+        .messages
+        .insert(&own_message)
+        .await
+        .unwrap();
+    for at in 2..=5 {
+        let mut message = person_message(
+            &owner.id,
+            owner.user_id.as_ref().unwrap(),
+            &unrelated.id,
+            "sapphire unrelated",
+        );
+        message.created_at = at;
+        backend.stores().messages.insert(&message).await.unwrap();
+    }
+    let evidence = &backend.stores().conversation_evidence;
+    let found = evidence
+        .search_workspace_messages(&owner.id, Some(&participant.id), "sapphire", 1)
+        .await
+        .unwrap();
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].message_id, own_message.id);
+    assert_eq!(found[0].channel_id, own.id);
+    assert!(
+        evidence
+            .search_workspace_messages(&owner.id, Some(&participant.id), "unrelated", 10)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    let unfiltered = evidence
+        .search_workspace_messages(&owner.id, None, "sapphire", 1)
+        .await
+        .unwrap();
+    assert_eq!(unfiltered.len(), 1);
+    assert_eq!(unfiltered[0].channel_id, unrelated.id);
+}
+
+pub async fn workspace_message_search_includes_threads_and_bounds_live_hits(backend: &Backend) {
+    let (first, second) = tenant_pair(backend).await;
+    let person = backend
+        .stores()
+        .workspaces
+        .get(&first.workspace_id)
+        .await
+        .unwrap()
+        .unwrap()
+        .user_id
+        .unwrap();
+    let messages = &backend.stores().messages;
+    let mut root = person_message(
+        &first.workspace_id,
+        &person,
+        &first.channel_id,
+        "cobalt root",
+    );
+    root.created_at = 30;
+    messages.insert(&root).await.unwrap();
+    let mut reply = person_message(
+        &first.workspace_id,
+        &person,
+        &first.channel_id,
+        "cobalt reply",
+    );
+    reply.parent_message_id = Some(root.id.clone());
+    reply.created_at = 50;
+    messages.insert(&reply).await.unwrap();
+    let other_channel = channel(&first.workspace_id);
+    backend
+        .stores()
+        .channels
+        .create(&other_channel)
+        .await
+        .unwrap();
+    let mut older = person_message(
+        &first.workspace_id,
+        &person,
+        &other_channel.id,
+        "cobalt older",
+    );
+    older.created_at = 10;
+    messages.insert(&older).await.unwrap();
+    let mut forgotten = person_message(
+        &first.workspace_id,
+        &person,
+        &first.channel_id,
+        "cobalt forgotten",
+    );
+    forgotten.created_at = 100;
+    messages.insert(&forgotten).await.unwrap();
+    backend
+        .execute(
+            "INSERT INTO forgotten_messages(message_id) VALUES (?)",
+            &[Bind::from(forgotten.id.as_str())],
+        )
+        .await
+        .unwrap();
+    let foreign_person = backend
+        .stores()
+        .workspaces
+        .get(&second.workspace_id)
+        .await
+        .unwrap()
+        .unwrap()
+        .user_id
+        .unwrap();
+    let foreign = person_message(
+        &second.workspace_id,
+        &foreign_person,
+        &second.channel_id,
+        "cobalt foreign",
+    );
+    messages.insert(&foreign).await.unwrap();
+    let evidence = &backend.stores().conversation_evidence;
+    let found = evidence
+        .search_workspace_messages(&first.workspace_id, None, "cobalt", 10)
+        .await
+        .unwrap();
+    assert_eq!(
+        found.iter().map(|hit| &hit.message_id).collect::<Vec<_>>(),
+        [&reply.id, &root.id, &older.id]
+    );
+    assert_eq!(found[0].channel_id, first.channel_id);
+    assert_eq!(found[0].root_message_id, root.id);
+    assert_eq!(found[0].created_at, 50);
+    assert!(found[0].snippet.contains("reply"));
+    assert_eq!(found[1].root_message_id, root.id);
+    assert_eq!(found[2].channel_id, other_channel.id);
+    let limited = evidence
+        .search_workspace_messages(&first.workspace_id, None, "cobalt", 1)
+        .await
+        .unwrap();
+    assert_eq!(limited, found[..1]);
+    assert!(
+        evidence
+            .search_workspace_messages(&first.workspace_id, None, "cobalt", 0)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        evidence
+            .search_workspace_messages(&first.workspace_id, None, "!!!", 10)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}
+
 pub async fn search_and_range_read_use_message_id_order_inside_one_conversation(backend: &Backend) {
     let workspace = backend.seeded_workspace().await;
     let agent = agent(&workspace.id);
@@ -173,6 +344,12 @@ pub async fn invalidated_hits_do_not_starve_pages_and_stay_absent_after_restart(
     let first_page = evidence.search(&scope, "marigold", None, 1).await.unwrap();
     assert_eq!(first_page[0].message_id, first.id);
 
+    let live = evidence
+        .search_workspace_messages(&workspace.id, None, "marigold", 10)
+        .await
+        .unwrap();
+    assert!(live.iter().any(|hit| hit.message_id == revoked.id));
+
     grants
         .revoke(&grant.workspace_id, &grant.id, 2)
         .await
@@ -213,6 +390,16 @@ pub async fn invalidated_hits_do_not_starve_pages_and_stay_absent_after_restart(
     // The row is gone from the index, not merely filtered at the read.
     // `message_id` is a column of both indexes, so the count is the one
     // portable question to ask of them.
+    let workspace_hits = evidence
+        .search_workspace_messages(&workspace.id, None, "marigold", 2)
+        .await
+        .unwrap();
+    assert_eq!(workspace_hits.len(), 2);
+    assert!(
+        workspace_hits
+            .iter()
+            .all(|hit| hit.message_id == first.id || hit.message_id == last.id)
+    );
     for gone in [&revoked.id, &forgotten.id] {
         assert_eq!(
             backend
@@ -593,6 +780,8 @@ macro_rules! store_suite_conversation_evidence {
     ($emit:path) => {
         $emit!(
             conversation_evidence,
+            workspace_message_search_filters_participants_before_limit,
+            workspace_message_search_includes_threads_and_bounds_live_hits,
             search_and_range_read_use_message_id_order_inside_one_conversation,
             invalidated_hits_do_not_starve_pages_and_stay_absent_after_restart,
             range_read_keeps_conversation_scope_and_marks_a_missing_file,

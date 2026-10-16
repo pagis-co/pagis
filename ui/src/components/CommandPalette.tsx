@@ -197,8 +197,12 @@ export function CommandPalette({
     () => [
       ...destinations.filter((entry) => matches(entry, query)),
       ...actions.filter((entry) => matches(entry, query)),
+      ...(Array.from(query.trim()).length >= 2 && Array.from(query.trim()).length <= 200 ? [{
+        id: 'search-everywhere', label: `Search everywhere for “${query.trim()}”`, hint: 'Search',
+        run: () => { onOpenChange(false); onNavigate(`/search?q=${encodeURIComponent(query.trim())}`) },
+      }] : []),
     ],
-    [destinations, actions, query],
+    [destinations, actions, query, onOpenChange, onNavigate],
   )
 
   useEffect(() => setActive(0), [query])

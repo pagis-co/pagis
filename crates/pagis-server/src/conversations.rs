@@ -131,7 +131,7 @@ async fn participant_ids(state: &AppState, id: &ChannelId) -> Result<Vec<Workspa
 }
 
 /// Check access before a route reads or writes conversation content.
-async fn entrance(
+pub(crate) async fn entrance(
     state: &AppState,
     tenant: &Tenant,
     id: &ChannelId,

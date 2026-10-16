@@ -184,3 +184,15 @@ describe('People', () => {
     )
   })
 })
+
+it('loads older conversation pages to open a Search result', async () => {
+  const message = (id: string, text: string) => ({ id, channel_id: 'conversation', author: { kind: 'person', id: 'alice', name: 'Alice' }, text_content: text, blocks: [{ type: 'markdown', text }], status: 'complete', created_at: 100, completed_at: 100 })
+  const GET = vi.fn(async (path: string, options?: { params?: { query?: { before?: string } } }) => ({ data: path === '/api/v1/user'
+    ? { id: 'alice', name: 'Alice' }
+    : options?.params?.query?.before === 'cursor'
+      ? { items: [message('older', 'Selected message')], next_cursor: null }
+      : { items: [message('recent', 'Recent message')], next_cursor: 'cursor' } }))
+  mount(<WorkspaceConversation api={{ GET } as unknown as ApiClient} conversationId="conversation" targetMessageId="older" />)
+  expect(await screen.findByText('Selected message')).toBeTruthy()
+  expect(screen.getByRole('region', { name: 'Selected message' })).toBeTruthy()
+})

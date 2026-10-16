@@ -52,6 +52,7 @@ pub mod provisioning;
 mod push_subscriptions;
 pub mod remote_access;
 mod remote_access_native;
+mod search;
 #[cfg(not(feature = "native"))]
 mod unavailable;
 mod workspace_mail;
@@ -172,6 +173,7 @@ pub struct AppState {
     pub participants: Arc<dyn ParticipantStore>,
     pub messages: Arc<dyn MessageStore>,
     pub runs: Arc<dyn RunStore>,
+    pub conversation_evidence: Arc<dyn pagis_core::ConversationEvidenceStore>,
     pub pending_evidence: Arc<dyn pagis_core::PendingEvidenceStore>,
     pub trigger: Arc<pagis_trigger::Trigger>,
     pub model_aliases: Arc<dyn ModelAliasStore>,
@@ -566,6 +568,7 @@ fn product_router(state: Arc<AppState>) -> Router {
             get(mail::get_mail_message),
         )
         .route("/api/v1/free-busy", post(calendar::query_free_busy))
+        .route("/api/v1/search", get(search::search))
         .route("/api/v1/colleagues", get(conversations::list_colleagues))
         .route(
             "/api/v1/conversations",

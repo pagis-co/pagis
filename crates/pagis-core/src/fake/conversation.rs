@@ -942,6 +942,59 @@ impl CodingSessionStore for FakeCodingSessionStore {
 
 #[async_trait::async_trait]
 impl ConversationEvidenceStore for FakeConversationEvidenceStore {
+    async fn search_workspace_messages(
+        &self,
+        workspace_id: &WorkspaceId,
+        participant: Option<&WorkspaceId>,
+        query: &str,
+        limit: u32,
+    ) -> Result<Vec<WorkspaceMessageHit>, StoreError> {
+        let words: Vec<_> = query
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|word| !word.is_empty())
+            .map(str::to_lowercase)
+            .collect();
+        if words.is_empty() || limit == 0 {
+            return Ok(Vec::new());
+        }
+        let data = self.0.lock().unwrap();
+        let mut hits: Vec<_> = data
+            .messages
+            .rows(workspace_id)
+            .filter(|message| {
+                message_readable(&data, message)
+                    && participant.is_none_or(|workspace| {
+                        data.participants.rows(workspace_id).any(|p| {
+                            p.channel_id == message.channel_id
+                                && p.kind == ParticipantKind::Workspace
+                                && p.participant_workspace_id.as_ref() == Some(workspace)
+                        })
+                    })
+                    && words
+                        .iter()
+                        .any(|word| message.text_content.to_lowercase().contains(word))
+            })
+            .map(|message| WorkspaceMessageHit {
+                message_id: message.id.clone(),
+                channel_id: message.channel_id.clone(),
+                root_message_id: message
+                    .parent_message_id
+                    .clone()
+                    .unwrap_or_else(|| message.id.clone()),
+                snippet: message.text_content.clone(),
+                created_at: message.created_at,
+            })
+            .collect();
+        hits.sort_by(|left, right| {
+            right
+                .created_at
+                .cmp(&left.created_at)
+                .then_with(|| right.message_id.cmp(&left.message_id))
+        });
+        hits.truncate(limit as usize);
+        Ok(hits)
+    }
+
     async fn search(
         &self,
         scope: &ConversationScope,

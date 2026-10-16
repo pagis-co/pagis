@@ -404,6 +404,14 @@ pub fn free_busy(
 
 #[async_trait]
 pub trait CalendarStore: Send + Sync {
+    /// Search stored title, description and location with a case-insensitive substring.
+    /// Return at most `limit` master Events, newest first by first occurrence.
+    async fn search(
+        &self,
+        workspace_id: &WorkspaceId,
+        query: &str,
+        limit: u32,
+    ) -> Result<Vec<CalendarEvent>, StoreError>;
     /// Read only merged busy intervals of this Workspace in [from, to).
     async fn free_busy(
         &self,

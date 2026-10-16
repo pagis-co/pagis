@@ -19,10 +19,12 @@ import { FolderManager } from './FolderManager'
 
 import './mail.css'
 
-export function Mail({ api }: { api: ApiClient }) {
+export function Mail({ api, messageId, onCloseMessage }: { api: ApiClient; messageId?: string; onCloseMessage?: () => void }) {
   const mailbox = useWorkspaceMailbox(api)
   const [composing, setComposing] = useState(false)
   const [view, setView] = useState<'needs-you' | 'all'>('needs-you')
+
+  if (messageId) return <MailThread api={api} messageId={messageId} onBack={() => onCloseMessage?.()} />
 
   return (
     <section className="mail-place">

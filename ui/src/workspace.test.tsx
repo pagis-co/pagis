@@ -144,3 +144,13 @@ describe('Workspace access', () => {
     expect(result.current).toEqual({ isPrivate, canManage, canRespond, canManageMembers })
   })
 })
+
+it('selects the Workspace in a Search result link', async () => {
+  function Current() { return <p>{useCurrentWorkspaceId()}</p> }
+  const api = { GET: vi.fn(async () => ({ data: { items: [
+    { id: 'private', name: 'Private Workspace', kind: 'private', role: 'manager' },
+    { id: 'shared', name: 'Support', kind: 'shared', role: 'reader' },
+  ] } })) } as unknown as ApiClient
+  render(<QueryClientProvider client={new QueryClient()}><CurrentWorkspaceProvider api={api} requestedWorkspaceId="shared"><Current /></CurrentWorkspaceProvider></QueryClientProvider>)
+  expect(await screen.findByText('shared')).toBeTruthy()
+})

@@ -1,0 +1,29 @@
+.global-search {
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--border);
+  min-width: 0;
+}
+.global-search input { flex: 1; min-width: 0; }
+.search-place { padding: var(--space-4); overflow: auto; min-width: 0; }
+.search-results { list-style: none; margin: 0; padding: 0; }
+.search-results li {
+  padding: var(--space-4) 0;
+  border-bottom: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+.search-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  margin-bottom: var(--space-2);
+}
+.search-results time { font-size: var(--text-sm); }
+
+.search-labels span {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  padding: var(--space-0-5) var(--space-2);
+}

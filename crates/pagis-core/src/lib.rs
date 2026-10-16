@@ -63,6 +63,7 @@ pub use continuation::{
 pub use conversation_evidence::{
     ConversationEvidenceHit, ConversationEvidenceMessage, ConversationEvidenceStore,
     ConversationScope, ConversationToolEvidence, EvidenceFileRef, RetainedToolEvidence,
+    WorkspaceMessageHit,
 };
 pub use domain::{
     Agent, AgentMailbox, AgentMailboxState, AgentStatus, Author, AuthorDto, BlockReason, Call,
