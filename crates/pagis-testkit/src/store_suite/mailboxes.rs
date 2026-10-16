@@ -449,6 +449,7 @@ pub async fn workspace_mailbox_record_and_ledger(backend: &Backend) {
         workspace_id: ws.id.clone(),
         connection_id: ConnectionId::generate(),
         address: "person@example.com".into(),
+        visibility: pagis_core::MailVisibility::AllMail,
         spam_mode: pagis_core::MailScoringMode::ScoreOnly,
         outgoing_cap: 20,
         created_at: now_ms(),
@@ -456,6 +457,40 @@ pub async fn workspace_mailbox_record_and_ledger(backend: &Backend) {
     assert!(store.get(&ws.id).await.unwrap().is_none());
     store.create(&record).await.unwrap();
     assert_eq!(store.get(&ws.id).await.unwrap(), Some(record.clone()));
+    for level in [
+        pagis_core::MailVisibility::AgentOnly,
+        pagis_core::MailVisibility::Escalations,
+        pagis_core::MailVisibility::AllMail,
+    ] {
+        store.set_visibility(&ws.id, level).await.unwrap();
+        assert_eq!(store.get(&ws.id).await.unwrap().unwrap().visibility, level);
+    }
+    assert!(
+        !store
+            .is_escalated(&ws.id, "<mail@example.com>")
+            .await
+            .unwrap()
+    );
+    store
+        .escalate(&ws.id, "<mail@example.com>", &agent.id)
+        .await
+        .unwrap();
+    store
+        .escalate(&ws.id, "<mail@example.com>", &agent.id)
+        .await
+        .unwrap();
+    assert!(
+        store
+            .is_escalated(&ws.id, "<mail@example.com>")
+            .await
+            .unwrap()
+    );
+    assert!(
+        !store
+            .is_escalated(&WorkspaceId::generate(), "<mail@example.com>")
+            .await
+            .unwrap()
+    );
     for _ in 0..20 {
         assert!(store.reserve_send(&ws.id, 1).await.unwrap());
     }

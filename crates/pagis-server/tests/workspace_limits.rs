@@ -719,6 +719,7 @@ async fn workspace_mailbox_grant_creation_rules_and_revocation_have_versions() {
             connection_id: ConnectionId::generate(),
             address: "support@example.com".into(),
             outgoing_cap: 100,
+            visibility: pagis_core::MailVisibility::AllMail,
             spam_mode: MailScoringMode::ScoreOnly,
             created_at: 1,
         })
@@ -782,4 +783,467 @@ async fn workspace_mailbox_grant_creation_rules_and_revocation_have_versions() {
         .unwrap();
     assert_eq!(versions.len(), 4);
     assert_eq!(versions[0].configuration["grants"], json!([]));
+}
+
+#[tokio::test]
+async fn workspace_mail_visibility_checks_every_human_read_and_current_limits() {
+    use pagis_mail::fake::MemoryWorkspaceMailHost;
+    let host = std::sync::Arc::new(MemoryWorkspaceMailHost::default());
+    let e = Embedder::with_workspace_mail(host.clone()).await;
+    let (workspace, owner, agent) = team(&e).await;
+    let connection = ConnectionId::generate();
+    e.stores.connections.create(&Connection {
+        id: connection.clone(), workspace_id: e.routers.state.org_workspace_id.clone(),
+        provider: "embedder-mail".into(), alias: "mail".into(), display_name: "Mail".into(),
+        status: Connection::CONNECTED.into(), authorized_capabilities: vec![],
+        config: json!({"domain":"example.com","capabilities":{"idle":false,"outgoing_cap":true,"delete_mailbox":true,"reset_password":true}}), created_at: 0,
+    }).await.unwrap();
+    let prefix = format!("/api/v1/workspaces/{workspace}/workspace");
+    let (status, body) = call(
+        &e,
+        false,
+        "POST",
+        &format!("{prefix}/mailbox"),
+        json!({"connection_id":connection,"local_part":"support"}),
+        &e.cookie,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    let mail = host.store(&workspace).unwrap();
+    let hidden = mail.deliver("sender@example.com", "Hidden", "private body");
+    let visible = mail.deliver("sender@example.com", "Escalated", "human body");
+    mail.attach(
+        &visible,
+        pagis_mail::OutgoingAttachment {
+            name: "note.txt".into(),
+            content_type: "text/plain".into(),
+            data: b"note".to_vec(),
+        },
+    );
+    let (status, page) = call(
+        &e,
+        false,
+        "GET",
+        &format!("{prefix}/mail/messages"),
+        Value::Null,
+        &e.cookie,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{page}");
+    assert_eq!(page["items"].as_array().unwrap().len(), 2);
+    let thread = page["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["id"] == visible.as_str())
+        .unwrap()["thread_id"]
+        .as_str()
+        .unwrap();
+    // Agent triage and assignments store the same escalation identity.
+    let summary = e
+        .routers
+        .state
+        .mailbox_desk
+        .open_workspace_for_agent(&workspace, &agent)
+        .await;
+    assert!(summary.is_err(), "an Agent needs its Grant at every level");
+    let mut store = e
+        .routers
+        .state
+        .mailbox_desk
+        .open_workspace(&workspace)
+        .await
+        .unwrap();
+    let message = store.message(&visible).await.unwrap();
+    e.stores
+        .workspace_mailboxes
+        .escalate(&workspace, message.message.summary.assessment_key(), &agent)
+        .await
+        .unwrap();
+    store.close().await.unwrap();
+    for level in ["escalations", "agent_only", "all_mail"] {
+        let (status, body) = call(
+            &e,
+            false,
+            "PUT",
+            &format!("{prefix}/mailbox/visibility"),
+            json!({"visibility":level}),
+            &e.cookie,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let (status, page) = call(
+            &e,
+            false,
+            "GET",
+            &format!("{prefix}/mail/messages"),
+            Value::Null,
+            &e.cookie,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            page["items"].as_array().unwrap().len(),
+            match level {
+                "all_mail" => 2,
+                "escalations" => 1,
+                _ => 0,
+            }
+        );
+        for (id, allowed) in [
+            (&visible, level != "agent_only"),
+            (&hidden, level == "all_mail"),
+        ] {
+            for suffix in [
+                format!("messages/{id}"),
+                format!("messages/{id}/composer?action=reply"),
+            ] {
+                let (status, body) = call(
+                    &e,
+                    false,
+                    "GET",
+                    &format!("{prefix}/mail/{suffix}"),
+                    Value::Null,
+                    &e.cookie,
+                )
+                .await;
+                assert_eq!(
+                    status,
+                    if allowed {
+                        StatusCode::OK
+                    } else {
+                        StatusCode::NOT_FOUND
+                    },
+                    "{body}"
+                );
+            }
+        }
+        let encoded_thread: String =
+            url::form_urlencoded::byte_serialize(thread.as_bytes()).collect();
+        let (status, _) = call(
+            &e,
+            false,
+            "GET",
+            &format!("{prefix}/mail/threads/{encoded_thread}"),
+            Value::Null,
+            &e.cookie,
+        )
+        .await;
+        assert_eq!(
+            status,
+            if level == "agent_only" {
+                StatusCode::NOT_FOUND
+            } else {
+                StatusCode::OK
+            }
+        );
+        let (status, _) = call(
+            &e,
+            false,
+            "GET",
+            &format!("{prefix}/mail/messages/{visible}/attachments/0"),
+            Value::Null,
+            &e.cookie,
+        )
+        .await;
+        assert_eq!(
+            status,
+            if level == "agent_only" {
+                StatusCode::NOT_FOUND
+            } else {
+                StatusCode::OK
+            }
+        );
+        let (status, global) = call(
+            &e,
+            false,
+            "GET",
+            "/api/v1/search?q=body",
+            Value::Null,
+            &e.cookie,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{global}");
+        assert_eq!(
+            global["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|item| item["kind"] == "mail")
+                .count(),
+            if level == "all_mail" { 2 } else { 0 }
+        );
+        let (_, global) = call(
+            &e,
+            false,
+            "GET",
+            "/api/v1/search?q=body&reason=Customer%20request",
+            Value::Null,
+            &e.cookie,
+        )
+        .await;
+        assert_eq!(
+            global["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|item| item["kind"] == "mail")
+                .count(),
+            match level {
+                "all_mail" => 2,
+                "escalations" => 1,
+                _ => 0,
+            }
+        );
+        let (status, _) = call(
+            &e,
+            false,
+            "GET",
+            &format!("{prefix}/mail/messages?q=body"),
+            Value::Null,
+            &e.cookie,
+        )
+        .await;
+        assert_eq!(
+            status,
+            if level == "escalations" {
+                StatusCode::UNPROCESSABLE_ENTITY
+            } else {
+                StatusCode::OK
+            }
+        );
+    }
+    call(
+        &e,
+        false,
+        "PUT",
+        &format!("{prefix}/mailbox/visibility"),
+        json!({"visibility":"escalations"}),
+        &e.cookie,
+    )
+    .await;
+    let (status, page) = call(
+        &e,
+        false,
+        "GET",
+        &format!("{prefix}/mail/messages?q=body&reason=Customer%20request"),
+        Value::Null,
+        &e.cookie,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{page}");
+    assert_eq!(page["items"].as_array().unwrap().len(), 1);
+    let (_, audit) = call(
+        &e,
+        false,
+        "GET",
+        &format!("{prefix}/mail/audit"),
+        Value::Null,
+        &e.cookie,
+    )
+    .await;
+    let entries = audit["items"].as_array().unwrap();
+    for action in [
+        "mail.message.read",
+        "mail.thread.read",
+        "mail.attachment.read",
+        "mail.search",
+        "mail.composer.read",
+    ] {
+        assert!(
+            entries.iter().any(|entry| entry["action"] == action
+                && entry["actor"] == serde_json::to_value(Author::Person(owner.clone())).unwrap()
+                && entry["subject_workspace_id"] == workspace.as_str()),
+            "{action}: {audit}"
+        );
+    }
+    assert!(entries.iter().any(|entry| {
+        entry["reason"]
+            .as_str()
+            .unwrap()
+            .contains("Customer request")
+    }));
+    let other = e
+        .stores
+        .workspaces
+        .get(&e.other_workspace)
+        .await
+        .unwrap()
+        .unwrap()
+        .user_id
+        .unwrap();
+    let members = format!("/api/v1/workspaces/{workspace}/members");
+    assert_eq!(
+        call(
+            &e,
+            false,
+            "POST",
+            &members,
+            json!({"person_id":other,"role":"reader"}),
+            &e.cookie
+        )
+        .await
+        .0,
+        StatusCode::NO_CONTENT
+    );
+    for role in ["reader", "responder"] {
+        assert_eq!(
+            call(
+                &e,
+                false,
+                "PATCH",
+                &format!("{members}/{other}"),
+                json!({"role":role}),
+                &e.cookie
+            )
+            .await
+            .0,
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(
+            call(
+                &e,
+                false,
+                "GET",
+                &format!("{prefix}/mail/messages/{visible}"),
+                Value::Null,
+                &e.other_cookie
+            )
+            .await
+            .0,
+            StatusCode::OK
+        );
+        assert_eq!(
+            call(
+                &e,
+                false,
+                "GET",
+                &format!("{prefix}/mail/messages/{hidden}"),
+                Value::Null,
+                &e.other_cookie
+            )
+            .await
+            .0,
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            call(
+                &e,
+                false,
+                "PUT",
+                &format!("{prefix}/mailbox/visibility"),
+                json!({"visibility":"all_mail"}),
+                &e.other_cookie
+            )
+            .await
+            .0,
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            call(
+                &e,
+                false,
+                "GET",
+                &format!("{prefix}/mail/audit"),
+                Value::Null,
+                &e.other_cookie
+            )
+            .await
+            .0,
+            StatusCode::FORBIDDEN
+        );
+        let (status, sent) = call(
+            &e,
+            false,
+            "POST",
+            &format!("{prefix}/mail/messages"),
+            json!({"to":["customer@example.com"],"subject":"Reply","body":"Answer"}),
+            &e.other_cookie,
+        )
+        .await;
+        assert_eq!(
+            status,
+            if role == "reader" {
+                StatusCode::FORBIDDEN
+            } else {
+                StatusCode::CREATED
+            },
+            "{sent}"
+        );
+        if role == "responder" {
+            let (_, audit) = call(
+                &e,
+                false,
+                "GET",
+                &format!("{prefix}/mail/audit"),
+                Value::Null,
+                &e.cookie,
+            )
+            .await;
+            assert!(audit["items"].as_array().unwrap().iter().any(|entry| {
+                entry["action"] == "mail.sent"
+                    && entry["actor"]
+                        == serde_json::to_value(Author::Person(other.clone())).unwrap()
+                    && entry["reason"]
+                        .as_str()
+                        .unwrap()
+                        .contains(sent["message_id"].as_str().unwrap())
+            }));
+        }
+    }
+    let (status, body) = call(&e, true, "PUT", &format!("/api/v1/administration/workspaces/{workspace}/limits"), json!({"permitted_plugins":null,"permitted_connections":null,"max_mail_visibility":"agent_only"}), &e.cookie).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (_, page) = call(
+        &e,
+        false,
+        "GET",
+        &format!("{prefix}/mailbox"),
+        Value::Null,
+        &e.cookie,
+    )
+    .await;
+    assert_eq!(page["mailbox"]["visibility"], "escalations");
+    assert_eq!(page["mailbox"]["effective_visibility"], "agent_only");
+    assert_eq!(
+        call(
+            &e,
+            false,
+            "GET",
+            &format!("{prefix}/mail/messages/{visible}"),
+            Value::Null,
+            &e.cookie
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        call(
+            &e,
+            false,
+            "PUT",
+            &format!("{prefix}/mailbox/visibility"),
+            json!({"visibility":"all_mail"}),
+            &e.cookie
+        )
+        .await
+        .0,
+        StatusCode::CONFLICT
+    );
+    let (_, org_audit) = call(
+        &e,
+        true,
+        "GET",
+        "/api/v1/admin/audit",
+        Value::Null,
+        &e.cookie,
+    )
+    .await;
+    assert!(
+        org_audit["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry["action"] == "mail.message.read")
+    );
 }

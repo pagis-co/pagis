@@ -42,6 +42,11 @@ Each Workspace searches these sources through their existing read stores:
 - Workspace Mailbox mail uses the mail desk and the Workspace mail store's
   IMAP search. It runs only when the Workspace has a Workspace Mailbox. A
   Reader can read mail under the same rule as the Workspace mail GET routes.
+  Each mailbox search writes an Org Audit Log entry. Agent only contributes
+  no mail. Escalations contributes only escalated messages and needs the
+  optional `reason` query parameter. Without a reason, Search omits that
+  mailbox and continues with the other sources. The Mail place has a
+  reason prompt.
 
 Search also reads conversations between Workspaces with one bounded
 full-text query in the Org's Workspace. The query selects Channels with the

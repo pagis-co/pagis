@@ -955,8 +955,12 @@ async fn workspace_mailbox_tools_read_and_send_with_the_outgoing_cap(pool: Sqlit
         )
         .await
         .unwrap();
-    let id = world.transport.deliver_raw(b"Message-ID: <question@other.test>\r\nFrom: sender@other.test\r\nTo: person@example.com\r\nSubject: Question\r\n\r\nHello");
+    let id = world.transport.deliver_raw(b"Message-ID: <question@example.com>\r\nFrom: sender@example.com\r\nTo: person@example.com\r\nSubject: Question\r\n\r\nHello");
     for (tool, args) in [
+        (
+            WorkspaceMailTool::Escalate,
+            serde_json::json!({"message_id":id.to_string()}),
+        ),
         (
             WorkspaceMailTool::Search,
             serde_json::json!({"query":"Question"}),
@@ -967,7 +971,7 @@ async fn workspace_mailbox_tools_read_and_send_with_the_outgoing_cap(pool: Sqlit
         ),
         (
             WorkspaceMailTool::GetThread,
-            serde_json::json!({"thread_id":"<question@other.test>"}),
+            serde_json::json!({"thread_id":"<question@example.com>"}),
         ),
         (
             WorkspaceMailTool::Reply,
@@ -975,7 +979,7 @@ async fn workspace_mailbox_tools_read_and_send_with_the_outgoing_cap(pool: Sqlit
         ),
         (
             WorkspaceMailTool::Send,
-            serde_json::json!({"to":["sender@other.test"],"subject":"Again","body":"Answer"}),
+            serde_json::json!({"to":["sender@example.com"],"subject":"Again","body":"Answer"}),
         ),
     ] {
         let route = ToolRoute::WorkspaceMailbox { tool };
@@ -1003,6 +1007,16 @@ async fn workspace_mailbox_tools_read_and_send_with_the_outgoing_cap(pool: Sqlit
                 approved_by_rule: false,
             })
             .await;
+        if tool == WorkspaceMailTool::Escalate {
+            assert!(
+                world
+                    .desk
+                    .workspace_mailbox_records()
+                    .is_escalated(&world.workspace_id, "<question@example.com>")
+                    .await
+                    .unwrap()
+            );
+        }
         if tool == WorkspaceMailTool::Send {
             assert!(result.content.contains("outgoing_cap_reached"));
         } else {
@@ -1014,6 +1028,6 @@ async fn workspace_mailbox_tools_read_and_send_with_the_outgoing_cap(pool: Sqlit
     assert_eq!(sent[0].subject, "Re: Question");
     assert_eq!(
         sent[0].in_reply_to.as_deref(),
-        Some("<question@other.test>")
+        Some("<question@example.com>")
     );
 }

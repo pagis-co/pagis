@@ -505,6 +505,14 @@ fn product_router(state: Arc<AppState>) -> Router {
                 .delete(calendar::delete_calendar_event),
         )
         .route(
+            "/api/v1/workspace/mailbox/visibility",
+            put(workspace_mail::set_workspace_mail_visibility),
+        )
+        .route(
+            "/api/v1/workspace/mail/audit",
+            get(workspace_mail::list_workspace_mail_audit),
+        )
+        .route(
             "/api/v1/workspace/mailbox",
             get(workspace_mail::get_workspace_mailbox)
                 .post(workspace_mail::create_workspace_mailbox),

@@ -3691,7 +3691,7 @@ export function useWorkspaceMailFolders(api: ApiClient) {
 
 export function useWorkspaceMailMessages(
   api: ApiClient,
-  query: { folder: string; q: string; cursor?: string },
+  query: { folder: string; q: string; cursor?: string; reason?: string },
 ) {
   const workspaceId = useCurrentWorkspaceId();
   return useQuery({

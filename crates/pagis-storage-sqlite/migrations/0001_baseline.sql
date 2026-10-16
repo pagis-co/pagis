@@ -756,6 +756,7 @@ CREATE TABLE address_ledger (
     address TEXT PRIMARY KEY
 );
 CREATE TABLE workspace_mailboxes (
+    visibility TEXT NOT NULL DEFAULT 'all_mail' CHECK (visibility IN ('agent_only', 'escalations', 'all_mail')),
     workspace_id TEXT PRIMARY KEY REFERENCES workspaces (id),
     connection_id TEXT NOT NULL,
     address TEXT NOT NULL UNIQUE,
@@ -1616,3 +1617,10 @@ CREATE TABLE agent_versions (
     FOREIGN KEY (workspace_id, agent_id) REFERENCES agents(workspace_id, id)
 );
 CREATE INDEX idx_agent_versions_agent ON agent_versions(workspace_id, agent_id, version DESC);
+
+CREATE TABLE workspace_mail_escalations (
+    workspace_id TEXT NOT NULL REFERENCES workspace_mailboxes (workspace_id) ON DELETE CASCADE,
+    message_id TEXT NOT NULL,
+    agent_id TEXT NOT NULL,
+    PRIMARY KEY (workspace_id, message_id)
+);
