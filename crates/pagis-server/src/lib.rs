@@ -7,6 +7,7 @@ mod agents;
 mod auth;
 #[cfg(feature = "native")]
 mod axum_socket;
+mod calendar;
 #[cfg(feature = "native")]
 pub mod calls;
 mod channels;
@@ -279,6 +280,7 @@ pub struct AppState {
     pub sessions: Arc<dyn SessionStore>,
     /// The Push Subscriptions of each Session (ADR-0030). Each one ends
     /// with its Session.
+    pub calendar: Arc<dyn pagis_core::CalendarStore>,
     pub push_subscriptions: Arc<dyn pagis_core::PushSubscriptionStore>,
     /// The Notification sender of the installation (ADR-0030): one Web
     /// Push sender with the VAPID Key.
@@ -474,6 +476,16 @@ fn product_router(state: Arc<AppState>) -> Router {
             get(mailboxes::get_mailbox)
                 .post(mailboxes::provision_mailbox)
                 .delete(mailboxes::delete_mailbox),
+        )
+        .route(
+            "/api/v1/calendar/events",
+            get(calendar::list_calendar_events).post(calendar::create_calendar_event),
+        )
+        .route(
+            "/api/v1/calendar/events/{event_id}",
+            get(calendar::get_calendar_event)
+                .put(calendar::update_calendar_event)
+                .delete(calendar::delete_calendar_event),
         )
         .route(
             "/api/v1/workspace/mailbox",

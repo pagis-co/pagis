@@ -174,3 +174,8 @@ mod tests {
         assert_eq!(ids, sorted);
     }
 }
+
+id_type!(
+    /// One master Event in a Workspace Calendar.
+    CalendarEventId
+);

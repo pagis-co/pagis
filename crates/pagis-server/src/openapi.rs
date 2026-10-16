@@ -57,6 +57,11 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         description = "The pagis daemon API. A Shared Workspace serves operations with x-workspace-role under /api/v1/workspaces/{workspace_id}."
     ),
     paths(
+        crate::calendar::list_calendar_events,
+        crate::calendar::create_calendar_event,
+        crate::calendar::get_calendar_event,
+        crate::calendar::update_calendar_event,
+        crate::calendar::delete_calendar_event,
         forget::preview,
         forget::confirm,
         forget::list,

@@ -2651,6 +2651,182 @@
         "x-workspace-role": "reader"
       }
     },
+    "/api/v1/calendar/events": {
+      "get": {
+        "tags": [
+          "calendar"
+        ],
+        "operationId": "list_calendar_events",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "description": "Inclusive UTC Unix milliseconds. Occurrences that overlap the range are returned.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "description": "Exclusive UTC Unix milliseconds. The answer holds at most 1000 occurrences.",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CalendarOccurrence"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "x-workspace-role": "reader"
+      },
+      "post": {
+        "tags": [
+          "calendar"
+        ],
+        "operationId": "create_calendar_event",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CalendarEventData"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CalendarEvent"
+                }
+              }
+            }
+          }
+        },
+        "x-workspace-role": "manager"
+      }
+    },
+    "/api/v1/calendar/events/{event_id}": {
+      "get": {
+        "tags": [
+          "calendar"
+        ],
+        "operationId": "get_calendar_event",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CalendarEvent"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": ""
+          }
+        },
+        "x-workspace-role": "reader"
+      },
+      "put": {
+        "tags": [
+          "calendar"
+        ],
+        "operationId": "update_calendar_event",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CalendarEventData"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CalendarEvent"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": ""
+          }
+        },
+        "x-workspace-role": "manager"
+      },
+      "delete": {
+        "tags": [
+          "calendar"
+        ],
+        "operationId": "delete_calendar_event",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "404": {
+            "description": ""
+          }
+        },
+        "x-workspace-role": "manager"
+      }
+    },
     "/api/v1/calls": {
       "get": {
         "tags": [
@@ -13170,6 +13346,60 @@
           }
         }
       },
+      "Author": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "person_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "person"
+                ]
+              },
+              "person_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "agent_id",
+              "kind"
+            ],
+            "properties": {
+              "agent_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "agent"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "system"
+                ]
+              }
+            }
+          }
+        ]
+      },
       "AuthorDto": {
         "type": "object",
         "description": "The author identity in the Product API.",
@@ -13396,6 +13626,146 @@
           }
         },
         "additionalProperties": false
+      },
+      "CalendarAttendee": {
+        "type": "object",
+        "required": [
+          "email",
+          "name",
+          "status"
+        ],
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ParticipationStatus"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CalendarEvent": {
+        "type": "object",
+        "required": [
+          "id",
+          "uid",
+          "workspace_id",
+          "created_by",
+          "data"
+        ],
+        "properties": {
+          "created_by": {
+            "$ref": "#/components/schemas/Author"
+          },
+          "data": {
+            "$ref": "#/components/schemas/CalendarEventData"
+          },
+          "id": {
+            "type": "string"
+          },
+          "uid": {
+            "type": "string"
+          },
+          "workspace_id": {
+            "type": "string"
+          }
+        }
+      },
+      "CalendarEventData": {
+        "type": "object",
+        "description": "Local times use YYYY-MM-DDTHH:MM:SS. All-day dates use YYYY-MM-DD.\nThe end is exclusive. EXDATE values have the same format as the start.",
+        "required": [
+          "title",
+          "description",
+          "location",
+          "start",
+          "end",
+          "all_day",
+          "timezone",
+          "exdates",
+          "attendees",
+          "reminders"
+        ],
+        "properties": {
+          "all_day": {
+            "type": "boolean"
+          },
+          "attendees": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CalendarAttendee"
+            }
+          },
+          "description": {
+            "type": "string"
+          },
+          "end": {
+            "type": "string"
+          },
+          "exdates": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "location": {
+            "type": "string"
+          },
+          "meeting_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reminders": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            },
+            "description": "Minutes before the start. This is stored data; no delivery runs."
+          },
+          "rrule": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "start": {
+            "type": "string"
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CalendarOccurrence": {
+        "type": "object",
+        "required": [
+          "event",
+          "start",
+          "end"
+        ],
+        "properties": {
+          "end": {
+            "type": "string"
+          },
+          "event": {
+            "$ref": "#/components/schemas/CalendarEvent"
+          },
+          "start": {
+            "type": "string",
+            "description": "RFC 3339 with the occurrence offset, or an all-day date."
+          }
+        }
       },
       "CallDto": {
         "type": "object",
@@ -19340,6 +19710,15 @@
             "description": "The Connection this address is the account of."
           }
         }
+      },
+      "ParticipationStatus": {
+        "type": "string",
+        "enum": [
+          "needs-action",
+          "accepted",
+          "declined",
+          "tentative"
+        ]
       },
       "PasswordSignInRequest": {
         "type": "object",

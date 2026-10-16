@@ -2,6 +2,7 @@
 // one agent, an empty timeline, and the endpoints each route reads.
 
 export function shellResponse(path: string): { data: unknown } {
+  if (path === '/api/v1/calendar/events') return { data: [] }
   if (path === '/api/v1/settings/onboarding') {
     return { data: { completed: true, docker: { endpoint: 'unix:///var/run/docker.sock', candidates: [] }, docker_endpoint: null, providers: [] } }
   }

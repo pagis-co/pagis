@@ -9,6 +9,7 @@ const TABLES: &[&str] = &[
     "address_ledger",
     "agent_mailboxes",
     "agents",
+    "calendar_events",
     "calls",
     "capability_snapshots",
     "channel_participants",

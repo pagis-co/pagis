@@ -7,6 +7,7 @@ pub mod avatar;
 pub use avatar::AvatarAppearance;
 pub mod block;
 pub mod bus;
+pub mod calendar;
 pub mod coding_session;
 pub mod continuation;
 pub mod conversation_evidence;
@@ -159,4 +160,9 @@ mod workspace_mailbox;
 pub use workspace_mailbox::{WorkspaceMailbox, WorkspaceMailboxRecordStore};
 
 mod workspace_members;
+pub use calendar::{
+    CalendarAttendee, CalendarBounds, CalendarError, CalendarEvent, CalendarEventData,
+    CalendarOccurrence, CalendarRange, CalendarStore, ParticipationStatus,
+};
+pub use id::CalendarEventId;
 pub use workspace_members::*;

@@ -547,6 +547,20 @@ pub const ADMINISTRATION_ROUTES: &[Route] = &[
 pub const ROUTES: &[Route] = &[
     Route {
         shared: true,
+        path: "/api/v1/calendar/events",
+        methods: &["get", "post"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
+        shared: true,
+        path: "/api/v1/calendar/events/{event_id}",
+        methods: &["get", "put", "delete"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
+        shared: true,
         path: "/api/v1/workspace/mail/folders/{name}",
         methods: &["delete", "patch"],
         authenticated: true,

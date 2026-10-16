@@ -51,9 +51,9 @@ name that Workspace, and one Session serves all of them. Settings has a
 Members section for a Manager. A Reader has no composer or Request decision
 controls.
 
-The sidebar has nine places at the top: Home, People, Sprites, Mail,
-Memory, Automations, Coding, Software and Settings. Home carries the count
-of the Needs-You Queue.
+The sidebar has ten places at the top: Home, People, Sprites, Mail,
+Calendar, Memory, Automations, Coding, Software and Settings. Home carries
+the count of the Needs-You Queue.
 Each place replaces the main pane. Below the places the sidebar lists the
 conversations: the Chief of Staff first with its presence and caption, then
 the other Agents, then the groups. The composer on Home addresses the Chief of

@@ -6,7 +6,7 @@ export function selectWorkspace(id: string | null) {
 }
 
 const workspaceResources = new Set([
-  'agents', 'calls', 'channels', 'coding-sessions', 'computers',
+  'agents', 'calendar', 'calls', 'channels', 'coding-sessions', 'computers',
   'connections', 'event-subscriptions', 'files', 'grants', 'hosts',
   'knowledge', 'mail', 'memory', 'needs-you', 'plugins', 'requests',
   'runs', 'schedules', 'settings', 'software', 'usage', 'widgets',

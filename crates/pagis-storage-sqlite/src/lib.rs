@@ -4,6 +4,7 @@
 mod agent_mailbox_store;
 mod agent_store;
 mod brief_store;
+mod calendar_store;
 mod call_store;
 mod capability_snapshot_store;
 mod channel_store;
@@ -31,6 +32,7 @@ mod phone_number_store;
 mod plugin_store;
 mod plugin_tool_store;
 mod pool;
+pub use calendar_store::SqliteCalendarStore;
 mod push_subscription_store;
 mod request_store;
 mod resource_store;
@@ -164,6 +166,7 @@ pub fn stores(pool: sqlx::SqlitePool) -> pagis_core::Stores {
         phone_numbers: Arc::new(SqlitePhoneNumberStore::new(pool.clone())),
         plugin_tools: Arc::new(SqlitePluginToolStore::new(pool.clone())),
         plugins: Arc::new(SqlitePluginStore::new(pool.clone())),
+        calendar: Arc::new(SqliteCalendarStore::new(pool.clone())),
         push_subscriptions: Arc::new(SqlitePushSubscriptionStore::new(pool.clone())),
         requests: Arc::new(SqliteRequestStore::new(pool.clone())),
         retention_policies: Arc::new(SqliteRetentionPolicyStore::new(pool.clone())),

@@ -31,14 +31,15 @@ Workspace is a participant before it reads or writes content.
 
 Each record names its author, a Person or Agent. The daemon names itself
 on its own records. Messages, Request decisions,
-Credentials, Grants, Schedules and Event Subscriptions record who makes them.
+Credentials, Grants, Schedules, Calendar Events and Event Subscriptions record
+who makes them.
 Each change keeps its author. A Shared Workspace Agent change is versioned
 and audited. The Briefing names the Person who asks and the Persons who are
 present. An Agent introduces itself with its name and the Shared Workspace
 name when it acts for a Shared Workspace.
 
-Authorship on messages, Request decisions, Credentials, Grants, Schedules and
-Event Subscriptions is built. Conversation messages live once under their
+Authorship on messages, Request decisions, Credentials, Grants, Schedules,
+Calendar Events and Event Subscriptions is built. Conversation messages live once under their
 Channel and record their Person author. Files are built.
 Not built: Shared Workspace Agent versioning and auditing, and
 collaborative Artifacts, which are documents, sheets, slide decks or sites. An

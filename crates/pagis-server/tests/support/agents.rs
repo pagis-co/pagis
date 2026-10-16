@@ -380,6 +380,7 @@ impl Embedder {
             calls: stores.calls.clone(),
             texts: stores.text_records.clone(),
             trust_list: stores.trust_list.clone(),
+            calendar: stores.calendar.clone(),
             keypad_failures: stores.keypad_failures.clone(),
             files: stores.files.clone(),
             events: stores.events.clone(),

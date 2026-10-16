@@ -9,6 +9,7 @@ publish.workspace = true
 async-trait.workspace = true
 chrono.workspace = true
 chrono-tz.workspace = true
+rrule.workspace = true
 croner.workspace = true
 diffy.workspace = true
 futures.workspace = true
@@ -26,6 +27,7 @@ thiserror.workspace = true
 ulid.workspace = true
 utoipa.workspace = true
 web-time.workspace = true
+url.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }

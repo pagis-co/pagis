@@ -689,6 +689,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/calendar/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_calendar_events"];
+        put?: never;
+        post: operations["create_calendar_event"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/calendar/events/{event_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_calendar_event"];
+        put: operations["update_calendar_event"];
+        post?: never;
+        delete: operations["delete_calendar_event"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/calls": {
         parameters: {
             query?: never;
@@ -3667,6 +3699,18 @@ export interface components {
              */
             enabled: boolean;
         };
+        Author: {
+            /** @enum {string} */
+            kind: "person";
+            person_id: string;
+        } | {
+            agent_id: string;
+            /** @enum {string} */
+            kind: "agent";
+        } | {
+            /** @enum {string} */
+            kind: "system";
+        };
         /** @description The author identity in the Product API. */
         AuthorDto: {
             id?: string | null;
@@ -3737,6 +3781,43 @@ export interface components {
         };
         BuyNumberRequest: {
             e164: string;
+        };
+        CalendarAttendee: {
+            email: string;
+            name: string;
+            status: components["schemas"]["ParticipationStatus"];
+        };
+        CalendarEvent: {
+            created_by: components["schemas"]["Author"];
+            data: components["schemas"]["CalendarEventData"];
+            id: string;
+            uid: string;
+            workspace_id: string;
+        };
+        /**
+         * @description Local times use YYYY-MM-DDTHH:MM:SS. All-day dates use YYYY-MM-DD.
+         *     The end is exclusive. EXDATE values have the same format as the start.
+         */
+        CalendarEventData: {
+            all_day: boolean;
+            attendees: components["schemas"]["CalendarAttendee"][];
+            description: string;
+            end: string;
+            exdates: string[];
+            location: string;
+            meeting_url?: string | null;
+            /** @description Minutes before the start. This is stored data; no delivery runs. */
+            reminders: number[];
+            rrule?: string | null;
+            start: string;
+            timezone: string;
+            title: string;
+        };
+        CalendarOccurrence: {
+            end: string;
+            event: components["schemas"]["CalendarEvent"];
+            /** @description RFC 3339 with the occurrence offset, or an all-day date. */
+            start: string;
         };
         /**
          * @description The Call record (ADR-0020). It is the one source of truth the
@@ -5964,6 +6045,8 @@ export interface components {
             /** @description The Connection this address is the account of. */
             connection_alias: string;
         };
+        /** @enum {string} */
+        ParticipationStatus: "needs-action" | "accepted" | "declined" | "tentative";
         PasswordSignInRequest: {
             /**
              * @description The machine name a Client App sends, which makes the Session a
@@ -9778,6 +9861,136 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
+            };
+        };
+    };
+    list_calendar_events: {
+        parameters: {
+            query: {
+                /** @description Inclusive UTC Unix milliseconds. Occurrences that overlap the range are returned. */
+                from: number;
+                /** @description Exclusive UTC Unix milliseconds. The answer holds at most 1000 occurrences. */
+                to: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarOccurrence"][];
+                };
+            };
+        };
+    };
+    create_calendar_event: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CalendarEventData"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarEvent"];
+                };
+            };
+        };
+    };
+    get_calendar_event: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarEvent"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    update_calendar_event: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CalendarEventData"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarEvent"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    delete_calendar_event: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

@@ -1699,3 +1699,21 @@ CREATE TABLE workspace_members (
         OR (author_kind = 'system' AND author_person_id IS NULL AND author_agent_id IS NULL))
 );
 CREATE INDEX idx_workspace_members_person ON workspace_members (person_id);
+
+-- One master Event, with its author and owning Workspace.
+CREATE TABLE calendar_events (
+    id TEXT COLLATE "C" PRIMARY KEY NOT NULL,
+    workspace_id TEXT COLLATE "C" NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    uid TEXT COLLATE "C" NOT NULL,
+    author_kind TEXT COLLATE "C" NOT NULL CHECK (author_kind IN ('person', 'agent', 'system')),
+    author_person_id TEXT COLLATE "C" REFERENCES users (id),
+    author_agent_id TEXT COLLATE "C" REFERENCES agents (id),
+    data TEXT COLLATE "C" NOT NULL,
+    starts_at BIGINT NOT NULL,
+    ends_by BIGINT,
+    UNIQUE (workspace_id, uid),
+    CHECK ((author_kind = 'person' AND author_person_id IS NOT NULL AND author_agent_id IS NULL)
+        OR (author_kind = 'agent' AND author_person_id IS NULL AND author_agent_id IS NOT NULL)
+        OR (author_kind = 'system' AND author_person_id IS NULL AND author_agent_id IS NULL))
+);
+CREATE INDEX idx_calendar_events_start ON calendar_events(workspace_id, starts_at);
