@@ -46,20 +46,9 @@ pub async fn correct(
     Path(id): Path<String>,
     Json(request): Json<SpamCorrection>,
 ) -> Result<StatusCode, ApiError> {
-    let mut store = state
-        .mailbox_desk
-        .open_workspace(&tenant.workspace_id)
-        .await
-        .map_err(crate::mailboxes::mailbox_error)?;
+    let (mut store, _) =
+        crate::workspace_mail::open_message(&state, &tenant, &id, "mail.message.spam").await?;
     let result = async {
-        crate::workspace_mail::read_message(
-            &state,
-            &tenant,
-            store.as_mut(),
-            &id,
-            "mail.message.spam",
-        )
-        .await?;
         store
             .mark_spam(&pagis_mail::MessageId::new(id), request.spam)
             .await

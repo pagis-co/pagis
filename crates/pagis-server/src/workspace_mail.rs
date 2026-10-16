@@ -346,10 +346,8 @@ pub async fn get_workspace_mail_message(
     tenant: Tenant,
     Path(id): Path<String>,
 ) -> Result<Json<WorkspaceMailMessageDto>, ApiError> {
-    let mut store = open(&state, &tenant).await?;
+    let (mut store, message) = open_message(&state, &tenant, &id, "mail.message.read").await?;
     let result = async {
-        let message =
-            read_message(&state, &tenant, store.as_mut(), &id, "mail.message.read").await?;
         store
             .set_flags(
                 &MessageId::new(id),
@@ -463,17 +461,10 @@ pub async fn answer_mail_invitation(
     Path(id): Path<String>,
     response: Json<crate::calendar_mail::InvitationResponse>,
 ) -> Result<Json<pagis_core::CalendarEvent>, ApiError> {
-    let mut store = open(&state, &tenant).await?;
-    let result = read_message(
-        &state,
-        &tenant,
-        store.as_mut(),
-        &id,
-        "mail.invitation.respond",
-    )
-    .await;
+    let (mut store, message) =
+        open_message(&state, &tenant, &id, "mail.invitation.respond").await?;
     let _ = store.close().await;
-    let event = message_dto(&state, &tenant, result?)
+    let event = message_dto(&state, &tenant, message)
         .await?
         .invitation
         .ok_or_else(|| ApiError::not_found("invitation"))?;
