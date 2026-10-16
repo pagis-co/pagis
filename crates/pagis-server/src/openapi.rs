@@ -60,6 +60,8 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
     paths(
         crate::calendar_mail::answer_invitation,
         workspace_mail::answer_mail_invitation,
+        crate::person_defaults::get,
+        crate::person_defaults::set,
         crate::calendar::query_free_busy,
         crate::calendar::list_calendar_events,
         crate::calendar::create_calendar_event,

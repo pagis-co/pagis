@@ -722,6 +722,7 @@ async fn workspace_mailbox_grant_creation_rules_and_revocation_have_versions() {
             visibility: pagis_core::MailVisibility::AllMail,
             spam_mode: MailScoringMode::ScoreOnly,
             created_at: 1,
+            author: Author::Person(owner.clone()),
         })
         .await
         .unwrap();

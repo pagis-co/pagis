@@ -446,10 +446,11 @@ pub async fn workspace_mailbox_record_and_ledger(backend: &Backend) {
     let (ws, agent, _) = seed(backend).await;
     let store = &backend.stores().workspace_mailboxes;
     let record = pagis_core::WorkspaceMailbox {
+        author: pagis_core::Author::Person(pagis_core::UserId::generate()),
         workspace_id: ws.id.clone(),
         connection_id: ConnectionId::generate(),
         address: "person@example.com".into(),
-        visibility: pagis_core::MailVisibility::AllMail,
+        visibility: pagis_core::MailVisibility::Escalations,
         spam_mode: pagis_core::MailScoringMode::ScoreOnly,
         outgoing_cap: 20,
         created_at: now_ms(),
@@ -463,7 +464,9 @@ pub async fn workspace_mailbox_record_and_ledger(backend: &Backend) {
         pagis_core::MailVisibility::AllMail,
     ] {
         store.set_visibility(&ws.id, level).await.unwrap();
-        assert_eq!(store.get(&ws.id).await.unwrap().unwrap().visibility, level);
+        let stored = store.get(&ws.id).await.unwrap().unwrap();
+        assert_eq!(stored.visibility, level);
+        assert_eq!(stored.author, record.author);
     }
     assert!(
         !store
@@ -501,6 +504,7 @@ pub async fn workspace_mailbox_record_and_ledger(backend: &Backend) {
     let other = backend.seeded_workspace().await;
     assert!(store.get(&other.id).await.unwrap().is_none());
     let second = pagis_core::WorkspaceMailbox {
+        author: pagis_core::Author::System,
         address: "second@example.com".into(),
         ..record.clone()
     };
@@ -524,6 +528,7 @@ pub async fn workspace_mailbox_record_and_ledger(backend: &Backend) {
     assert!(matches!(
         store
             .create(&pagis_core::WorkspaceMailbox {
+                author: pagis_core::Author::System,
                 workspace_id: other.id.clone(),
                 ..record.clone()
             })
