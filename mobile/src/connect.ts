@@ -18,7 +18,7 @@
 
 import type { HttpOptions, HttpResponse } from '@capacitor/core'
 
-import { type BuildType, type ServerAddress, scannedSignInLink, serverAddress } from './address'
+import { type BuildType, type ServerAddress, permanentRedirect, scannedSignInLink, serverAddress } from './address'
 import { serverVersionProblem } from './serverVersion'
 
 /** One HTTP request through the native client: `CapacitorHttp.request`. */
@@ -48,8 +48,9 @@ export async function connectWithScannedLink(scanned: string, options: ConnectOp
 }
 
 async function checkServer(address: ServerAddress, options: ConnectOptions): Promise<ServerAddress> {
-  const { origin } = address
-  const health = await readHealth(origin, options.request)
+  const health = await readHealth(address.origin, options.request)
+  const { origin } = health
+  if (origin !== address.origin) address = { origin, opens: origin }
   const problem = serverVersionProblem(health.version)
   if (problem !== null) throw new Error(problem)
   const setup = await openSetup(origin, options.request)
@@ -64,16 +65,27 @@ async function checkServer(address: ServerAddress, options: ConnectOptions): Pro
 
 /** What `GET /api/v1/health` answers. The route needs no Session. */
 interface Health {
+  origin: string
   version: string
 }
 
 async function readHealth(origin: string, request: HttpRequest): Promise<Health> {
-  const response = await get(origin, '/api/v1/health', request)
-  const body = response.status >= 200 && response.status < 300 ? asObject(response.data) : null
-  if (body === null || body.status !== 'ok' || typeof body.version !== 'string') {
-    throw new Error(noServerAnswered(origin))
+  for (let redirects = 0; redirects < 10; redirects += 1) {
+    const response = await get(origin, '/api/v1/health', request, true)
+    const location = Object.entries(response.headers).find(([name]) => name.toLowerCase() === 'location')?.[1]
+    const next = location && permanentRedirect(origin, response.status, location)
+    if (next) {
+      origin = next
+      continue
+    }
+    if (response.status >= 300 && response.status < 400) throw new Error(redirectRefused(origin))
+    const body = response.status >= 200 && response.status < 300 ? asObject(response.data) : null
+    if (body === null || body.status !== 'ok' || typeof body.version !== 'string') {
+      throw new Error(noServerAnswered(origin))
+    }
+    return { origin, version: body.version }
   }
-  return { version: body.version }
+  throw new Error(noServerAnswered(origin))
 }
 
 /**
@@ -102,12 +114,11 @@ async function openSetup(
 /**
  * Send one GET to a route of the origin, or say that no server answered.
  *
- * It follows no redirect: TLS authenticates the server, and a redirect
- * could take the app to another server, or to `http://`, before it opens
- * the server. With `disableRedirects` the native client gives the
- * redirect back as the answer, and the check stops there.
+ * With `disableRedirects` the native client gives the redirect back as
+ * the answer. The health check reads a permanent move to HTTPS. Each
+ * other redirect stops the check.
  */
-async function get(origin: string, path: string, request: HttpRequest): Promise<HttpResponse> {
+async function get(origin: string, path: string, request: HttpRequest, readRedirect = false): Promise<HttpResponse> {
   let response: HttpResponse
   try {
     response = await request({
@@ -121,13 +132,15 @@ async function get(origin: string, path: string, request: HttpRequest): Promise<
   } catch {
     throw new Error(noServerAnswered(origin))
   }
-  if (response.status >= 300 && response.status < 400) {
-    throw new Error(
-      `The server at ${origin} sent this app to another address. Pagis follows no redirect before it ` +
-        'opens a server. Type the address that the server answers on.',
-    )
+  if (!readRedirect && response.status >= 300 && response.status < 400) {
+    throw new Error(redirectRefused(origin))
   }
   return response
+}
+
+function redirectRefused(origin: string): string {
+  return `The server at ${origin} sent this app to another address. Pagis follows only a permanent ` +
+    'redirect to another HTTPS origin. Type the address that the server answers on.'
 }
 
 function noServerAnswered(origin: string): string {

@@ -114,3 +114,15 @@ function serverUrl(typed: string, build: BuildType): URL {
   }
   return url
 }
+
+/** The new Public Origin of a permanent redirect, or null. */
+export function permanentRedirect(source: string, status: number, target: string): string | null {
+  if (status !== 301 && status !== 308) return null
+  try {
+    const url = new URL(target, source)
+    if (url.protocol !== 'https:' || url.username || url.password || url.origin === new URL(source).origin) return null
+    return `${url.origin}/`
+  } catch {
+    return null
+  }
+}

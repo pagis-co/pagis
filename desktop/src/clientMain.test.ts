@@ -6,6 +6,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { MenuActions } from './menus'
 
 const mocks = vi.hoisted(() => ({
+  changed: null as (() => void) | null,
   root: '', ready: null as Promise<void> | null, ipc: new Map<string, (...args: any[]) => any>(), events: new Map<string, (...args: any[]) => any>(),
   actions: null as MenuActions | null, setup: null as any, opened: [] as string[], external: vi.fn(), protocol: vi.fn(),
 }))
@@ -35,6 +36,7 @@ vi.mock('./menus', () => ({
   applicationMenu: (actions: MenuActions) => { mocks.actions = actions }, createTray: () => ({}), renderTray: vi.fn(),
 }))
 vi.mock('./serverWindows', () => ({ ServerWindows: class {
+  constructor(_connections: unknown, actions: { changed(): void }) { mocks.changed = actions.changed }
   currentId: string | null = null
   open = vi.fn(async (server: any, url: string) => { this.currentId = server.id; mocks.opened.push(url) })
   show = () => false
@@ -150,4 +152,35 @@ it('refuses stored connections beside a Local Installation at start', async () =
   await new Promise((resolve) => setTimeout(resolve, 20))
   expect(mocks.opened).toEqual([])
   expect(mocks.setup.webContents.send).toHaveBeenCalledWith('pagis:setup-state', expect.objectContaining({ kind: 'failed', reason: expect.stringContaining('Local Installation') }))
+})
+
+it.each([301, 308])('stores a %s move at start and starts at the saved new origin next time', async (status) => {
+  const { ServerConnections } = await import('./serverConnection')
+  const connections = new ServerConnections(mocks.root)
+  const before = connections.add('https://old.example/')
+  const request = vi.fn(async (url: URL) => new URL(url).hostname === 'old.example'
+    ? new Response(null, { status, headers: { Location: 'https://new.example/api/v1/health' } })
+    : Response.json({ status: 'ok', version: '0.3.0' }))
+  vi.stubGlobal('fetch', request)
+  mocks.opened.length = 0
+  vi.resetModules()
+  await import('./clientMain')
+  await vi.waitFor(() => expect(mocks.opened).toEqual(['https://new.example/']))
+  expect(connections.list()).toEqual([{ ...before, origin: 'https://new.example/', label: 'new.example' }])
+  mocks.opened.length = 0
+  request.mockClear()
+  vi.resetModules()
+  await import('./clientMain')
+  await vi.waitFor(() => expect(mocks.opened).toEqual(['https://new.example/']))
+  expect(request.mock.calls.every(([url]) => new URL(url).hostname === 'new.example')).toBe(true)
+})
+
+it('refreshes the server menu when a reload changes the Public Origin', async () => {
+  await mocks.ipc.get('pagis:install')!(event(), { kind: 'server', url: 'old.example' })
+  const { ServerConnections } = await import('./serverConnection')
+  const connections = new ServerConnections(mocks.root)
+  const before = connections.list()[0]
+  connections.followRedirect(before.id, 301, before.origin, 'https://new.example/')
+  mocks.changed!()
+  expect(mocks.actions!.servers()).toEqual([{ ...before, origin: 'https://new.example/', label: 'new.example' }])
 })

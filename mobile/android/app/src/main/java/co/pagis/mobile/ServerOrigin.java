@@ -59,6 +59,17 @@ final class ServerOrigin {
         return port == -1 ? scheme + "://" + name : scheme + "://" + name + ":" + port;
     }
 
+    /** The new Public Origin of a permanent redirect, or null. */
+    ServerOrigin permanentRedirect(int status, String target) {
+        if ((status != 301 && status != 308) || target == null) return null;
+        URI location = uri(target);
+        if (location == null) return null;
+        URI url = URI.create(serverUrl()).resolve(location);
+        if (url.getRawUserInfo() != null) return null;
+        ServerOrigin moved = of(url);
+        return moved != null && moved.isHttps() && !equals(moved) ? moved : null;
+    }
+
     /** Whether the server answers over TLS. */
     boolean isHttps() {
         return scheme.equals("https");

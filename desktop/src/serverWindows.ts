@@ -60,12 +60,26 @@ export class ServerWindows {
       }
       this.held.set(connection.id, server)
       const owned = server
-      installPermissionHandlers(server.session, () => owned.window ? { contents: owned.window.webContents, origin: new URL(connection.origin).origin } : null, process.platform)
+      installPermissionHandlers(server.session, () => owned.window ? { contents: owned.window.webContents, origin: new URL(owned.connection.origin).origin } : null, process.platform)
+      server.session.webRequest.onBeforeRedirect((details) => {
+        if (owned.removing || details.resourceType !== 'mainFrame') return
+        const moved = this.connections.followRedirect(owned.connection.id, details.statusCode, details.url, details.redirectURL)
+        if (!moved) return
+        Object.assign(owned.connection, moved)
+        delete owned.verifier
+        this.signIns.remove(moved.id)
+        owned.window?.setTitle(`Pagis — ${moved.label}`)
+        owned.watch?.(); owned.watch = null
+        const host = owned.host
+        owned.host = null
+        void host?.stop()
+        this.watch(owned)
+        this.actions.changed()
+      })
     }
     if (server.removing) throw new Error('this server is being removed')
     if (!server.window) {
       const owned = server
-      const origin = new URL(connection.origin).origin
       const window = new BrowserWindow({
         width: 1180, height: 820, title: `Pagis — ${connection.label}`, show: false, autoHideMenuBar: true,
         ...productWindowChrome(process.platform),
@@ -76,24 +90,26 @@ export class ServerWindows {
       window.on('focus', () => { this.currentId = connection.id; this.actions.changed() })
       window.on('close', (event) => handleWindowClose(event, this.actions.quitting() || owned.removing, window))
       window.on('closed', () => { owned.window = null; delete owned.verifier })
-      installNavigationRule(window.webContents, () => ({ window: 'product', origin }), this.actions.openExternal)
+      installNavigationRule(window.webContents, () => ({ window: 'product', origin: new URL(owned.connection.origin).origin }), this.actions.openExternal)
       installBluetoothRefusal(window.webContents)
       window.webContents.setWindowOpenHandler(({ url: target }) => {
-        if (opensInSystemBrowser(target, origin)) this.actions.openExternal(target)
+        if (opensInSystemBrowser(target, owned.connection.origin)) this.actions.openExternal(target)
         return { action: 'deny' }
       })
     }
-    if (!server.watch) {
-      const owned = server
-      server.watch = watchServerSignIn(connection.origin, server.session.cookies, () => {
-        if (owned.removing || owned.host) return
-        owned.host = hostLinkFor({ url: connection.origin, jar: owned.session.cookies, credential: () => null, capabilities: [SHELL_CAPABILITY, EXIT_CAPABILITY], traffic: owned.traffic })
-        owned.host.start()
-      })
-    }
+    this.watch(server)
     server.verifier = verifier ? { ...verifier, expires: Date.now() + 300_000 } : undefined
     await openServerPage(server.window, url)
     this.show(connection.id)
+  }
+
+  private watch(server: ServerWindow): void {
+    if (server.watch) return
+    server.watch = watchServerSignIn(server.connection.origin, server.session.cookies, () => {
+      if (server.removing || server.host) return
+      server.host = hostLinkFor({ url: server.connection.origin, jar: server.session.cookies, credential: () => null, capabilities: [SHELL_CAPABILITY, EXIT_CAPABILITY], traffic: server.traffic })
+      server.host.start()
+    })
   }
 
   beginSignIn(server: ServerConnection): string { return this.signIns.begin(server) }

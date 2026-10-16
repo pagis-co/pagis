@@ -60,8 +60,9 @@ export async function assertServerIsReady(
   clientVersion: string,
   fetcher: typeof fetch = fetch,
   signal?: AbortSignal,
+  moved?: (status: number, source: string, target: string) => string | null,
 ): Promise<void> {
-  const health = await probeHealth(origin, 5000, fetcher, signal)
+  const health = await probeHealth(origin, 5000, fetcher, signal, moved)
   // A cancelled check says nothing of the server.
   signal?.throwIfAborted()
   if (!health) {

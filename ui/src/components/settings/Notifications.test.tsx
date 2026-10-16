@@ -13,7 +13,7 @@ import { Notifications } from './Notifications'
 
 /** The fake `PagisPush` plugin of the Mobile App. */
 const { pagisPush } = vi.hoisted(() => ({
-  pagisPush: { state: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() },
+  pagisPush: { state: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn(), keepSubscription: vi.fn() },
 }))
 
 vi.mock('../../push/pagisPush', () => ({ PagisPush: pagisPush }))
@@ -114,6 +114,8 @@ function setNavigator(name: string, value: unknown) {
 
 beforeEach(() => {
   pushManager.held = null
+  window.localStorage.clear()
+  window.localStorage.setItem('pagis.push-subscription', JSON.stringify({ origin: window.location.origin, id: THIS_BROWSER.id }))
   setNavigator('serviceWorker', { ready: Promise.resolve({ pushManager }) })
   vi.stubGlobal('PushManager', function PushManager() {})
   vi.stubGlobal('Notification', { permission: 'default' })
@@ -168,6 +170,17 @@ describe('Notifications', () => {
 
     expect(await screen.findByRole('button', { name: 'Turn on' })).toBeTruthy()
     expect(screen.getByText('This browser does not get notifications.')).toBeTruthy()
+  })
+
+  it('replaces the old browser subscription after a move', async () => {
+    window.localStorage.setItem('pagis.push-subscription', JSON.stringify({ origin: 'https://old.example', id: THIS_BROWSER.id }))
+    const api = stubApi([THIS_BROWSER, PHONE])
+    mount(api)
+    await userEvent.click(await screen.findByRole('button', { name: 'Turn on' }))
+    await waitFor(() => expect(api.POST).toHaveBeenCalled())
+    expect(api.DELETE).toHaveBeenCalledExactlyOnceWith('/api/v1/push-subscriptions/{push_subscription_id}', { params: { path: { push_subscription_id: THIS_BROWSER.id } } })
+    expect(api.DELETE.mock.invocationCallOrder[0]).toBeLessThan(api.POST.mock.invocationCallOrder[0])
+    expect(JSON.parse(window.localStorage.getItem('pagis.push-subscription')!)).toEqual({ origin: window.location.origin, id: THIS_BROWSER.id })
   })
 
   it('shows Turn off while this browser gets notifications', async () => {
@@ -317,11 +330,22 @@ describe('Notifications', () => {
           return new Promise(() => {})
         },
       })
-      pagisPush.state.mockResolvedValue({ permission: 'prompt' })
+      pagisPush.state.mockResolvedValue({ permission: 'prompt', origin: window.location.origin, id: 'ps-app' })
+      pagisPush.keepSubscription.mockImplementation(async ({ id }) => { pagisPush.state.mockResolvedValue({ permission: 'granted', origin: window.location.origin, id }) })
       pagisPush.subscribe.mockResolvedValue(APP_SUBSCRIPTION)
       pagisPush.unsubscribe.mockImplementation(async () => {
         steps.push('unsubscribe')
       })
+    })
+
+    it('shows Turn on at a different Public Origin and replaces the old subscription', async () => {
+      pagisPush.state.mockResolvedValue({ permission: 'granted', origin: 'https://old.example', id: THIS_APP.id })
+      const api = appApi([THIS_APP, PHONE])
+      mount(api)
+      await userEvent.click(await screen.findByRole('button', { name: 'Turn on' }))
+      await waitFor(() => expect(api.POST).toHaveBeenCalled())
+      expect(api.DELETE).toHaveBeenCalledWith('/api/v1/push-subscriptions/{push_subscription_id}', { params: { path: { push_subscription_id: THIS_APP.id } } })
+      expect(api.DELETE.mock.invocationCallOrder[0]).toBeLessThan(api.POST.mock.invocationCallOrder[0])
     })
 
     it('posts the answer of PagisPush.subscribe to the daemon', async () => {

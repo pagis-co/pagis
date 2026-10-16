@@ -18,6 +18,17 @@ struct ServerStore {
         nonmutating set { defaults.set(newValue, forKey: ServerStore.lockScreenAnswersKey) }
     }
 
+    /// The server record of the device's Push Subscription and its origin.
+    var pushOrigin: String? {
+        get { defaults.string(forKey: "pushOrigin") }
+        nonmutating set { defaults.set(newValue, forKey: "pushOrigin") }
+    }
+
+    var pushSubscriptionId: String? {
+        get { defaults.string(forKey: "pushSubscriptionId") }
+        nonmutating set { defaults.set(newValue, forKey: "pushSubscriptionId") }
+    }
+
     init(defaults: UserDefaults = AppGroup.defaults) {
         self.defaults = defaults
     }

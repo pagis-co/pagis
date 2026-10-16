@@ -139,3 +139,25 @@ it('refuses duplicate ids, duplicate origins and a symbolic link', () => {
   fs.symlinkSync(path.join(root, 'elsewhere.json'), file)
   expect(() => connections.list()).toThrow(/invalid/)
 })
+
+describe('a changed Public Origin', () => {
+  it.each([301, 308])('stores a %s move with the same id for the next start', (status) => {
+    const connections = new ServerConnections(root)
+    const before = connections.add('https://old.example/')
+    expect(connections.followRedirect(before.id, status, 'https://old.example/', 'https://new.example/home')).toEqual({
+      ...before, origin: 'https://new.example/', label: 'new.example',
+    })
+    expect(new ServerConnections(root).list()).toEqual([{ ...before, origin: 'https://new.example/', label: 'new.example' }])
+  })
+
+  it.each([
+    [302, 'https://new.example/'], [307, 'https://new.example/'],
+    [301, 'http://new.example/'], [301, 'https://old.example/page'],
+    [301, 'https://user:secret@new.example/'], [301, 'invalid'],
+  ])('keeps the address for %s to %s', (status, target) => {
+    const connections = new ServerConnections(root)
+    const before = connections.add('https://old.example/')
+    expect(connections.followRedirect(before.id, status as number, before.origin, target as string)).toBeNull()
+    expect(new ServerConnections(root).list()).toEqual([before])
+  })
+})

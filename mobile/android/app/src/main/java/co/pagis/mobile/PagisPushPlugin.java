@@ -48,7 +48,24 @@ public class PagisPushPlugin extends Plugin {
     public void state(PluginCall call) {
         JSObject result = new JSObject();
         result.put("permission", permission().toString());
+        ServerStore store = new ServerStore(getContext());
+        result.put("origin", store.pushOrigin() == null ? org.json.JSONObject.NULL : store.pushOrigin());
+        result.put("id", store.pushSubscriptionId() == null ? org.json.JSONObject.NULL : store.pushSubscriptionId());
         call.resolve(result);
+    }
+
+    /** The Product App calls this after the server takes the subscription. */
+    @PluginMethod
+    public void keepSubscription(PluginCall call) {
+        ServerStore store = new ServerStore(getContext());
+        ServerOrigin origin = store.server();
+        String id = call.getString("id");
+        if (origin == null || id == null || id.isEmpty()) {
+            call.reject("keepSubscription needs a server and a Push Subscription id.");
+            return;
+        }
+        store.keepSubscription(origin, id);
+        call.resolve();
     }
 
     @PluginMethod

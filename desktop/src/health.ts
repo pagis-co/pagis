@@ -15,13 +15,24 @@ export async function probeHealth(
   timeoutMs = 1000,
   request: typeof fetch = fetch,
   signal?: AbortSignal,
+  moved?: (status: number, source: string, target: string) => string | null,
 ): Promise<DaemonHealth | null> {
   const timeout = AbortSignal.timeout(timeoutMs)
   try {
-    const response = await request(new URL('/api/v1/health', origin), {
-      redirect: 'error',
-      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
-    })
+    let response: Response | undefined
+    for (let redirects = 0; redirects < 10; redirects += 1) {
+      const url = new URL('/api/v1/health', origin)
+      response = await request(url, {
+        redirect: moved ? 'manual' : 'error',
+        signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+      })
+      const target = response.headers.get('location')
+      const next = target && moved?.(response.status, url.href, target)
+      if (!next) break
+      origin = next
+      response = undefined
+    }
+    if (!response) return null
     if (!response.ok) {
       return null
     }

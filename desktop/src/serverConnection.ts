@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import * as path from 'node:path'
 
 import { readExact, writeAtomic } from './clientFiles'
-import { serverOrigin } from './origin'
+import { permanentRedirect, serverOrigin } from './origin'
 
 /** The client record of one server. Secrets stay in memory or its partition. */
 export interface ServerConnection {
@@ -43,6 +43,18 @@ export class ServerConnections {
     if (held) return held
     const server = { id: randomUUID(), origin, label: new URL(origin).host }
     writeAtomic(this.file, { servers: [...servers, server] })
+    return server
+  }
+
+  /** Keep a changed Public Origin with the same session partition. */
+  followRedirect(id: string, status: number, source: string, target: string): ServerConnection | null {
+    const servers = this.list()
+    const server = servers.find((entry) => entry.id === id)
+    if (!server || new URL(source).origin !== new URL(server.origin).origin) return null
+    const origin = permanentRedirect(source, status, target)
+    if (!origin || servers.some((entry) => entry.id !== id && entry.origin === origin)) return null
+    Object.assign(server, { origin, label: new URL(origin).host })
+    writeAtomic(this.file, { servers })
     return server
   }
 
