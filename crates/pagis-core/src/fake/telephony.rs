@@ -812,6 +812,46 @@ fn note_send(day: &mut Option<i64>, count: &mut u32, at: i64) -> u32 {
 
 #[async_trait::async_trait]
 impl crate::WorkspaceMailboxRecordStore for FakeWorkspaceMailboxStore {
+    async fn set_visibility(
+        &self,
+        workspace: &WorkspaceId,
+        visibility: crate::MailVisibility,
+    ) -> Result<(), StoreError> {
+        self.0
+            .lock()
+            .unwrap()
+            .workspace_mailboxes
+            .get_mut(workspace)
+            .ok_or_else(|| conflict("Workspace Mailbox is missing"))?
+            .visibility = visibility;
+        Ok(())
+    }
+    async fn escalate(
+        &self,
+        workspace: &WorkspaceId,
+        message: &str,
+        agent: &AgentId,
+    ) -> Result<(), StoreError> {
+        self.0
+            .lock()
+            .unwrap()
+            .workspace_mail_escalations
+            .insert((workspace.clone(), message.into()), agent.clone());
+        Ok(())
+    }
+    async fn is_escalated(
+        &self,
+        workspace: &WorkspaceId,
+        message: &str,
+    ) -> Result<bool, StoreError> {
+        Ok(self
+            .0
+            .lock()
+            .unwrap()
+            .workspace_mail_escalations
+            .contains_key(&(workspace.clone(), message.into())))
+    }
+
     async fn reserve_send(&self, workspace: &WorkspaceId, day: i64) -> Result<bool, StoreError> {
         let mut data = self.0.lock().unwrap();
         let Some(mailbox) = data.workspace_mailboxes.get(workspace) else {
@@ -883,6 +923,8 @@ impl crate::WorkspaceMailboxRecordStore for FakeWorkspaceMailboxStore {
             .is_some_and(|m| m.address == address)
         {
             data.workspace_mailboxes.remove(workspace);
+            data.workspace_mail_escalations
+                .retain(|(id, _), _| id != workspace);
             data.workspace_mail_sends.remove(workspace);
             return Ok(true);
         }

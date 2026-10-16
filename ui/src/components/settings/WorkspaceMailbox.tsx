@@ -4,10 +4,11 @@ import { useState, type FormEvent } from 'react'
 import type { ApiClient } from '../../api/client'
 import { Button, Input, Select } from '../../primitives'
 import { useWorkspaceMailbox, workspaceMailKey } from '../../queries'
-import { useCurrentWorkspaceId } from '../../workspace'
+import { useCurrentWorkspaceId, useWorkspaceAccess } from '../../workspace'
 
 export function WorkspaceMailbox({ api }: { api: ApiClient }) {
   const workspaceId = useCurrentWorkspaceId()
+  const { isPrivate, canManage } = useWorkspaceAccess()
   const client = useQueryClient()
   const page = useWorkspaceMailbox(api)
   const [connection, setConnection] = useState('')
@@ -41,6 +42,19 @@ export function WorkspaceMailbox({ api }: { api: ApiClient }) {
     },
   })
 
+  const visibility = useMutation({
+    mutationFn: async (level: 'agent_only' | 'escalations' | 'all_mail') => {
+      const { data, error } = await api.PUT('/api/v1/workspace/mailbox/visibility', { body: { visibility: level } })
+      if (!data) throw new Error(error?.error.message ?? 'Could not change Mail Visibility.')
+    },
+    onSuccess: () => { void client.invalidateQueries({ queryKey: workspaceMailKey(workspaceId) }) },
+  })
+  const levels = [
+    { value: 'agent_only', label: 'Sprite only' },
+    { value: 'escalations', label: 'Escalations' },
+    { value: 'all_mail', label: 'All mail' },
+  ] as const
+
   function submit(event: FormEvent) {
     event.preventDefault()
     create.mutate()
@@ -56,10 +70,28 @@ export function WorkspaceMailbox({ api }: { api: ApiClient }) {
       {page.data?.mailbox ? (
         <>
           <p>{page.data.mailbox.address}</p>
+          {!isPrivate && (
+            <>
+              <p>Mail Visibility: {levels.find(item => item.value === page.data?.mailbox?.effective_visibility)?.label}</p>
+              {canManage && (
+                <Select
+                  label="Mail Visibility"
+                  value={page.data.mailbox.visibility}
+                  disabled={visibility.isPending}
+                  onValueChange={value => visibility.mutate(value as typeof levels[number]['value'])}
+                  items={levels.map((item, index) => ({
+                    ...item,
+                    disabled: index > levels.findIndex(level => level.value === page.data?.mailbox?.max_visibility),
+                  }))}
+                />
+              )}
+              {visibility.isError && <p role="alert">{visibility.error.message}</p>}
+            </>
+          )}
           <p>Spam filtering uses score-only mode. Messages stay in their folders.</p>
         </>
       ) : (
-        page.data && (
+        page.data && canManage && (
           <>
             {!offer ? (
               <p>An Administrator sets up the Org mail domain.</p>

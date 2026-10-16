@@ -24,6 +24,31 @@ pub enum MailVisibility {
     AllMail,
 }
 
+impl MailVisibility {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::AgentOnly => "agent_only",
+            Self::Escalations => "escalations",
+            Self::AllMail => "all_mail",
+        }
+    }
+    /// The current Administrator limit applies to every human read.
+    pub fn permits(self, escalated: bool) -> bool {
+        self == Self::AllMail || (self == Self::Escalations && escalated)
+    }
+}
+impl std::str::FromStr for MailVisibility {
+    type Err = StoreError;
+    fn from_str(value: &str) -> Result<Self, StoreError> {
+        match value {
+            "agent_only" => Ok(Self::AgentOnly),
+            "escalations" => Ok(Self::Escalations),
+            "all_mail" => Ok(Self::AllMail),
+            _ => Err(StoreError::Corrupt("unknown Mail Visibility".into())),
+        }
+    }
+}
+
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SharedWorkspaceLimits {
     /// None permits all Plugins. An empty list permits none.

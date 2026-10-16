@@ -8,6 +8,8 @@ import {
   useWorkspaceMailMessage,
   useWorkspaceMailThread,
 } from '../../queries'
+import { useWorkspaceAccess } from '../../workspace'
+import { workspacePath } from '../../api/workspace-path'
 import { Composer } from './Composer'
 import { MessageControls } from './MessageControls'
 import { formatMoment } from '../../timeline'
@@ -26,6 +28,7 @@ export function MailThread({
   onBack: () => void
 }) {
   const phone = useIsMobile()
+  const { canRespond } = useWorkspaceAccess()
   const native = phone && Capacitor.isNativePlatform()
   const [attachmentError, setAttachmentError] = useState(false)
   const [source, setSource] = useState<MailSource>()
@@ -84,7 +87,7 @@ export function MailThread({
                 <pre>{item.text}</pre>
                 <ul className="mail-attachments">
                   {item.attachments?.map((file, index) => {
-                    const url = `/api/v1/workspace/mail/messages/${encodeURIComponent(item.id)}/attachments/${index}`
+                    const url = workspacePath(`/api/v1/workspace/mail/messages/${encodeURIComponent(item.id)}/attachments/${index}`)
                     const label = `${file.name} · ${formatBytes(file.bytes)}`
                     return (
                       <li key={index}>
@@ -107,7 +110,7 @@ export function MailThread({
                     )
                   })}
                 </ul>
-                <div className="mail-controls">
+                {canRespond && <><div className="mail-controls">
                   <Button
                     onClick={() => setSource({ id: item.id, action: 'reply' })}
                   >
@@ -133,7 +136,7 @@ export function MailThread({
                   id={item.id}
                   labels={item.labels}
                   onMove={onBack}
-                />
+                /></>}
               </article>
             </Row>
           ))}

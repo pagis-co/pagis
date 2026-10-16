@@ -1030,6 +1030,7 @@ async fn free_busy_resolves_private_and_shared_workspace_mailboxes() {
                 connection_id: ConnectionId::generate(),
                 address: address.into(),
                 outgoing_cap: 100,
+                visibility: pagis_core::MailVisibility::AllMail,
                 spam_mode: MailScoringMode::ScoreOnly,
                 created_at: now_ms(),
             })
@@ -1060,6 +1061,7 @@ async fn free_busy_resolves_private_and_shared_workspace_mailboxes() {
             connection_id: ConnectionId::generate(),
             address: "other-mailbox@example.com".into(),
             outgoing_cap: 100,
+            visibility: pagis_core::MailVisibility::AllMail,
             spam_mode: MailScoringMode::ScoreOnly,
             created_at: now_ms(),
         })
