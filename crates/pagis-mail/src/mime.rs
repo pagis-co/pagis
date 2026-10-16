@@ -7,7 +7,7 @@
 //! with a file the model never asked for.
 
 use crate::MessageId;
-use mail_builder::MessageBuilder;
+use mail_builder::{MessageBuilder, headers::content_type::ContentType, mime::MimePart};
 use mail_parser::{Address, HeaderName, MessageParser, MimeHeaders};
 
 use crate::sender::AUTHENTICATION_RESULTS;
@@ -122,7 +122,39 @@ pub fn read_mime(raw: &[u8], id: MessageId) -> Result<Message, TransportError> {
         .map(|(name, value)| (name.to_string(), value.trim().to_string()))
         .collect();
 
+    let calendars: Vec<_> = parsed
+        .parts
+        .iter()
+        .filter(|part| {
+            part.content_type().is_some_and(|ct| {
+                ct.ctype().eq_ignore_ascii_case("text")
+                    && ct
+                        .subtype()
+                        .is_some_and(|s| s.eq_ignore_ascii_case("calendar"))
+            })
+        })
+        .collect();
+    let calendar = if calendars.len() == 1 {
+        let part = calendars[0];
+        std::str::from_utf8(part.contents())
+            .ok()
+            .filter(|text| {
+                pagis_core::imip::SchedulingMessage::parse(text)
+                    .ok()
+                    .is_some_and(|message| {
+                        part.content_type()
+                            .and_then(|ct| ct.attribute("method"))
+                            .is_none_or(|method| {
+                                method.eq_ignore_ascii_case(message.method.as_str())
+                            })
+                    })
+            })
+            .map(ToString::to_string)
+    } else {
+        None
+    };
     Ok(Message {
+        calendar,
         summary,
         headers,
         text,
@@ -158,12 +190,12 @@ pub fn build_mime(
         None => new_message_id(from),
     };
     let mut builder = MessageBuilder::new()
+        .date(pagis_core::now_ms() / 1000)
         .message_id(message_id.trim_matches(['<', '>']))
         .date(mail_builder::headers::date::Date::new(sent_at / 1000))
         .from(from)
         .to(message.to.clone())
-        .subject(message.subject.as_str())
-        .text_body(message.body.as_str());
+        .subject(message.subject.as_str());
     if !message.cc.is_empty() {
         builder = builder.cc(message.cc.clone());
     }
@@ -184,13 +216,22 @@ pub fn build_mime(
                 .collect::<Vec<_>>(),
         );
     }
-    for file in &message.attachments {
-        builder = builder.attachment(
-            file.content_type.as_str(),
-            file.name.as_str(),
-            file.data.as_slice(),
-        );
-    }
+    let text = MimePart::new("text/plain", message.body.as_str());
+    let body = if message.attachments.is_empty() {
+        text
+    } else {
+        let mut parts = vec![text];
+        for file in &message.attachments {
+            parts.push(
+                MimePart::new(file.content_type.as_str(), file.data.as_slice())
+                    .attachment(file.name.as_str()),
+            );
+        }
+        let content_type = ContentType::new("multipart/mixed")
+            .attribute("boundary", ulid::Ulid::new().to_string());
+        MimePart::new(content_type, parts)
+    };
+    builder = builder.body(body);
     let raw = builder
         .write_to_vec()
         .map_err(|_| TransportError(TransportErrorCode::Rejected))?;

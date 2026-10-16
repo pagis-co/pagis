@@ -106,6 +106,7 @@ impl From<pagis_core::SpamVerdict> for SpamVerdictDto {
 }
 #[derive(Debug, Serialize, ToSchema)]
 pub struct WorkspaceMailMessageDto {
+    pub invitation: Option<pagis_core::CalendarEvent>,
     #[serde(flatten)]
     pub summary: WorkspaceMailSummaryDto,
     /// HTML mail is converted to text by the mail transport.
@@ -115,6 +116,7 @@ pub struct WorkspaceMailMessageDto {
 impl From<pagis_mail::WorkspaceMailMessage> for WorkspaceMailMessageDto {
     fn from(m: pagis_mail::WorkspaceMailMessage) -> Self {
         Self {
+            invitation: None,
             summary: pagis_mail::WorkspaceMailSummary {
                 summary: m.message.summary,
                 flags: m.flags,
@@ -362,7 +364,7 @@ pub async fn get_workspace_mail_message(
     }
     .await;
     let _ = store.close().await;
-    Ok(Json(result?.into()))
+    Ok(Json(message_dto(&state, &tenant, result?).await?))
 }
 #[utoipa::path(get, path = "/api/v1/workspace/mail/threads/{thread_id}", params(("thread_id" = String, Path)), responses(
     (status = 200, body = WorkspaceMailThread), (status = 401, body = crate::error::ErrorBody), (status = 404, body = crate::error::ErrorBody)
@@ -398,7 +400,7 @@ pub async fn get_workspace_mail_thread(
                 .await
                 .map_err(read_error)?;
             m.flags.seen = true;
-            items.push(m.into());
+            items.push(message_dto(&state, &tenant, m).await?);
         }
         if items.is_empty() {
             return Err(ApiError::not_found("mail thread"));
@@ -414,4 +416,63 @@ pub async fn get_workspace_mail_thread(
 pub struct MailAttachmentDto {
     pub name: String,
     pub bytes: u64,
+}
+
+async fn message_dto(
+    state: &AppState,
+    tenant: &Tenant,
+    message: pagis_mail::WorkspaceMailMessage,
+) -> Result<WorkspaceMailMessageDto, ApiError> {
+    let scheduling = message
+        .message
+        .calendar
+        .as_deref()
+        .and_then(|s| pagis_core::imip::SchedulingMessage::parse(s).ok());
+    let mut dto = WorkspaceMailMessageDto::from(message);
+    if let Some(scheduling) = scheduling {
+        dto.invitation = if let Some(id) = scheduling.recurrence_id {
+            state
+                .calendar
+                .linked_occurrences(&tenant.workspace_id, &scheduling.uid)
+                .await?
+                .into_iter()
+                .find(|event| {
+                    event
+                        .data
+                        .invitation
+                        .as_ref()
+                        .and_then(|i| i.occurrence.as_ref())
+                        .is_some_and(|o| o.recurrence_id == id)
+                })
+        } else {
+            state
+                .calendar
+                .get_by_uid(&tenant.workspace_id, &scheduling.uid)
+                .await?
+        };
+    }
+    Ok(dto)
+}
+
+#[utoipa::path(post, path = "/api/v1/workspace/mail/messages/{message_id}/response", params(("message_id" = String, Path)), request_body = crate::calendar_mail::InvitationResponse, responses((status = 200, body = pagis_core::CalendarEvent), (status = 404), (status = 409)), tag = "calendar")]
+pub async fn answer_mail_invitation(
+    State(state): State<Arc<AppState>>,
+    tenant: Tenant,
+    Path(id): Path<String>,
+    response: Json<crate::calendar_mail::InvitationResponse>,
+) -> Result<Json<pagis_core::CalendarEvent>, ApiError> {
+    let (mut store, message) =
+        open_message(&state, &tenant, &id, "mail.invitation.respond").await?;
+    let _ = store.close().await;
+    let event = message_dto(&state, &tenant, message)
+        .await?
+        .invitation
+        .ok_or_else(|| ApiError::not_found("invitation"))?;
+    crate::calendar_mail::answer_invitation(
+        State(state),
+        tenant,
+        Path(event.id.to_string()),
+        response,
+    )
+    .await
 }

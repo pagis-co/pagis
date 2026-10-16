@@ -3,6 +3,43 @@ use async_trait::async_trait;
 
 #[async_trait]
 impl CalendarStore for FakeCalendarStore {
+    async fn linked_occurrences(
+        &self,
+        workspace: &WorkspaceId,
+        uid: &str,
+    ) -> Result<Vec<CalendarEvent>, StoreError> {
+        Ok(self
+            .0
+            .lock()
+            .unwrap()
+            .calendar
+            .rows(workspace)
+            .filter(|e| {
+                e.data
+                    .invitation
+                    .as_ref()
+                    .and_then(|i| i.occurrence.as_ref())
+                    .is_some_and(|o| o.series_uid == uid)
+            })
+            .cloned()
+            .collect())
+    }
+
+    async fn get_by_uid(
+        &self,
+        workspace: &WorkspaceId,
+        uid: &str,
+    ) -> Result<Option<CalendarEvent>, StoreError> {
+        Ok(self
+            .0
+            .lock()
+            .unwrap()
+            .calendar
+            .rows(workspace)
+            .find(|e| e.uid == uid)
+            .cloned())
+    }
+
     async fn search(
         &self,
         workspace: &WorkspaceId,
@@ -39,10 +76,15 @@ impl CalendarStore for FakeCalendarStore {
 
     async fn create(&self, event: &CalendarEvent) -> Result<(), StoreError> {
         event.data.bounds()?;
-        self.0
-            .lock()
-            .unwrap()
+        let mut data = self.0.lock().unwrap();
+        if data
             .calendar
+            .rows(&event.workspace_id)
+            .any(|old| old.uid == event.uid)
+        {
+            return Err(StoreError::Conflict("The Event UID already exists.".into()));
+        }
+        data.calendar
             .insert(&event.workspace_id, event.id.clone(), event.clone())
     }
     async fn get(
@@ -60,6 +102,13 @@ impl CalendarStore for FakeCalendarStore {
     ) -> Result<bool, StoreError> {
         value.bounds()?;
         let mut data = self.0.lock().unwrap();
+        if data
+            .calendar
+            .get(workspace, id)
+            .is_some_and(|old| !value.can_replace(&old.data))
+        {
+            return Ok(false);
+        }
         if data.calendar.get(workspace, id).is_some_and(|old| {
             value
                 .exdates

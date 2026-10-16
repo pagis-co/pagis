@@ -1,10 +1,11 @@
 //! The Calendar of the Session's Workspace.
-use crate::{AppState, auth::Tenant, error::ApiError};
+use crate::{AppState, auth::Tenant, calendar_mail, error::ApiError};
 use axum::{
     Json,
     extract::{Path, Query, State},
     http::StatusCode,
 };
+use pagis_core::imip::SchedulingMethod;
 use pagis_core::{Author, CalendarEvent, CalendarEventData, CalendarEventId, CalendarOccurrence};
 use serde::Deserialize;
 use std::sync::Arc;
@@ -25,6 +26,11 @@ pub async fn list_calendar_events(
     Query(range): Query<CalendarRangeQuery>,
 ) -> Result<Json<Vec<CalendarOccurrence>>, ApiError> {
     let range = pagis_core::CalendarRange::new(range.from, range.to)?;
+    state
+        .mailbox_desk
+        .poll_workspace_calendar(&who.workspace_id)
+        .await
+        .map_err(crate::mailboxes::mailbox_error)?;
     Ok(Json(
         state
             .calendar
@@ -40,8 +46,14 @@ pub async fn create_calendar_event(
     Json(data): Json<CalendarEventData>,
 ) -> Result<(StatusCode, Json<CalendarEvent>), ApiError> {
     data.bounds()?;
-    let event = CalendarEvent::new(who.workspace_id, Author::Person(who.user_id), data);
+    let mut event = CalendarEvent::new(
+        who.workspace_id.clone(),
+        Author::Person(who.user_id.clone()),
+        data,
+    );
+    let recipients = calendar_mail::prepare(&state, &who, &mut event, None).await?;
     state.calendar.create(&event).await?;
+    calendar_mail::send(&state, &who, &event, SchedulingMethod::Request, recipients).await?;
     Ok((StatusCode::CREATED, Json(event)))
 }
 
@@ -74,10 +86,45 @@ pub async fn update_calendar_event(
         .await?
         .ok_or_else(|| ApiError::not_found("Event"))?;
     data.bounds()?;
-    if !state.calendar.update(&who.workspace_id, &id, &data).await? {
-        return Err(ApiError::not_found("Event"));
-    }
+    let previous = event.clone();
     event.data = data;
+    let recipients = calendar_mail::prepare(&state, &who, &mut event, Some(&previous)).await?;
+    if !state
+        .calendar
+        .update(&who.workspace_id, &id, &event.data)
+        .await?
+    {
+        return Err(ApiError::conflict("The Event changed. Open it again."));
+    }
+    calendar_mail::send(&state, &who, &event, SchedulingMethod::Request, recipients).await?;
+    let removed: Vec<_> = calendar_mail::outside_attendees(&state, &who, &previous)
+        .await?
+        .into_iter()
+        .filter(|email| {
+            !event
+                .data
+                .attendees
+                .iter()
+                .any(|a| a.email.eq_ignore_ascii_case(email))
+        })
+        .collect();
+    if !removed.is_empty() {
+        let mut cancellation = previous;
+        cancellation.data.invitation = event.data.invitation.clone();
+        cancellation.data.attendees.retain(|a| {
+            removed
+                .iter()
+                .any(|email| a.email.eq_ignore_ascii_case(email))
+        });
+        calendar_mail::send(
+            &state,
+            &who,
+            &cancellation,
+            SchedulingMethod::Cancel,
+            removed,
+        )
+        .await?;
+    }
     Ok(Json(event))
 }
 
@@ -88,11 +135,23 @@ pub async fn delete_calendar_event(
     Path(id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
     state.workspaces.refuse_delete(&who.workspace_id).await?;
-    if !state
+    let id = CalendarEventId::from(id);
+    let mut event = state
         .calendar
-        .delete(&who.workspace_id, &CalendarEventId::from(id))
+        .get(&who.workspace_id, &id)
         .await?
-    {
+        .ok_or_else(|| ApiError::not_found("Event"))?;
+    if event.data.invitation.is_some() {
+        let previous = event.clone();
+        let recipients = calendar_mail::prepare(&state, &who, &mut event, Some(&previous)).await?;
+        event.data.invitation.as_mut().expect("invitation").status =
+            pagis_core::calendar::EventStatus::Cancelled;
+        state
+            .calendar
+            .update(&who.workspace_id, &id, &event.data)
+            .await?;
+        calendar_mail::send(&state, &who, &event, SchedulingMethod::Cancel, recipients).await?;
+    } else if !state.calendar.delete(&who.workspace_id, &id).await? {
         return Err(ApiError::not_found("Event"));
     }
     Ok(StatusCode::NO_CONTENT)

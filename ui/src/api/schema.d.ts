@@ -865,6 +865,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/calendar/events/{event_id}/response": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["answer_invitation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/calls": {
         parameters: {
             query?: never;
@@ -3708,6 +3724,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspace/mail/messages/{message_id}/response": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["answer_mail_invitation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspace/mail/messages/{message_id}/spam": {
         parameters: {
             query?: never;
@@ -4152,6 +4184,7 @@ export interface components {
             description: string;
             end: string;
             exdates: string[];
+            invitation?: null | components["schemas"]["CalendarInvitation"];
             location: string;
             meeting_url?: string | null;
             /** @description Minutes before the start. This is stored data; no delivery runs. */
@@ -4160,6 +4193,14 @@ export interface components {
             start: string;
             timezone: string;
             title: string;
+        };
+        /** @description Scheduling state received or sent through the Workspace Mailbox. */
+        CalendarInvitation: {
+            occurrence?: null | components["schemas"]["InvitationOccurrence"];
+            organizer: string;
+            /** Format: int32 */
+            sequence: number;
+            status: components["schemas"]["EventStatus"];
         };
         CalendarOccurrence: {
             end: string;
@@ -5111,6 +5152,8 @@ export interface components {
             payload: unknown;
             run_id?: string | null;
         };
+        /** @enum {string} */
+        EventStatus: "confirmed" | "tentative" | "cancelled";
         /**
          * @description An awake Computer whose Exit Proxy did not switch. It keeps its mode,
          *     and it takes the choice at its next wake.
@@ -5499,6 +5542,15 @@ export interface components {
             to: number;
             /** @description Every Workspace's spend added up. */
             total: components["schemas"]["UsageTotalDto"];
+        };
+        /** @description A separate Event for one occurrence of an invitation series. */
+        InvitationOccurrence: {
+            /** @description The original start as a UTC RFC 3339 time or an all-day date. */
+            recurrence_id: string;
+            series_uid: string;
+        };
+        InvitationResponse: {
+            status: components["schemas"]["ParticipationStatus"];
         };
         JsonRpcError: {
             /** Format: int32 */
@@ -8374,6 +8426,7 @@ export interface components {
         };
         WorkspaceMailMessageDto: components["schemas"]["WorkspaceMailSummaryDto"] & {
             attachments: components["schemas"]["MailAttachmentDto"][];
+            invitation?: null | components["schemas"]["CalendarEvent"];
             /** @description HTML mail is converted to text by the mail transport. */
             text: string;
         };
@@ -11028,6 +11081,43 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
+            };
+        };
+    };
+    answer_invitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                event_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InvitationResponse"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarEvent"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -18510,6 +18600,43 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
+            };
+        };
+    };
+    answer_mail_invitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                message_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InvitationResponse"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CalendarEvent"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

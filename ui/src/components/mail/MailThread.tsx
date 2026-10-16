@@ -8,6 +8,7 @@ import {
   useWorkspaceMailMessage,
   useWorkspaceMailThread,
 } from '../../queries'
+import { InvitationActions } from '../calendar/InvitationActions'
 import { useWorkspaceAccess } from '../../workspace'
 import { workspacePath } from '../../api/workspace-path'
 import { Composer } from './Composer'
@@ -84,6 +85,7 @@ export function MailThread({
                     ))}
                   </ul>
                 </details>
+                {item.invitation && <InvitationActions api={api} event={item.invitation} messageId={item.id} />}
                 <pre>{item.text}</pre>
                 <ul className="mail-attachments">
                   {item.attachments?.map((file, index) => {

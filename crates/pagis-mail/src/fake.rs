@@ -267,6 +267,7 @@ struct Inbox {
     submissions: Vec<crate::BuiltMessage>,
     logins: Vec<String>,
     selected_folders: Vec<String>,
+    fetched_messages: Vec<MessageId>,
 }
 
 impl Inbox {
@@ -454,6 +455,7 @@ impl FakeMailTransport {
                 attachments: Vec::new(),
                 labels: Vec::new(),
                 message: Message {
+                    calendar: None,
                     summary,
                     headers,
                     text: body,
@@ -511,6 +513,10 @@ impl FakeMailTransport {
             .iter()
             .map(|stored| stored.message.summary.clone())
             .collect()
+    }
+
+    pub fn fetched_messages(&self) -> Vec<MessageId> {
+        self.shared.inbox.lock().unwrap().fetched_messages.clone()
     }
 
     pub fn selected_folders(&self) -> Vec<String> {
@@ -834,6 +840,7 @@ impl MailSession for FakeMailSession {
                     .uid
                     > cursor.last_uid
             })
+            .take(crate::transport::FETCH_BATCH)
             .map(|stored| stored.message.summary.clone())
             .collect();
         let last_uid = found
@@ -853,6 +860,7 @@ impl MailSession for FakeMailSession {
     async fn fetch(&mut self, id: &MessageId) -> Result<Message, TransportError> {
         self.refuse()?;
         let mut inbox = self.shared.inbox.lock().unwrap();
+        inbox.fetched_messages.push(id.clone());
         inbox
             .folder(&id.as_str().parse::<ImapMessageId>()?.folder)
             .messages

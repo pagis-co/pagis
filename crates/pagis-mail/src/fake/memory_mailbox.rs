@@ -77,6 +77,7 @@ impl MemoryMailbox {
         };
         self.state.lock().unwrap().messages.push(StoredMessage {
             message: Message {
+                calendar: None,
                 summary,
                 headers: vec![
                     ("Message-ID".into(), message_id),

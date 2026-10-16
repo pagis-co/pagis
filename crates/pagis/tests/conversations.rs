@@ -844,6 +844,7 @@ async fn disclosure_free_busy_passes_without_calendar_details() {
                 attendees: vec![],
                 reminders: vec![],
                 meeting_url: None,
+                invitation: None,
             },
         ))
         .await
@@ -936,6 +937,7 @@ async fn disclosure_calendar_details_need_approval() {
             attendees: vec![],
             reminders: vec![],
             meeting_url: None,
+            invitation: None,
         },
     );
     daemon.stores().calendar.create(&event).await.unwrap();

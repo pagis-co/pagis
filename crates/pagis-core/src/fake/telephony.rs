@@ -812,6 +812,37 @@ fn note_send(day: &mut Option<i64>, count: &mut u32, at: i64) -> u32 {
 
 #[async_trait::async_trait]
 impl crate::WorkspaceMailboxRecordStore for FakeWorkspaceMailboxStore {
+    async fn calendar_cursor(
+        &self,
+        workspace: &WorkspaceId,
+        folder: &str,
+    ) -> Result<Option<crate::MailboxCursor>, StoreError> {
+        Ok(self
+            .0
+            .lock()
+            .unwrap()
+            .workspace_mail_calendar_cursors
+            .get(&(workspace.clone(), folder.into()))
+            .cloned())
+    }
+    async fn set_calendar_cursor(
+        &self,
+        workspace: &WorkspaceId,
+        cursor: &crate::MailboxCursor,
+    ) -> Result<(), StoreError> {
+        let mut data = self.0.lock().unwrap();
+        if !data.workspace_mailboxes.contains_key(workspace) {
+            return Err(StoreError::Conflict("mail record does not exist".into()));
+        }
+        let entry = data
+            .workspace_mail_calendar_cursors
+            .entry((workspace.clone(), cursor.folder.clone()))
+            .or_insert_with(|| cursor.clone());
+        if entry.uid_validity != cursor.uid_validity || entry.last_uid < cursor.last_uid {
+            *entry = cursor.clone();
+        }
+        Ok(())
+    }
     async fn set_spam_mode(
         &self,
         workspace: &WorkspaceId,
@@ -939,6 +970,8 @@ impl crate::WorkspaceMailboxRecordStore for FakeWorkspaceMailboxStore {
         {
             data.workspace_mailboxes.remove(workspace);
             data.workspace_mail_escalations
+                .retain(|(id, _), _| id != workspace);
+            data.workspace_mail_calendar_cursors
                 .retain(|(id, _), _| id != workspace);
             data.workspace_mail_sends.remove(workspace);
             return Ok(true);

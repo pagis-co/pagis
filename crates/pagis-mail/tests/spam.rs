@@ -70,6 +70,7 @@ pub fn context() -> pagis_mail::MailReadContext {
             workspace_mailboxes: stores.workspace_mailboxes.clone(),
             junk: stores.junk.clone(),
             opinions: std::sync::Arc::new(pagis_mail::fake::FakeMailOpinions::default()),
+            calendar: stores.calendar.clone(),
             workspaces: stores.workspaces.clone(),
             agents: stores.agents.clone(),
             source: std::sync::Arc::new(HostSpamVerdicts),
@@ -95,6 +96,7 @@ async fn a_failed_source_stores_nothing_and_retries() {
         workspace_mailboxes: context.intake.workspace_mailboxes.clone(),
         junk: context.intake.junk.clone(),
         opinions: std::sync::Arc::new(pagis_mail::fake::FakeMailOpinions::default()),
+        calendar: context.intake.calendar.clone(),
         workspaces: context.intake.workspaces.clone(),
         agents: context.intake.agents.clone(),
         source: source.clone(),
@@ -177,6 +179,7 @@ async fn verdict_precedes_trust_and_storage_precedes_a_read() {
         workspace_mailboxes: context.intake.workspace_mailboxes.clone(),
         junk: context.intake.junk.clone(),
         opinions: std::sync::Arc::new(pagis_mail::fake::FakeMailOpinions::default()),
+        calendar: context.intake.calendar.clone(),
         workspaces: context.intake.workspaces.clone(),
         agents: context.intake.agents.clone(),
         source: Arc::new(Source(order.clone())),
@@ -256,6 +259,7 @@ async fn only_uncertain_mail_gets_one_opinion_and_stored_mail_is_not_judged_agai
             workspace_mailboxes: context.intake.workspace_mailboxes.clone(),
             junk: context.intake.junk.clone(),
             opinions: opinion.clone(),
+            calendar: context.intake.calendar.clone(),
             workspaces: context.intake.workspaces.clone(),
             agents: context.intake.agents.clone(),
             source: context.intake.source.clone(),
@@ -295,6 +299,7 @@ async fn context_with_stored_opinion() -> (
         workspace_mailboxes: context.intake.workspace_mailboxes.clone(),
         junk: context.intake.junk.clone(),
         opinions: opinions.clone(),
+        calendar: context.intake.calendar.clone(),
         workspaces: context.intake.workspaces.clone(),
         agents: context.intake.agents.clone(),
         source: context.intake.source.clone(),
@@ -464,4 +469,41 @@ fn quarantine_uses_host_malware_and_high_confidence_phishing_symbols() {
         };
         assert_eq!(pagis_mail::quarantine_required(&verdict), quarantined);
     }
+}
+
+#[tokio::test]
+async fn calendar_intake_refuses_an_assessed_quarantined_invitation() {
+    let context = context();
+    let raw = pagis_mail::build_mime(
+        "organizer@example.org",
+        &pagis_mail::OutgoingMessage {
+            to: vec![context.address.clone()],
+            attachments: vec![pagis_mail::OutgoingAttachment {
+                name: "invite.ics".into(),
+                content_type: "text/calendar; method=REQUEST".into(),
+                data: include_bytes!("../../pagis-core/tests/fixtures/imip/google-request.ics")
+                    .to_vec(),
+            }],
+            ..Default::default()
+        },
+        0,
+    )
+    .unwrap();
+    let raw = [
+        b"X-Spamd-Result: default: False [20 / 15]; CLAM_VIRUS(20)[]\r\n".as_slice(),
+        raw.raw.as_slice(),
+    ]
+    .concat();
+    let mut message = read_mime(&raw, MessageId::new("INBOX:1")).unwrap();
+    context.assess(&mut message.summary, false).await.unwrap();
+    assert!(context.calendar_message(&message).await.is_err());
+    assert!(
+        context
+            .intake
+            .calendar
+            .get_by_uid(&context.workspace, "meeting@example.org")
+            .await
+            .unwrap()
+            .is_none()
+    );
 }
