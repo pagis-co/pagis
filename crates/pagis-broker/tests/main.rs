@@ -6,3 +6,5 @@ mod coding_session;
 mod home_exit;
 mod host_dispatch;
 mod mail_tools;
+
+mod tool_call_serde;

@@ -167,9 +167,9 @@ fn brief(direction: CallDirection, tier: TrustTier) -> CallBrief {
         voicemail: VoicemailPolicy::HangUp,
         duration_cap: DEFAULT_DURATION_CAP,
         tools: vec![tool("memory_read")],
-        ivr_mode_prompt: IVR_MODE_PROMPT,
-        classify_prompt: pagis_telephony::CLASSIFY_PROMPT,
-        emergency_rule: EMERGENCY_RULE,
+        ivr_mode_prompt: IVR_MODE_PROMPT.to_string(),
+        classify_prompt: pagis_telephony::CLASSIFY_PROMPT.to_string(),
+        emergency_rule: EMERGENCY_RULE.to_string(),
     }
 }
 

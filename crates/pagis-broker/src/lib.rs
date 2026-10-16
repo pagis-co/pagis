@@ -1040,7 +1040,7 @@ pub trait ToolExecutor: Send + Sync {
     async fn execute(&self, call: AuthorizedCall) -> ToolResult;
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolCall {
     pub name: String,
     pub arguments: String,

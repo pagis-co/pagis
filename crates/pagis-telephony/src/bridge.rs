@@ -13,13 +13,14 @@ use pagis_core::{
     AgentId, CallId, CallOutcome, Classification, EventBus, FileId, KeypadFailures, NewEvent,
     RunId, StoreError, TranscriptLine, TrustTier, UnixMillis, WorkspaceId,
 };
+use serde::{Deserialize, Serialize};
 
 use crate::IncomingHub;
 use crate::brief::CallBrief;
 
 /// One call handed to the bridge: the brief, and the tools the
 /// realtime session binds.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlacedCall {
     pub id: CallId,
     pub workspace_id: WorkspaceId,
@@ -30,7 +31,7 @@ pub struct PlacedCall {
 
 /// How one call ended. The transcript is the whole conversation; the
 /// recording is a pointer, because nothing in the loop reads audio.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CallReport {
     pub outcome: CallOutcome,
     /// The Trust Tier the call ended at (ADR-0021). It starts at the
@@ -43,6 +44,7 @@ pub struct CallReport {
     pub classification: Option<Classification>,
     /// True when a voicemail message was left.
     pub message_left: bool,
+    #[serde(with = "crate::duration_seconds")]
     pub duration: Duration,
     /// When the far side started to ring, when it did.
     pub ringing_at: Option<UnixMillis>,
@@ -55,7 +57,7 @@ pub struct CallReport {
 
 /// The bridge did not carry the call to an end of its own. The reason
 /// reaches the model and the audit log, and never a credential.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
 #[error("the call did not complete: {0}")]
 pub struct BridgeError(pub String);
 
