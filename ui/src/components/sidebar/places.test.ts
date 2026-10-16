@@ -11,6 +11,7 @@ describe('the places', () => {
       'People',
       'Sprites',
       'Mail',
+      'Calendar',
       'Memory',
       'Automations',
       'Coding',
@@ -26,6 +27,7 @@ describe('the places', () => {
     // An Agent is one of the user's sprites.
     expect(placeForPath('/sprites/agent-1')).toBe('sprites')
     expect(placeForPath('/mail')).toBe('mail')
+    expect(placeForPath('/calendar')).toBe('calendar')
     expect(placeForPath('/memory')).toBe('memory')
     expect(placeForPath('/automations')).toBe('automations')
     expect(placeForPath('/coding')).toBe('coding')

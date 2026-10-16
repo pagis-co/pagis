@@ -74,6 +74,7 @@ beforeEach(() => {
 const PLACES: { label: string; path: string }[] = [
   { label: 'Home', path: '/' },
   { label: 'Sprites', path: '/sprites' },
+  { label: 'Calendar', path: '/calendar' },
   { label: 'Memory', path: '/memory' },
   { label: 'Automations', path: '/automations' },
   { label: 'Coding', path: '/coding' },
@@ -156,6 +157,14 @@ describe('the conversation header toggles', () => {
 
 describe('the phone shell', () => {
   beforeEach(() => setViewport(390))
+  it('opens Calendar from You and returns with its back button', async () => {
+    const history = mount('/you')
+    fireEvent.click(await screen.findByText('Calendar'))
+    await waitFor(() => expect(history.location.pathname).toBe('/calendar'))
+    expect(screen.queryByRole('navigation', { name: 'Places' })).toBeNull()
+    fireEvent.click(await screen.findByRole('button', { name: 'You' }))
+    await waitFor(() => expect(history.location.pathname).toBe('/you'))
+  })
   it('opens all four places and marks the current tab', async () => {
     const history = mount('/')
     await screen.findByTestId('home')

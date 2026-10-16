@@ -68,6 +68,7 @@ pub struct Stores {
     pub phone_numbers: Arc<dyn PhoneNumberStore>,
     pub plugin_tools: Arc<dyn PluginToolStore>,
     pub plugins: Arc<dyn PluginStore>,
+    pub calendar: Arc<dyn crate::CalendarStore>,
     pub push_subscriptions: Arc<dyn PushSubscriptionStore>,
     pub requests: Arc<dyn RequestStore>,
     pub retention_policies: Arc<dyn RetentionPolicyStore>,

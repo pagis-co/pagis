@@ -4,6 +4,7 @@
 
 import {
   BookOpen,
+  CalendarDays,
   Contact,
   Mail,
   Home,
@@ -20,6 +21,7 @@ export type PlaceId =
   | 'people'
   | 'sprites'
   | 'mail'
+  | 'calendar'
   | 'memory'
   | 'automations'
   | 'coding'
@@ -37,6 +39,7 @@ export const PLACES: readonly Place[] = [
   { id: 'people', label: 'People', icon: Contact },
   { id: 'sprites', label: 'Sprites', icon: Users },
   { id: 'mail', label: 'Mail', icon: Mail },
+  { id: 'calendar', label: 'Calendar', icon: CalendarDays },
   { id: 'memory', label: 'Memory', icon: BookOpen },
   { id: 'automations', label: 'Automations', icon: RefreshCw },
   { id: 'coding', label: 'Coding', icon: SquareTerminal },
@@ -51,6 +54,7 @@ export function placeForPath(pathname: string): PlaceId | null {
   if (first === undefined) return 'home'
   // An Agent is one of the user's sprites.
   if (first === 'sprites' || first === 'agents') return 'sprites'
+  if (first === 'calendar') return 'calendar'
   if (first === 'mail') return 'mail'
   if (first === 'people' || first === 'conversations') return 'people'
   if (first === 'memory') return 'memory'

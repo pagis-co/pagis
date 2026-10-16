@@ -1573,6 +1573,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         orgs: stores.orgs.clone(),
         users: stores.users.clone(),
         sessions: stores.sessions.clone(),
+        calendar: stores.calendar.clone(),
         push_subscriptions: stores.push_subscriptions.clone(),
         notifications,
         person_activity,

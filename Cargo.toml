@@ -85,6 +85,7 @@ async-trait = "0.1"
 clap = { version = "4.6", features = ["derive"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 chrono-tz = "0.10"
+rrule = "0.14"
 # The browser tests drive headless Chrome over the Chrome DevTools
 # Protocol. The test kit alone uses it.
 chromiumoxide = { version = "0.9", default-features = false }

@@ -527,6 +527,26 @@ async fn seed_a(
     let agent_id = pagis_core::AgentId::from(daemon.agent_id.clone());
     let channel_id = pagis_core::ChannelId::from(daemon.dm_channel_id.clone());
     let mut owned: BTreeMap<&'static str, String> = BTreeMap::new();
+    let event = pagis_core::CalendarEvent::new(
+        workspace_id.clone(),
+        pagis_core::Author::Person(daemon.user_id.clone()),
+        pagis_core::CalendarEventData {
+            title: "Private review".into(),
+            description: String::new(),
+            location: String::new(),
+            start: "2026-03-07T09:00:00".into(),
+            end: "2026-03-07T10:00:00".into(),
+            all_day: false,
+            timezone: "UTC".into(),
+            rrule: None,
+            exdates: vec![],
+            attendees: vec![],
+            reminders: vec![15],
+            meeting_url: None,
+        },
+    );
+    stores.calendar.create(&event).await.unwrap();
+    owned.insert("event_id", event.id.to_string());
     owned.insert("agent_id", daemon.agent_id.clone());
     owned.insert("channel_id", daemon.dm_channel_id.clone());
     // A's conversation includes a third Person, so B has no access.

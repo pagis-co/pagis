@@ -684,6 +684,24 @@ _Avoid_: roster of People (say the People of the Org)
 A reply thread rooted at one message in a Channel: one piece of work or one
 topic. Threads are one level deep (ADR-0003).
 
+## Calendar
+
+### Calendar
+The Events of one Workspace. The Calendar store holds master Events and
+returns occurrences in a time range, with recurrence and the named time
+zone applied. The Calendar place in the Product App shows day, week and
+month views. The Mobile App shows the same place (ADR-0042, ADR-0032).
+
+### Event
+A time range in one Workspace Calendar, with a title, description,
+location, attendees, recurrence, EXDATE exceptions and reminders. An Event
+has a UID and names its author. It uses local times in an IANA time zone,
+or an all-day date range with an exclusive end. It can hold an HTTPS
+meeting link that the Person chooses. A reminder is stored as minutes
+before the start. Reminder delivery as Notifications is not built
+(ADR-0042). An Event is separate from an Incoming Event or an Event
+Subscription.
+
 ## Runs and triggers
 
 ### Arrival Run

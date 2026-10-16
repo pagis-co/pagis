@@ -95,6 +95,12 @@ impl ApiError {
     }
 }
 
+impl From<pagis_core::CalendarError> for ApiError {
+    fn from(error: pagis_core::CalendarError) -> Self {
+        Self::validation(error.to_string())
+    }
+}
+
 impl From<pagis_core::StoreError> for ApiError {
     fn from(err: pagis_core::StoreError) -> Self {
         tracing::error!(error = %err, "store error");
@@ -115,5 +121,18 @@ impl IntoResponse for ApiError {
             },
         };
         (self.status, Json(body)).into_response()
+    }
+}
+
+#[cfg(test)]
+mod calendar_tests {
+    use super::*;
+
+    #[test]
+    fn calendar_input_errors_are_validation_errors() {
+        let error = ApiError::from(pagis_core::CalendarError::Invalid("Invalid range.".into()));
+        assert_eq!(error.status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(error.code, "validation");
+        assert_eq!(error.message, "Invalid range.");
     }
 }

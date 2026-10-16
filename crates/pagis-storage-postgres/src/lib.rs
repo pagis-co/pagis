@@ -11,6 +11,7 @@
 mod agent_mailbox_store;
 mod agent_store;
 mod brief_store;
+mod calendar_store;
 mod call_store;
 mod capability_snapshot_store;
 mod channel_store;
@@ -43,6 +44,7 @@ mod phone_number_store;
 mod plugin_store;
 mod plugin_tool_store;
 mod pool;
+pub use calendar_store::PostgresCalendarStore;
 mod push_subscription_store;
 mod request_store;
 mod resource_store;
@@ -160,6 +162,7 @@ pub fn stores(pool: PgPool) -> pagis_core::Stores {
         phone_numbers: Arc::new(PostgresPhoneNumberStore::new(pool.clone())),
         plugin_tools: Arc::new(PostgresPluginToolStore::new(pool.clone())),
         plugins: Arc::new(PostgresPluginStore::new(pool.clone())),
+        calendar: Arc::new(PostgresCalendarStore::new(pool.clone())),
         push_subscriptions: Arc::new(PostgresPushSubscriptionStore::new(pool.clone())),
         requests: Arc::new(PostgresRequestStore::new(pool.clone())),
         retention_policies: Arc::new(PostgresRetentionPolicyStore::new(pool.clone())),

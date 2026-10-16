@@ -30,6 +30,7 @@ import { CallPhone } from './components/phone/CallPhone'
 import { RunPhone } from './components/phone/RunPhone'
 import { DeskPhone } from './components/phone/DeskPhone'
 import { Mail } from './components/mail/Mail'
+import { Calendar } from './components/calendar/Calendar'
 import { Automations } from './components/Automations'
 import { CodingSessionPage } from './components/coding/CodingSessionPage'
 import { CodingSessions } from './components/coding/CodingSessions'
@@ -577,6 +578,25 @@ function AutomationsView() {
   )
 }
 
+function CalendarView() {
+  const phone = useIsMobile()
+  const navigate = useNavigate()
+  const api = useApi()
+  return (
+    <>
+      {phone && <NavBar back={{ label: 'You', onBack: () => void navigate({ to: '/you' }) }} />}
+      <Calendar api={api} />
+    </>
+  )
+}
+
+const calendarRoute = createRoute({
+  staticData: { phone: 'pushed' },
+  getParentRoute: () => rootRoute,
+  path: '/calendar',
+  component: CalendarView,
+})
+
 const mailRoute = createRoute({
   staticData: { phone: 'pushed' },
   getParentRoute: () => rootRoute,
@@ -810,6 +830,7 @@ const routeTree = rootRoute.addChildren([
   agentWorkRoute,
   memoryRoute,
   mailRoute,
+  calendarRoute,
   automationsRoute,
   softwareRoute,
   settingsIndexRoute,

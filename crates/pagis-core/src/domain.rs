@@ -754,13 +754,26 @@ pub enum Author {
     System,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum AuthorRecord {
-    Person { person_id: UserId },
-    Agent { agent_id: AgentId },
+    Person {
+        #[schema(value_type = String)]
+        person_id: UserId,
+    },
+    Agent {
+        #[schema(value_type = String)]
+        agent_id: AgentId,
+    },
     System {},
 }
+
+impl utoipa::PartialSchema for Author {
+    fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
+        <AuthorRecord as utoipa::PartialSchema>::schema()
+    }
+}
+impl utoipa::ToSchema for Author {}
 
 impl From<AuthorRecord> for Author {
     fn from(record: AuthorRecord) -> Self {

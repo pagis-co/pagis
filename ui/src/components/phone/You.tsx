@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Capacitor } from '@capacitor/core'
 import { useNavigate } from '@tanstack/react-router'
-import { BookOpen, Package, Repeat, SlidersHorizontal } from 'lucide-react'
+import { BookOpen, CalendarDays, Package, Repeat, SlidersHorizontal } from 'lucide-react'
 import type { ApiClient } from '../../api/client'
 import {
   ActionSheet,
@@ -47,6 +47,7 @@ export function You({ api }: { api: ApiClient }) {
     .filter((row) => row.next_due_at != null)
     .sort((a, b) => (a.next_due_at ?? 0) - (b.next_due_at ?? 0))[0]
   const places = [
+    { title: 'Calendar', hint: 'Events and meeting links', icon: CalendarDays, to: '/calendar' },
     { title: 'Memory', hint: 'What your sprites know', icon: BookOpen, to: '/memory' },
     {
       title: 'Automations',

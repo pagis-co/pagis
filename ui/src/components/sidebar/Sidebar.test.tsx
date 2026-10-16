@@ -234,6 +234,7 @@ describe('Sidebar', () => {
       'People',
       'Sprites',
       'Mail',
+      'Calendar',
       'Memory',
       'Automations',
       'Coding',

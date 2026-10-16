@@ -20,6 +20,7 @@ mod browser_images;
 mod browser_live_screen;
 mod browser_remote_access_turn;
 mod browser_widgets;
+mod calendar;
 mod calls;
 mod channels;
 mod chief_of_staff;
