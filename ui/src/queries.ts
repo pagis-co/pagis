@@ -3711,3 +3711,114 @@ export function useWorkspaceMailThread(api: ApiClient, threadId?: string) {
     gcTime: 0,
   });
 }
+
+export type MailAction = 'reply' | 'reply-all' | 'forward'
+export type MailSource = { id: string; action: MailAction }
+
+export function useWorkspaceMailComposer(api: ApiClient, source?: MailSource) {
+  const workspaceId = useCurrentWorkspaceId()
+  return useQuery({
+    queryKey: [...workspaceMailKey(workspaceId), 'composer', source],
+    queryFn: () =>
+      unwrap(
+        api.GET('/api/v1/workspace/mail/messages/{message_id}/composer', {
+          params: {
+            path: { message_id: source!.id },
+            query: { action: source!.action },
+          },
+        }),
+      ),
+    enabled: source !== undefined,
+    retry: false,
+  })
+}
+
+export function useSendWorkspaceMail(api: ApiClient, source?: MailSource) {
+  const workspaceId = useCurrentWorkspaceId()
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (body: components['schemas']['SendMailRequest']) => {
+      if (source) {
+        const path = {
+          reply: '/api/v1/workspace/mail/messages/{message_id}/reply',
+          'reply-all': '/api/v1/workspace/mail/messages/{message_id}/reply-all',
+          forward: '/api/v1/workspace/mail/messages/{message_id}/forward',
+        } as const
+        return unwrap(
+          api.POST(path[source.action], {
+            params: { path: { message_id: source.id } },
+            body,
+          }),
+        )
+      }
+      return unwrap(api.POST('/api/v1/workspace/mail/messages', { body }))
+    },
+    onSuccess: () =>
+      client.invalidateQueries({ queryKey: workspaceMailKey(workspaceId) }),
+  })
+}
+
+export function useMailFolderMutation(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId()
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: async (request: {
+      action: 'create' | 'rename' | 'delete'
+      name: string
+      newName?: string
+    }) => {
+      let result
+      if (request.action === 'create') {
+        result = await api.POST('/api/v1/workspace/mail/folders', {
+          body: { name: request.name },
+        })
+      } else if (request.action === 'rename') {
+        result = await api.PATCH('/api/v1/workspace/mail/folders/{name}', {
+          params: { path: { name: request.name } },
+          body: { name: request.newName! },
+        })
+      } else {
+        result = await api.DELETE('/api/v1/workspace/mail/folders/{name}', {
+          params: { path: { name: request.name } },
+        })
+      }
+      if (result.error) throw result.error
+    },
+    onSuccess: () =>
+      client.invalidateQueries({ queryKey: workspaceMailKey(workspaceId) }),
+  })
+}
+
+export function useOrganizeWorkspaceMail(api: ApiClient, id: string) {
+  const workspaceId = useCurrentWorkspaceId()
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: async ({
+      action,
+      name,
+    }: {
+      action: 'move' | 'label' | 'unlabel'
+      name: string
+    }) => {
+      let result
+      if (action === 'unlabel') {
+        result = await api.DELETE(
+          '/api/v1/workspace/mail/messages/{message_id}/labels/{label}',
+          { params: { path: { message_id: id, label: name } } },
+        )
+      } else {
+        const path =
+          action === 'move'
+            ? '/api/v1/workspace/mail/messages/{message_id}/move'
+            : '/api/v1/workspace/mail/messages/{message_id}/labels'
+        result = await api.POST(path, {
+          params: { path: { message_id: id } },
+          body: { name },
+        })
+      }
+      if (result.error) throw result.error
+    },
+    onSuccess: () =>
+      client.invalidateQueries({ queryKey: workspaceMailKey(workspaceId) }),
+  })
+}

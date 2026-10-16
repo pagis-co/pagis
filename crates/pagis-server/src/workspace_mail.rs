@@ -1,4 +1,7 @@
 //! The Product API reads the tenant Workspace Mailbox through its store.
+mod write;
+pub use write::*;
+
 use crate::mailboxes::{MailboxOfferDto, NewMailboxRequest, mailbox_error, offer_dto};
 use crate::{AppState, auth::Tenant, error::ApiError};
 use axum::{
@@ -68,6 +71,7 @@ pub struct WorkspaceMailMessageDto {
     pub summary: WorkspaceMailSummaryDto,
     /// HTML mail is converted to text by the mail transport.
     pub text: String,
+    pub attachments: Vec<MailAttachmentDto>,
 }
 impl From<pagis_mail::WorkspaceMailMessage> for WorkspaceMailMessageDto {
     fn from(m: pagis_mail::WorkspaceMailMessage) -> Self {
@@ -79,6 +83,15 @@ impl From<pagis_mail::WorkspaceMailMessage> for WorkspaceMailMessageDto {
             }
             .into(),
             text: m.message.text,
+            attachments: m
+                .message
+                .attachments
+                .into_iter()
+                .map(|a| MailAttachmentDto {
+                    name: a.name,
+                    bytes: a.bytes,
+                })
+                .collect(),
         }
     }
 }
@@ -167,7 +180,7 @@ async fn open(state: &AppState, tenant: &Tenant) -> Result<Box<dyn WorkspaceMail
 fn read_error(error: pagis_mail::TransportError) -> ApiError {
     match error.0 {
         pagis_mail::TransportErrorCode::InvalidRequest => {
-            ApiError::validation("the mail cursor is not valid")
+            ApiError::validation("the mail request is not valid")
         }
         pagis_mail::TransportErrorCode::StaleId => ApiError::not_found("mail message"),
         _ => ApiError::conflict(error.to_string()),
@@ -269,4 +282,10 @@ pub async fn get_workspace_mail_thread(
         .map(Into::into)
         .collect();
     Ok(Json(WorkspaceMailThread { items }))
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct MailAttachmentDto {
+    pub name: String,
+    pub bytes: u64,
 }

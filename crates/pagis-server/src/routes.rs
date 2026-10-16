@@ -466,6 +466,60 @@ pub const ADMINISTRATION_ROUTES: &[Route] = &[
 /// Every route the daemon serves.
 pub const ROUTES: &[Route] = &[
     Route {
+        path: "/api/v1/workspace/mail/folders/{name}",
+        methods: &["delete", "patch"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
+        path: "/api/v1/workspace/mail/messages/{message_id}/reply",
+        methods: &["post"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
+        path: "/api/v1/workspace/mail/messages/{message_id}/reply-all",
+        methods: &["post"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
+        path: "/api/v1/workspace/mail/messages/{message_id}/forward",
+        methods: &["post"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
+        path: "/api/v1/workspace/mail/messages/{message_id}/composer",
+        methods: &["get"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
+        path: "/api/v1/workspace/mail/messages/{message_id}/move",
+        methods: &["post"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
+        path: "/api/v1/workspace/mail/messages/{message_id}/labels",
+        methods: &["post"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
+        path: "/api/v1/workspace/mail/messages/{message_id}/labels/{label}",
+        methods: &["delete"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
+        path: "/api/v1/workspace/mail/messages/{message_id}/attachments/{index}",
+        methods: &["get"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
         path: "/api/v1/workspace/mailbox",
         methods: &["get", "post"],
         authenticated: true,
@@ -473,13 +527,13 @@ pub const ROUTES: &[Route] = &[
     },
     Route {
         path: "/api/v1/workspace/mail/folders",
-        methods: &["get"],
+        methods: &["get", "post"],
         authenticated: true,
         part: None,
     },
     Route {
         path: "/api/v1/workspace/mail/messages",
-        methods: &["get"],
+        methods: &["get", "post"],
         authenticated: true,
         part: None,
     },

@@ -29,6 +29,9 @@ export function MessageRow({
       <span className="mail-row-copy">
         <span className="mail-row-sender">{message.from}</span>
         <strong>{message.subject || '(No subject)'}</strong>
+        {message.labels.length > 0 && (
+          <span aria-label="Labels">{message.labels.join(', ')}</span>
+        )}
         <span className="mail-row-snippet">{message.snippet}</span>
       </span>
       <time dateTime={new Date(message.date).toISOString()}>

@@ -95,6 +95,7 @@ struct StandardSession<S> {
     smtp: AsyncSmtpTransport<Tokio1Executor>,
     address: String,
     idle_supported: bool,
+    saves_sent: bool,
     selected: Option<String>,
 }
 
@@ -121,15 +122,87 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> StandardSession<S> {
         let responses = imap.command(CommandBody::Capability).await?;
         let idle_supported = responses.iter().any(|response| matches!(response,
             Response::Data(Data::Capability(capabilities)) if capabilities.as_ref().contains(&Capability::Idle)));
+        let saves_sent = responses.iter().any(|response| matches!(response,
+            Response::Data(Data::Capability(capabilities)) if capabilities.as_ref().iter().any(|c| c.to_string().eq_ignore_ascii_case("X-GM-EXT-1"))));
         Ok(Self {
             imap,
             smtp: smtp_transport(credential)?,
             address: credential.address().to_string(),
             idle_supported,
+            saves_sent,
             selected: None,
         })
     }
 
+    async fn folder_roles(&mut self) -> Result<Vec<(String, Vec<String>)>, TransportError> {
+        let responses = self.imap.command_text("LIST \"\" \"*\"").await?;
+        let mut result = Vec::new();
+        for response in responses {
+            if let Response::Data(Data::List { mailbox, items, .. }) = response {
+                let name = match mailbox {
+                    imap_next::imap_types::mailbox::Mailbox::Inbox => "INBOX".into(),
+                    imap_next::imap_types::mailbox::Mailbox::Other(name) => {
+                        String::from_utf8(name.inner().as_ref().to_vec())
+                            .map_err(|_| TransportError(TransportErrorCode::Unreadable))?
+                    }
+                };
+                let roles = items
+                    .iter()
+                    .map(ToString::to_string)
+                    .filter(|s| {
+                        [
+                            "\\Sent",
+                            "\\Drafts",
+                            "\\Junk",
+                            "\\Trash",
+                            "\\Archive",
+                            "\\All",
+                            "\\Flagged",
+                            "\\Important",
+                        ]
+                        .iter()
+                        .any(|role| s.eq_ignore_ascii_case(role))
+                    })
+                    .collect();
+                result.push((name, roles));
+            }
+        }
+        Ok(result)
+    }
+    async fn save_sent(&mut self, built: &crate::BuiltMessage) -> Result<(), TransportError> {
+        let folders = self.folder_roles().await?;
+        let sent = folders
+            .iter()
+            .find(|(_, roles)| roles.iter().any(|r| r.eq_ignore_ascii_case("\\Sent")))
+            .or_else(|| {
+                folders.iter().find(|(name, _)| {
+                    ["Sent", "Sent Messages", "Sent Items"]
+                        .iter()
+                        .any(|s| name.eq_ignore_ascii_case(s))
+                })
+            })
+            .map(|(name, _)| name.clone())
+            .unwrap_or_else(|| "Sent".into());
+        if !folders.iter().any(|(name, _)| name == &sent) {
+            self.create_folder(&sent).await?;
+        }
+        self.select_folder(&sent).await?;
+        if self
+            .search_uids(&format!("HEADER MESSAGE-ID {}", quoted(&built.message_id)))
+            .await?
+            .is_empty()
+        {
+            let append = CommandBody::append(
+                sent,
+                vec![imap_next::imap_types::flag::Flag::Seen],
+                None,
+                built.raw.clone(),
+            )
+            .map_err(|_| TransportError(TransportErrorCode::Rejected))?;
+            self.imap.command(append).await?;
+        }
+        Ok(())
+    }
     /// Open the folder and read its numbering. Every read selects,
     /// because a folder the host renumbered or new mail that arrived
     /// shows in the `SELECT` answer and nowhere else.
@@ -244,6 +317,92 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> StandardSession<S> {
 
 #[async_trait]
 impl<S: AsyncRead + AsyncWrite + Unpin + Send> MailSession for StandardSession<S> {
+    async fn system_folders(&mut self) -> Result<Vec<String>, TransportError> {
+        Ok(self
+            .folder_roles()
+            .await?
+            .into_iter()
+            .filter(|(_, roles)| !roles.is_empty())
+            .map(|(name, _)| name)
+            .collect())
+    }
+    async fn create_folder(&mut self, name: &str) -> Result<(), TransportError> {
+        self.imap
+            .command_text(&format!("CREATE {}", quoted(name)))
+            .await?;
+        Ok(())
+    }
+    async fn rename_folder(&mut self, name: &str, new_name: &str) -> Result<(), TransportError> {
+        self.imap
+            .command_text(&format!("RENAME {} {}", quoted(name), quoted(new_name)))
+            .await?;
+        self.selected = None;
+        Ok(())
+    }
+    async fn delete_folder(&mut self, name: &str) -> Result<(), TransportError> {
+        self.imap
+            .command_text(&format!("DELETE {}", quoted(name)))
+            .await?;
+        self.selected = None;
+        Ok(())
+    }
+    async fn move_message(&mut self, id: &MessageId, folder: &str) -> Result<(), TransportError> {
+        let id = id.as_str().parse::<ImapMessageId>()?;
+        self.ensure_selected(&id.folder).await?;
+        self.imap
+            .command_text(&format!("UID MOVE {} {}", id.uid, quoted(folder)))
+            .await?;
+        Ok(())
+    }
+    async fn set_label(
+        &mut self,
+        id: &MessageId,
+        label: &str,
+        apply: bool,
+    ) -> Result<(), TransportError> {
+        let id = id.as_str().parse::<ImapMessageId>()?;
+        self.ensure_selected(&id.folder).await?;
+        let sign = if apply { '+' } else { '-' };
+        self.imap
+            .command_text(&format!("UID STORE {} {sign}FLAGS ({label})", id.uid))
+            .await?;
+        Ok(())
+    }
+    async fn attachment(
+        &mut self,
+        id: &MessageId,
+        index: usize,
+    ) -> Result<crate::OutgoingAttachment, TransportError> {
+        let id = id.as_str().parse::<ImapMessageId>()?;
+        self.ensure_selected(&id.folder).await?;
+        let responses = self
+            .imap
+            .command_text(&format!("UID FETCH {} {FETCH_QUERY}", id.uid))
+            .await?;
+        for response in responses {
+            if let Response::Data(Data::Fetch { items, .. }) = response {
+                if !items
+                    .as_ref()
+                    .iter()
+                    .any(|item| matches!(item, MessageDataItem::Uid(uid) if uid.get() == id.uid))
+                {
+                    continue;
+                }
+                for item in items.as_ref() {
+                    if let MessageDataItem::BodyExt {
+                        section: None,
+                        origin: None,
+                        data,
+                    } = item
+                        && let Some(data) = data.0.as_ref()
+                    {
+                        return crate::mime::read_attachment(data.as_ref(), index);
+                    }
+                }
+            }
+        }
+        Err(TransportError(TransportErrorCode::StaleId))
+    }
     async fn folders(&mut self) -> Result<Vec<String>, TransportError> {
         let responses = self.imap.command_text("LIST \"\" \"*\"").await?;
         let mut folders = Vec::new();
@@ -407,6 +566,13 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> MailSession for StandardSession<S
             .send_raw(&envelope, &built.raw)
             .await
             .map_err(map_smtp)?;
+        // Gmail saves submissions itself, even when its IMAP index lags.
+        if !self.saves_sent
+            && let Err(error) = self.save_sent(&built).await
+        {
+            // SMTP accepted the mail. A copy failure must not invite a resend.
+            tracing::error!(%error, message_id = %built.message_id, "saving Sent mail failed");
+        }
         Ok(SentMessage {
             message_id: built.message_id,
         })
@@ -951,6 +1117,95 @@ mod tests {
         assert!(metadata.seen);
         assert!(metadata.flagged);
         assert_eq!(metadata.labels, ["invoices"]);
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn scripted_sent_copy_uses_special_use_and_skips_an_existing_message() {
+        let mut turns = login_turns(false);
+        turns.push((
+            "A3 LIST \"\" \"*\"\r\n".into(),
+            "* LIST (\\Sent) \"/\" \"Sent Mail\"\r\nA3 OK list\r\n".into(),
+        ));
+        turns.push(("A4 SELECT \"Sent Mail\"\r\n".into(), "* 1 EXISTS\r\n* OK [UIDVALIDITY 7] validity\r\n* OK [UIDNEXT 2] next\r\nA4 OK selected\r\n".into()));
+        turns.push((
+            "A5 UID SEARCH HEADER MESSAGE-ID \"<sent@test>\"\r\n".into(),
+            "* SEARCH 1\r\nA5 OK found\r\n".into(),
+        ));
+        let (stream, server) = script(turns);
+        let mut session = StandardSession::login(stream, &credential()).await.unwrap();
+        session
+            .save_sent(&crate::BuiltMessage {
+                message_id: "<sent@test>".into(),
+                recipients: vec![],
+                raw: b"Subject: Hello\r\n\r\nHello".to_vec(),
+            })
+            .await
+            .unwrap();
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn scripted_sent_copy_creates_sent_and_appends_the_submission() {
+        let raw = b"Subject: Hello\r\n\r\nHello";
+        let mut turns = login_turns(false);
+        turns.extend([
+            ("A3 LIST \"\" \"*\"\r\n".into(), "* LIST () \"/\" INBOX\r\nA3 OK list\r\n".into()),
+            ("A4 CREATE \"Sent\"\r\n".into(), "A4 OK created\r\n".into()),
+            ("A5 SELECT Sent\r\n".into(), "* 0 EXISTS\r\n* OK [UIDVALIDITY 7] validity\r\n* OK [UIDNEXT 1] next\r\nA5 OK selected\r\n".into()),
+            ("A6 UID SEARCH HEADER MESSAGE-ID \"<sent@test>\"\r\n".into(), "* SEARCH\r\nA6 OK empty\r\n".into()),
+            (format!("A7 APPEND Sent (\\Seen) {{{}}}\r\n", raw.len()), "+ ready\r\n".into()),
+            (format!("{}\r\n", String::from_utf8_lossy(raw)), "A7 OK appended\r\n".into()),
+        ]);
+        let (stream, server) = script(turns);
+        let mut session = StandardSession::login(stream, &credential()).await.unwrap();
+        session
+            .save_sent(&crate::BuiltMessage {
+                message_id: "<sent@test>".into(),
+                recipients: vec![],
+                raw: raw.to_vec(),
+            })
+            .await
+            .unwrap();
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn scripted_gmail_announces_that_it_saves_submissions() {
+        let mut turns = login_turns(false);
+        turns[1].1 = "* CAPABILITY IMAP4rev1 X-GM-EXT-1\r\nA2 OK capabilities\r\n".into();
+        let (stream, server) = script(turns);
+        let session = StandardSession::login(stream, &credential()).await.unwrap();
+        assert!(session.saves_sent);
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn scripted_organize_commands_and_special_use_folders() {
+        let mut turns = login_turns(false);
+        turns.extend([
+            ("A3 CREATE \"Invoices\"\r\n".into(), "A3 OK created\r\n".into()),
+            ("A4 RENAME \"Invoices\" \"Paid\"\r\n".into(), "A4 OK renamed\r\n".into()),
+            select_turn("A5"),
+            ("A6 UID STORE 9 +FLAGS (finance)\r\n".into(), "A6 OK stored\r\n".into()),
+            ("A7 UID STORE 9 -FLAGS (finance)\r\n".into(), "A7 OK stored\r\n".into()),
+            ("A8 UID MOVE 9 \"Paid\"\r\n".into(), "A8 OK moved\r\n".into()),
+            ("A9 DELETE \"Paid\"\r\n".into(), "A9 OK deleted\r\n".into()),
+            ("A10 LIST \"\" \"*\"\r\n".into(), "* LIST (\\Sent) \"/\" \"Sent Mail\"\r\n* LIST (\\Junk) \"/\" Spam\r\nA10 OK list\r\n".into()),
+        ]);
+        let (stream, server) = script(turns);
+        let mut session = StandardSession::login(stream, &credential()).await.unwrap();
+        session.create_folder("Invoices").await.unwrap();
+        session.rename_folder("Invoices", "Paid").await.unwrap();
+        let id = MessageId::new("INBOX:9");
+        session.set_label(&id, "finance", true).await.unwrap();
+        session.set_label(&id, "finance", false).await.unwrap();
+        session.move_message(&id, "Paid").await.unwrap();
+        session.delete_folder("Paid").await.unwrap();
+        assert_eq!(
+            session.system_folders().await.unwrap(),
+            ["Sent Mail", "Spam"]
+        );
         server.await.unwrap();
     }
 

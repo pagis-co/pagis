@@ -768,6 +768,9 @@ CREATE TABLE workspace_mailboxes (
     workspace_id TEXT COLLATE "C" PRIMARY KEY REFERENCES workspaces (id),
     connection_id TEXT COLLATE "C" NOT NULL,
     address TEXT COLLATE "C" NOT NULL UNIQUE,
+    outgoing_cap BIGINT NOT NULL DEFAULT 20,
+    sends_today BIGINT NOT NULL DEFAULT 0,
+    send_day BIGINT NOT NULL DEFAULT 0,
     created_at BIGINT NOT NULL
 );
 CREATE FUNCTION reserve_mail_address() RETURNS trigger AS $$

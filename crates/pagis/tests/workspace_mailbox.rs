@@ -189,3 +189,236 @@ async fn workspace_mailbox_folders_list_inbox() {
             .contains(&json!("INBOX"))
     );
 }
+
+#[tokio::test]
+async fn workspace_mailbox_person_sends_and_organizes_mail() {
+    let app = MailboxApp::with_mailbox().await;
+    let response = app
+        .client
+        .post(format!(
+            "{}/api/v1/workspace/mail/messages",
+            app.daemon.base_url
+        ))
+        .header("cookie", app.daemon.cookie())
+        .json(&json!({"to":["recipient@example.com"],"subject":"Hello","body":"Hello"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 201);
+    assert_eq!(app.transport.sent()[0].to, ["recipient@example.com"]);
+    let sent = app.get("/api/v1/workspace/mail/messages?folder=Sent").await;
+    assert_eq!(sent["items"][0]["subject"], "Hello");
+    for (method, path, body, status) in [
+        (
+            reqwest::Method::POST,
+            "/folders",
+            json!({"name":"Invoices"}),
+            204,
+        ),
+        (
+            reqwest::Method::PATCH,
+            "/folders/Invoices",
+            json!({"name":"Paid"}),
+            204,
+        ),
+        (reqwest::Method::DELETE, "/folders/Paid", json!({}), 204),
+        (reqwest::Method::DELETE, "/folders/INBOX", json!({}), 422),
+    ] {
+        let response = app
+            .client
+            .request(
+                method,
+                format!("{}/api/v1/workspace/mail{path}", app.daemon.base_url),
+            )
+            .header("cookie", app.daemon.cookie())
+            .json(&body)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), status);
+    }
+}
+
+impl MailboxApp {
+    async fn mail_request(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        body: Value,
+        status: u16,
+    ) -> Value {
+        let response = self
+            .client
+            .request(
+                method,
+                format!("{}/api/v1/workspace/mail{path}", self.daemon.base_url),
+            )
+            .header("cookie", self.daemon.cookie())
+            .json(&body)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), status, "{path}");
+        if status == 204 {
+            Value::Null
+        } else {
+            response.json().await.unwrap()
+        }
+    }
+}
+
+#[tokio::test]
+async fn workspace_mailbox_attachments_replies_forward_move_and_labels() {
+    let app = MailboxApp::with_mailbox().await;
+    let response = app
+        .client
+        .post(format!("{}/api/v1/files", app.daemon.base_url))
+        .header("cookie", app.daemon.cookie())
+        .multipart(
+            reqwest::multipart::Form::new().part(
+                "file",
+                reqwest::multipart::Part::bytes(b"invoice".to_vec())
+                    .file_name("invoice.txt")
+                    .mime_str("text/plain")
+                    .unwrap(),
+            ),
+        )
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 201);
+    let file: Value = response.json().await.unwrap();
+    app.mail_request(reqwest::Method::POST, "/messages", json!({"to":["recipient@example.com"],"subject":"Invoice","body":"Please read","files":[file["id"]]}), 201).await;
+    assert_eq!(app.transport.sent()[0].attachments[0].data, b"invoice");
+    let received = app.transport.received("recipient@example.com");
+    assert_eq!(received.len(), 1);
+    assert_eq!(received[0].text.trim(), "Please read");
+    assert_eq!(received[0].attachments[0].name, "invoice.txt");
+    assert_eq!(
+        app.transport.sent()[0].attachments[0].content_type,
+        "text/plain"
+    );
+    let sent = app.get("/api/v1/workspace/mail/messages?folder=Sent").await;
+    let sent_id = sent["items"][0]["id"].as_str().unwrap();
+    let opened = app
+        .get(&format!("/api/v1/workspace/mail/messages/{sent_id}"))
+        .await;
+    assert_eq!(opened["attachments"][0]["name"], "invoice.txt");
+    app.transport.deliver_raw(b"Message-ID: <original@example.com>\r\nReferences: <root@example.com>\r\nFrom: Sender <sender@example.com>\r\nTo: Person <PERSON@example.com>, Other <other@example.com>\r\nCc: copy@example.com\r\nSubject: Question\r\n\r\nHello\r\n");
+    let id = app.transport.summaries("INBOX")[0].id.to_string();
+    for action in ["reply", "reply-all"] {
+        let prefill = app
+            .get(&format!(
+                "/api/v1/workspace/mail/messages/{id}/composer?action={action}"
+            ))
+            .await;
+        assert_eq!(prefill["to"][0], "sender@example.com");
+        if action == "reply-all" {
+            assert_eq!(
+                prefill["to"],
+                json!(["sender@example.com", "other@example.com"])
+            );
+            assert_eq!(prefill["cc"], json!(["copy@example.com"]));
+        }
+        app.mail_request(reqwest::Method::POST, &format!("/messages/{id}/{action}"), json!({"to":prefill["to"],"cc":prefill["cc"],"subject":prefill["subject"],"body":"Answer"}), 201).await;
+        let sent = app.transport.sent();
+        let reply = sent.last().unwrap();
+        assert_eq!(reply.in_reply_to.as_deref(), Some("<original@example.com>"));
+        assert_eq!(
+            reply.references,
+            ["<root@example.com>", "<original@example.com>"]
+        );
+    }
+    app.mail_request(reqwest::Method::POST, &format!("/messages/{sent_id}/forward"), json!({"to":["forward@example.com"],"subject":"Fwd: Invoice","body":"Please read\n\n> Please read"}), 201).await;
+    let sent = app.transport.sent();
+    assert_eq!(sent.last().unwrap().attachments[0].data, b"invoice");
+    assert!(sent.last().unwrap().in_reply_to.is_none());
+    app.mail_request(
+        reqwest::Method::POST,
+        "/folders",
+        json!({"name":"Invoices"}),
+        204,
+    )
+    .await;
+    app.mail_request(
+        reqwest::Method::PATCH,
+        "/folders/Invoices",
+        json!({"name":"Paid"}),
+        204,
+    )
+    .await;
+    app.mail_request(
+        reqwest::Method::POST,
+        &format!("/messages/{id}/labels"),
+        json!({"name":"finance"}),
+        204,
+    )
+    .await;
+    assert_eq!(
+        app.get(&format!("/api/v1/workspace/mail/messages/{id}"))
+            .await["labels"],
+        json!(["finance"])
+    );
+    app.mail_request(
+        reqwest::Method::DELETE,
+        &format!("/messages/{id}/labels/finance"),
+        json!({}),
+        204,
+    )
+    .await;
+    assert_eq!(
+        app.get(&format!("/api/v1/workspace/mail/messages/{id}"))
+            .await["labels"],
+        json!([])
+    );
+    app.mail_request(
+        reqwest::Method::POST,
+        &format!("/messages/{id}/move"),
+        json!({"name":"Paid"}),
+        204,
+    )
+    .await;
+    assert_eq!(
+        app.get("/api/v1/workspace/mail/messages?folder=Paid").await["items"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    for name in ["INBOX", "Sent", "Drafts", "Junk", "Trash"] {
+        app.mail_request(
+            reqwest::Method::DELETE,
+            &format!("/folders/{name}"),
+            json!({}),
+            422,
+        )
+        .await;
+        app.mail_request(
+            reqwest::Method::PATCH,
+            &format!("/folders/{name}"),
+            json!({"name":"Other"}),
+            422,
+        )
+        .await;
+    }
+    app.mail_request(reqwest::Method::DELETE, "/folders/Paid", json!({}), 204)
+        .await;
+    let response = app
+        .client
+        .get(format!(
+            "{}/api/v1/workspace/mail/messages/{sent_id}/attachments/0",
+            app.daemon.base_url
+        ))
+        .header("cookie", app.daemon.cookie())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.headers()["x-content-type-options"], "nosniff");
+    assert!(
+        response.headers()["content-security-policy"]
+            .to_str()
+            .unwrap()
+            .contains("sandbox")
+    );
+    assert_eq!(response.bytes().await.unwrap(), b"invoice".as_slice());
+}

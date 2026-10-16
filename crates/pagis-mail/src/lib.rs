@@ -118,8 +118,8 @@ pub use tools::{
 };
 pub use transport::{
     ARCHIVE, Attachment, Cursor, Endpoint, FlagChange, FolderState, INBOX, IdleOutcome, MailQuery,
-    MailSession, MailTransport, MailboxCredential, Message, MessageSummary, OutgoingMessage,
-    SentMessage, TransportError, TransportErrorCode,
+    MailSession, MailTransport, MailboxCredential, Message, MessageSummary, OutgoingAttachment,
+    OutgoingMessage, SentMessage, TransportError, TransportErrorCode,
 };
 pub use trigger::{DeferredStandingRule, StandingMailRules, TriggerIngest};
 

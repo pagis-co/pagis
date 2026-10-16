@@ -1,4 +1,4 @@
-//! The read store of one Workspace Mailbox, independent of HTTP.
+//! The store of one Workspace Mailbox, independent of HTTP.
 use crate::{
     FlagChange, ImapMessageId, MailQuery, MailSession, Message, MessageId, MessageSummary, Page,
     PageRequest, TransportError, TransportErrorCode,
@@ -29,9 +29,33 @@ pub struct WorkspaceMailMessage {
     pub labels: Vec<String>,
 }
 
-/// One open Workspace Mailbox. The store has no send operation.
+/// The write operations of a Workspace Mailbox.
 #[async_trait]
-pub trait WorkspaceMailStore: Send {
+pub trait WorkspaceMailWriter: Send {
+    async fn send(
+        &mut self,
+        message: &crate::OutgoingMessage,
+    ) -> Result<crate::SentMessage, TransportError>;
+    async fn create_folder(&mut self, name: &str) -> Result<(), TransportError>;
+    async fn rename_folder(&mut self, name: &str, new_name: &str) -> Result<(), TransportError>;
+    async fn delete_folder(&mut self, name: &str) -> Result<(), TransportError>;
+    async fn move_message(&mut self, id: &MessageId, folder: &str) -> Result<(), TransportError>;
+    async fn set_label(
+        &mut self,
+        id: &MessageId,
+        label: &str,
+        apply: bool,
+    ) -> Result<(), TransportError>;
+}
+
+/// The read operations and session lifetime of a Workspace Mailbox.
+#[async_trait]
+pub trait WorkspaceMailReader: Send {
+    async fn attachment(
+        &mut self,
+        id: &MessageId,
+        index: usize,
+    ) -> Result<crate::OutgoingAttachment, TransportError>;
     async fn folders(&mut self) -> Result<Vec<String>, TransportError>;
     /// Newest first. An empty folder reads all folders. Search covers
     /// the sender, subject and body.
@@ -48,12 +72,40 @@ pub trait WorkspaceMailStore: Send {
     async fn close(&mut self) -> Result<(), TransportError>;
 }
 
+/// One open store exposes both interfaces to the Product API.
+pub trait WorkspaceMailStore: WorkspaceMailReader + WorkspaceMailWriter {}
+impl<T: WorkspaceMailReader + WorkspaceMailWriter> WorkspaceMailStore for T {}
+
 pub struct ImapWorkspaceMailStore {
     session: Box<dyn MailSession>,
 }
 impl ImapWorkspaceMailStore {
     pub fn new(session: Box<dyn MailSession>) -> Self {
         Self { session }
+    }
+    async fn mutable_folder(&mut self, name: &str) -> Result<(), TransportError> {
+        valid_folder(name)?;
+        if [
+            "INBOX",
+            "Sent",
+            "Sent Messages",
+            "Sent Items",
+            "Drafts",
+            "Junk",
+            "Trash",
+        ]
+        .iter()
+        .any(|s| name.eq_ignore_ascii_case(s))
+            || self
+                .session
+                .system_folders()
+                .await?
+                .iter()
+                .any(|s| name.eq_ignore_ascii_case(s))
+        {
+            return Err(TransportError(TransportErrorCode::InvalidRequest));
+        }
+        Ok(())
     }
     async fn with_metadata(
         &mut self,
@@ -68,7 +120,56 @@ impl ImapWorkspaceMailStore {
     }
 }
 #[async_trait]
-impl WorkspaceMailStore for ImapWorkspaceMailStore {
+impl WorkspaceMailWriter for ImapWorkspaceMailStore {
+    async fn send(
+        &mut self,
+        message: &crate::OutgoingMessage,
+    ) -> Result<crate::SentMessage, TransportError> {
+        self.session.send(message).await
+    }
+    async fn create_folder(&mut self, name: &str) -> Result<(), TransportError> {
+        valid_folder(name)?;
+        self.session.create_folder(name).await
+    }
+    async fn rename_folder(&mut self, name: &str, new_name: &str) -> Result<(), TransportError> {
+        self.mutable_folder(name).await?;
+        self.mutable_folder(new_name).await?;
+        self.session.rename_folder(name, new_name).await
+    }
+    async fn delete_folder(&mut self, name: &str) -> Result<(), TransportError> {
+        self.mutable_folder(name).await?;
+        self.session.delete_folder(name).await
+    }
+    async fn move_message(&mut self, id: &MessageId, folder: &str) -> Result<(), TransportError> {
+        valid_folder(folder)?;
+        self.session.move_message(id, folder).await
+    }
+    async fn set_label(
+        &mut self,
+        id: &MessageId,
+        label: &str,
+        apply: bool,
+    ) -> Result<(), TransportError> {
+        if label.is_empty()
+            || !label
+                .bytes()
+                .all(|b| b.is_ascii_graphic() && !b"(){%*\"\\]".contains(&b))
+        {
+            return Err(TransportError(TransportErrorCode::InvalidRequest));
+        }
+        self.session.set_label(id, label, apply).await
+    }
+}
+
+#[async_trait]
+impl WorkspaceMailReader for ImapWorkspaceMailStore {
+    async fn attachment(
+        &mut self,
+        id: &MessageId,
+        index: usize,
+    ) -> Result<crate::OutgoingAttachment, TransportError> {
+        self.session.attachment(id, index).await
+    }
     async fn folders(&mut self) -> Result<Vec<String>, TransportError> {
         self.session.folders().await
     }
@@ -159,11 +260,17 @@ impl WorkspaceMailStore for ImapWorkspaceMailStore {
         self.with_metadata(message).await
     }
     async fn thread(&mut self, id: &str) -> Result<Vec<WorkspaceMailMessage>, TransportError> {
+        // Mail sent to the own address is in INBOX and in Sent with one
+        // Message-ID. The thread shows each Message-ID once.
         let mut messages = Vec::new();
+        let mut seen = std::collections::BTreeSet::new();
         for folder in self.session.folders().await? {
             self.session.select(&folder).await?;
             for message in self.session.fetch_thread(id).await? {
-                messages.push(self.with_metadata(message).await?);
+                let message_id = message.summary.message_id.clone();
+                if message_id.is_empty() || seen.insert(message_id) {
+                    messages.push(self.with_metadata(message).await?);
+                }
             }
         }
         messages.sort_by_key(|m| m.message.summary.date);
@@ -191,4 +298,87 @@ fn uid(id: &MessageId) -> u32 {
         .parse::<ImapMessageId>()
         .map(|id| id.uid)
         .unwrap_or(0)
+}
+
+fn valid_folder(name: &str) -> Result<(), TransportError> {
+    if name.trim().is_empty() || name.chars().any(char::is_control) {
+        return Err(TransportError(TransportErrorCode::InvalidRequest));
+    }
+    Ok(())
+}
+
+/// Reply to the sender, or to all visible recipients except this mailbox.
+pub fn reply_message(original: &Message, own: &str, all: bool) -> crate::OutgoingMessage {
+    use mail_parser::MessageParser;
+    let raw = original
+        .headers
+        .iter()
+        .map(|(k, v)| format!("{k}: {v}\r\n"))
+        .collect::<String>()
+        + "\r\n";
+    let parsed = MessageParser::default().parse(raw.as_bytes());
+    let mut recipients = vec![original.summary.from.clone()];
+    if all || original.summary.from.eq_ignore_ascii_case(own) {
+        recipients.extend(original.summary.to.clone());
+    }
+    let mut cc = Vec::new();
+    if all && let Some(addresses) = parsed.as_ref().and_then(|m| m.cc()) {
+        cc.extend(
+            addresses
+                .iter()
+                .filter_map(|a| a.address.as_ref().map(ToString::to_string)),
+        );
+    }
+    let mut seen = std::collections::HashSet::from([own.to_lowercase()]);
+    recipients.retain(|a| seen.insert(a.to_lowercase()));
+    cc.retain(|a| seen.insert(a.to_lowercase()));
+    let mut references = parsed
+        .as_ref()
+        .and_then(|m| m.references().as_text_list())
+        .map(|r| r.iter().map(|id| format!("<{id}>")).collect::<Vec<_>>())
+        .unwrap_or_default();
+    if !original.summary.message_id.is_empty()
+        && references.last() != Some(&original.summary.message_id)
+    {
+        references.push(original.summary.message_id.clone());
+    }
+    crate::OutgoingMessage {
+        to: recipients,
+        cc,
+        subject: prefixed("Re:", &original.summary.subject),
+        body: quoted_text(original),
+        references,
+        in_reply_to: (!original.summary.message_id.is_empty())
+            .then(|| original.summary.message_id.clone()),
+        ..Default::default()
+    }
+}
+
+/// Forward starts a new thread and quotes the original text.
+pub fn forward_message(original: &Message) -> crate::OutgoingMessage {
+    crate::OutgoingMessage {
+        subject: prefixed("Fwd:", &original.summary.subject),
+        body: quoted_text(original),
+        ..Default::default()
+    }
+}
+fn prefixed(prefix: &str, subject: &str) -> String {
+    if subject.to_lowercase().starts_with(&prefix.to_lowercase()) {
+        subject.into()
+    } else {
+        format!("{prefix} {subject}")
+    }
+}
+fn quoted_text(original: &Message) -> String {
+    format!(
+        "\n\nFrom: {}\nSubject: {}\n{}",
+        original.summary.from,
+        original.summary.subject,
+        original
+            .text
+            .lines()
+            .map(|line| format!("> {line}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    )
 }

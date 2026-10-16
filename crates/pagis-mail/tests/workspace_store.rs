@@ -2,7 +2,7 @@
 use pagis_mail::fake::FakeMailTransport;
 use pagis_mail::{
     Endpoint, FlagChange, ImapWorkspaceMailStore, MailTransport, MailboxCredential, PageRequest,
-    WorkspaceMailStore,
+    WorkspaceMailReader, WorkspaceMailStore, WorkspaceMailWriter,
 };
 
 /// The fixture holds two messages in one thread in INBOX.
@@ -185,4 +185,171 @@ async fn text_search_matches_headers_and_body_in_the_fake_transport() {
             .unwrap();
         assert_eq!(found.len(), 1, "TEXT matches {text}");
     }
+}
+
+#[tokio::test]
+async fn workspace_mail_store_writes_and_organizes() {
+    let transport = FakeMailTransport::default();
+    let credential = MailboxCredential::new(
+        "person@example.test",
+        "pw",
+        Endpoint::new("imap.test", 993),
+        Endpoint::new("smtp.test", 465),
+    );
+    let mut store = ImapWorkspaceMailStore::new(transport.login(&credential).await.unwrap());
+    write_conformance(&mut store, credential.address(), "recipient@example.test").await;
+    assert_eq!(transport.sent()[0].attachments[0].data, b"invoice");
+    assert_eq!(
+        transport.received("recipient@example.test")[0].attachments[0].name,
+        "invoice.txt"
+    );
+}
+
+/// Each store sends, reads attachments and changes folders and labels.
+pub async fn write_conformance(store: &mut dyn WorkspaceMailStore, own: &str, recipient: &str) {
+    use pagis_mail::{MessageId, OutgoingAttachment, OutgoingMessage};
+    let attachment = OutgoingAttachment {
+        name: "invoice.txt".into(),
+        content_type: "text/plain".into(),
+        data: b"invoice".to_vec(),
+    };
+    store
+        .send(&OutgoingMessage {
+            to: vec![recipient.into()],
+            subject: "Compose attachment".into(),
+            body: "Please read".into(),
+            attachments: vec![attachment.clone()],
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let sent = store
+        .messages("Sent", "Compose attachment", &PageRequest::new(None, 20))
+        .await
+        .unwrap();
+    assert_eq!(sent.items.len(), 1);
+    let id = sent.items[0].summary.id.clone();
+    assert_eq!(store.attachment(&id, 0).await.unwrap(), attachment);
+    let original = store.message(&id).await.unwrap().message;
+    let reply = pagis_mail::reply_message(&original, own, true);
+    assert_eq!(reply.to, [recipient]);
+    assert_eq!(reply.in_reply_to, Some(original.summary.message_id.clone()));
+    assert_eq!(reply.references.last(), Some(&original.summary.message_id));
+    store.send(&reply).await.unwrap();
+    assert_eq!(
+        store
+            .thread(&original.summary.thread_id)
+            .await
+            .unwrap()
+            .len(),
+        2
+    );
+    store.create_folder("Invoices").await.unwrap();
+    store.rename_folder("Invoices", "Paid").await.unwrap();
+    store.set_label(&id, "finance", true).await.unwrap();
+    assert_eq!(store.message(&id).await.unwrap().labels, ["finance"]);
+    store.set_label(&id, "finance", false).await.unwrap();
+    assert!(store.message(&id).await.unwrap().labels.is_empty());
+    assert!(store.set_label(&id, "\\Seen", true).await.is_err());
+    store.move_message(&id, "Paid").await.unwrap();
+    assert_eq!(
+        store
+            .messages("Paid", "", &PageRequest::new(None, 20))
+            .await
+            .unwrap()
+            .items
+            .len(),
+        1
+    );
+    assert!(store.message(&id).await.is_err());
+    for system in ["INBOX", "Sent", "Drafts", "Junk", "Trash"] {
+        assert!(store.rename_folder(system, "Other").await.is_err());
+        assert!(store.delete_folder(system).await.is_err());
+    }
+    store.delete_folder("Paid").await.unwrap();
+    assert!(!store.folders().await.unwrap().contains(&"Paid".into()));
+    assert!(store.attachment(&MessageId::new("bad"), 0).await.is_err());
+    store.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn workspace_mail_reply_all_uses_sender_to_cc_and_excludes_own_address() {
+    let transport = FakeMailTransport::default();
+    let id = transport.deliver_raw(b"Message-ID: <last@test>\r\nReferences: <root@test> <middle@test>\r\nFrom: Sender <sender@test>\r\nTo: Person <PERSON@test>, Other <other@test>\r\nCc: Copy <copy@test>, sender@test\r\nSubject: Re: Hello\r\n\r\nHello\r\n");
+    let credential = MailboxCredential::new(
+        "person@test",
+        "pw",
+        Endpoint::new("imap.test", 993),
+        Endpoint::new("smtp.test", 465),
+    );
+    let mut store = ImapWorkspaceMailStore::new(transport.login(&credential).await.unwrap());
+    let original = store.message(&id).await.unwrap().message;
+    let reply = pagis_mail::reply_message(&original, "person@test", true);
+    assert_eq!(reply.to, ["sender@test", "other@test"]);
+    assert_eq!(reply.cc, ["copy@test"]);
+    assert_eq!(
+        reply.references,
+        ["<root@test>", "<middle@test>", "<last@test>"]
+    );
+    store.send(&reply).await.unwrap();
+    let thread = store.thread("<root@test>").await.unwrap();
+    assert_eq!(thread.len(), 2);
+    let forwarded = pagis_mail::forward_message(&original);
+    assert!(forwarded.in_reply_to.is_none());
+    assert!(forwarded.body.contains("> Hello"));
+}
+
+#[tokio::test]
+async fn workspace_mail_store_protects_host_system_folders_and_rejects_bad_names() {
+    let transport = FakeMailTransport::default();
+    let credential = MailboxCredential::new(
+        "person@test",
+        "pw",
+        Endpoint::new("imap.test", 993),
+        Endpoint::new("smtp.test", 465),
+    );
+    let mut store = ImapWorkspaceMailStore::new(transport.login(&credential).await.unwrap());
+    assert!(store.rename_folder("Archive", "Other").await.is_err());
+    assert!(store.delete_folder("Archive").await.is_err());
+    for name in ["", "  ", "folder\r\nDELETE INBOX"] {
+        assert!(store.create_folder(name).await.is_err());
+    }
+}
+
+#[tokio::test]
+async fn a_thread_shows_mail_sent_to_the_own_address_once() {
+    let transport = FakeMailTransport::default();
+    let credential = MailboxCredential::new(
+        "person@example.test",
+        "pw",
+        Endpoint::new("imap.test", 993),
+        Endpoint::new("smtp.test", 465),
+    );
+    let mut store = ImapWorkspaceMailStore::new(transport.login(&credential).await.unwrap());
+    let sent = store
+        .send(&pagis_mail::OutgoingMessage {
+            to: vec![credential.address().to_string()],
+            subject: "Note".into(),
+            body: "note to self".into(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    // The host delivers the same message to INBOX and keeps the copy in Sent.
+    let inbox_copy = transport.deliver_raw(
+        format!(
+            "Message-ID: {}\r\nFrom: person@example.test\r\nTo: person@example.test\r\n\
+             Subject: Note\r\nDate: Thu, 1 Jan 2026 00:00:00 +0000\r\n\r\nnote to self\r\n",
+            sent.message_id
+        )
+        .as_bytes(),
+    );
+    let thread_id = store
+        .message(&inbox_copy)
+        .await
+        .unwrap()
+        .message
+        .summary
+        .thread_id;
+    assert_eq!(store.thread(&thread_id).await.unwrap().len(), 1);
 }

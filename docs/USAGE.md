@@ -559,5 +559,22 @@ Each Workspace has at most one Workspace Mailbox.
 
 Open **Mail > All mail** to read your mail. Select a folder or enter text
 in **Search mail**. Open a message to read its thread. The displayed mail
-is marked as seen. **Needs you** has no items. Send and Agent triage are
-not built.
+is marked as seen. **Needs you** has no items.
+
+Select **Compose**. Enter To, Cc or Bcc addresses separated by commas.
+Enter a subject and a plain text body. Use **Attach Files** to upload
+attachments. Select **Send**. Your own send needs no Approval. The
+Outgoing Cap limits daily sends. Sent mail appears in **Sent**.
+
+Open a message and select **Reply**, **Reply all** or **Forward**. Check
+and edit the recipients and body, then select **Send**. Reply all excludes
+your mailbox address. Forward includes the original attachments. Select
+an attachment name to download it.
+
+Open **Manage folders** in All mail. Enter a name and select **Create
+folder**. Use **Rename** or **Delete** beside a folder. Confirm a delete;
+it removes the folder and its mail. System folders cannot be renamed or
+deleted. On a message, select **Move to folder**, then **Move**. Enter a
+label and select **Apply label**. Select **Remove label** to remove it.
+
+Not built: Agent triage, Junk handling and saved drafts.

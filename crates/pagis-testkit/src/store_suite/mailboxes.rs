@@ -449,11 +449,19 @@ pub async fn workspace_mailbox_record_and_ledger(backend: &Backend) {
         workspace_id: ws.id.clone(),
         connection_id: ConnectionId::generate(),
         address: "person@example.com".into(),
+        outgoing_cap: 20,
         created_at: now_ms(),
     };
     assert!(store.get(&ws.id).await.unwrap().is_none());
     store.create(&record).await.unwrap();
     assert_eq!(store.get(&ws.id).await.unwrap(), Some(record.clone()));
+    for _ in 0..20 {
+        assert!(store.reserve_send(&ws.id, 1).await.unwrap());
+    }
+    assert!(!store.reserve_send(&ws.id, 1).await.unwrap());
+    store.release_send(&ws.id, 1).await.unwrap();
+    assert!(store.reserve_send(&ws.id, 1).await.unwrap());
+    assert!(store.reserve_send(&ws.id, 2).await.unwrap());
     let other = backend.seeded_workspace().await;
     assert!(store.get(&other.id).await.unwrap().is_none());
     let second = pagis_core::WorkspaceMailbox {

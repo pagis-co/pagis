@@ -14,11 +14,14 @@ import {
 import { useCurrentWorkspaceId } from '../../workspace'
 import { MessageList } from './MessageList'
 import { MailThread } from './MailThread'
+import { Composer } from './Composer'
+import { FolderManager } from './FolderManager'
 
 import './mail.css'
 
 export function Mail({ api }: { api: ApiClient }) {
   const mailbox = useWorkspaceMailbox(api)
+  const [composing, setComposing] = useState(false)
   const [view, setView] = useState<'needs-you' | 'all'>('needs-you')
 
   return (
@@ -41,6 +44,7 @@ export function Mail({ api }: { api: ApiClient }) {
       ) : (
         <>
           <nav className="mail-views" aria-label="Mail views">
+            <Button onClick={() => setComposing(true)}>Compose</Button>
             <Button
               aria-pressed={view === 'needs-you'}
               onClick={() => setView('needs-you')}
@@ -54,6 +58,9 @@ export function Mail({ api }: { api: ApiClient }) {
               All mail
             </Button>
           </nav>
+          {composing && (
+            <Composer api={api} onClose={() => setComposing(false)} />
+          )}
           {view === 'needs-you' ? (
             <p className="mail-empty">No mail needs you.</p>
           ) : (
@@ -115,6 +122,7 @@ function AllMail({ api }: { api: ApiClient }) {
           ]}
         />
       </div>
+      <FolderManager api={api} folders={folders.data?.items ?? []} />
       {folders.isError && <p role="alert">Could not load mail folders.</p>}
       <div className={`mail-panes${messageId ? ' mail-panes-open' : ''}`}>
         {(!phone || messageId === null) && (
