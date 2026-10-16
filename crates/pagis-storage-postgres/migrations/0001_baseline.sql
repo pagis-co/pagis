@@ -23,6 +23,7 @@
 --     every index over the column inherits it.
 
 CREATE TABLE workspaces (
+    legal_hold TEXT COLLATE "C",
     kind TEXT COLLATE "C" NOT NULL DEFAULT 'private' CHECK (kind IN ('private', 'shared')),
     id TEXT COLLATE "C" PRIMARY KEY,
     name TEXT COLLATE "C" NOT NULL,
@@ -1726,3 +1727,15 @@ CREATE TABLE mail_assessments (
     assessment TEXT COLLATE "C" NOT NULL,
     PRIMARY KEY (workspace_id, mailbox, message_id)
 );
+
+-- The Audit Log belongs to the Org Workspace.
+CREATE TABLE audit_entries (
+    id TEXT COLLATE "C" PRIMARY KEY,
+    org_workspace_id TEXT COLLATE "C" NOT NULL REFERENCES orgs (workspace_id),
+    actor TEXT COLLATE "C" NOT NULL,
+    action TEXT COLLATE "C" NOT NULL,
+    subject_workspace_id TEXT COLLATE "C" NOT NULL REFERENCES workspaces (id),
+    reason TEXT COLLATE "C",
+    at BIGINT NOT NULL
+);
+CREATE INDEX idx_audit_entries_org_at ON audit_entries (org_workspace_id, at DESC, id DESC);

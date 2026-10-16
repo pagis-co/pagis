@@ -345,6 +345,7 @@ async fn member(pool: &sqlx::SqlitePool) -> pagis_core::User {
         .expect("create the person");
     let workspace = pagis_core::Workspace {
         kind: pagis_core::WorkspaceKind::Private,
+        legal_hold: None,
         monthly_spend_cap_usd: None,
         id: pagis_core::WorkspaceId::generate(),
         user_id: Some(person.id.clone()),

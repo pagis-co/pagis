@@ -19,6 +19,8 @@ pub const MEMORY_INDEX_FILE: &str = "MEMORY.md";
 
 #[derive(Debug, thiserror::Error)]
 pub enum MemoryError {
+    #[error("{}", crate::LegalHold::MESSAGE)]
+    LegalHold,
     /// The path or content breaks a guardrail; the message goes back to
     /// the model as the tool result.
     #[error("{0}")]

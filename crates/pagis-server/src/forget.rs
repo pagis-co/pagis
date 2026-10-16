@@ -31,6 +31,7 @@ fn storage(error: StoreError) -> ApiError {
 }
 fn memory(error: MemoryError) -> ApiError {
     match error {
+        MemoryError::LegalHold => ApiError::conflict(pagis_core::LegalHold::MESSAGE),
         MemoryError::Conflict => ApiError::conflict("forget preview changed; review it again"),
         _ => ApiError::internal(),
     }
@@ -55,6 +56,7 @@ pub async fn confirm(
     tenant: Tenant,
     Json(request): Json<ConfirmForget>,
 ) -> Result<(StatusCode, Json<ForgetOperation>), ApiError> {
+    state.workspaces.refuse_delete(&tenant.workspace_id).await?;
     let operation = state
         .memory
         .begin_forget(
@@ -108,6 +110,7 @@ pub async fn retry(
     tenant: Tenant,
     Path(id): Path<String>,
 ) -> Result<(StatusCode, Json<ForgetOperation>), ApiError> {
+    state.workspaces.refuse_delete(&tenant.workspace_id).await?;
     state
         .forget
         .retry(&tenant.workspace_id, &id)
@@ -131,12 +134,14 @@ pub async fn reopt(
     Ok(Json(operation(&state, &tenant.workspace_id, &id).await?))
 }
 struct PurgeState {
+    workspaces: Arc<dyn pagis_core::WorkspaceStore>,
     workspace_id: pagis_core::WorkspaceId,
     forget: Arc<dyn pagis_core::ForgetStore>,
     memory: Arc<dyn pagis_core::MemoryStore>,
 }
 pub(crate) fn spawn(state: &AppState, workspace_id: &WorkspaceId, operation: ForgetOperation) {
     let state = PurgeState {
+        workspaces: state.workspaces.clone(),
         workspace_id: workspace_id.clone(),
         forget: Arc::clone(&state.forget),
         memory: Arc::clone(&state.memory),
@@ -158,6 +163,7 @@ pub(crate) fn spawn(state: &AppState, workspace_id: &WorkspaceId, operation: For
 }
 async fn process(state: &PurgeState, operation: &ForgetOperation) -> Result<(), StoreError> {
     let workspace = &state.workspace_id;
+    state.workspaces.refuse_delete(workspace).await?;
     let id = &operation.id;
     if matches!(
         operation.phase,
@@ -182,6 +188,9 @@ async fn process(state: &PurgeState, operation: &ForgetOperation) -> Result<(), 
 /// The tenant comes off each row, so one pass covers every person.
 pub async fn resume(state: &AppState) -> Result<(), StoreError> {
     for workspace in state.workspaces.list().await? {
+        if workspace.legal_hold.is_some() {
+            continue;
+        }
         for operation in state.forget.unfinished(&workspace.id).await? {
             spawn(state, &workspace.id, operation);
         }

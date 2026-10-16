@@ -96,6 +96,9 @@ a Member, as it does for a Run that does not exist.
 
 ### A capture expires
 
+A Legal Hold takes precedence over expiry, capture-off deletion and Forget.
+These operations keep held captures until the hold ends (ADR-0044).
+
 - The daily retention sweep deletes each capture older than its retention.
 - When an Administrator turns the setting off, the daemon deletes every
   capture.

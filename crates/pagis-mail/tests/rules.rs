@@ -52,6 +52,7 @@ impl World {
                 chief_of_staff_agent_id: None,
                 report_schedule_id: None,
                 home_exit_host_id: None,
+                legal_hold: None,
                 monthly_spend_cap_usd: None,
             })
             .await
@@ -120,6 +121,7 @@ impl World {
                     stores.connections.clone(),
                 )),
             }),
+            workspaces: stores.workspaces.clone(),
             workspace_mailboxes: stores.workspace_mailboxes.clone(),
             mailboxes: stores.agent_mailboxes.clone(),
             connections: stores.connections.clone(),

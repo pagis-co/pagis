@@ -389,6 +389,7 @@ pub async fn delete_mailbox(
     Path(agent_id): Path<String>,
     Json(request): Json<DeleteMailboxRequest>,
 ) -> Result<Json<DeletedMailboxDto>, ApiError> {
+    state.workspaces.refuse_delete(&tenant.workspace_id).await?;
     let agent = agent_of(&state, &tenant, &AgentId::from(agent_id)).await?;
     let mailbox = held_mailbox(&state, &tenant, &agent.id).await?;
     let deleted = state

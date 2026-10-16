@@ -77,19 +77,41 @@ impl ModelRequestCaptureStore for PostgresModelRequestCaptureStore {
     }
 
     async fn delete_before(&self, cutoff: UnixMillis) -> Result<u64, StoreError> {
-        let done = sqlx::query("DELETE FROM model_request_captures WHERE created_at < $1")
-            .bind(cutoff)
-            .execute(&self.pool)
-            .await
-            .map_err(db_err)?;
-        Ok(done.rows_affected())
+        self.delete_unheld(Some(cutoff)).await
     }
-
     async fn delete_all(&self) -> Result<u64, StoreError> {
-        let done = sqlx::query("DELETE FROM model_request_captures")
-            .execute(&self.pool)
+        self.delete_unheld(None).await
+    }
+}
+
+impl PostgresModelRequestCaptureStore {
+    async fn delete_unheld(&self, cutoff: Option<UnixMillis>) -> Result<u64, StoreError> {
+        let workspaces: Vec<String> =
+            sqlx::query_scalar("SELECT DISTINCT workspace_id FROM model_request_captures")
+                .fetch_all(&self.pool)
+                .await
+                .map_err(db_err)?;
+        let mut deleted = 0;
+        for workspace in workspaces {
+            let workspace = WorkspaceId::from(workspace);
+            let _hold = pagis_core::LegalHold::lock(&workspace).await;
+            let mut tx = self.pool.begin().await.map_err(db_err)?;
+            match crate::audit_log::refuse_delete(&mut tx, &workspace).await {
+                Ok(()) => {}
+                Err(StoreError::LegalHold) => continue,
+                Err(error) => return Err(error),
+            }
+            deleted += sqlx::query(
+                "DELETE FROM model_request_captures WHERE workspace_id=$1 AND created_at<$2",
+            )
+            .bind(workspace.as_str())
+            .bind(cutoff.unwrap_or(i64::MAX))
+            .execute(&mut *tx)
             .await
-            .map_err(db_err)?;
-        Ok(done.rows_affected())
+            .map_err(db_err)?
+            .rows_affected();
+            tx.commit().await.map_err(db_err)?;
+        }
+        Ok(deleted)
     }
 }

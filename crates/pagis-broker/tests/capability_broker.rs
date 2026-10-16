@@ -26,6 +26,7 @@ async fn workspace(pool: &SqlitePool) -> Workspace {
             .unwrap();
     Workspace {
         kind: pagis_core::WorkspaceKind::Private,
+        legal_hold: None,
         monthly_spend_cap_usd: None,
         user_id: Some(person.id),
         id: WorkspaceId::generate(),
@@ -179,6 +180,7 @@ impl Harness {
 /// person never reaches another person's records.
 pub async fn second_workspace(harness: &Harness) -> Workspace {
     let workspace = Workspace {
+        legal_hold: None,
         monthly_spend_cap_usd: None,
         id: WorkspaceId::generate(),
         ..harness.workspace.clone()
@@ -2178,6 +2180,7 @@ struct Tenant {
 
 async fn second_tenant(harness: &Harness) -> Tenant {
     let workspace = Workspace {
+        legal_hold: None,
         monthly_spend_cap_usd: None,
         id: WorkspaceId::generate(),
         name: "Second Workspace".to_string(),

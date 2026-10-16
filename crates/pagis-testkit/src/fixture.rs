@@ -21,6 +21,7 @@ pub async fn seeded_workspace(pool: &sqlx::SqlitePool) -> Workspace {
         .await
         .expect("seed the org and its administrator");
     Workspace {
+        legal_hold: None,
         monthly_spend_cap_usd: None,
         user_id: Some(person.id),
         ..workspace()
@@ -32,6 +33,7 @@ pub async fn seeded_workspace(pool: &sqlx::SqlitePool) -> Workspace {
 pub fn workspace() -> Workspace {
     Workspace {
         kind: pagis_core::WorkspaceKind::Private,
+        legal_hold: None,
         monthly_spend_cap_usd: None,
         id: WorkspaceId::generate(),
         user_id: Some(UserId::generate()),

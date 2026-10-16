@@ -93,6 +93,9 @@ pub struct ForgetOperation {
 
 #[async_trait]
 pub trait ForgetStore: Send + Sync {
+    /// The Workspace preservation rule, also used by the memory store.
+    async fn refuse_delete(&self, workspace: &WorkspaceId) -> Result<(), StoreError>;
+
     async fn preview(
         &self,
         workspace: &WorkspaceId,

@@ -2,6 +2,15 @@ use super::*;
 
 #[async_trait::async_trait]
 impl WorkspaceStore for FakeWorkspaceStore {
+    async fn start_legal_hold(&self, entry: &AuditEntry) -> Result<(), StoreError> {
+        let _hold = LegalHold::lock(&entry.subject_workspace_id).await;
+        super::audit::change_hold(&mut self.0.lock().unwrap(), entry, true)
+    }
+    async fn end_legal_hold(&self, entry: &AuditEntry) -> Result<(), StoreError> {
+        let _hold = LegalHold::lock(&entry.subject_workspace_id).await;
+        super::audit::change_hold(&mut self.0.lock().unwrap(), entry, false)
+    }
+
     async fn set_monthly_spend_cap(
         &self,
         id: &WorkspaceId,

@@ -235,6 +235,8 @@ pub async fn delete_workspace_mail(
     tenant: Tenant,
     Path(name): Path<String>,
 ) -> Result<StatusCode, ApiError> {
+    let _hold = pagis_core::LegalHold::lock(&tenant.workspace_id).await;
+    state.workspaces.refuse_delete(&tenant.workspace_id).await?;
     let mut store = open(&state, &tenant).await?;
     let result = store.delete_folder(&name).await;
     let _ = store.close().await;

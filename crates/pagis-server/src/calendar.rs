@@ -60,7 +60,7 @@ pub async fn get_calendar_event(
     ))
 }
 
-#[utoipa::path(put, path = "/api/v1/calendar/events/{event_id}", params(("event_id" = String, Path)), request_body = CalendarEventData, responses((status = 200, body = CalendarEvent), (status = 404)), tag = "calendar")]
+#[utoipa::path(put, path = "/api/v1/calendar/events/{event_id}", params(("event_id" = String, Path)), request_body = CalendarEventData, responses((status = 200, body = CalendarEvent), (status = 404), (status = 409, body = crate::error::ErrorBody)), tag = "calendar")]
 pub async fn update_calendar_event(
     State(state): State<Arc<AppState>>,
     who: Tenant,
@@ -81,12 +81,13 @@ pub async fn update_calendar_event(
     Ok(Json(event))
 }
 
-#[utoipa::path(delete, path = "/api/v1/calendar/events/{event_id}", params(("event_id" = String, Path)), responses((status = 204), (status = 404)), tag = "calendar")]
+#[utoipa::path(delete, path = "/api/v1/calendar/events/{event_id}", params(("event_id" = String, Path)), responses((status = 204), (status = 404), (status = 409, body = crate::error::ErrorBody)), tag = "calendar")]
 pub async fn delete_calendar_event(
     State(state): State<Arc<AppState>>,
     who: Tenant,
     Path(id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
+    state.workspaces.refuse_delete(&who.workspace_id).await?;
     if !state
         .calendar
         .delete(&who.workspace_id, &CalendarEventId::from(id))

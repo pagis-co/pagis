@@ -205,6 +205,7 @@ impl Embedder {
         let skills = Arc::new(NoSkills);
         let clock = Arc::new(TestClock(std::sync::atomic::AtomicI64::new(i64::MIN)));
         let runtime = Arc::new(CoreToolRuntime::new(ToolRuntimeDeps {
+            workspaces: stores.workspaces.clone(),
             agents: stores.agents.clone(),
             channels: stores.channels.clone(),
             messages: stores.messages.clone(),
@@ -305,6 +306,7 @@ impl Embedder {
                     stores.connections.clone(),
                 )),
             }),
+            workspaces: stores.workspaces.clone(),
             workspace_mailboxes: stores.workspace_mailboxes.clone(),
             mailboxes: stores.agent_mailboxes.clone(),
             connections: stores.connections.clone(),
@@ -389,6 +391,7 @@ impl Embedder {
             bus: bus.clone(),
         }));
         let state = AppState {
+            audit: stores.audit.clone(),
             workspace_members: stores.workspace_members.clone(),
             plugins,
             plugin_hosts,
@@ -504,6 +507,7 @@ impl Embedder {
     async fn workspace(stores: &Stores, person: &User) -> WorkspaceId {
         let workspace = Workspace {
             kind: pagis_core::WorkspaceKind::Private,
+            legal_hold: None,
             monthly_spend_cap_usd: None,
             id: WorkspaceId::generate(),
             user_id: Some(person.id.clone()),

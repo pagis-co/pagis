@@ -49,6 +49,7 @@ mod inbound_calls;
 mod installation_providers;
 mod keypad;
 mod knowledge;
+mod legal_hold;
 mod logging;
 mod mail_block;
 mod mail_connections;

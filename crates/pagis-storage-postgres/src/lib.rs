@@ -131,6 +131,7 @@ pub async fn open(url: &str) -> Result<pagis_core::Stores, sqlx::Error> {
 pub fn stores(pool: PgPool) -> pagis_core::Stores {
     pagis_core::Stores {
         mail_assessments: Arc::new(PostgresMailAssessmentStore::new(pool.clone())),
+        audit: Arc::new(PostgresAuditLog::new(pool.clone())),
         workspace_mailboxes: Arc::new(PostgresWorkspaceMailboxStore::new(pool.clone())),
         run_journal: std::sync::Arc::new(PostgresRunJournal::new(pool.clone())),
         agent_mailboxes: Arc::new(PostgresAgentMailboxStore::new(pool.clone())),
@@ -199,3 +200,5 @@ pub use workspace_mailbox_store::PostgresWorkspaceMailboxStore;
 
 mod mail_assessment_store;
 pub use mail_assessment_store::*;
+mod audit_log;
+pub use audit_log::PostgresAuditLog;

@@ -273,6 +273,8 @@ impl MemoryStore for FakeMemoryStore {
         workspace: &WorkspaceId,
         operation: &str,
     ) -> Result<(), MemoryError> {
+        let _hold = crate::LegalHold::lock(workspace).await;
+        self.forget.refuse_delete(workspace).await?;
         if operation.is_empty()
             || !operation
                 .bytes()
@@ -554,6 +556,10 @@ impl MemoryStore for FakeMemoryStore {
         message: &str,
         run: Option<&RunId>,
     ) -> Result<String, MemoryError> {
+        let _hold = crate::LegalHold::lock(workspace).await;
+        if !changeset.deletes.is_empty() {
+            self.forget.refuse_delete(workspace).await?;
+        }
         if changeset.is_empty() {
             return Err(MemoryError::Invalid(
                 "an empty changeset has nothing to commit".to_string(),
@@ -628,6 +634,8 @@ impl MemoryStore for FakeMemoryStore {
         expected: &str,
         author: &MemoryAuthor,
     ) -> Result<String, MemoryError> {
+        let _hold = crate::LegalHold::lock(workspace).await;
+        self.forget.refuse_delete(workspace).await?;
         let history = self.history(workspace);
         let mut held = history.lock().await;
         let position = held

@@ -73,6 +73,7 @@ async fn second_person(pool: &SqlitePool, email: &str, password: &str) -> (User,
         .expect("create the person");
     let workspace = Workspace {
         kind: pagis_core::WorkspaceKind::Private,
+        legal_hold: None,
         monthly_spend_cap_usd: None,
         id: WorkspaceId::generate(),
         user_id: Some(person.id.clone()),

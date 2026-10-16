@@ -179,3 +179,5 @@ id_type!(
     /// One master Event in a Workspace Calendar.
     CalendarEventId
 );
+
+id_type!(AuditEntryId);

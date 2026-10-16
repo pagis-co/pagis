@@ -142,6 +142,7 @@ impl World {
         let first = fixture::seeded_workspace(&pool).await;
         stores.workspaces.create(&first).await.unwrap();
         let second = Workspace {
+            legal_hold: None,
             monthly_spend_cap_usd: None,
             user_id: first.user_id.clone(),
             ..fixture::workspace()
@@ -151,6 +152,7 @@ impl World {
         let person = User::new(org.id, UserRole::Member, now_ms());
         stores.users.create(&person).await.unwrap();
         let second = Workspace {
+            legal_hold: None,
             monthly_spend_cap_usd: None,
             user_id: Some(person.id),
             ..second
@@ -286,6 +288,7 @@ impl World {
                     stores.connections.clone(),
                 )),
             }),
+            workspaces: stores.workspaces.clone(),
             workspace_mailboxes: stores.workspace_mailboxes.clone(),
             mailboxes: stores.agent_mailboxes.clone(),
             connections: connections.clone(),

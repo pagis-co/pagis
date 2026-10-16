@@ -13,6 +13,7 @@ use crate::time::UnixMillis;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Workspace {
+    pub legal_hold: Option<crate::LegalHold>,
     pub kind: crate::WorkspaceKind,
     /// The monthly Spend Cap in US dollars. `None` means no cap.
     pub monthly_spend_cap_usd: Option<f64>,

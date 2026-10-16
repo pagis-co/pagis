@@ -81,6 +81,7 @@ async fn second_workspace(backend: &Backend, first: &Workspace) -> Workspace {
     backend.stores().users.create(&user).await.unwrap();
     let second = Workspace {
         user_id: Some(user.id),
+        legal_hold: None,
         monthly_spend_cap_usd: None,
         id: WorkspaceId::generate(),
         ..first.clone()

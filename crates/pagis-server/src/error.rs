@@ -103,6 +103,13 @@ impl From<pagis_core::CalendarError> for ApiError {
 
 impl From<pagis_core::StoreError> for ApiError {
     fn from(err: pagis_core::StoreError) -> Self {
+        match err {
+            pagis_core::StoreError::LegalHold => {
+                return Self::conflict(pagis_core::LegalHold::MESSAGE);
+            }
+            pagis_core::StoreError::Conflict(message) => return Self::conflict(message),
+            _ => {}
+        }
         tracing::error!(error = %err, "store error");
         ApiError {
             status: StatusCode::INTERNAL_SERVER_ERROR,

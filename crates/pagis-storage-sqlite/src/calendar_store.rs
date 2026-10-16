@@ -72,25 +72,48 @@ impl CalendarStore for SqliteCalendarStore {
         data: &CalendarEventData,
     ) -> Result<bool, StoreError> {
         let bounds = data.bounds()?;
-        Ok(sqlx::query("UPDATE calendar_events SET data = ?, starts_at = ?, ends_by = ? WHERE workspace_id = ? AND id = ?")
+        let mut tx = crate::begin_write(&self.pool).await.map_err(db_err)?;
+        if !data.exdates.is_empty() {
+            let previous =
+                sqlx::query("SELECT * FROM calendar_events WHERE workspace_id=?1 AND id=?2")
+                    .bind(workspace.as_str())
+                    .bind(id.as_str())
+                    .fetch_optional(&mut *tx)
+                    .await
+                    .map_err(db_err)?
+                    .map(decode)
+                    .transpose()?;
+            if previous.is_some_and(|old| {
+                data.exdates
+                    .iter()
+                    .any(|date| !old.data.exdates.contains(date))
+            }) {
+                crate::audit_log::refuse_delete(&mut tx, workspace).await?;
+            }
+        }
+        let updated = sqlx::query("UPDATE calendar_events SET data = ?, starts_at = ?, ends_by = ? WHERE workspace_id = ? AND id = ?")
             .bind(encode(data)?).bind(bounds.starts_at).bind(bounds.ends_by).bind(workspace.as_str()).bind(id.as_str())
-            .execute(&self.pool).await.map_err(db_err)?.rows_affected() == 1)
+            .execute(&mut *tx).await.map_err(db_err)?.rows_affected() == 1;
+        tx.commit().await.map_err(db_err)?;
+        Ok(updated)
     }
     async fn delete(
         &self,
         workspace: &WorkspaceId,
         id: &CalendarEventId,
     ) -> Result<bool, StoreError> {
-        Ok(
-            sqlx::query("DELETE FROM calendar_events WHERE workspace_id = ? AND id = ?")
-                .bind(workspace.as_str())
-                .bind(id.as_str())
-                .execute(&self.pool)
-                .await
-                .map_err(db_err)?
-                .rows_affected()
-                == 1,
-        )
+        let mut tx = crate::begin_write(&self.pool).await.map_err(db_err)?;
+        crate::audit_log::refuse_delete(&mut tx, workspace).await?;
+        let deleted = sqlx::query("DELETE FROM calendar_events WHERE workspace_id = ? AND id = ?")
+            .bind(workspace.as_str())
+            .bind(id.as_str())
+            .execute(&mut *tx)
+            .await
+            .map_err(db_err)?
+            .rows_affected()
+            == 1;
+        tx.commit().await.map_err(db_err)?;
+        Ok(deleted)
     }
     async fn free_busy(
         &self,

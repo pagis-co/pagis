@@ -354,6 +354,20 @@ pub const ADMINISTRATION_ROUTES: &[Route] = &[
     },
     Route {
         shared: false,
+        path: "/api/v1/admin/workspaces/{workspace_id}/legal-hold",
+        methods: &["put", "delete"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
+        shared: false,
+        path: "/api/v1/admin/audit",
+        methods: &["get"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
+        shared: false,
         path: "/api/v1/administration/usage",
         methods: &["get"],
         authenticated: true,

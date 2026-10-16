@@ -138,6 +138,7 @@ impl WorkspaceSeed<'_> {
     ) -> Result<Workspace, StoreError> {
         let workspace = Workspace {
             kind: pagis_core::WorkspaceKind::Private,
+            legal_hold: None,
             monthly_spend_cap_usd: None,
             id: workspace_id,
             user_id: Some(user_id.clone()),
@@ -174,6 +175,7 @@ impl WorkspaceSeed<'_> {
             name: name.to_string(),
             timezone: timezone.to_string(),
             created_at: now,
+            legal_hold: None,
             monthly_spend_cap_usd: None,
             onboarded_at: Some(now),
             chief_of_staff_agent_id: None,
