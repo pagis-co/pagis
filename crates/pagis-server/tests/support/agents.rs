@@ -35,6 +35,8 @@ pub struct Embedder {
     #[allow(dead_code)]
     pub clock: Arc<TestClock>,
     pub stores: Stores,
+    #[allow(dead_code)]
+    pub secrets: Arc<MemorySecretStore>,
     pub routers: Routers,
     pub workspace: WorkspaceId,
     pub other_workspace: WorkspaceId,
@@ -518,7 +520,7 @@ impl Embedder {
             file_max_bytes: 1024 * 1024,
             memory,
             catalogues: Arc::new(FakeCatalogueProvider::default()),
-            forget_keys: Arc::new(TenantKeys::new(secrets)),
+            forget_keys: Arc::new(TenantKeys::new(secrets.clone())),
             org_workspace_id,
             capture: deps.capture.clone(),
             notifications,
@@ -556,6 +558,7 @@ impl Embedder {
         Self {
             clock,
             stores,
+            secrets,
             routers: pagis_server::routers(state, axum::Router::new()),
             workspace,
             other_workspace,

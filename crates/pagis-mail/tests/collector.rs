@@ -1727,12 +1727,17 @@ async fn workspace_mail_uses_the_current_active_chief_of_staff_trust_list(pool: 
         .desk
         .provision_workspace(
             &world.workspace_id,
-            NewMailbox {
-                connection_id: world.connection_id.clone(),
-                local_part: "workspace".into(),
-                outgoing_cap: None,
-                password: None,
-            },
+            world
+                .desk
+                .prepare_workspace(NewMailbox {
+                    connection_id: world.connection_id.clone(),
+                    local_part: "workspace".into(),
+                    outgoing_cap: None,
+                    password: None,
+                })
+                .await
+                .unwrap(),
+            pagis_core::Author::System,
         )
         .await
         .unwrap();

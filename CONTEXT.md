@@ -445,6 +445,12 @@ Workspace through its role (ADR-0039).
 _Avoid_: user record, account (for a Person; an
 account is at an external provider)
 
+### Person Defaults
+The Org settings for each new Person: an optional Address Rule with its
+Mailbox Provider, and default Shared Workspaces with a role for each.
+The Administrator's change writes an Org Audit Log entry. Creation records
+the Administrator as author of the mailbox and memberships (ADR-0048).
+
 ### Private Workspace
 The Workspace of exactly one Person, made with that Person. It has no
 membership list and never gains another Person. Hosts, the Home Exit,
@@ -1599,6 +1605,13 @@ The record of every Agent Mailbox and Workspace Mailbox address that Pagis
 makes or assigns, deleted ones too, so no address is used twice (ADR-0019,
 ADR-0040).
 
+### Address Rule
+The Org rule that makes a new Person's Workspace Mailbox address from their
+name: first name, first name plus last name with a dot, or first initial
+plus last name. It selects one Mailbox Provider on the Org mail domain.
+A taken address needs an explicit choice by the Administrator. No rule
+means no automatic Workspace Mailbox (ADR-0048).
+
 ### Agent Mailbox
 The email address of one Agent, which it reads and sends from as its own
 identity with no Grant. It is on the Org's mail domain, belongs to one
@@ -1726,7 +1739,8 @@ list recent ones. Not built (ADR-0020).
 
 ### Workspace Mailbox
 The mailbox of a Workspace on the Org's mail domain, at most one per
-Workspace. The Person creates it in Settings and reads it in the Mail
+Workspace. The Org Address Rule creates it for a new Person, or the Person
+creates it in Settings. The Person reads it in the Mail
 place: All mail, folders, messages, threads and search. Opening a message
 marks it as seen. The Person composes, replies, replies to all and
 forwards mail with Files as attachments. A Person's send needs no

@@ -171,3 +171,5 @@ pub use spam::{
 
 mod intake;
 pub use intake::{MailIntake, MailReadContext};
+
+pub use desk::PreparedWorkspaceMailbox;

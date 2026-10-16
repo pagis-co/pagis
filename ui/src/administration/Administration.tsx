@@ -27,6 +27,7 @@ import { NavBar } from '../components/phone/TopBar'
 import { useIsMobile } from '../primitives/useMediaQuery'
 import { errorCode, useAdministrationSections, useSetupState, useSignOut, useUser, useUserName } from '../queries'
 import { Junk } from './Junk'
+import { PersonDefaults } from './PersonDefaults'
 import { Health } from './Health'
 import { Providers } from './Providers'
 import { Resources } from './Resources'
@@ -116,6 +117,7 @@ export function AdministrationShell({
           {view === 'spend' && <Spend api={api} />}
           {view === 'people' && <People api={api} />}
           {view === 'workspaces' && <Workspaces api={api} />}
+          {view === 'person-defaults' && <PersonDefaults api={api} />}
           {view === 'sessions' && <Sessions api={api} hostsAvailable={sections.data.sections.includes('hosts')} />}
           {view === 'resources' && <Resources api={api} />}
           {view === 'providers' && <Providers api={api} />}

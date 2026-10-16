@@ -1241,7 +1241,15 @@ async fn workspace_mailbox_provision_uses_the_host_and_secret_without_a_standing
     let world = World::new(pool).await;
     let mailbox = world
         .desk
-        .provision_workspace(&world.workspace_id, world.hosted("person"))
+        .provision_workspace(
+            &world.workspace_id,
+            world
+                .desk
+                .prepare_workspace(world.hosted("person"))
+                .await
+                .unwrap(),
+            pagis_core::Author::System,
+        )
         .await
         .unwrap();
     assert_eq!(mailbox.address, "person@example.com");
@@ -1259,7 +1267,15 @@ async fn workspace_mailbox_provision_uses_the_host_and_secret_without_a_standing
     assert!(matches!(
         world
             .desk
-            .provision_workspace(&world.workspace_id, world.hosted("other"))
+            .provision_workspace(
+                &world.workspace_id,
+                world
+                    .desk
+                    .prepare_workspace(world.hosted("other"))
+                    .await
+                    .unwrap(),
+                pagis_core::Author::System
+            )
             .await,
         Err(MailboxError::Conflict(_))
     ));
@@ -1292,13 +1308,18 @@ async fn workspace_mailbox_provision_uses_the_host_and_secret_without_a_standing
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
 async fn workspace_mailbox_host_refusal_releases_both_reservations(pool: SqlitePool) {
     let world = World::new(pool).await;
+    let prepared = world
+        .desk
+        .prepare_workspace(world.hosted("person"))
+        .await
+        .unwrap();
     world
         .host
         .fail_with(Some(pagis_mail::HostErrorCode::CapReached));
     assert!(matches!(
         world
             .desk
-            .provision_workspace(&world.workspace_id, world.hosted("person"))
+            .provision_workspace(&world.workspace_id, prepared, pagis_core::Author::System)
             .await,
         Err(MailboxError::Host(_))
     ));
@@ -1320,7 +1341,15 @@ async fn workspace_mailbox_host_refusal_releases_both_reservations(pool: SqliteP
     world.host.fail_with(None);
     world
         .desk
-        .provision_workspace(&world.workspace_id, world.hosted("person"))
+        .provision_workspace(
+            &world.workspace_id,
+            world
+                .desk
+                .prepare_workspace(world.hosted("person"))
+                .await
+                .unwrap(),
+            pagis_core::Author::System,
+        )
         .await
         .unwrap();
 }
@@ -1337,7 +1366,15 @@ async fn workspace_mailbox_default_grant_reconciles_and_keeps_manual_grants(pool
         .unwrap();
     world
         .desk
-        .provision_workspace(&world.workspace_id, world.hosted("person"))
+        .provision_workspace(
+            &world.workspace_id,
+            world
+                .desk
+                .prepare_workspace(world.hosted("person"))
+                .await
+                .unwrap(),
+            pagis_core::Author::System,
+        )
         .await
         .unwrap();
     let original = grants.list_live(&world.workspace_id).await.unwrap();
@@ -1401,7 +1438,15 @@ async fn workspace_mailbox_an_agent_needs_a_live_grant_and_must_be_active(pool: 
     let world = World::new(pool.clone()).await;
     world
         .desk
-        .provision_workspace(&world.workspace_id, world.hosted("person"))
+        .provision_workspace(
+            &world.workspace_id,
+            world
+                .desk
+                .prepare_workspace(world.hosted("person"))
+                .await
+                .unwrap(),
+            pagis_core::Author::System,
+        )
         .await
         .unwrap();
     assert!(

@@ -437,6 +437,7 @@ async fn junk_store(
         .intake
         .workspace_mailboxes
         .create(&pagis_core::WorkspaceMailbox {
+            author: pagis_core::Author::System,
             workspace_id: context.workspace.clone(),
             connection_id: pagis_core::ConnectionId::generate(),
             address: context.address.clone(),

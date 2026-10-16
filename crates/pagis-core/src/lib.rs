@@ -182,3 +182,8 @@ pub use workspace_governance::{
 
 mod junk;
 pub use junk::*;
+#[cfg(test)]
+mod person_defaults_tests;
+
+mod person_defaults;
+pub use person_defaults::*;

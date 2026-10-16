@@ -777,6 +777,7 @@ CREATE TABLE address_ledger (
     address TEXT COLLATE "C" PRIMARY KEY
 );
 CREATE TABLE workspace_mailboxes (
+    author TEXT COLLATE "C" NOT NULL,
     visibility TEXT COLLATE "C" NOT NULL DEFAULT 'all_mail' CHECK (visibility IN ('agent_only', 'escalations', 'all_mail')),
     workspace_id TEXT COLLATE "C" PRIMARY KEY REFERENCES workspaces (id),
     connection_id TEXT COLLATE "C" NOT NULL,
@@ -1325,6 +1326,7 @@ CREATE INDEX memory_page_link_target
     ON memory_page_link (workspace_id, target_path);
 
 CREATE TABLE orgs (
+    person_defaults TEXT COLLATE "C" NOT NULL DEFAULT '{"address_rule":null,"mailbox_connection_id":null,"shared_workspaces":[]}',
     id TEXT COLLATE "C" PRIMARY KEY,
     name TEXT COLLATE "C" NOT NULL,
     created_at BIGINT NOT NULL,

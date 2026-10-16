@@ -15,17 +15,57 @@ use crate::{
 
 #[derive(Default)]
 pub struct MemoryWorkspaceMailHost {
-    stores: Mutex<HashMap<WorkspaceId, MemoryWorkspaceMailStore>>,
+    stores: Mutex<HashMap<WorkspaceId, (String, MemoryWorkspaceMailStore)>>,
 }
 
 impl MemoryWorkspaceMailHost {
+    pub fn addresses(&self) -> Vec<String> {
+        let mut addresses: Vec<_> = self
+            .stores
+            .lock()
+            .unwrap()
+            .values()
+            .map(|(address, _)| address.clone())
+            .collect();
+        addresses.sort();
+        addresses
+    }
+
     pub fn store(&self, workspace: &WorkspaceId) -> Option<MemoryWorkspaceMailStore> {
-        self.stores.lock().unwrap().get(workspace).cloned()
+        self.stores
+            .lock()
+            .unwrap()
+            .get(workspace)
+            .map(|(_, store)| store.clone())
     }
 }
 
 #[async_trait]
 impl WorkspaceMailHost for MemoryWorkspaceMailHost {
+    fn supports_automatic_provisioning(&self, _connection: &Connection) -> bool {
+        true
+    }
+
+    async fn check(
+        &self,
+        connection: &Connection,
+        _request: &NewMailbox,
+    ) -> Result<Vec<crate::HostedMailbox>, MailboxError> {
+        let settings = crate::mailbox_provider(connection).ok_or(MailboxError::NoProvider)?;
+        Ok(self
+            .stores
+            .lock()
+            .unwrap()
+            .values()
+            .filter_map(|(address, _)| {
+                let (local, domain) = address.rsplit_once('@')?;
+                domain
+                    .eq_ignore_ascii_case(&settings.domain)
+                    .then(|| crate::HostedMailbox::new(local, domain))
+            })
+            .collect())
+    }
+
     async fn provision(
         &self,
         _connection: &Connection,
@@ -39,10 +79,10 @@ impl WorkspaceMailHost for MemoryWorkspaceMailHost {
             .await
             .map_err(crate::desk::store_error)?;
         let store = MemoryWorkspaceMailStore::default();
-        self.stores
-            .lock()
-            .unwrap()
-            .insert(mailbox.workspace_id.clone(), store.clone());
+        self.stores.lock().unwrap().insert(
+            mailbox.workspace_id.clone(),
+            (mailbox.address.clone(), store.clone()),
+        );
         Ok(Box::new(store.with_context(context)))
     }
 

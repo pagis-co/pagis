@@ -756,6 +756,7 @@ CREATE TABLE address_ledger (
     address TEXT PRIMARY KEY
 );
 CREATE TABLE workspace_mailboxes (
+    author TEXT NOT NULL,
     visibility TEXT NOT NULL DEFAULT 'all_mail' CHECK (visibility IN ('agent_only', 'escalations', 'all_mail')),
     workspace_id TEXT PRIMARY KEY REFERENCES workspaces (id),
     connection_id TEXT NOT NULL,
@@ -1283,6 +1284,7 @@ CREATE INDEX memory_page_link_target
     ON memory_page_link (workspace_id, target_path);
 
 CREATE TABLE orgs (
+    person_defaults TEXT NOT NULL DEFAULT '{"address_rule":null,"mailbox_connection_id":null,"shared_workspaces":[]}',
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     created_at INTEGER NOT NULL,
