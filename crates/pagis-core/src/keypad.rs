@@ -2,7 +2,7 @@
 //!
 //! The code belongs to the Workspace, so its guessing limit does too:
 //! one count holds the wrong codes that callers entered on every Call
-//! and on every Agent Phone Number of the Workspace. After
+//! to the Workspace Number. After
 //! [`FAILURES_BEFORE_DELAY`] failures, keypad elevation is suspended
 //! for a delay. Each further failure doubles the delay, up to
 //! [`LONGEST_DELAY`]. A delay suspends elevation only: Pagis still

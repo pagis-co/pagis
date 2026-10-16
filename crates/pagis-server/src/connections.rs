@@ -5,7 +5,7 @@
 //! Installation OAuth Client, a carrier account with its SIP sign-in,
 //! and a mail domain (ADR-0024). What a person does with the provider
 //! stays on the product port: a person connects their own Google
-//! account, buys an Agent Phone Number or makes an Agent Mailbox.
+//! account, buys a Workspace Number or makes an Agent Mailbox.
 //!
 //! Each provider declares its installation parts in the Provider
 //! Catalog ([`pagis_connect::installation_setups`]), and one set of

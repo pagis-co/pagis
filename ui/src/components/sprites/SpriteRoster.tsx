@@ -9,9 +9,8 @@ import type { AgentDto, ApiClient } from '../../api/client'
 import { ChevronRight, Plus, Users } from 'lucide-react'
 import { Badge, Button, Frame, IconButton, Row } from '../../primitives'
 import { Avatar } from '../../avatars/Avatar'
-import { useAgents, usePhoneNumbers, useRuns, useWorkspace } from '../../queries'
+import { useAgents, useRuns, useWorkspace } from '../../queries'
 import { agentPresence, usePresence } from '../../state/presence'
-import { formatE164 } from '../AgentPhoneNumber'
 import { NewSprite } from './NewSprite'
 import { PageState } from '../PageState'
 import { activityTone, activityWord } from '../stateWords'
@@ -26,7 +25,6 @@ import { LargeTitle } from '../phone/TopBar'
 
 function RosterRow({
   agent,
-  number,
   lastActive,
   chief,
   onOpen,
@@ -34,7 +32,6 @@ function RosterRow({
 }: {
   phone: boolean
   agent: AgentDto
-  number: string | null
   lastActive: number | null
   /** The Workspace names this Agent its Chief of Staff (ADR-0022). */
   chief: boolean
@@ -46,7 +43,7 @@ function RosterRow({
     const last = lastActive === null ? 'No work yet' : minutes !== null && minutes < 60 ? `${minutes} min ago` : changeTimeLabel(lastActive)
     return <Frame><Row roomy className="phone-sprite-card" data-testid="sprite-row" aria-label={`${agent.name}, ${activityWord(presence).toLowerCase()}`} onClick={onOpen}>
       <Avatar id={agent.id} name={agent.name} appearance={agent.avatar} size="xl" presence={presence} />
-      <span className="phone-row-copy"><strong>{agent.name}</strong><span className="phone-hint">{agent.job}{agent.description ? `. ${agent.description}` : ''}</span><span className="sprite-row-chips"><Badge tone={activityTone(presence)}>{activityWord(presence)}</Badge>{chief && <Badge tone="accent">Main sprite</Badge>}{number !== null && <Badge>{formatE164(number)}</Badge>}{agent.email_address && <Badge>{agent.email_address}</Badge>}{presence !== 'working' && <span className="phone-row-time">Last active {last}</span>}</span></span>
+      <span className="phone-row-copy"><strong>{agent.name}</strong><span className="phone-hint">{agent.job}{agent.description ? `. ${agent.description}` : ''}</span><span className="sprite-row-chips"><Badge tone={activityTone(presence)}>{activityWord(presence)}</Badge>{chief && <Badge tone="accent">Main sprite</Badge>}{agent.email_address && <Badge>{agent.email_address}</Badge>}{presence !== 'working' && <span className="phone-row-time">Last active {last}</span>}</span></span>
     </Row></Frame>
   }
   return (
@@ -66,7 +63,7 @@ function RosterRow({
         <span className="sprite-row-chips">
           <Badge tone={activityTone(presence)}>{activityWord(presence)}</Badge>
           {chief && <Badge tone="neutral">Main sprite</Badge>}
-          {number !== null && <Badge tone="neutral">{formatE164(number)}</Badge>}
+
           {agent.email_address != null && (
             <Badge tone="neutral">{agent.email_address}</Badge>
           )}
@@ -95,7 +92,6 @@ export function SpriteRoster({
 }) {
   const phone = useIsMobile()
   const agents = useAgents(api)
-  const numbers = usePhoneNumbers(api)
   const runs = useRuns(api, '', '', '')
   const workspace = useWorkspace(api)
   const roster = (agents.data ?? []).filter((agent) => agent.status !== 'archived')
@@ -134,11 +130,6 @@ export function SpriteRoster({
             key={agent.id}
             agent={agent}
             phone={phone}
-            number={
-              (numbers.data?.items ?? []).find(
-                (number) => number.agent_id === agent.id,
-              )?.e164 ?? null
-            }
             lastActive={lastActiveAt(runs.data ?? [], agent.id)}
             chief={workspace.data?.chief_of_staff_agent_id === agent.id}
             onOpen={() => onOpenAgent(agent.id)}

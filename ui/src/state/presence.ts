@@ -146,10 +146,10 @@ export const usePresence = create<PresenceState>((set) => ({
           const { [agentId]: _gone, ...rest } = state.onCall
           return { onCall: rest }
         }
-        if (type === 'call.placed' || type === 'call.answered') {
+        if (type === 'call.placed' || type === 'call.answered' || type === 'call.handed_off') {
           const callId = (event.payload as { call_id?: string }).call_id
           if (callId == null) return state
-          return { onCall: { ...state.onCall, [agentId]: callId } }
+          return { onCall: { ...Object.fromEntries(Object.entries(state.onCall).filter(([, held]) => held !== callId)), [agentId]: callId } }
         }
         return state
       }

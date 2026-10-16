@@ -423,8 +423,7 @@ export function AppShell() {
           if (frame.type === 'harness.sign_in_changed') {
             void queryClient.invalidateQueries({ queryKey: hostsKey(workspaceId) })
           }
-          // A number bought, assigned, unassigned or released refreshes
-          // the Agent's settings page.
+          // A purchase or release refreshes the Workspace Number in Settings.
           if (frame.type.startsWith('phone_number.')) {
             void queryClient.invalidateQueries({ queryKey: phoneNumbersKey(workspaceId) })
           }

@@ -1,4 +1,4 @@
-//! The Text Record and the texting fields of an Agent Phone Number
+//! The Text Record and the texting fields of a Workspace Number
 //! trait tests of the suite (ADR-0020).
 //!
 //! There is no conversation table: these bodies hold the store to the
@@ -13,28 +13,21 @@
 //! missing.
 
 use pagis_core::{
-    Agent, AgentId, ChannelId, ConnectionId, FileId, MessageId, MessagingReadiness, PhoneNumber,
-    PhoneNumberId, Run, RunId, RunState, TEXT_THREAD_WINDOW_MS, TelnyxRelayState,
-    TextDeliveryStatus, TextDirection, TextRecord, TextRecordId, TriggerKind, TrustTier,
-    UnixMillis, Workspace, WorkspaceId, day_start, now_ms,
+    ChannelId, ConnectionId, FileId, MessageId, MessagingReadiness, PhoneNumber, PhoneNumberId,
+    Run, RunId, RunState, TEXT_THREAD_WINDOW_MS, TelnyxRelayState, TextDeliveryStatus,
+    TextDirection, TextRecord, TextRecordId, TriggerKind, TrustTier, UnixMillis, Workspace,
+    WorkspaceId, day_start, now_ms,
 };
 
 use super::Backend;
 use crate::fixture::agent;
 
-/// One Workspace, two Agents and one Run: a text needs a holder, and
-/// an outbound record needs the Run that sent it.
-async fn seed(backend: &Backend) -> (Workspace, Agent, Agent, RunId) {
+/// One Workspace and a Run for the outbound Text Record type.
+async fn seed(backend: &Backend) -> (Workspace, RunId) {
     let ws = backend.seeded_workspace().await;
     let agents = &backend.stores().agents;
     let first = agent(&ws.id);
     agents.create(&first).await.unwrap();
-    let second = Agent {
-        id: AgentId::generate(),
-        name: "Ada".to_string(),
-        ..agent(&ws.id)
-    };
-    agents.create(&second).await.unwrap();
     let run = Run {
         title: "A message with an attachment".into(),
         id: RunId::generate(),
@@ -55,18 +48,17 @@ async fn seed(backend: &Backend) -> (Workspace, Agent, Agent, RunId) {
         ended_at: None,
     };
     backend.stores().runs.create(&run).await.unwrap();
-    (ws, first, second, run.id)
+    (ws, run.id)
 }
 
-/// One number of the Workspace, held by the Agent.
-fn number(workspace_id: &WorkspaceId, agent_id: &AgentId) -> PhoneNumber {
+/// One Workspace Number.
+fn number(workspace_id: &WorkspaceId) -> PhoneNumber {
     PhoneNumber::new(
         PhoneNumberId::generate(),
         workspace_id.clone(),
         ConnectionId::generate(),
         "+14155550123".to_string(),
         "carrier-14155550123".to_string(),
-        Some(agent_id.clone()),
         now_ms(),
     )
 }
@@ -74,7 +66,6 @@ fn number(workspace_id: &WorkspaceId, agent_id: &AgentId) -> PhoneNumber {
 /// One inbound text of the pair.
 fn inbound(
     ws: &Workspace,
-    agent_id: &AgentId,
     number_id: &PhoneNumberId,
     counterpart: &str,
     body: &str,
@@ -83,7 +74,6 @@ fn inbound(
     TextRecord {
         id: TextRecordId::generate(),
         workspace_id: ws.id.clone(),
-        agent_id: agent_id.clone(),
         phone_number_id: number_id.clone(),
         counterpart_e164: counterpart.to_string(),
         direction: TextDirection::Inbound,
@@ -104,7 +94,6 @@ fn inbound(
 #[allow(clippy::too_many_arguments)]
 fn outbound(
     ws: &Workspace,
-    agent_id: &AgentId,
     number_id: &PhoneNumberId,
     run_id: &RunId,
     counterpart: &str,
@@ -117,15 +106,15 @@ fn outbound(
         run_id: Some(run_id.clone()),
         thread_id: thread,
         delivery_status: Some(TextDeliveryStatus::Queued),
-        ..inbound(ws, agent_id, number_id, counterpart, body, at)
+        ..inbound(ws, number_id, counterpart, body, at)
     }
 }
 
 /// Pagis keeps the body, the media and the Thread, because no carrier
 /// is a mailbox to fetch from later (ADR-0020).
 pub async fn an_outbound_record_round_trips_with_its_thread_and_media(backend: &Backend) {
-    let (ws, a, _, run_id) = seed(backend).await;
-    let line = number(&ws.id, &a.id);
+    let (ws, run_id) = seed(backend).await;
+    let line = number(&ws.id);
     backend.stores().phone_numbers.create(&line).await.unwrap();
     let store = &backend.stores().text_records;
 
@@ -139,7 +128,6 @@ pub async fn an_outbound_record_round_trips_with_its_thread_and_media(backend: &
         tier: TrustTier::Owner,
         ..outbound(
             &ws,
-            &a.id,
             &line.id,
             &run_id,
             "+14155550999",
@@ -161,11 +149,10 @@ pub async fn an_outbound_record_round_trips_with_its_thread_and_media(backend: &
 
 /// An inbound record carries no Run, no Thread and no delivery state.
 pub async fn an_inbound_record_round_trips_without_a_run(backend: &Backend) {
-    let (ws, a, _, _) = seed(backend).await;
+    let (ws, _) = seed(backend).await;
     let store = &backend.stores().text_records;
     let record = inbound(
         &ws,
-        &a.id,
         &PhoneNumberId::generate(),
         "+14155550999",
         "are you there",
@@ -181,19 +168,10 @@ pub async fn an_inbound_record_round_trips_without_a_run(backend: &Backend) {
 
 /// The daemon polls the carrier and writes what it hears (ADR-0020).
 pub async fn the_delivery_status_of_an_outbound_record_is_written(backend: &Backend) {
-    let (ws, a, _, run_id) = seed(backend).await;
+    let (ws, run_id) = seed(backend).await;
     let store = &backend.stores().text_records;
     let line_id = PhoneNumberId::generate();
-    let record = outbound(
-        &ws,
-        &a.id,
-        &line_id,
-        &run_id,
-        "+14155550999",
-        "hello",
-        None,
-        5,
-    );
+    let record = outbound(&ws, &line_id, &run_id, "+14155550999", "hello", None, 5);
     store.insert(&record).await.unwrap();
 
     assert!(
@@ -219,7 +197,7 @@ pub async fn the_delivery_status_of_an_outbound_record_is_written(backend: &Back
     assert_eq!(read.delivery_status, Some(failed));
 
     // An inbound record has no delivery state and takes none.
-    let arrived = inbound(&ws, &a.id, &line_id, "+14155550999", "hi", 6);
+    let arrived = inbound(&ws, &line_id, "+14155550999", "hi", 6);
     store.insert(&arrived).await.unwrap();
     assert!(
         !store
@@ -238,7 +216,7 @@ pub async fn the_delivery_status_of_an_outbound_record_is_written(backend: &Back
 /// The conversation reads newest first, one page at a time
 /// (ADR-0020: `max` is at most 50 and `before` names the page).
 pub async fn a_conversation_pages_newest_first(backend: &Backend) {
-    let (ws, a, _, run_id) = seed(backend).await;
+    let (ws, run_id) = seed(backend).await;
     let store = &backend.stores().text_records;
     let line_id = PhoneNumberId::generate();
     let counterpart = "+14155550999";
@@ -246,7 +224,6 @@ pub async fn a_conversation_pages_newest_first(backend: &Backend) {
         let record = match step % 2 {
             0 => inbound(
                 &ws,
-                &a.id,
                 &line_id,
                 counterpart,
                 &format!("text {step}"),
@@ -254,7 +231,6 @@ pub async fn a_conversation_pages_newest_first(backend: &Backend) {
             ),
             _ => outbound(
                 &ws,
-                &a.id,
                 &line_id,
                 &run_id,
                 counterpart,
@@ -267,33 +243,26 @@ pub async fn a_conversation_pages_newest_first(backend: &Backend) {
     }
     // Another counterpart of the same number stays out of the page.
     store
-        .insert(&inbound(
-            &ws,
-            &a.id,
-            &line_id,
-            "+14155550888",
-            "elsewhere",
-            4_500,
-        ))
+        .insert(&inbound(&ws, &line_id, "+14155550888", "elsewhere", 4_500))
         .await
         .unwrap();
 
     let first = store
-        .list_conversation(&ws.id, &a.id, &line_id, counterpart, 2, None)
+        .list_conversation(&ws.id, &line_id, counterpart, 2, None)
         .await
         .unwrap();
     let bodies: Vec<&str> = first.iter().map(|r| r.body.as_str()).collect();
     assert_eq!(bodies, ["text 5", "text 4"]);
 
     let next = store
-        .list_conversation(&ws.id, &a.id, &line_id, counterpart, 2, Some(&first[1].id))
+        .list_conversation(&ws.id, &line_id, counterpart, 2, Some(&first[1].id))
         .await
         .unwrap();
     let bodies: Vec<&str> = next.iter().map(|r| r.body.as_str()).collect();
     assert_eq!(bodies, ["text 3", "text 2"]);
 
     let last = store
-        .list_conversation(&ws.id, &a.id, &line_id, counterpart, 2, Some(&next[1].id))
+        .list_conversation(&ws.id, &line_id, counterpart, 2, Some(&next[1].id))
         .await
         .unwrap();
     let bodies: Vec<&str> = last.iter().map(|r| r.body.as_str()).collect();
@@ -303,18 +272,17 @@ pub async fn a_conversation_pages_newest_first(backend: &Backend) {
 /// The desk lists conversations by grouping records, and each one
 /// carries the time and the direction of its last text (ADR-0020).
 pub async fn conversations_group_by_counterpart_with_the_last_text(backend: &Backend) {
-    let (ws, a, _, run_id) = seed(backend).await;
+    let (ws, run_id) = seed(backend).await;
     let store = &backend.stores().text_records;
     let line_id = PhoneNumberId::generate();
 
     store
-        .insert(&inbound(&ws, &a.id, &line_id, "+14155550111", "first", 100))
+        .insert(&inbound(&ws, &line_id, "+14155550111", "first", 100))
         .await
         .unwrap();
     store
         .insert(&outbound(
             &ws,
-            &a.id,
             &line_id,
             &run_id,
             "+14155550111",
@@ -325,16 +293,16 @@ pub async fn conversations_group_by_counterpart_with_the_last_text(backend: &Bac
         .await
         .unwrap();
     store
-        .insert(&inbound(&ws, &a.id, &line_id, "+14155550222", "later", 300))
+        .insert(&inbound(&ws, &line_id, "+14155550222", "later", 300))
         .await
         .unwrap();
     store
-        .insert(&inbound(&ws, &a.id, &line_id, "+14155550333", "oldest", 50))
+        .insert(&inbound(&ws, &line_id, "+14155550333", "oldest", 50))
         .await
         .unwrap();
 
     let conversations = store
-        .list_conversations(&ws.id, &a.id, &line_id, 25)
+        .list_conversations(&ws.id, &line_id, 25)
         .await
         .unwrap();
     let seen: Vec<(&str, i64, TextDirection)> = conversations
@@ -350,10 +318,7 @@ pub async fn conversations_group_by_counterpart_with_the_last_text(backend: &Bac
         ]
     );
 
-    let capped = store
-        .list_conversations(&ws.id, &a.id, &line_id, 1)
-        .await
-        .unwrap();
+    let capped = store.list_conversations(&ws.id, &line_id, 1).await.unwrap();
     assert_eq!(capped.len(), 1);
     assert_eq!(capped[0].counterpart_e164, "+14155550222");
 }
@@ -362,7 +327,7 @@ pub async fn conversations_group_by_counterpart_with_the_last_text(backend: &Bac
 /// the pair that is under seven days old (ADR-0020). These are the
 /// two sides of that boundary.
 pub async fn the_landing_thread_stops_at_seven_days(backend: &Backend) {
-    let (ws, a, _, run_id) = seed(backend).await;
+    let (ws, run_id) = seed(backend).await;
     let store = &backend.stores().text_records;
     let line_id = PhoneNumberId::generate();
     let counterpart = "+14155550999";
@@ -372,7 +337,6 @@ pub async fn the_landing_thread_stops_at_seven_days(backend: &Backend) {
     store
         .insert(&outbound(
             &ws,
-            &a.id,
             &line_id,
             &run_id,
             counterpart,
@@ -384,7 +348,7 @@ pub async fn the_landing_thread_stops_at_seven_days(backend: &Backend) {
         .unwrap();
     assert_eq!(
         store
-            .landing_thread(&ws.id, &a.id, &line_id, counterpart, now)
+            .landing_thread(&ws.id, &line_id, counterpart, now)
             .await
             .unwrap(),
         Some(fresh_thread)
@@ -393,7 +357,7 @@ pub async fn the_landing_thread_stops_at_seven_days(backend: &Backend) {
     // One millisecond older is seven days old, and lands nowhere.
     assert_eq!(
         store
-            .landing_thread(&ws.id, &a.id, &line_id, counterpart, now + 1)
+            .landing_thread(&ws.id, &line_id, counterpart, now + 1)
             .await
             .unwrap(),
         None
@@ -404,7 +368,7 @@ pub async fn the_landing_thread_stops_at_seven_days(backend: &Backend) {
 /// An inbound record, an outbound record with no Thread and another
 /// pair are all no answer.
 pub async fn the_landing_thread_reads_the_last_outbound_text_with_a_thread(backend: &Backend) {
-    let (ws, a, _, run_id) = seed(backend).await;
+    let (ws, run_id) = seed(backend).await;
     let store = &backend.stores().text_records;
     let line_id = PhoneNumberId::generate();
     let counterpart = "+14155550999";
@@ -414,7 +378,6 @@ pub async fn the_landing_thread_reads_the_last_outbound_text_with_a_thread(backe
     store
         .insert(&outbound(
             &ws,
-            &a.id,
             &line_id,
             &run_id,
             counterpart,
@@ -427,7 +390,6 @@ pub async fn the_landing_thread_reads_the_last_outbound_text_with_a_thread(backe
     store
         .insert(&outbound(
             &ws,
-            &a.id,
             &line_id,
             &run_id,
             counterpart,
@@ -441,7 +403,6 @@ pub async fn the_landing_thread_reads_the_last_outbound_text_with_a_thread(backe
     store
         .insert(&outbound(
             &ws,
-            &a.id,
             &line_id,
             &run_id,
             counterpart,
@@ -452,20 +413,20 @@ pub async fn the_landing_thread_reads_the_last_outbound_text_with_a_thread(backe
         .await
         .unwrap();
     store
-        .insert(&inbound(&ws, &a.id, &line_id, counterpart, "reply", 4_000))
+        .insert(&inbound(&ws, &line_id, counterpart, "reply", 4_000))
         .await
         .unwrap();
 
     assert_eq!(
         store
-            .landing_thread(&ws.id, &a.id, &line_id, counterpart, 5_000)
+            .landing_thread(&ws.id, &line_id, counterpart, 5_000)
             .await
             .unwrap(),
         Some(newer)
     );
     assert_eq!(
         store
-            .landing_thread(&ws.id, &a.id, &line_id, "+14155550888", 5_000)
+            .landing_thread(&ws.id, &line_id, "+14155550888", 5_000)
             .await
             .unwrap(),
         None
@@ -475,63 +436,35 @@ pub async fn the_landing_thread_reads_the_last_outbound_text_with_a_thread(backe
 /// Records stay with the Agent that made them, so a new holder of the
 /// number reads none of the previous holder's conversations
 /// (ADR-0020).
-pub async fn a_new_holder_of_the_number_reads_none_of_the_old_texts(backend: &Backend) {
-    let (ws, first, second, run_id) = seed(backend).await;
-    let store = &backend.stores().text_records;
-    let line_id = PhoneNumberId::generate();
-    let counterpart = "+14155550999";
-    let thread = MessageId::generate();
-
-    store
-        .insert(&outbound(
-            &ws,
-            &first.id,
-            &line_id,
-            &run_id,
-            counterpart,
-            "mine",
-            Some(thread),
-            1_000,
-        ))
-        .await
-        .unwrap();
-
-    assert!(
-        store
-            .list_conversation(&ws.id, &second.id, &line_id, counterpart, 50, None)
-            .await
-            .unwrap()
-            .is_empty()
-    );
-    assert!(
-        store
-            .list_conversations(&ws.id, &second.id, &line_id, 25)
-            .await
-            .unwrap()
-            .is_empty()
-    );
+pub async fn texts_belong_to_the_workspace_number(backend: &Backend) {
+    let (ws, _) = seed(backend).await;
+    let line = number(&ws.id);
+    backend.stores().phone_numbers.create(&line).await.unwrap();
+    let record = inbound(&ws, &line.id, "+14155550999", "Hello", 1_000);
+    backend.stores().text_records.insert(&record).await.unwrap();
     assert_eq!(
-        store
-            .landing_thread(&ws.id, &second.id, &line_id, counterpart, 2_000)
+        backend
+            .stores()
+            .text_records
+            .list_conversation(&ws.id, &line.id, "+14155550999", 50, None)
             .await
             .unwrap(),
-        None
+        vec![record]
     );
 }
 
 /// Every texting field of the number record survives the round trip,
 /// and each write reads back (ADR-0020).
 pub async fn every_texting_field_of_a_number_round_trips(backend: &Backend) {
-    let (ws, a, _, _) = seed(backend).await;
+    let (ws, _) = seed(backend).await;
     let store = &backend.stores().phone_numbers;
-    let line = number(&ws.id, &a.id);
+    let line = number(&ws.id);
     store.create(&line).await.unwrap();
 
     // A new number starts with the default cap and nothing else.
     let read = store.get(&ws.id, &line.id).await.unwrap().unwrap();
     assert_eq!(read.outgoing_cap, PhoneNumber::DEFAULT_OUTGOING_CAP);
     assert_eq!(read.outgoing_cap, 50);
-    assert!(read.allow_rules.is_empty());
     assert_eq!(read.sends_day, None);
     assert_eq!(read.sends_today, 0);
     assert_eq!(read.messaging_readiness, MessagingReadiness::Unknown);
@@ -543,22 +476,6 @@ pub async fn every_texting_field_of_a_number_round_trips(backend: &Backend) {
     assert!(!read.relay_consent);
 
     assert!(store.set_outgoing_cap(&ws.id, &line.id, 12).await.unwrap());
-    let held = store
-        .add_allow_rules(
-            &ws.id,
-            &line.id,
-            &["+14155550999".to_string(), "+14155550888".to_string()],
-        )
-        .await
-        .unwrap();
-    assert_eq!(held, ["+14155550999", "+14155550888"]);
-    // A rule already there is not written twice, and the order stays.
-    let held = store
-        .add_allow_rules(&ws.id, &line.id, &["+14155550999".to_string()])
-        .await
-        .unwrap();
-    assert_eq!(held, ["+14155550999", "+14155550888"]);
-
     let rejected = MessagingReadiness::Rejected {
         reason: "the brand has no tax id".to_string(),
     };
@@ -605,7 +522,6 @@ pub async fn every_texting_field_of_a_number_round_trips(backend: &Backend) {
 
     let read = store.get(&ws.id, &line.id).await.unwrap().unwrap();
     assert_eq!(read.outgoing_cap, 12);
-    assert_eq!(read.allow_rules, ["+14155550999", "+14155550888"]);
     assert_eq!(read.messaging_readiness, rejected);
     assert_eq!(read.messaging_readiness_at, Some(4_242));
     assert_eq!(
@@ -639,9 +555,9 @@ pub async fn every_texting_field_of_a_number_round_trips(backend: &Backend) {
 /// The Outgoing Cap is a day's allowance, so the tally starts again
 /// on a new day (ADR-0020).
 pub async fn the_text_tally_counts_one_day_at_a_time(backend: &Backend) {
-    let (ws, a, _, _) = seed(backend).await;
+    let (ws, _) = seed(backend).await;
     let store = &backend.stores().phone_numbers;
-    let line = number(&ws.id, &a.id);
+    let line = number(&ws.id);
     store.create(&line).await.unwrap();
 
     let monday = day_start(now_ms());
@@ -693,7 +609,7 @@ macro_rules! store_suite_text_records {
             conversations_group_by_counterpart_with_the_last_text,
             the_landing_thread_stops_at_seven_days,
             the_landing_thread_reads_the_last_outbound_text_with_a_thread,
-            a_new_holder_of_the_number_reads_none_of_the_old_texts,
+            texts_belong_to_the_workspace_number,
             every_texting_field_of_a_number_round_trips,
             the_text_tally_counts_one_day_at_a_time,
         );

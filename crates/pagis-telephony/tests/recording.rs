@@ -321,7 +321,6 @@ impl World {
             ConnectionId::generate(),
             OWN.to_string(),
             "carrier-14155550123".to_string(),
-            Some(agent.id.clone()),
             now_ms(),
         );
 
@@ -329,6 +328,10 @@ impl World {
         let secrets: Arc<dyn SecretStore> = Arc::new(MemorySecretStore::default());
         let bus: Arc<dyn EventBus> = Arc::new(SilentBus);
         let endpoints = Arc::new(Endpoints::new(EndpointsDeps {
+            workspaces: Arc::new(pagis_storage_sqlite::SqliteWorkspaceStore::new(
+                pool.clone(),
+            )),
+            agents: Arc::new(pagis_storage_sqlite::SqliteAgentStore::new(pool.clone())),
             transport: Arc::clone(&transport) as _,
             numbers: Arc::new(SqlitePhoneNumberStore::new(pool.clone())),
             connections: Arc::new(SqliteConnectionStore::new(pool.clone())),

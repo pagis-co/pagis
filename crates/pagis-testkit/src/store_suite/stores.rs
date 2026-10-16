@@ -1830,18 +1830,13 @@ pub async fn archiving_an_agent_hands_its_credentials_to_the_user(backend: &Back
 }
 
 /// One number of the Workspace, ready to insert.
-fn phone_number(
-    workspace_id: &WorkspaceId,
-    e164: &str,
-    agent_id: Option<&AgentId>,
-) -> pagis_core::PhoneNumber {
+fn phone_number(workspace_id: &WorkspaceId, e164: &str) -> pagis_core::PhoneNumber {
     pagis_core::PhoneNumber::new(
         pagis_core::PhoneNumberId::generate(),
         workspace_id.clone(),
         ConnectionId::generate(),
         e164.to_string(),
         format!("carrier-{e164}"),
-        agent_id.cloned(),
         pagis_core::now_ms(),
     )
 }
@@ -1852,19 +1847,18 @@ fn purchase_intent(number: &pagis_core::PhoneNumber) -> pagis_core::PurchaseInte
         workspace_id: number.workspace_id.clone(),
         connection_id: number.connection_id.clone(),
         e164: number.e164.clone(),
-        agent_id: number.agent_id.clone(),
+
         state: pagis_core::PurchaseIntentState::Pending,
         created_at: pagis_core::now_ms(),
         settled_at: None,
     }
 }
 
-/// The schema holds the one-Agent-one-number rule, not the caller
-/// (ADR-0018).
-pub async fn the_schema_refuses_a_second_number_for_one_agent(backend: &Backend) {
-    let (ws, a) = seed_grant_deps(backend).await;
+/// The schema permits one active Workspace Number, independent of its caller.
+pub async fn the_schema_refuses_a_second_number_for_one_workspace(backend: &Backend) {
+    let (ws, _) = seed_grant_deps(backend).await;
     let store = &backend.stores().phone_numbers;
-    let held = phone_number(&ws.id, "+14155550123", Some(&a.id));
+    let held = phone_number(&ws.id, "+14155550123");
     let intent = purchase_intent(&held);
     store.create_intent(&intent).await.unwrap();
     store
@@ -1872,7 +1866,7 @@ pub async fn the_schema_refuses_a_second_number_for_one_agent(backend: &Backend)
         .await
         .unwrap();
 
-    let second = phone_number(&ws.id, "+14155550124", Some(&a.id));
+    let second = phone_number(&ws.id, "+14155550124");
     let second_intent = purchase_intent(&second);
     store.create_intent(&second_intent).await.unwrap();
     let refused = store
@@ -1880,15 +1874,15 @@ pub async fn the_schema_refuses_a_second_number_for_one_agent(backend: &Backend)
         .await;
 
     assert!(matches!(refused, Err(pagis_core::StoreError::Conflict(_))));
-    assert_eq!(store.for_agent(&ws.id, &a.id).await.unwrap(), Some(held));
+    assert_eq!(store.get(&ws.id, &held.id).await.unwrap(), Some(held));
 }
 
 /// A released number keeps its row and loses its holder, so the Calls
 /// that point at it still read.
 pub async fn a_released_number_keeps_its_record(backend: &Backend) {
-    let (ws, a) = seed_grant_deps(backend).await;
+    let (ws, _) = seed_grant_deps(backend).await;
     let store = &backend.stores().phone_numbers;
-    let held = phone_number(&ws.id, "+14155550123", Some(&a.id));
+    let held = phone_number(&ws.id, "+14155550123");
     let intent = purchase_intent(&held);
     store.create_intent(&intent).await.unwrap();
     store
@@ -1901,8 +1895,6 @@ pub async fn a_released_number_keeps_its_record(backend: &Backend) {
     let stored = store.get(&ws.id, &held.id).await.unwrap().unwrap();
     assert_eq!(stored.status, pagis_core::PhoneNumberStatus::Released);
     assert_eq!(stored.e164, "+14155550123");
-    assert_eq!(stored.agent_id, None);
-    assert_eq!(store.for_agent(&ws.id, &a.id).await.unwrap(), None);
     // A released number no longer holds the Connection.
     assert!(
         !store
@@ -1917,18 +1909,18 @@ pub async fn a_released_number_keeps_its_record(backend: &Backend) {
 /// A number the account already held lands with no purchase intent,
 /// and the schema still holds one live record per number.
 pub async fn an_adopted_number_is_recorded_without_an_intent(backend: &Backend) {
-    let (ws, a) = seed_grant_deps(backend).await;
+    let (ws, _) = seed_grant_deps(backend).await;
     let store = &backend.stores().phone_numbers;
-    let adopted = phone_number(&ws.id, "+14155550123", Some(&a.id));
+    let adopted = phone_number(&ws.id, "+14155550123");
 
     store.create(&adopted).await.unwrap();
 
     assert_eq!(
-        store.for_agent(&ws.id, &a.id).await.unwrap(),
+        store.get(&ws.id, &adopted.id).await.unwrap(),
         Some(adopted.clone())
     );
     assert!(store.list_pending_intents().await.unwrap().is_empty());
-    let again = phone_number(&ws.id, "+14155550123", None);
+    let again = phone_number(&ws.id, "+14155550123");
     assert!(matches!(
         store.create(&again).await,
         Err(pagis_core::StoreError::Conflict(_))
@@ -1939,7 +1931,7 @@ pub async fn an_adopted_number_is_recorded_without_an_intent(backend: &Backend) 
 /// in the installation, whichever Workspace holds it. A released record
 /// gives the number back.
 pub async fn one_number_is_held_once_in_the_installation(backend: &Backend) {
-    let (ws, a) = seed_grant_deps(backend).await;
+    let (ws, _) = seed_grant_deps(backend).await;
     let other = pagis_core::Workspace {
         monthly_spend_cap_usd: None,
         id: WorkspaceId::generate(),
@@ -1947,10 +1939,10 @@ pub async fn one_number_is_held_once_in_the_installation(backend: &Backend) {
     };
     backend.stores().workspaces.create(&other).await.unwrap();
     let store = &backend.stores().phone_numbers;
-    let held = phone_number(&ws.id, "+14155550123", Some(&a.id));
+    let held = phone_number(&ws.id, "+14155550123");
     store.create(&held).await.unwrap();
 
-    let again = phone_number(&other.id, "+14155550123", None);
+    let again = phone_number(&other.id, "+14155550123");
     assert!(matches!(
         store.create(&again).await,
         Err(pagis_core::StoreError::Conflict(_))
@@ -1964,7 +1956,7 @@ pub async fn one_number_is_held_once_in_the_installation(backend: &Backend) {
 /// call by the dialed number, so the lookup reads every Workspace and
 /// skips a released record (ADR-0020).
 pub async fn the_live_records_of_a_number_span_every_workspace(backend: &Backend) {
-    let (ws, a) = seed_grant_deps(backend).await;
+    let (ws, _) = seed_grant_deps(backend).await;
     let other = pagis_core::Workspace {
         monthly_spend_cap_usd: None,
         id: WorkspaceId::generate(),
@@ -1972,12 +1964,12 @@ pub async fn the_live_records_of_a_number_span_every_workspace(backend: &Backend
     };
     backend.stores().workspaces.create(&other).await.unwrap();
     let store = &backend.stores().phone_numbers;
-    let released = phone_number(&ws.id, "+14155550123", Some(&a.id));
+    let released = phone_number(&ws.id, "+14155550123");
     store.create(&released).await.unwrap();
     assert!(store.release(&ws.id, &released.id).await.unwrap());
-    let held = phone_number(&other.id, "+14155550123", None);
+    let held = phone_number(&other.id, "+14155550123");
     store.create(&held).await.unwrap();
-    let neighbour = phone_number(&ws.id, "+14155550124", None);
+    let neighbour = phone_number(&ws.id, "+14155550124");
     store.create(&neighbour).await.unwrap();
 
     assert_eq!(
@@ -2002,7 +1994,7 @@ pub async fn the_live_records_of_a_number_span_every_workspace(backend: &Backend
 pub async fn a_settled_purchase_intent_leaves_the_pending_list(backend: &Backend) {
     let (ws, _) = seed_grant_deps(backend).await;
     let store = &backend.stores().phone_numbers;
-    let number = phone_number(&ws.id, "+14155550123", None);
+    let number = phone_number(&ws.id, "+14155550123");
     let intent = purchase_intent(&number);
     store.create_intent(&intent).await.unwrap();
 
@@ -2850,7 +2842,7 @@ macro_rules! store_suite_stores {
             retention_policies_default_to_keep_for_ever,
             a_credential_round_trips_and_lists_by_domain,
             archiving_an_agent_hands_its_credentials_to_the_user,
-            the_schema_refuses_a_second_number_for_one_agent,
+            the_schema_refuses_a_second_number_for_one_workspace,
             a_released_number_keeps_its_record,
             one_number_is_held_once_in_the_installation,
             the_live_records_of_a_number_span_every_workspace,

@@ -38,15 +38,8 @@ import {
   useCreateConnection,
   useDeleteConnection,
   useMailboxes,
-  usePhoneNumbers,
-  useReleasePhoneNumber,
 } from '../queries'
-import {
-  AdoptNumber,
-  type PhoneNumber,
-  ReleaseConfirmation,
-  formatE164,
-} from './AgentPhoneNumber'
+
 import {
   CapabilityPicker,
   READ_ONLY_CONNECTION_CAPABILITIES,
@@ -108,67 +101,6 @@ function groupOf(entry: ProviderEntryDto): string {
  *  Agent's page. A spare number is released here; a held one is
  *  released from its Agent's page, which names the Agent that loses
  *  the line. A number the account already holds is added here too. */
-function CarrierNumbers({ api }: { api: ApiClient }) {
-  const page = usePhoneNumbers(api)
-  const agentNames = useAgentNames(api)
-  const release = useReleasePhoneNumber(api)
-  const [adopting, setAdopting] = useState(false)
-  const [releasing, setReleasing] = useState<PhoneNumber | null>(null)
-  const numbers: PhoneNumber[] = (page.data?.items ?? []).filter(
-    (number) => number.status !== 'released',
-  )
-
-  return (
-    <div className="connection-mailboxes" data-testid="carrier-numbers">
-      <span>Numbers</span>
-      {numbers.length === 0 && (
-        <span className="settings-hint">No numbers yet.</span>
-      )}
-      {numbers.map((number) => (
-        <span className="connection-mailbox" key={number.id}>
-          <strong>{formatE164(number.e164)}</strong>
-          <span className="settings-hint">
-            {number.agent_id != null
-              ? `Held by ${agentNames[number.agent_id] ?? number.agent_id}`
-              : 'Unassigned'}
-          </span>
-          {number.agent_id == null && (
-            <Button
-              variant="danger"
-              size="sm"
-              aria-label={`Release ${number.e164}`}
-              onClick={() => setReleasing(number)}
-            >
-              Release
-            </Button>
-          )}
-        </span>
-      ))}
-      {release.isError && (
-        <p className="settings-error" role="alert">
-          {errorMessage(release.error, 'That number could not be released.')}
-        </p>
-      )}
-      {releasing !== null && (
-        <ReleaseConfirmation
-          number={releasing}
-          holder={null}
-          pending={release.isPending}
-          onCancel={() => setReleasing(null)}
-          onRelease={() =>
-            release.mutate(releasing.id, { onSuccess: () => setReleasing(null) })
-          }
-        />
-      )}
-      {adopting ? (
-        <AdoptNumber api={api} agent={null} onDone={() => setAdopting(false)} />
-      ) : (
-        <Button onClick={() => setAdopting(true)}>Add a number you own</Button>
-      )}
-    </div>
-  )
-}
-
 /** The carrier card. The carrier account is the installation's, so
  *  the card changes nothing of it: it states the capabilities the
  *  carrier does not have (ADR-0020) and lists the numbers on it, which
@@ -194,7 +126,6 @@ function CarrierDetail({
           ))}
         </ul>
       )}
-      <CarrierNumbers api={api} />
     </div>
   )
 }

@@ -1539,7 +1539,7 @@ pub struct Agent {
     pub avatar: crate::AvatarAppearance,
     pub voice: Option<String>,
     /// The standing brief (ADR-0020): what an inbound call to the
-    /// Agent's desk line is for. The daemon reads it at answer time.
+    /// Workspace Number is for. The daemon reads it at answer time.
     /// `None` answers with no purpose beyond taking a message.
     pub standing_brief: Option<String>,
     pub status: AgentStatus,
@@ -1709,19 +1709,8 @@ impl CredentialProvenance {
     }
 }
 
-/// One telephone number the Workspace owns: an Agent's desk line
-/// (ADR-0018). `e164` is model-visible; `provider_number_id` is the
-/// carrier's own handle and never reaches the model. Pagis stores the
-/// two together or stores neither, as it does for the mailbox pair.
-///
-/// The record carries no price, because a price recorded at purchase
-/// goes stale, and no health state, because registration health belongs
-/// to the Connection: carrier trouble then shows one time, on the
-/// carrier, and not one time for each Agent.
-///
-/// `agent_id` is the whole assignment. One Agent holds at most one
-/// number and one number is held by at most one Agent, and a partial
-/// unique index on this column holds both halves of that rule.
+/// The Workspace Number. One Workspace holds at most one active record.
+/// The carrier id stays inside the daemon. Registration is live carrier state.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PhoneNumber {
     pub id: crate::PhoneNumberId,
@@ -1731,19 +1720,11 @@ pub struct PhoneNumber {
     pub e164: String,
     /// The carrier's own id for the number. Opaque outside the daemon.
     pub provider_number_id: String,
-    /// The Agent that holds the line, when one does.
-    pub agent_id: Option<AgentId>,
     pub status: PhoneNumberStatus,
     /// The most texts a day the number may send (ADR-0020). It counts
     /// texts, never segments, as the Outgoing Cap of a mailbox counts
     /// messages.
     pub outgoing_cap: u32,
-    /// The counterpart numbers the user allowed from a send card
-    /// (ADR-0020). A text to one of them runs with no card. The rules
-    /// live on the record and not in a Grant, because an Agent holds
-    /// its own number with no Grant.
-    #[serde(default)]
-    pub allow_rules: Vec<String>,
     /// The start of the day the send tally counts, or `None` while the
     /// number has sent nothing.
     pub sends_day: Option<UnixMillis>,
@@ -1772,7 +1753,6 @@ pub struct PhoneNumber {
     /// the download starts.
     pub relay_consent: bool,
     pub created_at: UnixMillis,
-    pub assigned_at: Option<UnixMillis>,
 }
 
 impl PhoneNumber {
@@ -1781,32 +1761,24 @@ impl PhoneNumber {
 
     /// A number the Workspace has just taken on, bought or adopted.
     /// Its texting fields start where every new number starts: the
-    /// default cap with nothing spent, no allow rule, nothing read
+    /// default cap with nothing spent, nothing read
     /// from the carrier and no relay.
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         id: crate::PhoneNumberId,
         workspace_id: WorkspaceId,
         connection_id: crate::ConnectionId,
         e164: String,
         provider_number_id: String,
-        agent_id: Option<AgentId>,
         at: UnixMillis,
     ) -> Self {
-        let assigned = agent_id.is_some();
         Self {
             id,
             workspace_id,
             connection_id,
             e164,
             provider_number_id,
-            agent_id,
-            status: match assigned {
-                true => PhoneNumberStatus::Assigned,
-                false => PhoneNumberStatus::Unassigned,
-            },
+            status: PhoneNumberStatus::Active,
             outgoing_cap: Self::DEFAULT_OUTGOING_CAP,
-            allow_rules: Vec::new(),
             sends_day: None,
             sends_today: 0,
             messaging_readiness: MessagingReadiness::Unknown,
@@ -1817,7 +1789,6 @@ impl PhoneNumber {
             relay_state: TelnyxRelayState::Absent,
             relay_consent: false,
             created_at: at,
-            assigned_at: assigned.then_some(at),
         }
     }
 
@@ -1831,7 +1802,7 @@ impl PhoneNumber {
     }
 }
 
-/// Whether an Agent Phone Number may send a text (ADR-0020). The
+/// Whether a Workspace Number may send a text (ADR-0020). The
 /// carrier decides it: a number that is capable of SMS still does not
 /// send until it is registered. Pagis reads the state, stores it,
 /// shows it and refuses a send against it; it never registers the
@@ -1967,23 +1938,18 @@ impl TelnyxRelayState {
     }
 }
 
-/// Where one number stands (ADR-0018). To unassign is not to release:
-/// an `Unassigned` number stays with the Workspace and stays paid for,
-/// and a `Released` number went back to the carrier and never comes
-/// back. The released record stays, so the Calls that point at it read.
+/// An active number belongs to its Workspace. A released record stays for Calls.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PhoneNumberStatus {
-    Assigned,
-    Unassigned,
+    Active,
     Released,
 }
 
 impl PhoneNumberStatus {
     pub fn as_str(self) -> &'static str {
         match self {
-            PhoneNumberStatus::Assigned => "assigned",
-            PhoneNumberStatus::Unassigned => "unassigned",
+            PhoneNumberStatus::Active => "active",
             PhoneNumberStatus::Released => "released",
         }
     }
@@ -1994,8 +1960,7 @@ impl std::str::FromStr for PhoneNumberStatus {
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
-            "assigned" => Ok(PhoneNumberStatus::Assigned),
-            "unassigned" => Ok(PhoneNumberStatus::Unassigned),
+            "active" => Ok(PhoneNumberStatus::Active),
             "released" => Ok(PhoneNumberStatus::Released),
             other => Err(format!("unknown phone number status: {other}")),
         }
@@ -2013,9 +1978,6 @@ pub struct PurchaseIntent {
     pub workspace_id: WorkspaceId,
     pub connection_id: crate::ConnectionId,
     pub e164: String,
-    /// The Agent the number is bought for, when the user bought it from
-    /// an Agent's page. Reconciliation assigns it.
-    pub agent_id: Option<AgentId>,
     pub state: PurchaseIntentState,
     pub created_at: UnixMillis,
     pub settled_at: Option<UnixMillis>,
@@ -2442,7 +2404,7 @@ pub struct Call {
     pub phone_number_id: crate::PhoneNumberId,
     pub direction: CallDirection,
     pub remote_e164: String,
-    /// The Agent's external display name, and its own line. They come
+    /// The current Agent's external display name, and the Workspace Number. They come
     /// from the Call Brief, because a released number is a tombstone
     /// the Call still points at. The own line is the number that placed
     /// an outbound Call, and the number the Remote Party dialed for an
@@ -2573,12 +2535,12 @@ impl TextDeliveryStatus {
 /// one lands in the Agent's own Thread with the user.
 pub const TEXT_THREAD_WINDOW_MS: UnixMillis = 7 * 24 * 60 * 60 * 1000;
 
-/// One text the Agent sent or received (ADR-0020).
+/// One Text Message of a Workspace Number (ADR-0020).
 ///
 /// Pagis keeps the body, because no carrier is a mailbox to fetch
 /// from later: a carrier hands the body once or lists it with a
 /// retention the daemon does not control. The record stays with the
-/// Agent that sent or received it whatever happens to the number, as
+/// Workspace that owns the number, as
 /// a Call does, so a new holder of the number sees none of it.
 ///
 /// An outbound record also carries the Run, the Channel and the
@@ -2589,7 +2551,6 @@ pub const TEXT_THREAD_WINDOW_MS: UnixMillis = 7 * 24 * 60 * 60 * 1000;
 pub struct TextRecord {
     pub id: crate::TextRecordId,
     pub workspace_id: WorkspaceId,
-    pub agent_id: AgentId,
     pub phone_number_id: crate::PhoneNumberId,
     /// The other end of the conversation, in E.164.
     pub counterpart_e164: String,
@@ -2620,7 +2581,7 @@ pub struct TextRecord {
 }
 
 /// One Text Conversation as the desk lists it (ADR-0020). The
-/// conversation is the pair of one Agent Phone Number and one
+/// conversation is the pair of one Workspace Number and one
 /// counterpart number, and it is derived from the records, never
 /// stored.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

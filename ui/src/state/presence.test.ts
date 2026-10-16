@@ -97,6 +97,13 @@ describe('usePresence', () => {
     expect(channelPresence(state(), 'ch-1', 'ag-2')).toBe('idle')
   })
 
+  it('moves live Call presence to the new holder', () => {
+    apply('call.placed', { agent_id: 'ag-1', channel_id: null, payload: { call_id: 'call-1' } })
+    apply('call.handed_off', { agent_id: 'ag-2', channel_id: null, payload: { call_id: 'call-1' } })
+    expect(usePresence.getState().onCall['ag-1']).toBeUndefined()
+    expect(usePresence.getState().onCall['ag-2']).toBe('call-1')
+  })
+
   it('reads a call over a run, and gives the ring back when it ends', () => {
     apply('run.state_changed', { payload: { to: 'running' } })
     apply('call.placed', { channel_id: null, payload: { call_id: 'call-1' } })

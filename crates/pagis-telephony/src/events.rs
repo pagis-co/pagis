@@ -27,13 +27,13 @@ pub use pagis_broker::{CALL_ENDED, CALL_MATCHER};
 
 use crate::bridge::CallReport;
 
-/// The name the rule carries on the Agent's number panel and in its
+/// The name the rule carries in Settings and in its
 /// rule list.
 pub const STANDING_CALL_RULE_NAME: &str = "Answered calls";
 
 /// What the Wake-up tells the Agent to do. It names the tool, because
 /// the event carries the envelope and never the words.
-pub const STANDING_CALL_INSTRUCTION: &str = "You answered a call on your desk line. Read what was said with `call_transcript` and act \
+pub const STANDING_CALL_INSTRUCTION: &str = "You answered a call on the Workspace Number. Read what was said with `call_transcript` and act \
      on your job.";
 
 /// One Call, as it settled. The bridge has returned its report and the
@@ -161,18 +161,10 @@ pub trait CallEvents: Send + Sync {
 #[error("{0}")]
 pub struct StandingRuleError(pub String);
 
-/// The Standing Call Rule of one desk line. Assigning a number to an
-/// Agent creates it, so the Agent wakes on every call it answers;
-/// taking the line back archives it. It carries the provenance of the
-/// user, so the Agent may narrow it and never delete it.
+/// Ensures the Call holder has its Standing Call Rule.
 #[async_trait]
 pub trait StandingCallRule: Send + Sync {
     async fn create(
-        &self,
-        number: &PhoneNumber,
-        agent_id: &AgentId,
-    ) -> Result<(), StandingRuleError>;
-    async fn archive(
         &self,
         number: &PhoneNumber,
         agent_id: &AgentId,

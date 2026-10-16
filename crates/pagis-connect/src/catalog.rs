@@ -14,7 +14,7 @@
 //! OAuth Client. The Administration Interface sets up those parts
 //! through one set of routes for every provider. What a person does
 //! with the provider stays on the product port: a person connects their
-//! own Google account, buys an Agent Phone Number or makes an Agent
+//! own Google account, buys a Workspace Number or makes an Agent
 //! Mailbox. A model provider has one installation part, its key, and
 //! [`installation_setups`] lists it beside the catalog entries.
 
@@ -98,7 +98,7 @@ pub enum SetupKind {
     /// The Installation Connection itself: the carrier account or the
     /// mail domain. Its fields are the entry's own fields.
     Connection,
-    /// The carrier's SIP credential, which every Agent Phone Number
+    /// The carrier's SIP credential, which every Workspace Number
     /// registers with (ADR-0020). It needs the Connection first.
     SipCredential,
     /// The Installation OAuth Client (ADR-0012).
@@ -265,7 +265,7 @@ const TELNYX_SIP_FIELDS: &[ProviderField] = &sip_fields(Some("sip.telnyx.com"));
 const TWILIO_SIP_FIELDS: &[ProviderField] = &sip_fields(None);
 const PLIVO_SIP_FIELDS: &[ProviderField] = &sip_fields(Some("phone.plivo.com"));
 
-const CARRIER_ACCOUNT_BLURB: &str = "The carrier account every Agent Phone Number of this installation \
+const CARRIER_ACCOUNT_BLURB: &str = "The carrier account every Workspace Number of this installation \
      is bought on. The daemon proves the key at the carrier, then keeps it in the \
      installation's secret store and never in the database.";
 

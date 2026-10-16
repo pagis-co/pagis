@@ -1,7 +1,7 @@
 //! Where the telephony crate meets the Trigger module (ADR-0020).
 //!
 //! The telephony crate stops at two seams: it asks for the Standing
-//! Call Rule when a line becomes an Agent's, and it hands each settled
+//! Call Rule when a Call settles, and it hands each settled
 //! call to `ingest`. Both are filled here, because the Trigger module
 //! reads the declarations the broker holds and is therefore built
 //! after the number desk. It is the mail pair next door, for calls.
@@ -9,21 +9,19 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use pagis_core::{AgentId, ChannelStore, EventSubscriptionState, IngestBatch, PhoneNumber, now_ms};
+use pagis_core::{AgentId, ChannelStore, EventSubscriptionState, IngestBatch, PhoneNumber};
 use pagis_telephony::{
     CALL_ENDED, CallEvents, CallIngestError, STANDING_CALL_INSTRUCTION, STANDING_CALL_RULE_NAME,
     StandingCallRule, StandingRuleError,
 };
-use pagis_trigger::{NewSubscription, SubscriptionAction, Trigger};
+use pagis_trigger::{NewSubscription, Trigger};
 
 /// The most rules one Agent is read through while the Standing Call
-/// Rule of a line is looked for. An Agent with more rules than this
-/// does not lose its line; the rule stays and the user archives it.
+/// Rule is looked for. The Person can archive an existing rule.
 const RULE_PAGE: u32 = 200;
 
 /// One Standing Call Rule slot, filled once the Trigger module exists.
-/// The number desk gives no line to an Agent before the daemon has
-/// finished starting, so an empty slot is a fault and reads as one.
+/// A Call starts after the daemon fills the slot. An empty slot is a fault.
 #[derive(Default)]
 pub struct DeferredStandingCallRule {
     inner: std::sync::OnceLock<Arc<dyn StandingCallRule>>,
@@ -51,18 +49,10 @@ impl StandingCallRule for DeferredStandingCallRule {
     ) -> Result<(), StandingRuleError> {
         self.rule()?.create(number, agent_id).await
     }
-
-    async fn archive(
-        &self,
-        number: &PhoneNumber,
-        agent_id: &AgentId,
-    ) -> Result<(), StandingRuleError> {
-        self.rule()?.archive(number, agent_id).await
-    }
 }
 
 /// The Standing Call Rule of ADR-0020: one Event Subscription on the
-/// Agent's own desk line, in its Thread with the user (ADR-0022),
+/// Workspace Number, in the holder's Thread with the Person (ADR-0022),
 /// written with the provenance of the user.
 pub struct StandingCallRules {
     trigger: Arc<Trigger>,
@@ -82,6 +72,18 @@ impl StandingCallRule for StandingCallRules {
         number: &PhoneNumber,
         agent_id: &AgentId,
     ) -> Result<(), StandingRuleError> {
+        let rules = self
+            .trigger
+            .list_subscriptions(&number.workspace_id, Some(agent_id), None, RULE_PAGE)
+            .await
+            .map_err(|error| StandingRuleError(error.to_string()))?;
+        if rules.iter().any(|rule| {
+            rule.event_kind == CALL_ENDED
+                && rule.source.connection_id() == Some(&number.connection_id)
+                && rule.state != EventSubscriptionState::Archived
+        }) {
+            return Ok(());
+        }
         let channel = self
             .channels
             .find_user_dm(&number.workspace_id, agent_id)
@@ -108,40 +110,10 @@ impl StandingCallRule for StandingCallRules {
                 filter: serde_json::json!({}),
                 // The daemon supplies this rule for the Person.
                 // The Agent may narrow it but cannot delete it.
-                now: now_ms(),
+                now: number.created_at.saturating_sub(1),
             })
             .await
             .map_err(|error| StandingRuleError(error.to_string()))?;
-        Ok(())
-    }
-
-    async fn archive(
-        &self,
-        number: &PhoneNumber,
-        agent_id: &AgentId,
-    ) -> Result<(), StandingRuleError> {
-        let rules = self
-            .trigger
-            .list_subscriptions(&number.workspace_id, Some(agent_id), None, RULE_PAGE)
-            .await
-            .map_err(|error| StandingRuleError(error.to_string()))?;
-        // The Agent may have narrowed the rule, so it is found by the
-        // line it watches and not by its name or its filter.
-        for rule in rules.into_iter().filter(|rule| {
-            rule.event_kind == CALL_ENDED
-                && rule.source.connection_id() == Some(&number.connection_id)
-                && rule.state != EventSubscriptionState::Archived
-        }) {
-            self.trigger
-                .update_subscription(
-                    &rule.workspace_id,
-                    &rule.id,
-                    SubscriptionAction::Archive,
-                    now_ms(),
-                )
-                .await
-                .map_err(|error| StandingRuleError(error.to_string()))?;
-        }
         Ok(())
     }
 }

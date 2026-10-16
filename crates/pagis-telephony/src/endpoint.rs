@@ -1,32 +1,4 @@
-//! The line of a carrier Connection (ADR-0020): one endpoint task for
-//! each carrier Connection owns the registration and the socket, and it
-//! carries every Agent Phone Number of that carrier.
-//!
-//! Registration is a property of the carrier credential, not of a
-//! number or a call. The line starts when the daemon starts and
-//! restarts when the SIP credential changes; assigning or unassigning a
-//! number does not touch it. It refreshes at half the expiry the
-//! registrar granted, and after a failure it backs off, doubling to a
-//! 30 s cap. Each number shows the state of its carrier's line, because
-//! an unregistered line drops inbound calls in silence.
-//!
-//! The line routes each inbound call by the number that was dialed. The
-//! stored Agent Phone Number of that number names the Workspace and the
-//! Agent; the socket that took the `INVITE` names neither. The line
-//! refuses a call before it answers when the dialed number is missing,
-//! is not held by the installation, is held by no Agent, or matches
-//! more than one record.
-//!
-//! One active call for each number. The line places the calls of each
-//! number and answers the calls to each number; a second inbound call to
-//! a number that is on a call gets `486 Busy Here`, and a call to
-//! another number of the line is not affected. Each call gets one
-//! [`MediaHub`].
-//!
-//! [`Endpoints`] is the registry above the lines: it resolves the SIP
-//! credential of each carrier Connection, starts and restarts one line
-//! for each, reports each state, and hands over the calls its lines
-//! answered.
+//! Carrier lines resolve a dialed E.164 to a Workspace Number and its Chief of Staff.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -146,7 +118,7 @@ pub enum CallError {
     /// The carrier did not take the `INVITE`.
     #[error("the carrier did not take the call: {}", .0.as_str())]
     Transport(TransportErrorCode),
-    /// The number has no line: no Agent holds it now, its carrier
+    /// The number is inactive, its carrier
     /// Connection has no line, or its record could not be read.
     #[error("the number has no endpoint")]
     NoEndpoint,
@@ -175,22 +147,42 @@ pub struct IncomingHub {
     pub hub: Arc<MediaHub>,
 }
 
-/// Where a line reads the stored Agent Phone Numbers of a dialed
+/// Where a line reads the stored Workspace Numbers of a dialed
 /// number. The daemon reads its store over every Workspace; a test
 /// gives a list.
 #[async_trait]
 pub trait NumberDirectory: Send + Sync {
     /// Every record of the E.164 number that is not released.
     async fn lookup(&self, e164: &str) -> Result<Vec<PhoneNumber>, StoreError>;
+    async fn can_answer(&self, _number: &PhoneNumber) -> Result<bool, StoreError> {
+        Ok(true)
+    }
 }
 
-/// The daemon's directory: the stored Agent Phone Numbers.
-struct StoredNumbers(Arc<dyn PhoneNumberStore>);
+/// The daemon's directory: the stored Workspace Numbers.
+struct StoredNumbers {
+    numbers: Arc<dyn PhoneNumberStore>,
+    workspaces: Arc<dyn pagis_core::WorkspaceStore>,
+    agents: Arc<dyn pagis_core::AgentStore>,
+}
 
 #[async_trait]
 impl NumberDirectory for StoredNumbers {
     async fn lookup(&self, e164: &str) -> Result<Vec<PhoneNumber>, StoreError> {
-        self.0.live_for_e164(e164).await
+        self.numbers.live_for_e164(e164).await
+    }
+    async fn can_answer(&self, number: &PhoneNumber) -> Result<bool, StoreError> {
+        let Some(workspace) = self.workspaces.get(&number.workspace_id).await? else {
+            return Ok(false);
+        };
+        let Some(agent_id) = workspace.chief_of_staff_agent_id else {
+            return Ok(false);
+        };
+        Ok(self
+            .agents
+            .get(&number.workspace_id, &agent_id)
+            .await?
+            .is_some_and(|agent| agent.status == pagis_core::AgentStatus::Active))
     }
 }
 
@@ -498,7 +490,7 @@ async fn dial(
     Ok(hub)
 }
 
-/// Answer a call that arrived for a number an Agent holds, or turn it
+/// Answer a Call to an active Workspace Number, or turn it
 /// away before it is answered.
 async fn answer(runner: &Runner, call: IncomingCall) {
     let number = match route(runner.numbers.as_ref(), call.dialed_e164.as_deref()).await {
@@ -579,8 +571,10 @@ async fn route(
         );
         return Err(Refusal::NotFound);
     };
-    if number.agent_id.is_none() {
-        tracing::info!(dialed, "refused: no Agent holds the dialed number");
+    if !numbers.can_answer(&number).await.map_err(|error| {
+        tracing::error!(%error, "the Chief of Staff could not be read");
+        Refusal::Unavailable
+    })? {
         return Err(Refusal::Unavailable);
     }
     Ok(number)
@@ -590,6 +584,8 @@ async fn route(
 /// the numbers and the carrier, the secret store that holds the SIP
 /// password, and the bus the state changes go to.
 pub struct EndpointsDeps {
+    pub workspaces: Arc<dyn pagis_core::WorkspaceStore>,
+    pub agents: Arc<dyn pagis_core::AgentStore>,
     pub transport: Arc<dyn CallTransport>,
     pub numbers: Arc<dyn PhoneNumberStore>,
     pub connections: Arc<dyn ConnectionStore>,
@@ -607,6 +603,8 @@ struct Running {
 
 /// The lines of the daemon, one for each carrier Connection.
 pub struct Endpoints {
+    workspaces: Arc<dyn pagis_core::WorkspaceStore>,
+    agents: Arc<dyn pagis_core::AgentStore>,
     transport: Arc<dyn CallTransport>,
     numbers: Arc<dyn PhoneNumberStore>,
     connections: Arc<dyn ConnectionStore>,
@@ -627,6 +625,8 @@ impl Endpoints {
     pub fn new(deps: EndpointsDeps) -> Self {
         let (answered, handover) = mpsc::channel(HANDOVER_DEPTH);
         Self {
+            workspaces: deps.workspaces,
+            agents: deps.agents,
             transport: deps.transport,
             numbers: deps.numbers,
             connections: deps.connections,
@@ -686,7 +686,11 @@ impl Endpoints {
         let task = EndpointTask::spawn(
             Arc::clone(&self.transport),
             self.credential_for(&connection),
-            Arc::new(StoredNumbers(Arc::clone(&self.numbers))),
+            Arc::new(StoredNumbers {
+                numbers: Arc::clone(&self.numbers),
+                workspaces: Arc::clone(&self.workspaces),
+                agents: Arc::clone(&self.agents),
+            }),
             self.answered.clone(),
         );
         let watcher = pagis_rt::spawn(publish_changes(
@@ -722,7 +726,7 @@ impl Endpoints {
     }
 
     /// Place a call from one number, on the line of its carrier
-    /// Connection. The number must be held by an Agent now.
+    /// Connection. The Workspace Number must be active.
     pub async fn place_call(
         &self,
         workspace_id: &WorkspaceId,
@@ -730,7 +734,7 @@ impl Endpoints {
         to_e164: &str,
     ) -> Result<Arc<MediaHub>, CallError> {
         let number = match self.numbers.get(workspace_id, number_id).await {
-            Ok(Some(number)) if number.status == PhoneNumberStatus::Assigned => number,
+            Ok(Some(number)) if number.status == PhoneNumberStatus::Active => number,
             Ok(_) => return Err(CallError::NoEndpoint),
             Err(error) => {
                 tracing::error!(%error, "reading the number that places a call failed");

@@ -3,11 +3,10 @@
 
 mod audio;
 mod call_record;
-mod call_tool;
 mod calls;
 mod dtmf;
-mod emergency;
 mod endpoint;
+mod handoff;
 mod hub;
 mod inbound;
 mod listen;
@@ -21,8 +20,10 @@ mod realtime_bridge;
 mod recording;
 mod routing;
 mod sdp;
+mod session_tools;
 mod telnyx_catalog;
 mod telnyx_text;
+mod text_collector;
 mod text_transport;
 mod tiers;
 mod transport;

@@ -83,7 +83,7 @@ pub enum VoicemailPolicy {
     HangUp,
 }
 
-/// The arguments of one `phone_call` (ADR-0020): the part of the brief
+/// The arguments of an outbound transport Call (ADR-0020): the part of the brief
 /// the Agent writes. The broker has already validated the shape and
 /// the E.164 form of `to`.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -114,7 +114,7 @@ pub struct CallBrief {
     /// The Agent Voice (ADR-0020), or `None` for the provider's default.
     pub voice: Option<String>,
     pub phone_number_id: PhoneNumberId,
-    /// The Agent's own line: the number that places an outbound call,
+    /// The Workspace Number: the source of an outbound Call,
     /// or the number the Remote Party dialed for an inbound call.
     pub own_e164: String,
     pub remote_e164: String,

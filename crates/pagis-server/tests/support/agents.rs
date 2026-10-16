@@ -218,7 +218,7 @@ impl Embedder {
             conversation_evidence: stores.conversation_evidence.clone(),
             bus: bus.clone(),
             executor: executor.clone(),
-            phone_numbers: stores.phone_numbers.clone(),
+
             mailboxes: stores.agent_mailboxes.clone(),
             hosts: stores.hosts.clone(),
             presence: presence.clone(),
@@ -238,6 +238,7 @@ impl Embedder {
             agents: stores.agents.clone(),
             channels: stores.channels.clone(),
             messages: stores.messages.clone(),
+            text_records: stores.text_records.clone(),
             runs: stores.runs.clone(),
             model_aliases: stores.model_aliases.clone(),
             usage: stores.usage.clone(),

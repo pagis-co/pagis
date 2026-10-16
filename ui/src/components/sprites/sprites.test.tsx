@@ -44,7 +44,6 @@ const rex = {
  *  business. */
 function stubApi(
   items: unknown[],
-  numbers: unknown[] = [],
   chief: string | null = "ag1",
   hasComputers = true,
 ) {
@@ -61,8 +60,6 @@ function stubApi(
           },
         };
       }
-      if (path === "/api/v1/settings/phone-numbers")
-        return { data: { items: numbers } };
       if (path === "/api/v1/settings/onboarding") {
         return {
           data: { completed: true, docker: hasComputers ? { endpoint: 'unix:///var/run/docker.sock' as string | null, candidates: [] } : null, docker_endpoint: null, providers: [] },
@@ -144,7 +141,6 @@ describe("the sprite roster", () => {
         api={
           stubApi(
             [sage, rex],
-            [{ agent_id: "ag1", e164: "+14155550123" }],
           ) as unknown as ApiClient
         }
       />,
@@ -154,14 +150,13 @@ describe("the sprite roster", () => {
     expect(screen.queryByText("Rex")).toBeNull();
     expect(screen.getByText("Idle")).toBeTruthy();
     expect(screen.getByText("sage@example.com")).toBeTruthy();
-    expect(screen.getByText("+1 415 555 0123")).toBeTruthy();
   });
 
   it("marks the Chief of Staff the Workspace names", async () => {
     const clown = { ...sage, id: "ag4", name: "Clown", job: "jester" };
     mount(
       <RosterHarness
-        api={stubApi([sage, clown], [], "ag4") as unknown as ApiClient}
+        api={stubApi([sage, clown], "ag4") as unknown as ApiClient}
       />,
     );
 
@@ -496,7 +491,7 @@ describe("the agent profile", () => {
   });
 
   it("makes the agent the Chief of Staff", async () => {
-    const api = stubApi([sage], [], "ag4");
+    const api = stubApi([sage], "ag4");
     profile(api);
 
     await userEvent.click(
@@ -513,7 +508,7 @@ describe("the agent profile", () => {
   });
 
   it("says that the agent already is the Chief of Staff", async () => {
-    profile(stubApi([sage], [], "ag1"));
+    profile(stubApi([sage], "ag1"));
 
     expect(await screen.findByTestId("agent-chief-of-staff")).toBeTruthy();
     expect(
@@ -522,7 +517,7 @@ describe("the agent profile", () => {
   });
 
   it("marks the Chief of Staff in the profile header", async () => {
-    profile(stubApi([sage], [], "ag1"));
+    profile(stubApi([sage], "ag1"));
 
     const header = (
       await screen.findByRole("heading", { name: "Sage" })
@@ -531,7 +526,7 @@ describe("the agent profile", () => {
   });
 
   it("leaves the Chief of Staff badge off another sprite's header", async () => {
-    profile(stubApi([sage], [], "ag4"));
+    profile(stubApi([sage], "ag4"));
 
     const header = (
       await screen.findByRole("heading", { name: "Sage" })
@@ -567,7 +562,7 @@ describe("the agent profile", () => {
   });
 
   it("reads a null Docker report on Desk without a missing Docker hint", async () => {
-    profile(stubApi([sage], [], "ag1", false));
+    profile(stubApi([sage], "ag1", false));
     await userEvent.click(await screen.findByRole("tab", { name: "Desk" }));
     expect(await screen.findByTestId("agent-desk-disk")).toBeTruthy();
     expect(screen.queryByText(/found no Docker/)).toBeNull();

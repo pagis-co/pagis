@@ -60,8 +60,8 @@ CREATE TABLE agents (
     -- daemon knows, validated when it is written. NULL declares no
     -- voice, and the speech provider then uses its own default.
     voice TEXT COLLATE "C",
-    -- The standing brief (ADR-0020): what an inbound call to the
-    -- Agent's desk line is for, read at answer time. NULL declares none.
+    -- The standing brief (ADR-0020): what a Call the Agent
+    -- answers is for, read at answer time. NULL declares none.
     standing_brief TEXT COLLATE "C",
     -- Sprite appearance. SQLite: CHECK (json_valid(avatar)).
     avatar TEXT COLLATE "C" NOT NULL
@@ -488,14 +488,10 @@ CREATE TABLE phone_numbers (
     connection_id TEXT COLLATE "C" NOT NULL,
     e164 TEXT COLLATE "C" NOT NULL,
     provider_number_id TEXT COLLATE "C" NOT NULL,
-    agent_id TEXT COLLATE "C" REFERENCES agents (id),
-    status TEXT COLLATE "C" NOT NULL CHECK (status IN ('assigned', 'unassigned', 'released')),
+    status TEXT COLLATE "C" NOT NULL CHECK (status IN ('active', 'released')),
     created_at BIGINT NOT NULL,
-    assigned_at BIGINT,
-    -- The Outgoing Cap of a number and the rules that skip its send card
-    -- (ADR-0020). They mirror the fields the Agent Mailbox record has.
+    -- The text Outgoing Cap of the Workspace Number (ADR-0020).
     outgoing_cap BIGINT NOT NULL DEFAULT 50,
-    allow_rules TEXT COLLATE "C" NOT NULL DEFAULT '[]',
     -- The day the send tally counts, and the tally. The cap is a day's
     -- allowance, so the tally starts again on a new day.
     sends_day BIGINT,
@@ -516,12 +512,10 @@ CREATE TABLE phone_numbers (
     relay_state TEXT COLLATE "C" NOT NULL DEFAULT 'absent',
     relay_reason TEXT COLLATE "C",
     relay_cli_lines TEXT COLLATE "C" NOT NULL DEFAULT '[]',
-    relay_consent BOOLEAN NOT NULL DEFAULT false,
-    -- A number is assigned exactly when an Agent holds it.
-    CHECK ((status = 'assigned') = (agent_id IS NOT NULL))
+    relay_consent BOOLEAN NOT NULL DEFAULT false
 );
-CREATE UNIQUE INDEX idx_phone_numbers_agent
-    ON phone_numbers (agent_id) WHERE agent_id IS NOT NULL;
+CREATE UNIQUE INDEX idx_phone_numbers_active_workspace
+    ON phone_numbers (workspace_id) WHERE status = 'active';
 -- One carrier serves the whole Org, so one number is held once in the
 -- installation, whichever Workspace holds it.
 CREATE UNIQUE INDEX idx_phone_numbers_e164
@@ -534,13 +528,12 @@ CREATE TABLE phone_number_purchase_intents (
     workspace_id TEXT COLLATE "C" NOT NULL REFERENCES workspaces (id),
     connection_id TEXT COLLATE "C" NOT NULL,
     e164 TEXT COLLATE "C" NOT NULL,
-    agent_id TEXT COLLATE "C" REFERENCES agents (id),
     state TEXT COLLATE "C" NOT NULL CHECK (state IN ('pending', 'bought', 'abandoned')),
     created_at BIGINT NOT NULL,
     settled_at BIGINT
 );
 CREATE UNIQUE INDEX idx_purchase_intents_pending
-    ON phone_number_purchase_intents (workspace_id, e164) WHERE state = 'pending';
+    ON phone_number_purchase_intents (workspace_id) WHERE state = 'pending';
 
 CREATE TABLE calls (
     id TEXT COLLATE "C" PRIMARY KEY,
@@ -854,7 +847,6 @@ CREATE TABLE text_records (
     workspace_id TEXT COLLATE "C" NOT NULL REFERENCES workspaces (id),
     -- The record stays with the Agent whatever happens to the number,
     -- so a new holder of the number sees none of it.
-    agent_id TEXT COLLATE "C" NOT NULL REFERENCES agents (id),
     -- No foreign key: a released number is a tombstone the record
     -- still points at, as a Call does.
     phone_number_id TEXT COLLATE "C" NOT NULL,
@@ -884,7 +876,7 @@ CREATE TABLE text_records (
     CHECK ((direction = 'outbound') = (delivery_state IS NOT NULL))
 );
 CREATE INDEX idx_text_records_conversation
-    ON text_records (agent_id, phone_number_id, counterpart_e164, occurred_at, id);
+    ON text_records (workspace_id, phone_number_id, counterpart_e164, occurred_at, id);
 CREATE INDEX idx_text_records_workspace ON text_records (workspace_id, occurred_at);
 
 CREATE TABLE message_exposure_sets (

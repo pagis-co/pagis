@@ -212,7 +212,7 @@ pub struct TriggerDeps {
     pub channels: Arc<dyn ChannelStore>,
     pub messages: Arc<dyn MessageStore>,
     /// The Org's Workspace, which holds the Installation Connections. A
-    /// rule on an Agent's own number or mailbox names the Org's carrier
+    /// rule on a Workspace Number or Agent Mailbox names the Org's carrier
     /// or mail domain.
     pub org_workspace_id: WorkspaceId,
     pub grants: Arc<dyn GrantStore>,
@@ -246,7 +246,7 @@ impl Trigger {
 
     /// The Connection a rule of one Workspace names: one of the
     /// Workspace's own, or an Installation Connection of the Org, which
-    /// every person's Agents use for their own numbers and mailboxes.
+    /// serves Workspace Numbers and Agent Mailboxes.
     async fn connection(
         &self,
         workspace_id: &WorkspaceId,

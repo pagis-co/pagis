@@ -102,8 +102,8 @@ function stubApi() {
         case '/api/v1/agents':
         case '/api/v1/settings/mailboxes':
           return { data: { items: [] } }
-        case '/api/v1/settings/phone-numbers':
-          return { data: { items: [], carrier: null } }
+        case '/api/v1/workspace/number':
+          return { data: { number: null, carrier: null } }
         case '/api/v1/settings/connections':
           return { data: { items: [CONNECTION] } }
         case '/api/v1/settings/connections/providers':

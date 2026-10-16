@@ -1,10 +1,4 @@
-//! The `phone_call` executor (ADR-0020). The broker has already
-//! validated the arguments and minted the approval card; this is what
-//! runs after the user approves. It guards the number, writes the Call
-//! Brief, binds the session tools, marks the line live, hands the call
-//! to the bridge and turns the report into the tool result. The Run
-//! stays alive for the length of the call, because this call blocks
-//! until the bridge returns.
+//! Call transcript reads and Call file storage.
 
 use std::sync::Arc;
 
@@ -12,31 +6,13 @@ use async_trait::async_trait;
 use object_store::{ObjectStore, ObjectStoreExt as _};
 use pagis_broker::{AuthorizedCall, CoreTool, ToolDef, ToolExecutor, ToolResult, ToolRoute};
 use pagis_core::{
-    AgentId, AgentStore, Author, Block, CallId, CallStore, EventBus, File, FileId, FileOutcome,
-    FileStore, KnownBlock, Message, MessageId, MessageStatus, MessageStore, NewEvent, PhoneNumber,
-    RunId, RunStore, TrustListStore, Untrusted, WorkspaceId, blocks_text, now_ms,
-    render_transcript,
+    AgentId, Author, Block, CallId, CallStore, EventBus, File, FileId, FileOutcome, FileStore,
+    KnownBlock, Message, MessageId, MessageStatus, MessageStore, NewEvent, RunId, RunStore,
+    Untrusted, WorkspaceId, blocks_text, now_ms, render_transcript,
 };
 
-use crate::bridge::{CallBridge, CallLog, CallReport, PlacedCall};
-use crate::brief::{CallArguments, CallBrief, REMOTE_PARTY_SOURCE};
-use crate::emergency::EmergencyRefused;
-use crate::live::LiveCalls;
-use crate::numbers::{NumberDesk, NumberError};
-use crate::session::session_tools;
-use crate::tiers::candidate_tier;
-use crate::transport::CallTransport;
-
-/// The stable reason a call attempt fails before it is placed: the
-/// Agent holds no number (ADR-0018).
-pub const PHONE_NOT_ASSIGNED: &str = "phone_not_assigned";
-/// The stable reason a call attempt fails while another call runs on
-/// the same line (ADR-0020).
-pub const CALL_ACTIVE: &str = "call_active";
-/// The stable reason the bridge did not carry the call to an end.
-pub const CALL_FAILED: &str = "call_failed";
-/// The stable reason a transcript read names a Call the Agent does not
-/// hold, or no Call at all.
+use crate::bridge::CallReport;
+use crate::brief::REMOTE_PARTY_SOURCE;
 pub const CALL_NOT_FOUND: &str = "call_not_found";
 
 /// The tools of one Run that need no approval. The broker answers
@@ -52,28 +28,9 @@ pub trait RunTools: Send + Sync {
 }
 
 pub struct PhoneToolDeps {
-    pub desk: Arc<NumberDesk>,
-    pub agents: Arc<dyn AgentStore>,
-    pub workspaces: Arc<dyn pagis_core::WorkspaceStore>,
-    pub users: Arc<dyn pagis_core::UserStore>,
-    pub runs: Arc<dyn RunTools>,
-    /// The Run record, for the Thread the call was sent from.
-    pub run_records: Arc<dyn RunStore>,
-    /// The Thread the `call` block is minted in (ADR-0020).
-    pub messages: Arc<dyn MessageStore>,
-    /// The Call records. `call_transcript` reads one of them: the
-    /// record is the one source of truth for a call, transcript and
-    /// tier together.
     pub calls: Arc<dyn CallStore>,
-    /// The Trust List (ADR-0021). The dialed number's listed tier
-    /// holds on an outbound call, with no further proof.
-    pub tiers: Arc<dyn TrustListStore>,
-    pub transport: Arc<dyn CallTransport>,
-    pub bridge: Arc<dyn CallBridge>,
-    pub live: Arc<LiveCalls>,
-    pub files: Arc<dyn FileStore>,
     pub blobs: Arc<dyn ObjectStore>,
-    pub bus: Arc<dyn EventBus>,
+    pub files: Arc<dyn FileStore>,
 }
 
 pub struct PhoneToolRuntime {
@@ -90,7 +47,7 @@ impl PhoneToolRuntime {
         matches!(
             route,
             ToolRoute::Core {
-                tool: CoreTool::PhoneCall | CoreTool::CallTranscript
+                tool: CoreTool::CallTranscript
             }
         )
     }
@@ -141,144 +98,6 @@ impl PhoneToolRuntime {
             })
             .to_string(),
         ))
-    }
-
-    async fn place(&self, call: &AuthorizedCall) -> Result<ToolResult, ToolResult> {
-        let arguments: CallArguments =
-            serde_json::from_value(call.arguments.clone()).map_err(|error| {
-                ToolResult::error("invalid_request", format!("{}: {error}", call.tool_name))
-            })?;
-        let number = self.guarded_number(call, &arguments.to).await?;
-        let agent = self
-            .deps
-            .agents
-            .get(&call.workspace_id, &call.agent_id)
-            .await
-            .map_err(unavailable)?
-            .ok_or_else(|| ToolResult::error("temporarily_unavailable", "the Agent is gone"))?;
-        let free_tools = self
-            .deps
-            .runs
-            .free_tools(&call.workspace_id, &call.run_id)
-            .await
-            .map_err(|reason| ToolResult::error("temporarily_unavailable", reason))?;
-        let tier = candidate_tier(
-            self.deps.tiers.as_ref(),
-            &call.workspace_id,
-            &call.agent_id,
-            &arguments.to,
-        )
-        .await
-        .map_err(unavailable)?;
-        let person_name = pagis_core::honesty::person_name(
-            self.deps.workspaces.as_ref(),
-            self.deps.users.as_ref(),
-            &call.workspace_id,
-        )
-        .await
-        .map_err(unavailable)?;
-        let brief =
-            CallBrief::outbound(&agent, &person_name, &number, &arguments, tier, free_tools);
-        let tools = session_tools(&brief, self.deps.transport.capabilities(), None);
-        let placed = PlacedCall {
-            id: CallId::generate(),
-            workspace_id: call.workspace_id.clone(),
-            run_id: call.run_id.clone(),
-            brief,
-            tools,
-        };
-        let _live = self
-            .deps
-            .live
-            .begin(
-                &placed.workspace_id,
-                &number.id,
-                &placed.id,
-                placed.tools.clone(),
-            )
-            .map_err(|active| {
-                ToolResult::error(
-                    CALL_ACTIVE,
-                    format!("this line is on call {} already", active.call_id),
-                )
-            })?;
-        let log = CallLog::new(Arc::clone(&self.deps.bus), &placed);
-        log.placed(&placed).await.map_err(unavailable)?;
-        let call_id = placed.id.clone();
-        mint_strip(
-            self.deps.messages.as_ref(),
-            self.deps.run_records.as_ref(),
-            self.deps.bus.as_ref(),
-            &call.workspace_id,
-            &call.agent_id,
-            &call.run_id,
-            &call_id,
-        )
-        .await;
-        let tier = placed.brief.tier;
-        let report = match self.deps.bridge.place(placed, &log).await {
-            Ok(report) => report,
-            Err(error) => {
-                log.failed(&error).await.map_err(unavailable)?;
-                return Err(ToolResult::error(CALL_FAILED, error.to_string()));
-            }
-        };
-        let transcript_id = store_transcript(
-            self.deps.files.as_ref(),
-            self.deps.blobs.as_ref(),
-            &call.workspace_id,
-            &call.agent_id,
-            &call.run_id,
-            &report,
-        )
-        .await
-        .map_err(unavailable)?;
-        log.ended(&report, Some(&transcript_id))
-            .await
-            .map_err(unavailable)?;
-        Ok(ToolResult::success(
-            serde_json::json!({
-                "call_id": call_id.as_str(),
-                "outcome": report.outcome,
-                "ended_reason": report.ended_reason,
-                "classification": report.classification,
-                "message_left": report.message_left,
-                "duration_s": report.duration.as_secs(),
-                "transcript_file_id": transcript_id.as_str(),
-                "tier": tier.as_str(),
-                "transcript": Untrusted::text(
-                    REMOTE_PARTY_SOURCE,
-                    tier.as_str(),
-                    &render_transcript(&report.transcript),
-                ),
-                "recording_file_id": report.recording_file_id.as_ref().map(FileId::as_str),
-            })
-            .to_string(),
-        ))
-    }
-
-    /// The held number, once both guards of ADR-0018 pass: the Agent
-    /// holds a line, and the dialed number is not an emergency number.
-    async fn guarded_number(
-        &self,
-        call: &AuthorizedCall,
-        to: &str,
-    ) -> Result<PhoneNumber, ToolResult> {
-        self.deps
-            .desk
-            .guard_call_tool(&call.workspace_id, &call.agent_id, &call.run_id, to)
-            .await
-            .map_err(|error| match error {
-                NumberError::EmergencyRefused(refused) => ToolResult::error(
-                    EmergencyRefused::CODE,
-                    format!(
-                        "{refused} Pagis never calls an emergency number. The person must dial \
-                         it themselves, from a telephone they hold."
-                    ),
-                ),
-                NumberError::Validation(reason) => ToolResult::error(PHONE_NOT_ASSIGNED, reason),
-                other => ToolResult::error("temporarily_unavailable", other.to_string()),
-            })
     }
 }
 
@@ -415,7 +234,7 @@ impl ToolExecutor for PhoneToolRuntime {
             ToolRoute::Core {
                 tool: CoreTool::CallTranscript,
             } => self.transcript(&call).await,
-            _ => self.place(&call).await,
+            _ => unreachable!(),
         };
         match outcome {
             Ok(result) | Err(result) => result,

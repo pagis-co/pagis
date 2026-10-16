@@ -393,6 +393,12 @@ impl CallBridge for RealtimeBridge {
             }
         };
         call.brief.tier = gate.tier();
+        if let Ok(Some(mut record)) = self.deps.calls.get(&call.workspace_id, &call.id).await {
+            record.tier = call.brief.tier;
+            if let Err(error) = self.deps.calls.update(&record).await {
+                tracing::error!(%error, "the Call Trust Tier was not stored");
+            }
+        }
         self.deps.live_tiers.bind(
             &call.workspace_id,
             &call.id,

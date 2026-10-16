@@ -161,7 +161,7 @@ rustix = { version = "1", features = ["fs", "process"] }
 regex = "1"
 # The emergency table generator reads libphonenumber metadata.
 roxmltree = "0.21"
-# The SIP stack behind the Agent Phone Number (ADR-0020). It appears in
+# The SIP stack behind the Workspace Number (ADR-0020). It appears in
 # `crates/pagis-telephony` and nowhere else. Its default features stay
 # on: the crate does not build without its WebSocket transport.
 rsipstack = "0.6"

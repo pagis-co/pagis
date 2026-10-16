@@ -1,36 +1,4 @@
-//! Telephony: the carrier seams and the Agent Phone Number.
-//!
-//! Telephony has three duties with different credentials and different
-//! failure modes, so it has three seams (ADR-0020, ADR-0020).
-//! [`NumberCatalog`] searches, buys and releases a number with the REST
-//! API key. [`CallTransport`] is signaling and media, and uses the SIP
-//! credential instead; the API key stays out of the call path.
-//! [`TextTransport`] carries a text out, polls the texts that came in
-//! and holds the carrier's messaging object in place; it signs with the
-//! REST API key, as the catalog does, and holds a cursor per number,
-//! which the catalog does not. A carrier that carries no text gets
-//! [`NoTextTransport`], which declares texting absent and refuses every
-//! call (ADR-0005).
-//!
-//! [`NumberDesk`] is the lifecycle above the catalog: buy, assign,
-//! unassign and release, with the refusals and the audit trail
-//! ADR-0018 states. It also holds the two emergency guards: Pagis
-//! never calls an emergency number, and [`emergency`] is the predicate
-//! that decides. [`Endpoints`] is the registry of the lines, one for
-//! each carrier Connection, that keep the carrier registered and route
-//! each inbound call by the number that was dialed.
-//!
-//! [`tiers`] owns the Trust Tier of one call (ADR-0021): the
-//! Trust List proposes it, the [`keypad`] challenge confirms it before
-//! the realtime session exists, and only the user drops it.
-//! [`hub::MediaHub`] owns the media of one call: both directions of audio,
-//! the typed events, and the keypad digits both ways.
-//!
-//! [`PhoneToolRuntime`] executes the one call tool (ADR-0020), and
-//! [`InboundCalls`] runs the calls the lines answer.
-//! It writes the [`CallBrief`] the model never writes, binds the
-//! session tools of [`session`] only while a call is live in
-//! [`LiveCalls`], and hands the call to a [`CallBridge`].
+//! Telephony: Workspace Numbers, inbound Calls, hand-off and inbound texts.
 
 pub mod audio;
 mod bridge;
@@ -112,9 +80,7 @@ pub use model_router::{
 };
 pub use no_text::NoTextTransport;
 pub use numbers::{NumberDesk, NumberDeskDeps, NumberError, normalize_e164};
-pub use phone_tool::{
-    CALL_ACTIVE, CALL_FAILED, PHONE_NOT_ASSIGNED, PhoneToolDeps, PhoneToolRuntime, RunTools,
-};
+pub use phone_tool::{PhoneToolDeps, PhoneToolRuntime, RunTools};
 pub use plivo::PlivoNumberCatalog;
 pub use realtime_bridge::{RealtimeBridge, RealtimeBridgeDeps};
 pub use sip_transport::{SipCallTransport, dialed_e164, register_contact};
@@ -165,3 +131,7 @@ pub fn sip_password_secret_name(provider: &str, alias: &str) -> String {
 /// The `config` key that holds a carrier account's id, the public half
 /// of its [`CarrierKey`]. Telnyx has none, so the key is absent there.
 pub const CARRIER_ACCOUNT_KEY: &str = "account";
+
+pub mod handoff;
+
+pub use model::ModelSessions;

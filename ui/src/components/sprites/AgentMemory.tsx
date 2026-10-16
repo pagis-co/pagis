@@ -5,17 +5,15 @@
 
 import { useCurrentWorkspaceId } from '../../workspace'
 import { useQueryClient } from '@tanstack/react-query'
-import { ChevronRight, MessageSquare, Phone } from 'lucide-react'
+import { ChevronRight, MessageSquare } from 'lucide-react'
 
 import type { AgentDto, ApiClient, MemoryFeedItem } from '../../api/client'
-import { formatE164 } from '../../blocks/call'
 import { Badge, Button, Frame, Row, SectionLabel } from '../../primitives'
 import { Avatar } from '../../avatars/Avatar'
 import {
   useAgentSyncConnections,
   useAgents,
   useMemoryPageCounts,
-  usePhoneNumbers,
   useRecentChanges,
   useRevertCommit,
 } from '../../queries'
@@ -188,8 +186,6 @@ function LearnsFrom({
 }) {
   const phone = useIsMobile()
   const connections = useAgentSyncConnections(api, agent.id)
-  const numbers = usePhoneNumbers(api)
-  const deskLine = (numbers.data?.items ?? []).find((number) => number.agent_id === agent.id)
 
   return (
     <div className="agent-memory-group">
@@ -227,17 +223,6 @@ function LearnsFrom({
             </Button>}
           </Row>
         ))}
-        {deskLine !== undefined && (
-          <Row role="listitem">
-            <span className="agent-memory-tile" aria-hidden>
-              <Phone size={14} />
-            </span>
-            <span className="agent-memory-text">
-              <span>Desk line {formatE164(deskLine.e164)}</span>
-              <span className="agent-memory-meta">calls it answers</span>
-            </span>
-          </Row>
-        )}
         <Row role="listitem">
           <span className="agent-memory-tile" aria-hidden>
             <MessageSquare size={14} />

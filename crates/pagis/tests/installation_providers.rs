@@ -367,7 +367,7 @@ async fn a_carrier_account_and_its_sip_sign_in_are_set_up_tested_and_removed() {
     let (status, page) = send(
         &daemon,
         reqwest::Method::GET,
-        product(&daemon, "/api/v1/settings/phone-numbers"),
+        product(&daemon, "/api/v1/workspace/number"),
         None,
     )
     .await;
@@ -424,7 +424,7 @@ async fn a_carrier_account_and_its_sip_sign_in_are_set_up_tested_and_removed() {
     let (status, page) = send(
         &daemon,
         reqwest::Method::GET,
-        product(&daemon, "/api/v1/settings/phone-numbers"),
+        product(&daemon, "/api/v1/workspace/number"),
         None,
     )
     .await;
@@ -443,7 +443,7 @@ async fn a_carrier_that_carries_a_number_is_not_removed() {
     let (status, number) = send(
         &daemon,
         reqwest::Method::POST,
-        product(&daemon, "/api/v1/settings/phone-numbers"),
+        product(&daemon, "/api/v1/workspace/number"),
         Some(serde_json::json!({ "e164": "+14155550123" })),
     )
     .await;

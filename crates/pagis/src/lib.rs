@@ -47,3 +47,5 @@ pub use system::{
     taken_model_port_message, taken_port_message, taken_turn_port_message,
 };
 pub use tailscale::TailscaleCommand;
+
+mod text_events;

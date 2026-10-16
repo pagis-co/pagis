@@ -3,9 +3,7 @@
 
 use std::sync::Arc;
 
-use pagis_core::{
-    AgentId, ConnectionId, PhoneNumber, PhoneNumberId, TextDeliveryStatus, WorkspaceId,
-};
+use pagis_core::{ConnectionId, PhoneNumber, PhoneNumberId, TextDeliveryStatus, WorkspaceId};
 use pagis_telephony::fake::FakeTextTransport;
 use pagis_telephony::{
     CarrierKey, InboundText, NoTextTransport, PLIVO_PROVIDER, Prepared, TELNYX_PROVIDER,
@@ -24,7 +22,6 @@ fn number(e164: &str) -> PhoneNumber {
         ConnectionId::generate(),
         e164.to_string(),
         format!("carrier-{e164}"),
-        Some(AgentId::generate()),
         1_700_000_000_000,
     )
 }

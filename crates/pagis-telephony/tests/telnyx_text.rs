@@ -36,7 +36,6 @@ fn number() -> PhoneNumber {
         ConnectionId::from("conn-1".to_string()),
         E164.to_string(),
         NUMBER_ID.to_string(),
-        None,
         1_700_000_000_000,
     )
 }

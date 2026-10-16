@@ -814,7 +814,7 @@ impl Drop for FakeLine {
     }
 }
 
-/// The stored Agent Phone Numbers a line routes by, in memory
+/// The stored Workspace Numbers a line routes by, in memory
 /// (ADR-0020). A test of the line on a paused clock reads its numbers
 /// here instead of from a database.
 #[derive(Default)]
@@ -830,7 +830,7 @@ impl FakeNumberDirectory {
         }
     }
 
-    /// A record of one number that an Agent of a Workspace holds, as a
+    /// A record of one number that a Workspace holds, as a
     /// purchase from the Agent's page writes it. Each call makes a new
     /// Workspace and a new Agent.
     pub fn held(e164: &str) -> PhoneNumber {
@@ -840,7 +840,6 @@ impl FakeNumberDirectory {
             pagis_core::ConnectionId::generate(),
             e164.to_string(),
             format!("carrier-{e164}"),
-            Some(pagis_core::AgentId::generate()),
             pagis_core::now_ms(),
         )
     }
@@ -1127,18 +1126,12 @@ impl TextTransport for FakeTextTransport {
 #[derive(Default)]
 pub struct FakeStandingCallRule {
     created: Mutex<Vec<(String, pagis_core::AgentId)>>,
-    archived: Mutex<Vec<(String, pagis_core::AgentId)>>,
 }
 
 impl FakeStandingCallRule {
     /// The lines a rule was written for, oldest first.
     pub fn created(&self) -> Vec<(String, pagis_core::AgentId)> {
         self.created.lock().unwrap().clone()
-    }
-
-    /// The lines whose rule was archived, oldest first.
-    pub fn archived(&self) -> Vec<(String, pagis_core::AgentId)> {
-        self.archived.lock().unwrap().clone()
     }
 }
 
@@ -1150,18 +1143,6 @@ impl crate::events::StandingCallRule for FakeStandingCallRule {
         agent_id: &pagis_core::AgentId,
     ) -> Result<(), crate::events::StandingRuleError> {
         self.created
-            .lock()
-            .unwrap()
-            .push((number.e164.clone(), agent_id.clone()));
-        Ok(())
-    }
-
-    async fn archive(
-        &self,
-        number: &PhoneNumber,
-        agent_id: &pagis_core::AgentId,
-    ) -> Result<(), crate::events::StandingRuleError> {
-        self.archived
             .lock()
             .unwrap()
             .push((number.e164.clone(), agent_id.clone()));

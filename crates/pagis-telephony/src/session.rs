@@ -1,10 +1,4 @@
-//! The session tools (ADR-0020): hang-up and send-digits. They
-//! are bound only inside a live call, because an Agent that is not on
-//! a call has nothing to hang up. Outside a call they are absent, not
-//! present and failing (ADR-0005). They act on the call itself and
-//! never on the Workspace, so they need no approval and no tier: a
-//! phone tree is a machine, and a call to a business must still
-//! navigate one.
+//! Session tools act on a live Call. Hand-off needs a confirmed Trust Tier.
 
 use pagis_broker::ToolDef;
 
@@ -13,6 +7,8 @@ use pagis_core::TrustTier;
 use crate::brief::CallBrief;
 use crate::hub::DtmfPresence;
 use crate::transport::TransportCapabilities;
+
+pub const HAND_OFF_CALL: &str = "hand_off_call";
 
 pub const HANG_UP: &str = "hang_up";
 pub const SEND_DIGITS: &str = "send_digits";
@@ -65,6 +61,7 @@ pub fn session_tools(
         });
     }
     if brief.tier != TrustTier::Unknown {
+        tools.push(ToolDef { name: HAND_OFF_CALL.into(), description: "Hand this Call to an active Agent of this Workspace. Name the Agent id.".into(), parameters: serde_json::json!({"type":"object", "properties":{"agent":{"type":"string"}}, "required":["agent"], "additionalProperties":false}) });
         tools.extend(brief.tools.iter().cloned());
     }
     tools

@@ -76,7 +76,7 @@ pub struct SentText {
     pub segments: u32,
 }
 
-/// One text that arrived for an Agent Phone Number (ADR-0020). The
+/// One text that arrived for a Workspace Number (ADR-0020). The
 /// carrier concatenates the segments before it stores the text, so the
 /// daemon reassembles nothing.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -155,7 +155,7 @@ pub trait TextTransport: Send + Sync {
     fn capabilities(&self) -> TextCapabilities;
 
     /// Put the carrier's messaging objects in place for one number.
-    /// It runs at assignment, as the SIP credential connection is
+    /// It runs at purchase, as the SIP credential connection is
     /// prepared, and again on daemon start when the object is
     /// missing. `connection_config` is the carrier Connection's own
     /// `config` map, so a Workspace-level object that is already there
@@ -248,5 +248,195 @@ impl std::fmt::Debug for TextTransports {
         let mut providers: Vec<&str> = self.0.keys().map(String::as_str).collect();
         providers.sort_unstable();
         f.debug_tuple("TextTransports").field(&providers).finish()
+    }
+}
+
+/// Delivers a stored inbound Text Message to the Chief of Staff.
+#[async_trait]
+pub trait TextEvents: Send + Sync {
+    async fn received(
+        &self,
+        number: &PhoneNumber,
+        agent: &pagis_core::AgentId,
+        text: &pagis_core::TextRecord,
+    ) -> Result<(), String>;
+}
+
+/// Polls the Workspace Number. A failed delivery keeps the cursor for a retry.
+pub struct TextCollector {
+    pub numbers: Arc<dyn pagis_core::PhoneNumberStore>,
+    pub workspaces: Arc<dyn pagis_core::WorkspaceStore>,
+    pub agents: Arc<dyn pagis_core::AgentStore>,
+    pub connections: Arc<dyn pagis_core::ConnectionStore>,
+    pub org_workspace_id: pagis_core::WorkspaceId,
+    pub secrets: Arc<dyn pagis_core::SecretStore>,
+    pub transports: Arc<TextTransports>,
+    pub records: Arc<dyn pagis_core::TextRecordStore>,
+    pub trust: Arc<dyn pagis_core::TrustListStore>,
+    pub events: Arc<dyn TextEvents>,
+}
+/// The cadence for inbound Text Messages, separate from mail and knowledge sweeps.
+pub const TEXT_POLL_INTERVAL: Duration = Duration::from_secs(5);
+
+impl TextCollector {
+    /// Poll each Workspace until shutdown. One failed Workspace does not stop the pass.
+    pub fn spawn(
+        self: &Arc<Self>,
+        cancel: tokio_util::sync::CancellationToken,
+    ) -> tokio::task::JoinHandle<()> {
+        let collector = Arc::clone(self);
+        tokio::spawn(async move {
+            let mut timer = tokio::time::interval(TEXT_POLL_INTERVAL);
+            timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                tokio::select! {
+                    _ = cancel.cancelled() => break,
+                    _ = timer.tick() => {}
+                }
+                let workspaces = match collector.workspaces.list().await {
+                    Ok(workspaces) => workspaces,
+                    Err(error) => {
+                        tracing::warn!(%error, "listing Workspaces for inbound texts failed");
+                        continue;
+                    }
+                };
+                let pass = async {
+                    let mut tasks = tokio::task::JoinSet::new();
+                    for workspace in workspaces {
+                        let collector = Arc::clone(&collector);
+                        tasks.spawn(async move {
+                            if let Err(error) = collector.collect(&workspace.id).await {
+                                tracing::warn!(workspace_id = %workspace.id, %error, "inbound text collection failed");
+                            }
+                        });
+                    }
+                    while let Some(result) = tasks.join_next().await {
+                        if let Err(error) = result {
+                            tracing::warn!(%error, "inbound text task failed");
+                        }
+                    }
+                };
+                tokio::select! {
+                    _ = cancel.cancelled() => break,
+                    _ = pass => {}
+                }
+            }
+        })
+    }
+
+    pub async fn collect(&self, workspace_id: &pagis_core::WorkspaceId) -> Result<(), String> {
+        let workspace = self
+            .workspaces
+            .get(workspace_id)
+            .await
+            .map_err(|e| e.to_string())?
+            .ok_or("Workspace not found")?;
+        let Some(agent_id) = workspace.chief_of_staff_agent_id else {
+            return Ok(());
+        };
+        if self
+            .agents
+            .get(workspace_id, &agent_id)
+            .await
+            .map_err(|e| e.to_string())?
+            .is_none_or(|agent| agent.status != pagis_core::AgentStatus::Active)
+        {
+            return Ok(());
+        }
+        for number in self
+            .numbers
+            .list(workspace_id)
+            .await
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .filter(|number| number.status == pagis_core::PhoneNumberStatus::Active)
+        {
+            let connection = self
+                .connections
+                .get(&self.org_workspace_id, &number.connection_id)
+                .await
+                .map_err(|e| e.to_string())?
+                .ok_or("carrier not found")?;
+            let Some(transport) = self
+                .transports
+                .get(&connection.provider)
+                .filter(|transport| transport.capabilities().texting)
+            else {
+                continue;
+            };
+            let secret = self
+                .secrets
+                .get(&crate::carrier_key_secret_name(
+                    &connection.provider,
+                    &connection.alias,
+                ))
+                .map_err(|e| e.to_string())?
+                .ok_or("carrier key not found")?;
+            let key = CarrierKey::new(
+                connection.config[crate::CARRIER_ACCOUNT_KEY]
+                    .as_str()
+                    .unwrap_or_default(),
+                secret,
+            );
+            let (texts, cursor) = transport
+                .poll_inbound(&key, &number, number.text_cursor.as_deref())
+                .await
+                .map_err(|e| e.to_string())?;
+            for text in texts {
+                if text.to_e164 != number.e164 {
+                    continue;
+                }
+                let id =
+                    pagis_core::TextRecordId::from(format!("{}:{}", number.id, text.carrier_id));
+                let record = match self
+                    .records
+                    .get(workspace_id, &id)
+                    .await
+                    .map_err(|e| e.to_string())?
+                {
+                    Some(record) => record,
+                    None => {
+                        let tier = crate::tiers::candidate_tier(
+                            self.trust.as_ref(),
+                            workspace_id,
+                            &agent_id,
+                            &text.from_e164,
+                        )
+                        .await
+                        .map_err(|e| e.to_string())?;
+                        let record = pagis_core::TextRecord {
+                            id,
+                            workspace_id: workspace_id.clone(),
+                            phone_number_id: number.id.clone(),
+                            counterpart_e164: text.from_e164,
+                            direction: pagis_core::TextDirection::Inbound,
+                            tier,
+                            body: text.body,
+                            segments: 1,
+                            media_file_ids: Vec::new(),
+                            carrier_message_id: text.carrier_id,
+                            run_id: None,
+                            channel_id: None,
+                            thread_id: None,
+                            delivery_status: None,
+                            occurred_at: text.received_at,
+                        };
+                        self.records
+                            .insert(&record)
+                            .await
+                            .map_err(|e| e.to_string())?;
+                        record
+                    }
+                };
+                self.events.received(&number, &agent_id, &record).await?;
+            }
+            if let Some(cursor) = cursor {
+                self.numbers
+                    .set_text_cursor(workspace_id, &number.id, &cursor)
+                    .await
+                    .map_err(|e| e.to_string())?;
+            }
+        }
+        Ok(())
     }
 }

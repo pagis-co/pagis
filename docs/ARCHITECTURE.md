@@ -33,7 +33,7 @@ record, so the database refuses a record of another Workspace.
 │  Execution    containers, screen pipeline, Media Relay, computer use             │
 │   Supervisor                                                                     │
 │  Coding       Coding Sessions, ACP client, Harness Catalog                       │
-│  Telephony    Agent Phone Numbers, Calls, realtime voice bridge                  │
+│  Telephony    Workspace Numbers, Calls, realtime voice bridge                    │
 │  Mail         Agent Mailboxes, mail tools                                        │
 │  Audit        append-only event log                                              │
 │                                                                                  │
@@ -296,22 +296,25 @@ Coding Sessions are not built.
 
 ### Telephony
 
-Each Agent can hold one Agent Phone Number, its desk line, bought on the
-Org's carrier account, which an Administrator sets up. The carrier is an
-Installation Connection; the number is part of the Agent's identity, so an
-Agent that holds a number can call and one that does not cannot. The daemon
-is a SIP endpoint (ADR-0020). Calls out and in bridge the carrier's media
-to a realtime speech model through the router. The Remote Party's number
-proposes a Trust Tier and a Keypad Code confirms it (ADR-0021): the owner
-instructs, a trusted number requests, and a stranger is heard but reaches no
-tool.
+A Workspace holds at most one active Workspace Number (ADR-0041). The
+Person buys, sees and releases it in Settings. Its record has no Agent
+owner. The carrier's line resolves the dialed E.164 to that Workspace and
+reads its Chief of Staff designation before answer. A Workspace with no
+active Chief of Staff refuses the Call. The Keypad Code and Trust Tier
+apply before the realtime model session (ADR-0021).
 
-Texting is a third carrier seam beside the number seam and the call seam
-(ADR-0020). `TextTransport` has an implementation for Telnyx and Twilio,
-and the `text_records` table and the texting fields of `phone_numbers`
-exist. No path sends, receives or shows a text: the collector, the
-readiness read, the text tools, the Standing Text Rule and the `text` block
-are not built.
+`hand_off_call(agent)` moves a live Call to an active Agent of the same
+Workspace. The Call names the new Agent and Run. The model session changes
+to its voice and instructions on the same Media Hub and carrier connection.
+
+The text collector polls active Workspace Numbers through `TextTransport`.
+It stores each Text Record for the Workspace Number and wakes the current
+Chief of Staff through a Standing Text Rule. The sender's Trust Tier and
+the words in the untrusted envelope reach its Run. The cursor and event
+identity prevent duplicate delivery.
+
+Not built: outbound Calls and outbound texts from the Workspace Number,
+number Grants, callback routing, text tools and MMS media storage.
 
 ### Mail
 

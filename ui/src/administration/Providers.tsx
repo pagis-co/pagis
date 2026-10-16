@@ -6,7 +6,7 @@
 // them with the fields each part asks for, so this page holds no
 // provider list and no form of its own: a provider added to the
 // catalog shows here with no change. What a person does with a
-// provider (their own Google account, an Agent Phone Number, an Agent
+// provider (their own Google account, a Workspace Number, an Agent
 // Mailbox) stays in the product.
 
 import { useState } from 'react'

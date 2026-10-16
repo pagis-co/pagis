@@ -214,6 +214,7 @@ pub struct TestDaemonOptions {
     /// script. The default answers every call and hangs up. Keep an
     /// `Arc` to read the brief it was handed. `None` lets the daemon
     /// build its realtime bridge.
+    pub model_sessions: Option<Arc<dyn pagis_telephony::ModelSessions>>,
     pub call_bridge: Option<Arc<dyn pagis_telephony::CallBridge>>,
     /// The password checks of a password sign-in. The default is the
     /// daemon's own argon2id verifier; a test injects a check that counts
@@ -286,6 +287,7 @@ impl Default for TestDaemonOptions {
             call_transport: Arc::new(pagis_telephony::fake::FakeCallTransport::new(Arc::new(
                 pagis_telephony::fake::TokioClock,
             ))),
+            model_sessions: None,
             call_bridge: Some(Arc::new(pagis_telephony::FakeCallBridge::reporting(
                 pagis_telephony::FakeCallBridge::answered_report(""),
             ))),
@@ -608,6 +610,7 @@ impl TestDaemon {
                 mailbox_proof: options.mailbox_proof,
                 voice: Some(options.voice),
                 call_transport: Some(options.call_transport),
+                model_sessions: options.model_sessions,
                 call_bridge: options.call_bridge,
                 live_calls: Some(Arc::clone(&live_calls)),
                 live_tiers: Some(Arc::clone(&live_tiers)),

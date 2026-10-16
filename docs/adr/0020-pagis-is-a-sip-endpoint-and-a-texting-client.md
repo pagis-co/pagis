@@ -19,19 +19,17 @@ Texting is REST in both directions, and no carrier offers a channel that a
 daemon behind NAT can dial. A text differs from mail: there is no host to fetch
 it from storage, no message id the counterpart echoes, and a Workspace Number
 belongs to a Workspace while an Agent Mailbox belongs to an Agent (ADR-0041).
-Not built: Workspace Number. A United States number also needs
+A United States number also needs
 registration (local) or verification (toll-free) before carriers deliver its
 texts; two of three carriers accept the API call and fail the message later.
 
 ## Decision
 
-### Workspace Number replaces per-Agent assignment and routing
+### A Workspace holds its number
 
-ADR-0041 supersedes the per-Agent number ownership, assignment, authority,
-routing and text ownership rules in this record. Not built: Workspace Number.
-The daemon assigns each number to one Agent. The per-Agent descriptions here
-state the daemon's built behavior. They do not define the Workspace Number.
-
+ADR-0041 defines Workspace Number ownership, inbound Call routing, Call
+hand-off and inbound text delivery. The Person sets the number in Settings.
+Not built: outbound Calls and outbound texts from the Workspace Number.
 
 ### Pagis terminates SIP and RTP itself
 
@@ -55,7 +53,7 @@ configurable capability set beside it:
   declared capability set. The account key stays out of the call path.
 - `TextTransport`: `capabilities()` (texting, inbound media);
   `prepare(number)`, which puts the carrier's messaging object in place at
-  assignment and again at daemon start where it is missing, and adds the
+  purchase and again at daemon start where it is missing, and adds the
   account-level ids to the Org carrier Connection's config for reuse;
   `send(from, to, body) -> carrier id`, which sends the whole body up to the
   carrier's limit and reports the segment count, and maps a country the
@@ -79,22 +77,21 @@ the Org's Workspace (ADR-0023), which carries every number of every person. An
 Administrator sets up the carrier and its SIP credential as the `connection`
 and `sip` parts of its catalog entry (ADR-0024). Where a provider's call path
 needs something the installation lacks, the entry says so before a number is
-bought. A person manages their own numbers on the product port (ADR-0018).
+bought. The Person manages the Workspace Number in Settings on the product
+port (ADR-0018).
 
-The carrier's line routes an inbound call by its dialed number, normalized to
-E.164, to the assigned number record, which names the Workspace and Agent.
-Not built: routing to the Chief of Staff through the Workspace Number
+The carrier's line resolves the dialed E.164 to the active Workspace Number.
+The Workspace's Chief of Staff answers. The line refuses before answer when
+the number is absent, ambiguous, released or has no active Chief of Staff
 (ADR-0041).
-It refuses a call before answering when the dialed number is missing, not held
-by the installation, held by no Agent, or matches more than one record.
 
 ### The media plane
 
 - One line for each carrier Connection owns the registration and the socket.
-  It starts when the Connection has a SIP credential and restarts when the
-  credential changes; assignments do not touch it. It refreshes at half the
-  expiry and backs off to a 30-second cap. Its state is visible, because an
-  unregistered line drops inbound calls silently.
+It starts when the Connection has a SIP credential and restarts when the
+credential changes; number purchases do not change it. It refreshes at half
+the expiry and backs off to a 30-second cap. Its state is visible, because an
+unregistered line drops inbound calls silently.
 - One active call for each number; a second inbound call gets busy.
 - One media hub for each call owns both directions and fans them out to the
   model uplink, the recorder and listen-live. Subscribers are lossy, so a slow
@@ -130,36 +127,19 @@ adapter. Workspace aliases select the conversation model, the reasoning model
 of a delegating live protocol, and the audio-capable answer detector. A
 protocol change needs an adapter, not a new alias value.
 
-### The Run stays for the call
+### The Run stays for the Call
 
-The Run that places a call stays alive for the call. The realtime session is
-the model loop while the call runs, and afterwards the same Run reads the
-result and does any follow-up. A park and wake would park a Run whose model
-loop runs. Tool calls from the session go through the broker, and the bridge
-receives the trust tier (ADR-0021) and binds the session to it.
+An inbound Call opens a Run for the Chief of Staff. The realtime session is
+the model loop while the Call runs. A hand-off opens a Run for the target
+Agent, changes the Call holder and starts its model session on the same
+Media Hub. The earlier Run ends. The new Run uses its own voice, Standing
+Brief and free tools. Only an active Agent of the same Workspace can take
+the Call (ADR-0041).
 
-```text
-phone_call {
-    to                  E.164, required
-    brief               what the call is for, required
-    success_criteria    how the Agent judges the result, required
-    voicemail           leave a message or hang up, default hang up
-    max_duration_s      per-call override of the workspace cap
-}
-```
-
-The Agent writes what the call is for. The daemon writes who calls and under
-which limits: the identity and voice, the tier, the duration cap, the
-phone-tree prompt, the classify phase and the emergency rule (ADR-0018).
-Hang-up and send-digits are session tools, bound only inside a live call. The
-call tool is `Outbound`, and there is no allow-rule builder for a number, so
-every call asks.
-
-A live call is a free-effect zone. The session gets only `Free` tools, because
-a remote party cannot wait while the user decides; an action that needs an
-approval happens after the call, in the same Run. The session gets the tools
-the brief names, intersected with the `Free` tools of the Run's snapshot, and
-the tier then applies.
+A live Call uses only free tools. An action that needs approval waits until
+the Call ends. The Trust Tier narrows the tools (ADR-0021). The session tools
+hang up, send keypad digits and hand off the Call. Hand-off needs a confirmed
+Trust Tier. Not built: outbound Calls from the Workspace Number.
 
 ### The classify phase
 
@@ -222,12 +202,11 @@ the Call id (its identity), the direction, the line, the caller, the tier, the
 outcome, the ended reason, the duration and the transcript File, never the
 words. Its filter takes callers, a minimum trust and answered or not.
 
-Not built: the Chief of Staff answers the Workspace Number (ADR-0041). The
-daemon writes a Standing Call Rule when it assigns a number to an Agent: every
-Call, the Agent's own Channel with the user, the user's provenance, an
-instruction to read the call. Taking the line back archives it. A `Free` core
-tool reads one of the Agent's own Calls and returns the words inside the
-untrusted envelope with their tier; another Agent's Call reads as absent.
+The Chief of Staff's Standing Call Rule wakes the Agent after a Call. The
+daemon reads the designation at Call time and uses the Agent's own Standing
+Brief. A hand-off changes the Call holder and the Agent that reads the
+settled Call. `call_transcript` reads the holder's Call and returns the words
+inside the untrusted envelope with their Trust Tier (ADR-0041).
 
 Listen-live is a WebSocket on the daemon's authenticated server that sends a
 mono mix of both directions as G.711, which the browser decodes. A listener
@@ -280,102 +259,25 @@ session has emitted audio takes a change at the next Call.
 
 ### Texting
 
-Messaging Readiness is a state of an assigned number, read from the
-carrier: `unknown`, `not_capable`, `unregistered`, `pending`, `ready` or
-`rejected(reason)`. The number record keeps the state, its reason, the read
-time and the last failed read's error. Readiness never gates an inbound text,
-because carriers filter outbound only. Pagis detects and shows readiness and
-does not register, because registration collects a tax id, an address, an
-opt-in sample and a fee, and waits days for human review.
+The text collector polls each active Workspace Number. It stores a Text
+Record for the Workspace Number and wakes the current Chief of Staff through
+a Standing Text Rule. The record holds the counterpart, direction, Trust
+Tier, body, segment count, carrier id and time. The sender's number supplies
+the tier without a Keypad Code. The words reach the Run inside the untrusted
+envelope. A stored cursor and event identity prevent duplicate delivery.
+The `text.message_received` Incoming Event carries the number, sender,
+Trust Tier, receipt time, segment count, media flag and Text Record id.
+It contains no body. The Run reads the body from the Text Record store.
 
-Pagis stores each text as a Text Record: the Agent, the number, the
-counterpart, the direction, the tier, the body, the segment count, the media
-pointers, the carrier message id and the time; an outbound record adds the
-Run, the Thread and the delivery status (`queued`, `sent`, `delivered`, or
-`failed` with the carrier code and reason). The outbound record is the reply
-lookup, so there is no sent-texts table. The number record holds the text
-Outgoing Cap (50 a day by default), the send card's allow rules, the daily
-tally and the inbound cursor. A Text Conversation is the pair of one number
-and one counterpart, derived and never stored. Records stay with their Agent,
-so a new holder of a number sees none of the previous holder's texts.
+Not built: outbound Calls and outbound texts from the Workspace Number,
+text tools, Messaging Readiness reads and display, the text Outgoing Cap,
+MMS media storage and the Conversation Inspector. The carrier transport and
+Text Record types contain the fields for these capabilities.
 
 ## Consequences
 
-- An Agent on a call cannot take an approved action until the call ends.
-- A brief that names a tool the Agent lacks gets a smaller tool set and no
-  error.
-- Every call asks for an approval.
-- A daemon restart during a call ends it with `daemon_restart`, and the Run
-  fails with every other unfinished Run.
-- A provider with no realtime socket still dictates; the text arrives at the
-  end.
-- A reply that is only a table is silent in a spoken Thread.
-- A carrier key rotation is one write, and a number is unique in the
-  installation.
-- Texting needs one table, and the Trust List's numbers serve calls and texts.
-
-## Not built
-
-The text seam, the readiness type, the Text Record and the number fields
-exist. No path sends, receives or shows a text. The design of that path:
-
-- **Collector.** One task for each assigned number whose transport declares
-  texting polls every ten seconds, backs off to five minutes on a rate limit
-  or error, and saves the cursor on the number after each batch. The cursor
-  starts at assignment. The carrier joins inbound segments. Media is fetched at
-  ingest with the account key and stored as a File before the event.
-  Deduplication on the Connection, the kind and the carrier message id.
-- **Relay.** Where a carrier has no listable inbound store, the daemon installs
-  a small first-party relay in the carrier account: it downloads the pinned CLI
-  release, verifies its checksum, writes the configuration with the key-value
-  namespace and the webhook public key, and ships a handler that is Pagis
-  source, versioned with the daemon. The handler verifies the webhook signature
-  before it writes, and the daemon polls the namespace. The relay has its own
-  state on the number page (absent, installing, ready, failed with a reason)
-  and gates inbound collection alone.
-- **Readiness read.** A number catalog method reads readiness with the account
-  key. A poller reads at assignment, hourly while not ready and daily when
-  ready. The number page shows the state with a refresh control and a link to
-  the carrier's registration console with a checklist. A send from a number
-  that is not ready is refused with a tool error naming the state and reason,
-  after one fresh read where the state is unknown or older than a day.
-- **Delivery polling** at 5 seconds, 30 seconds, 2 minutes and 10 minutes;
-  a text with no receipt stays `sent`.
-- **Where an inbound text lands.** In the Thread of the last outbound record of
-  the pair that carries a Thread and is under seven days old, else in the
-  Agent's own Channel with the user.
-- **Event and Standing Text Rule.** `text.message_received` carries the
-  number, the sender, the tier, the time, the segment count, whether there is
-  media and the text id, never a body; its filter takes senders, a minimum
-  trust and replies only. A burst joins one Wake-up, and a text during a live
-  call from the same number is a Wake-up, not a call event. The sender's number
-  alone stamps the tier, with no keypad code. Assigning a number creates the
-  Standing Text Rule on the Agent (the text kind, the Agent's number, an
-  instruction to read the conversation, the Agent's own Channel, the user's
-  provenance, revision one); the user pauses, edits or deletes it, and the
-  Agent may narrow it and never delete it. Unassigning deletes the rule.
-- **Three core tools**, acting as the Agent's own identity with no Grant:
-  `text_send(to, body)` returns the id, a queued status, the segment count and
-  the cap left; `text_conversation(with, max <= 50, before)` returns the
-  records with one counterpart, bodies inside the untrusted envelope, media as
-  File pointers; `text_conversations(max <= 25)` returns recent
-  counterparts. An Agent with no number has no text tools; with one, the tools
-  exist whatever the readiness, and a send that is not ready answers
-  `number_not_messaging_ready`. Reads are `Free`, send is `Outbound`; the card
-  shows the number, the recipient and the body, and offers one allow rule, the
-  counterpart number, stored on the number record. The Trust List gives no
-  exemption. A send over the cap fails with `outgoing_cap_reached` before any
-  card, counting messages, not segments. A send to an emergency number gets
-  the call's refusal. A call brief may name the reads; a send never runs inside
-  a call.
-- **A failed delivery** raises `text.delivery_failed`, which wakes the Agent
-  in the Thread the text was sent from.
-- **The `text` block and the Conversation Inspector.** A daemon-made `text`
-  block for each record that woke the Agent or that it sent: the direction,
-  the counterpart with its Trust List name, the tier chip, the Agent's number,
-  and the body inline, folded past about 160 characters; an outbound block
-  shows the delivery state and a failure reason. It opens the Text Conversation
-  in the inspector: the counterpart and tier, the Agent and number, readiness
-  where not ready, records by day with delivery states and media, and a link
-  from each text to its Thread. The inspector has no compose box: the user
-  tells the Agent to text.
+- The number belongs to the Workspace; the Call names its current Agent.
+- A restart ends a live Call with `daemon_restart`.
+- A slow media subscriber does not stop the carrier audio.
+- A provider with no realtime socket still supports Dictation.
+- The carrier key stays out of the model session.

@@ -37,10 +37,10 @@ Workspace with no active Agent has none. The setting grants nothing: the roster
 stays flat, and the Chief of Staff delegates through Channels as any Agent
 does.
 
-The Chief of Staff gets the Workspace Mailbox and the Workspace Number
-through a default Grant, not through its designation, so the designation
-still grants no power (ADR-0040, ADR-0041). Not built: the Workspace
-Mailbox, the Workspace Number and their default Grants.
+The Chief of Staff answers inbound Calls and receives inbound texts to the
+Workspace Number. Routing reads the designation and grants no outbound
+authority (ADR-0041). Not built: the Workspace Mailbox, outbound Calls and
+texts from the Workspace Number, and their default Grants (ADR-0040).
 
 The sidebar has seven places at the top: Home, Sprites, Memory, Automations,
 Coding, Software and Settings. Home carries the count of the Needs-You Queue.
@@ -90,13 +90,13 @@ Administrator also sees the Org group:
   (ADR-0024).
 
 The Sprites place opens one Agent's page, with the About, Appearance, Desk,
-Contact, Access, Memory and Work tabs. Contact holds the phone number card and
-the mailbox card; a number is bought, assigned, unassigned and released there,
-and the release confirmation names the Agent. Access is the Agent's whole
-authority: Connection capabilities, vault domains, host allow rules, and the
-widest Session Approval Mode and the allowance of Unattended Modes on each
-machine. A Connection card lists the Agents with access and grants or
-removes it, and edits no capability. Each edit is a Grant revision.
+Contact, Access, Memory and Work tabs. Contact holds the mailbox card.
+Settings holds the Workspace Number: the Person buys, sees and releases it
+there (ADR-0041). Access is the Agent's whole authority: Connection
+capabilities, vault domains, host allow rules, and the widest Session Approval
+Mode and the allowance of Unattended Modes on each machine. A Connection card
+lists the Agents with access and grants or removes it, and edits no
+capability. Each edit is a Grant revision.
 
 Automations is a place: a Needs-You Queue at the top, then Schedules, then
 Event Subscriptions, and a detail body with the current revision, the state,
@@ -137,10 +137,10 @@ slot.
 
 While a call runs, its block is one line: the direction, who is on the call,
 the elapsed time and the last thing said. It opens the call inspector: the
-headline (who, the Agent and its number, the time, the tier), the purpose, the
-listen-live control, the running transcript, the controls, and a line that an
-action needing approval waits for the end of the call. The inspector stays
-open while the user reads elsewhere.
+headline (who, the Agent and the Workspace Number, the time, the tier), the
+purpose, the listen-live control, the running transcript, the controls, and a
+line that an action needing approval waits for the end of the call. The
+inspector stays open while the user reads elsewhere.
 
 A live call gets no bar over every view: it would take permanent room for a
 rare state, show one call where several can run, and cost about 90 px at
@@ -153,9 +153,10 @@ ended reason, the duration and the classification, the transcript behind one
 control, and a small player for the recording, the first block that owns a
 media player. The settled block also opens in the inspector. An inbound call
 renders in the Agent's own Channel with the user, as a line that the Agent
-answered its line under its standing rule, then the strip, so strangers add no
-conversations. A call block at the top level is the root of its Thread: it
-shows the replies chip and "Reply in thread", as each root does.
+answered the Workspace Number under its Standing Rule, then the strip, so
+strangers add no conversations. A call block at the top level is the root of
+its Thread: it shows the replies chip and "Reply in thread", as each root
+does.
 
 The strip, the inspector and the settled block show the tier as a chip, and
 the inspector states its meaning in one line; on an Unknown call it says that

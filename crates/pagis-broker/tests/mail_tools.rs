@@ -27,8 +27,8 @@ use pagis_core::{
 };
 use pagis_storage_sqlite::{
     SqliteAgentMailboxStore, SqliteAgentStore, SqliteCapabilitySnapshotStore, SqliteChannelStore,
-    SqliteConnectionStore, SqliteEventLog, SqliteGrantStore, SqlitePhoneNumberStore,
-    SqliteRequestStore, SqliteRunStore, SqliteWorkspaceStore,
+    SqliteConnectionStore, SqliteEventLog, SqliteGrantStore, SqliteRequestStore, SqliteRunStore,
+    SqliteWorkspaceStore,
 };
 use sqlx::SqlitePool;
 
@@ -159,7 +159,7 @@ impl World {
             ),
             bus,
             executor: Arc::clone(&executor) as _,
-            phone_numbers: Arc::new(SqlitePhoneNumberStore::new(pool.clone())),
+
             mailboxes: Arc::clone(&mailboxes) as _,
             session_starts: Arc::new(pagis_broker::NoSessionStarts),
             computer: false,

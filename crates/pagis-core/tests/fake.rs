@@ -228,7 +228,7 @@ async fn files_read_only_the_named_workspace() {
 #[tokio::test]
 async fn phone_numbers_read_only_the_named_workspace() {
     let stores = pagis_core::fake::stores();
-    let row: PhoneNumber = serde_json::from_str(r#"{"id": "record", "workspace_id": "workspace", "connection_id": "record", "e164": "record", "provider_number_id": "record", "status": "unassigned", "outgoing_cap": 0, "allow_rules": [], "sends_today": 0, "messaging_readiness": {"state": "unknown"}, "relay_state": {"state": "absent"}, "relay_consent": false, "created_at": 0}"#).unwrap();
+    let row: PhoneNumber = serde_json::from_str(r#"{"id": "record", "workspace_id": "workspace", "connection_id": "record", "e164": "record", "provider_number_id": "record", "status": "active", "outgoing_cap": 0, "sends_today": 0, "messaging_readiness": {"state": "unknown"}, "relay_state": {"state": "absent"}, "relay_consent": false, "created_at": 0}"#).unwrap();
     stores.phone_numbers.create(&row).await.unwrap();
     assert!(
         stores
@@ -644,7 +644,7 @@ async fn calls_read_only_the_named_workspace() {
 #[tokio::test]
 async fn text_records_read_only_the_named_workspace() {
     let stores = pagis_core::fake::stores();
-    let row: TextRecord = serde_json::from_str(r#"{"id": "record", "workspace_id": "workspace", "agent_id": "agent", "phone_number_id": "record", "counterpart_e164": "record", "direction": "outbound", "tier": "trusted", "body": "record", "segments": 0, "media_file_ids": [], "carrier_message_id": "record", "occurred_at": 0}"#).unwrap();
+    let row: TextRecord = serde_json::from_str(r#"{"id": "record", "workspace_id": "workspace", "phone_number_id": "record", "counterpart_e164": "record", "direction": "outbound", "tier": "trusted", "body": "record", "segments": 0, "media_file_ids": [], "carrier_message_id": "record", "occurred_at": 0}"#).unwrap();
     stores.text_records.insert(&row).await.unwrap();
     assert!(
         stores

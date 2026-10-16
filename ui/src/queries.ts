@@ -542,7 +542,7 @@ export function useUpdateAgent(api: ApiClient) {
       description: string;
       personality: string;
       voice: string | null;
-      /** What a call to the Agent's desk line is for (ADR-0020);
+      /** What a Call the Agent answers is for (ADR-0020);
        *  `null` leaves the Agent taking a message. */
       standing_brief?: string | null;
     }) =>
@@ -1826,7 +1826,7 @@ export function usePhoneNumbers(api: ApiClient) {
   const workspaceId = useCurrentWorkspaceId();
   return useQuery({
     queryKey: phoneNumbersKey(workspaceId),
-    queryFn: () => unwrap(api.GET("/api/v1/settings/phone-numbers")),
+    queryFn: () => unwrap(api.GET("/api/v1/workspace/number")),
   });
 }
 
@@ -1860,67 +1860,13 @@ export function useAvailableNumbers(
   });
 }
 
-/** Buy one number, and give it to the Agent whose page it was bought
- *  from. The daemon writes a purchase intent first, so a restart
- *  reconciles instead of buying twice (ADR-0018). */
+/** Buy the Workspace Number. The purchase intent prevents a second purchase after a restart. */
 export function useBuyPhoneNumber(api: ApiClient) {
   const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (body: { e164: string; agent_id?: string }) =>
-      unwrap(api.POST("/api/v1/settings/phone-numbers", { body })),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: phoneNumbersKey(workspaceId) }),
-  });
-}
-
-/** Adopt a number the carrier account already holds. The daemon
- *  asks the carrier and records it; nothing is bought. */
-export function useAdoptPhoneNumber(api: ApiClient) {
-  const workspaceId = useCurrentWorkspaceId();
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (body: { e164: string; agent_id?: string }) =>
-      unwrap(api.POST("/api/v1/settings/phone-numbers/adopt", { body })),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: phoneNumbersKey(workspaceId) }),
-  });
-}
-
-export function useAssignPhoneNumber(api: ApiClient) {
-  const workspaceId = useCurrentWorkspaceId();
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({
-      phoneNumberId,
-      agentId,
-    }: {
-      phoneNumberId: string;
-      agentId: string;
-    }) =>
-      unwrap(
-        api.POST("/api/v1/settings/phone-numbers/{phone_number_id}/assign", {
-          params: { path: { phone_number_id: phoneNumberId } },
-          body: { agent_id: agentId },
-        }),
-      ),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: phoneNumbersKey(workspaceId) }),
-  });
-}
-
-/** Take the line back. The Workspace keeps the number and keeps paying
- *  for it, which is what makes this different from a release. */
-export function useUnassignPhoneNumber(api: ApiClient) {
-  const workspaceId = useCurrentWorkspaceId();
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (phoneNumberId: string) =>
-      unwrap(
-        api.POST("/api/v1/settings/phone-numbers/{phone_number_id}/unassign", {
-          params: { path: { phone_number_id: phoneNumberId } },
-        }),
-      ),
+    mutationFn: (body: { e164: string }) =>
+      unwrap(api.POST("/api/v1/workspace/number", { body })),
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: phoneNumbersKey(workspaceId) }),
   });
@@ -1932,12 +1878,7 @@ export function useReleasePhoneNumber(api: ApiClient) {
   const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (phoneNumberId: string) =>
-      unwrap(
-        api.POST("/api/v1/settings/phone-numbers/{phone_number_id}/release", {
-          params: { path: { phone_number_id: phoneNumberId } },
-        }),
-      ),
+    mutationFn: () => expectNoContent(api.DELETE("/api/v1/workspace/number")),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: phoneNumbersKey(workspaceId) });
       void queryClient.invalidateQueries({ queryKey: ["available-numbers"] });
