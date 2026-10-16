@@ -27,7 +27,8 @@ fn recorded(direction: Direction, frame: Frame) -> Recorded {
     Recorded { direction, frame }
 }
 
-#[test]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
 fn the_mix_sums_the_two_directions_in_the_linear_domain() {
     let mixed = mix(&tone(Codec::Pcmu, 4000), &tone(Codec::Pcmu, 2000));
 
@@ -37,21 +38,24 @@ fn the_mix_sums_the_two_directions_in_the_linear_domain() {
     assert!((5500..=6500).contains(&sample), "the sum is {sample}");
 }
 
-#[test]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
 fn the_mix_clips_instead_of_wrapping() {
     let mixed = mix(&tone(Codec::Pcmu, 30000), &tone(Codec::Pcmu, 30000));
 
     assert!(first_sample(&mixed) > 30000, "the sum wrapped");
 }
 
-#[test]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
 fn the_mix_takes_the_law_of_the_call() {
     let mixed = mix(&tone(Codec::Pcma, 1000), &tone(Codec::Pcmu, 1000));
 
     assert_eq!(mixed.codec(), Codec::Pcma);
 }
 
-#[test]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
 fn the_mixer_answers_one_frame_for_each_downlink_tick() {
     let mut mixer = Mixer::default();
 
@@ -68,7 +72,8 @@ fn the_mixer_answers_one_frame_for_each_downlink_tick() {
     assert!((5500..=6500).contains(&sample), "the sum is {sample}");
 }
 
-#[test]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
 fn one_direction_alone_passes_through() {
     let mut mixer = Mixer::default();
 
@@ -96,7 +101,8 @@ fn one_direction_alone_passes_through() {
     );
 }
 
-#[test]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), test)]
 fn pcm16_mix_sums_samples_with_a_g711_frame_and_clips() {
     let pcm = Frame::new(
         Codec::Pcm16,

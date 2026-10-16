@@ -127,7 +127,8 @@ SIP signaling, SIP media, the endpoint manager, the socket listener, the
 carrier REST clients and disk recording stay native. The frame and packet
 Media Leg types contain no native runtime calls. An Embedder can subscribe
 to the Media Hub's recording stream without a disk recorder. The Call
-routes of `pagis-server` still need its `native` feature.
+record routes and live control of `pagis-server` are portable. The socket
+upgrade stays native (ADR-0038).
 
 Where the provider emits a speech-start event, it is the only voice activity
 detection: the bridge clears the pending downlink and truncates the model's

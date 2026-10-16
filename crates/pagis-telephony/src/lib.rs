@@ -19,7 +19,6 @@ pub mod hub;
 mod inbound;
 pub mod keypad;
 pub mod leg;
-#[cfg(not(target_arch = "wasm32"))]
 pub mod listen;
 mod live;
 pub mod model;

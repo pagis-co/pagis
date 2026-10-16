@@ -154,13 +154,13 @@ _Avoid_: phone app, mobile client, native app
 
 ### Native Part
 A group of routes whose services need sockets, processes, Docker or git:
-Computers, Calls, Hosts and Coding Sessions, Software,
+Computers, Workspace Numbers, Hosts and Coding Sessions, Software,
 Connections, Remote Access, and the System tab with Analytics. The
 `native` Cargo feature of `pagis-server` holds these parts. Without it,
 each route stays in the route table and answers `501 Not Implemented`
 with the code `not_available`. A part leaves `native` when it becomes
-portable and does not come back. Calls, Computers, Remote Access, the
-System tab with Analytics, Hosts and Coding Sessions, Software with the
+portable and does not come back. Workspace Numbers, Computers, Remote
+Access, the System tab with Analytics, Hosts and Coding Sessions, Software with the
 Software List and Widgets, Connections, and the HTTP socket upgrades are
 separated. The Home Exit and the exit socket belong to Computers.
 Without Computers, the Onboarding status holds `docker: null`, and the
@@ -169,6 +169,9 @@ without `native` and keep Channel events. `pagis-server` builds on
 `wasm32-unknown-unknown`. Tests of the Agent, conversation and Plugin
 routes give the routers requests with no listener on native targets and
 under Node.
+Call records and live control use portable routes. An Embedder supplies
+`LiveCallControl`; one without live Calls supplies `NoLiveCallControl`.
+The Call socket upgrade stays native.
 Live event tests use the in-memory pair of `MessageSocket`s in
 `pagis-server::fake` (ADR-0038).
 

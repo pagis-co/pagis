@@ -34,7 +34,7 @@ A **Native Part** is a group of routes whose services need sockets,
 processes, Docker or git. The Native Parts are:
 
 - Computers (ADR-0014).
-- Calls (ADR-0020).
+- Workspace Numbers and the Call socket upgrade (ADR-0020).
 - Hosts and Coding Sessions (ADR-0015, ADR-0033).
 - Software, including the Software List and Widgets (ADR-0016).
 - Connections (ADR-0012).
@@ -69,6 +69,19 @@ Native Part. The Administration Port keeps its Administrator guard for
 Plugin writes. The Org owns the installs, and a Person reads their own
 Workspace's log and grants a Plugin to their own Agents (ADR-0017).
 Software and Widgets keep the Native Part named `Software`.
+
+### Call records and live control are portable
+
+The Call list, read and dismissal use `CallStore`, the event bus and the
+clock in every build. Their DTOs and OpenAPI entries are the same in every
+build.
+
+`AppState` holds `Arc<dyn LiveCallControl>`. The Call hang-up, Trust Tier
+and Listen-Live protocol use it. The native adapter wraps `LiveCalls` and
+`LiveTiers`. An Embedder without live Calls supplies `NoLiveCallControl`.
+It answers as a Call that is not live: hang-up and Trust Tier return 404,
+and Listen-Live sends `not_found`. Every lookup uses the Session's
+Workspace. The Call socket upgrade stays native.
 
 ### An absent Native Part answers 501
 
@@ -119,7 +132,7 @@ answer.
 The Agent, conversation and Plugin route tests build `AppState` over
 the same fake stores and services, then send requests through Tower with no
 listener. They cover Channels, messages, Threads, Runs, Approvals,
-the Needs-You Queue, memory, spoken messages and the Plugin lifecycle.
+Calls, the Needs-You Queue, memory, spoken messages and the Plugin lifecycle.
 Person-scoped reads check the Workspace of the Session. Plugin lists
 read the Org's Workspace. The test binaries run under Node and on
 native targets.
@@ -133,5 +146,5 @@ The call core of `pagis-telephony` also builds on
 `wasm32-unknown-unknown`. An Embedder supplies carrier frames and typed
 keypad events through `FrameLeg::pair` and takes answer frames from the
 same seam. SIP, the endpoint manager, the socket listener, carrier REST
-clients and disk recording stay native (ADR-0020). The Call routes still
-need the server's `native` feature.
+clients and disk recording stay native (ADR-0020). The Call records and
+live control use the portable server routes.

@@ -412,6 +412,7 @@ impl Embedder {
             grants: stores.grants.clone(),
             hosts: stores.hosts.clone(),
             calls: stores.calls.clone(),
+            live_call_control: Arc::new(pagis_server::calls::NoLiveCallControl),
             texts: stores.text_records.clone(),
             trust_list: stores.trust_list.clone(),
             calendar: stores.calendar.clone(),

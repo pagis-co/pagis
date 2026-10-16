@@ -984,7 +984,7 @@ pub const ROUTES: &[Route] = &[
         path: "/api/v1/calls/{call_id}/control",
         methods: &["post"],
         authenticated: true,
-        part: Some("Calls"),
+        part: None,
     },
     Route {
         shared: true,
@@ -1446,35 +1446,35 @@ pub const ROUTES: &[Route] = &[
         path: "/api/v1/calls",
         methods: &["get"],
         authenticated: true,
-        part: Some("Calls"),
+        part: None,
     },
     Route {
         shared: true,
         path: "/api/v1/calls/{call_id}",
         methods: &["get"],
         authenticated: true,
-        part: Some("Calls"),
+        part: None,
     },
     Route {
         shared: true,
         path: "/api/v1/calls/{call_id}/dismiss",
         methods: &["post"],
         authenticated: true,
-        part: Some("Calls"),
+        part: None,
     },
     Route {
         shared: true,
         path: "/api/v1/calls/{call_id}/hangup",
         methods: &["post"],
         authenticated: true,
-        part: Some("Calls"),
+        part: None,
     },
     Route {
         shared: true,
         path: "/api/v1/calls/{call_id}/tier",
         methods: &["post"],
         authenticated: true,
-        part: Some("Calls"),
+        part: None,
     },
     Route {
         shared: true,
@@ -2071,7 +2071,7 @@ mod tests {
 
     #[cfg(not(feature = "native"))]
     #[tokio::test]
-    async fn every_calls_route_answers_not_available() {
+    async fn native_number_and_listen_routes_answer_not_available() {
         use axum::body::{Body, to_bytes};
         use axum::http::{Request, StatusCode};
         use tower::ServiceExt;
@@ -2080,12 +2080,13 @@ mod tests {
         let routes: Vec<_> = ROUTES
             .iter()
             .filter(|route| {
-                route.path.starts_with("/api/v1/calls")
-                    || route.path.starts_with("/api/v1/settings/phone-numbers")
-                    || route.path == "/api/v1/workspace/number"
+                route.part == Some("Calls")
+                    && (route.path.starts_with("/api/v1/calls")
+                        || route.path.starts_with("/api/v1/settings/phone-numbers")
+                        || route.path == "/api/v1/workspace/number")
             })
             .collect();
-        assert_eq!(routes.len(), 9);
+        assert_eq!(routes.len(), 3);
         for route in routes {
             assert_eq!(route.part, Some("Calls"), "{}", route.path);
             let path = route

@@ -1311,3 +1311,274 @@ async fn search_reads_channel_threads_and_checks_conversation_participation() {
     )
     .await;
 }
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+async fn call_records_are_portable_and_workspace_scoped() {
+    let e = Embedder::new().await;
+    let call = Call {
+        id: CallId::generate(),
+        workspace_id: e.workspace.clone(),
+        agent_id: AgentId::generate(),
+        run_id: RunId::generate(),
+        phone_number_id: PhoneNumberId::generate(),
+        direction: CallDirection::Inbound,
+        remote_e164: "+14155550123".into(),
+        agent_name: "Agent".into(),
+        own_e164: "+14155550124".into(),
+        purpose: "Take a message".into(),
+        tools: vec![],
+        tier: TrustTier::Unknown,
+        state: CallState::Ended,
+        outcome: Some(CallOutcome::NoAnswer),
+        ended_reason: Some("remote_hangup".into()),
+        classification: None,
+        message_left: false,
+        transcript: vec![TranscriptLine {
+            at: 12,
+            speaker: Speaker::Caller,
+            text: "Hello".into(),
+        }],
+        recording_file_id: None,
+        created_at: 10,
+        ringing_at: None,
+        answered_at: None,
+        ended_at: Some(20),
+        dismissed_at: None,
+    };
+    e.stores.calls.insert(&call).await.unwrap();
+    let path = format!("/api/v1/calls/{}", call.id);
+    let page = read(&e, "/api/v1/calls?direction=inbound&state=ended&limit=1").await;
+    assert_eq!(page["items"].as_array().unwrap().len(), 1);
+    assert_eq!(page["items"][0]["id"], call.id.as_str());
+    assert_eq!(page["items"][0]["dismissed_at"], Value::Null);
+    assert!(page["items"][0].get("transcript").is_none());
+    let detail = read(&e, &path).await;
+    assert_eq!(detail["run_id"], call.run_id.as_str());
+    assert_eq!(detail["transcript"][0]["text"], "Hello");
+    empty(&e, "/api/v1/calls", "items").await;
+    hidden(&e, &path).await;
+    for (cookie, id, status) in [
+        (&e.other_cookie, call.id.as_str(), StatusCode::NOT_FOUND),
+        (&e.cookie, "absent", StatusCode::NOT_FOUND),
+        (&String::new(), call.id.as_str(), StatusCode::UNAUTHORIZED),
+    ] {
+        assert_eq!(
+            request(
+                &e,
+                "POST",
+                &format!("/api/v1/calls/{id}/dismiss"),
+                Value::Null,
+                cookie
+            )
+            .await
+            .0,
+            status
+        );
+    }
+    let mut events = e
+        .routers
+        .state
+        .bus
+        .subscribe(EventScope::Workspace(e.workspace.clone()), None)
+        .await;
+    for at in [100, 200] {
+        e.clock.set(at);
+        assert_eq!(
+            request(
+                &e,
+                "POST",
+                &format!("{path}/dismiss"),
+                Value::Null,
+                &e.cookie
+            )
+            .await
+            .0,
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(
+            read(&e, "/api/v1/calls").await["items"][0]["dismissed_at"],
+            100
+        );
+    }
+    let event = events.next().await.unwrap();
+    assert_eq!(event.event_type, "call.dismissed");
+    assert_eq!(event.payload["call_id"], call.id.as_str());
+}
+
+struct FakeLiveCallControl {
+    workspace: WorkspaceId,
+    call: CallId,
+    hub: Arc<pagis_telephony::hub::MediaHub>,
+    operations: std::sync::Mutex<Vec<&'static str>>,
+}
+
+#[async_trait::async_trait]
+impl pagis_server::calls::LiveCallControl for FakeLiveCallControl {
+    fn hub(
+        &self,
+        workspace: &WorkspaceId,
+        call: &CallId,
+    ) -> Option<Arc<pagis_telephony::hub::MediaHub>> {
+        self.operations.lock().unwrap().push("listen");
+        (workspace == &self.workspace && call == &self.call).then(|| self.hub.clone())
+    }
+
+    async fn hang_up(&self, workspace: &WorkspaceId, call: &CallId) -> bool {
+        self.operations.lock().unwrap().push("hangup");
+        workspace == &self.workspace && call == &self.call
+    }
+
+    async fn drop_to_unknown(
+        &self,
+        workspace: &WorkspaceId,
+        call: &CallId,
+    ) -> Option<Result<(), StoreError>> {
+        self.operations.lock().unwrap().push("tier");
+        (workspace == &self.workspace && call == &self.call).then_some(Ok(()))
+    }
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+async fn live_call_handlers_use_supplied_control() {
+    let mut e = Embedder::new().await;
+    let call = CallId::generate();
+    let (leg, _carrier) =
+        pagis_telephony::leg::FrameLeg::pair(pagis_telephony::audio::Codec::Pcmu, 8);
+    let control = Arc::new(FakeLiveCallControl {
+        workspace: e.workspace.clone(),
+        call: call.clone(),
+        hub: pagis_telephony::hub::MediaHub::start(leg),
+        operations: Default::default(),
+    });
+    let pagis_server::Routers {
+        state,
+        product,
+        administration,
+    } = e.routers;
+    drop((product, administration));
+    let mut state = Arc::try_unwrap(state).ok().unwrap();
+    state.live_call_control = control.clone();
+    e.routers = pagis_server::routers(state, axum::Router::new());
+    let path = format!("/api/v1/calls/{call}");
+    assert_eq!(
+        request(
+            &e,
+            "POST",
+            &format!("{path}/hangup"),
+            Value::Null,
+            &e.cookie
+        )
+        .await
+        .0,
+        StatusCode::NO_CONTENT
+    );
+    let tier = json_response(
+        &e,
+        "POST",
+        &format!("{path}/tier"),
+        json!({"tier": "unknown"}),
+        &e.cookie,
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(tier, json!({"call_id": call.as_str(), "tier": "unknown"}));
+    assert_eq!(*control.operations.lock().unwrap(), ["hangup", "tier"]);
+    assert_eq!(
+        request(
+            &e,
+            "POST",
+            &format!("{path}/tier"),
+            json!({"tier": "owner"}),
+            &e.cookie
+        )
+        .await
+        .0,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    assert_eq!(*control.operations.lock().unwrap(), ["hangup", "tier"]);
+    for action in ["hangup", "tier"] {
+        assert_eq!(
+            request(
+                &e,
+                "POST",
+                &format!("{path}/{action}"),
+                json!({"tier": "unknown"}),
+                &e.other_cookie
+            )
+            .await
+            .0,
+            StatusCode::NOT_FOUND
+        );
+    }
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert("cookie", e.cookie.parse().unwrap());
+    let tenant = pagis_server::resolve_session(&e.routers.state, &headers)
+        .await
+        .unwrap()
+        .unwrap();
+    let ended = tokio_util::sync::CancellationToken::new();
+    let live = pagis_server::LiveTenant {
+        tenant,
+        session_ended: ended.clone(),
+    };
+    let (server, mut client) = message_socket_pair();
+    let serve =
+        pagis_server::calls::serve_listen(server, e.routers.state.clone(), live, call.to_string());
+    let receive = async {
+        let Some(Ok(Frame::Text(frame))) = client.next().await else {
+            panic!("ready frame")
+        };
+        assert_eq!(
+            serde_json::from_str::<Value>(&frame).unwrap(),
+            json!({"type": "ready", "codec": "PCMU"})
+        );
+        ended.cancel();
+        assert!(matches!(client.next().await, Some(Ok(Frame::Close(_)))));
+    };
+    let (result, ()) = futures::join!(serve, receive);
+    result.unwrap();
+    assert_eq!(control.operations.lock().unwrap().last(), Some(&"listen"));
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+async fn absent_live_call_control_answers_as_a_call_that_is_not_live() {
+    let e = Embedder::new().await;
+    for action in ["hangup", "tier"] {
+        assert_eq!(
+            request(
+                &e,
+                "POST",
+                &format!("/api/v1/calls/absent/{action}"),
+                json!({"tier": "unknown"}),
+                &e.cookie
+            )
+            .await
+            .0,
+            StatusCode::NOT_FOUND
+        );
+    }
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert("cookie", e.cookie.parse().unwrap());
+    let tenant = pagis_server::resolve_session(&e.routers.state, &headers)
+        .await
+        .unwrap()
+        .unwrap();
+    let live = pagis_server::LiveTenant {
+        tenant,
+        session_ended: tokio_util::sync::CancellationToken::new(),
+    };
+    let (server, mut client) = message_socket_pair();
+    pagis_server::calls::serve_listen(server, e.routers.state.clone(), live, "absent".into())
+        .await
+        .unwrap();
+    let Some(Ok(Frame::Text(frame))) = client.next().await else {
+        panic!("error frame")
+    };
+    assert_eq!(
+        serde_json::from_str::<Value>(&frame).unwrap()["code"],
+        "not_found"
+    );
+}
