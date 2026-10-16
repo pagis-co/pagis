@@ -424,6 +424,11 @@ pub async fn grant_plugin(
     Path(plugin_id): Path<String>,
     Json(request): Json<GrantPluginRequest>,
 ) -> Result<(StatusCode, Json<crate::grants::GrantDto>), ApiError> {
+    state
+        .governance
+        .limits(&tenant.workspace_id)
+        .await?
+        .check_resource(pagis_core::Grant::PLUGIN_KIND, &plugin_id)?;
     let agent_id = AgentId::from(request.agent_id);
     let agent = state
         .agent_store
@@ -441,6 +446,7 @@ pub async fn grant_plugin(
         )
         .await
         .map_err(plugin_error)?;
+    crate::agent_versions::record(&state, &tenant, &grant.agent_id).await?;
     crate::grants::publish_grant_event(&state, &grant, "grant.created").await?;
     Ok((
         StatusCode::CREATED,

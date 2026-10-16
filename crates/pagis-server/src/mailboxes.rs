@@ -338,6 +338,7 @@ pub async fn provision_mailbox(
         .provision(&tenant.workspace_id, &agent.id, request.into())
         .await
         .map_err(mailbox_error)?;
+    crate::agent_versions::record(&state, &tenant, &agent.id).await?;
     Ok((StatusCode::CREATED, Json(mailbox_dto(mailbox))))
 }
 
@@ -397,6 +398,7 @@ pub async fn delete_mailbox(
         .delete(&tenant.workspace_id, &mailbox.id, &request.confirm_address)
         .await
         .map_err(mailbox_error)?;
+    crate::agent_versions::record(&state, &tenant, &agent.id).await?;
     Ok(Json(DeletedMailboxDto {
         mailbox: mailbox_dto(deleted.mailbox),
         notice: deleted.notice,

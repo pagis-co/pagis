@@ -1523,6 +1523,124 @@
         }
       }
     },
+    "/api/v1/administration/workspaces/{workspace_id}/limits": {
+      "get": {
+        "tags": [
+          "crate::workspace_limits"
+        ],
+        "operationId": "get_workspace_limits",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LimitsDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "crate::workspace_limits"
+        ],
+        "operationId": "set_workspace_limits",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SharedWorkspaceLimits"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LimitsDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/administration/workspaces/{workspace_id}/spend-cap": {
       "put": {
         "tags": [
@@ -2824,6 +2942,57 @@
             }
           },
           "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "x-workspace-role": "reader"
+      }
+    },
+    "/api/v1/agents/{agent_id}/versions": {
+      "get": {
+        "tags": [
+          "crate::agent_versions"
+        ],
+        "operationId": "list_agent_versions",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionPage"
+                }
+              }
+            }
+          },
+          "403": {
             "description": "",
             "content": {
               "application/json": {
@@ -13802,6 +13971,36 @@
           }
         }
       },
+      "AgentVersion": {
+        "type": "object",
+        "required": [
+          "agent_id",
+          "workspace_id",
+          "version",
+          "author",
+          "configuration",
+          "at"
+        ],
+        "properties": {
+          "agent_id": {
+            "type": "string"
+          },
+          "at": {
+            "$ref": "#/components/schemas/i64"
+          },
+          "author": {
+            "$ref": "#/components/schemas/Author"
+          },
+          "configuration": {},
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "workspace_id": {
+            "type": "string"
+          }
+        }
+      },
       "AnalyticsBlockedDto": {
         "type": "string",
         "description": "Why a daemon sends no analytics whatever the setting says.",
@@ -18366,6 +18565,30 @@
           }
         }
       },
+      "LimitsDto": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SharedWorkspaceLimits"
+          },
+          {
+            "type": "object",
+            "required": [
+              "outside_plugins",
+              "outside_connections"
+            ],
+            "properties": {
+              "outside_connections": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "outside_plugins": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        ]
+      },
       "LinkSignInRequest": {
         "type": "object",
         "required": [
@@ -18676,6 +18899,14 @@
             "type": "string"
           }
         }
+      },
+      "MailVisibility": {
+        "type": "string",
+        "enum": [
+          "agent_only",
+          "escalations",
+          "all_mail"
+        ]
       },
       "MailboxDto": {
         "type": "object",
@@ -23301,6 +23532,34 @@
           }
         }
       },
+      "SharedWorkspaceLimits": {
+        "type": "object",
+        "properties": {
+          "max_mail_visibility": {
+            "$ref": "#/components/schemas/MailVisibility"
+          },
+          "permitted_connections": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Connection ids, as named by Connection Grants."
+          },
+          "permitted_plugins": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "None permits all Plugins. An empty list permits none."
+          }
+        }
+      },
       "SignInLinkDto": {
         "type": "object",
         "description": "A link of the Public Origin, as a route that makes one answers it.",
@@ -25249,6 +25508,20 @@
           "reflect",
           "skip"
         ]
+      },
+      "VersionPage": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentVersion"
+            }
+          }
+        }
       },
       "VoiceDto": {
         "type": "object",

@@ -17,7 +17,10 @@ impl SqliteAuditLog {
 fn encode(value: &impl serde::Serialize) -> Result<String, StoreError> {
     serde_json::to_string(value).map_err(|e| StoreError::Corrupt(e.to_string()))
 }
-async fn append(tx: &mut SqliteConnection, entry: &AuditEntry) -> Result<(), StoreError> {
+pub(crate) async fn append(
+    tx: &mut SqliteConnection,
+    entry: &AuditEntry,
+) -> Result<(), StoreError> {
     sqlx::query("INSERT INTO audit_entries (id, org_workspace_id, actor, action, subject_workspace_id, reason, at) VALUES (?1,?2,?3,?4,?5,?6,?7)")
         .bind(entry.id.as_str()).bind(entry.org_workspace_id.as_str()).bind(encode(&entry.actor)?)
         .bind(&entry.action).bind(entry.subject_workspace_id.as_str()).bind(&entry.reason).bind(entry.at)

@@ -1597,3 +1597,22 @@ CREATE TABLE audit_entries (
     at INTEGER NOT NULL
 );
 CREATE INDEX idx_audit_entries_org_at ON audit_entries (org_workspace_id, at DESC, id DESC);
+
+CREATE TABLE workspace_limits (
+    workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id),
+    permitted_plugins TEXT,
+    permitted_connections TEXT,
+    max_mail_visibility TEXT NOT NULL DEFAULT '"all_mail"'
+);
+CREATE UNIQUE INDEX idx_agents_workspace_id ON agents(workspace_id, id);
+CREATE TABLE agent_versions (
+    workspace_id TEXT NOT NULL REFERENCES workspaces(id),
+    agent_id TEXT NOT NULL,
+    version BIGINT NOT NULL CHECK (version > 0),
+    author TEXT NOT NULL,
+    configuration TEXT NOT NULL,
+    at BIGINT NOT NULL,
+    PRIMARY KEY (workspace_id, agent_id, version),
+    FOREIGN KEY (workspace_id, agent_id) REFERENCES agents(workspace_id, id)
+);
+CREATE INDEX idx_agent_versions_agent ON agent_versions(workspace_id, agent_id, version DESC);

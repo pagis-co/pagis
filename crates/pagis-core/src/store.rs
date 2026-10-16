@@ -1028,15 +1028,15 @@ pub trait GrantStore: Send + Sync {
     ) -> Result<Option<Grant>, StoreError>;
     /// Live (unrevoked) grants in one workspace, oldest first.
     async fn list_live(&self, workspace_id: &WorkspaceId) -> Result<Vec<Grant>, StoreError>;
-    /// The agent's live grant for one resource kind, when one exists.
-    /// The partial unique index allows at most one.
+    /// The Agent's live Grant for one resource kind, within current
+    /// Shared Workspace Limits. The partial unique index allows at most one.
     async fn live_grant(
         &self,
         workspace_id: &WorkspaceId,
         agent_id: &AgentId,
         resource_kind: &str,
     ) -> Result<Option<Grant>, StoreError>;
-    /// One agent's live grants, oldest first.
+    /// One Agent's live Grants within current Shared Workspace Limits, oldest first.
     async fn list_live_for_agent(
         &self,
         workspace_id: &WorkspaceId,
@@ -1044,7 +1044,8 @@ pub trait GrantStore: Send + Sync {
     ) -> Result<Vec<Grant>, StoreError>;
     /// One live Grant for an exact Agent and Workspace resource. A Workspace
     /// Mailbox can have a default and a manual Grant; use the live list to
-    /// select a particular Grant when both exist.
+    /// select a particular Grant when both exist. Current Shared Workspace
+    /// Limits apply to this read at each use.
     async fn live_for_resource(
         &self,
         workspace_id: &WorkspaceId,

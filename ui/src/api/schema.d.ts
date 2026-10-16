@@ -409,6 +409,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/administration/workspaces/{workspace_id}/limits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_workspace_limits"];
+        put: operations["set_workspace_limits"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/administration/workspaces/{workspace_id}/spend-cap": {
         parameters: {
             query?: never;
@@ -713,6 +729,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["agent_sync_connections"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agents/{agent_id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_agent_versions"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3783,6 +3815,15 @@ export interface components {
         AgentSyncConnectionList: {
             items: components["schemas"]["AgentSyncConnection"][];
         };
+        AgentVersion: {
+            agent_id: string;
+            at: components["schemas"]["i64"];
+            author: components["schemas"]["Author"];
+            configuration: unknown;
+            /** Format: int64 */
+            version: number;
+            workspace_id: string;
+        };
         /**
          * @description Why a daemon sends no analytics whatever the setting says.
          * @enum {string}
@@ -5413,6 +5454,10 @@ export interface components {
             started_at: components["schemas"]["i64"];
             started_by: components["schemas"]["Author"];
         };
+        LimitsDto: components["schemas"]["SharedWorkspaceLimits"] & {
+            outside_connections: number;
+            outside_plugins: number;
+        };
         LinkSignInRequest: {
             /**
              * @description The secret of a Sign-In Link of the Public Origin: the fragment of
@@ -5534,6 +5579,8 @@ export interface components {
         MailNameRequest: {
             name: string;
         };
+        /** @enum {string} */
+        MailVisibility: "agent_only" | "escalations" | "all_mail";
         /**
          * @description One Agent Mailbox as the desk shows it. The password is never part
          *     of it (ADR-0013).
@@ -7280,6 +7327,13 @@ export interface components {
             /** @description The provider ids the flow may take a key for. */
             providers: string[];
         };
+        SharedWorkspaceLimits: {
+            max_mail_visibility?: components["schemas"]["MailVisibility"];
+            /** @description Connection ids, as named by Connection Grants. */
+            permitted_connections?: string[] | null;
+            /** @description None permits all Plugins. An empty list permits none. */
+            permitted_plugins?: string[] | null;
+        };
         /** @description A link of the Public Origin, as a route that makes one answers it. */
         SignInLinkDto: {
             /**
@@ -7948,6 +8002,9 @@ export interface components {
         };
         /** @enum {string} */
         Verdict: "reflect" | "skip";
+        VersionPage: {
+            items: components["schemas"]["AgentVersion"][];
+        };
         /** @description One voice of the model that speaks. */
         VoiceDto: {
             /** @description What an Agent Voice holds. */
@@ -9240,6 +9297,92 @@ export interface operations {
             };
         };
     };
+    get_workspace_limits: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LimitsDto"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    set_workspace_limits: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SharedWorkspaceLimits"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LimitsDto"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     set_spend_cap: {
         parameters: {
             query?: never;
@@ -10183,6 +10326,43 @@ export interface operations {
                 };
             };
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_agent_versions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VersionPage"];
+                };
+            };
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

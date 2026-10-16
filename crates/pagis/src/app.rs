@@ -1524,6 +1524,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     };
 
     let state = AppState {
+        governance: stores.governance.clone(),
         audit: stores.audit.clone(),
         conversation_evidence: stores.conversation_evidence.clone(),
         workspace_members: stores.workspace_members.clone(),

@@ -284,6 +284,13 @@ pub const SHARED_ROUTES: &[(&str, &[&str], &str)] = &[
 pub const ADMINISTRATION_ROUTES: &[Route] = &[
     Route {
         shared: false,
+        path: "/api/v1/administration/workspaces/{workspace_id}/limits",
+        methods: &["get", "put"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
+        shared: false,
         path: "/api/v1/administration/sections",
         methods: &["get"],
         authenticated: true,
@@ -759,6 +766,13 @@ pub const ROUTES: &[Route] = &[
         shared: true,
         path: "/api/v1/agents",
         methods: &["get", "post"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
+        shared: true,
+        path: "/api/v1/agents/{agent_id}/versions",
+        methods: &["get"],
         authenticated: true,
         part: None,
     },

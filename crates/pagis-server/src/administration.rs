@@ -1406,6 +1406,10 @@ pub fn router(state: Arc<AppState>) -> Router {
             put(crate::legal_hold::start).delete(crate::legal_hold::end),
         )
         .route("/api/v1/admin/audit", get(crate::legal_hold::list))
+        .route(
+            "/api/v1/administration/workspaces/{workspace_id}/limits",
+            get(crate::workspace_limits::get).put(crate::workspace_limits::put),
+        )
         .route("/api/v1/administration/usage", get(installation_usage))
         .route("/api/v1/administration/sessions", get(list_sessions))
         .route("/api/v1/administration/health", get(installation_health))
