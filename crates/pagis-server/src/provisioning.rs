@@ -141,6 +141,7 @@ impl WorkspaceSeed<'_> {
         now: UnixMillis,
     ) -> Result<Workspace, StoreError> {
         let workspace = Workspace {
+            delegate_everything: false,
             kind: pagis_core::WorkspaceKind::Private,
             legal_hold: None,
             monthly_spend_cap_usd: None,
@@ -173,6 +174,7 @@ impl WorkspaceSeed<'_> {
         members: &dyn pagis_core::WorkspaceMemberStore,
     ) -> Result<Workspace, StoreError> {
         let workspace = Workspace {
+            delegate_everything: false,
             kind: pagis_core::WorkspaceKind::Shared,
             user_id: None,
             id: first_manager.workspace_id.clone(),

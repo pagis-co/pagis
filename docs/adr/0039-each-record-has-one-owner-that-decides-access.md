@@ -46,7 +46,7 @@ Person across all Workspaces and does not supply a connected member roster.
 
 Authorship on messages, Request decisions, Credentials, Grants, Schedules,
 Calendar Events and Event Subscriptions is built. Conversation messages live once under their
-Channel and record their Person author. Files are built.
+Channel and record their Person or Agent author. Files are built.
 Shared Workspace Agent versioning and auditing are built (ADR-0047).
 Not built: collaborative Artifacts, which are documents, sheets, slide decks or sites. An
 Artifact belongs to one Workspace, can be stored apart from it, and is shared

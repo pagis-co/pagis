@@ -43,6 +43,7 @@ impl ActorHost {
         stores
             .workspaces
             .create(&Workspace {
+                delegate_everything: false,
                 kind: pagis_core::WorkspaceKind::Private,
                 legal_hold: None,
                 monthly_spend_cap_usd: None,
@@ -158,6 +159,7 @@ impl ActorHost {
             Arc::new(MemorySecretStore::default()),
         ));
         AgentDeps {
+            person_activity: Arc::new(pagis_needs_you::PersonActivity::new()),
             run_journal: self.stores.run_journal.clone(),
             forget: self.stores.forget.clone(),
             workspaces: self.stores.workspaces.clone(),

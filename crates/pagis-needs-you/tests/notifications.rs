@@ -58,6 +58,7 @@ impl NotificationSender for FakeSender {
 
 fn workspace_record(id: &WorkspaceId, person: Option<pagis_core::UserId>) -> pagis_core::Workspace {
     pagis_core::Workspace {
+        delegate_everything: false,
         legal_hold: None,
         id: id.clone(),
         kind: if person.is_some() {
@@ -92,6 +93,7 @@ impl Embedder {
         stores
             .workspaces
             .create(&pagis_core::Workspace {
+                delegate_everything: false,
                 kind: pagis_core::WorkspaceKind::Private,
                 legal_hold: None,
                 monthly_spend_cap_usd: None,

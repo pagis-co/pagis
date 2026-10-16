@@ -211,6 +211,7 @@ export function MessageRow({
           />
         ))}
       <div className="message-body">
+        {row.forPersonOnly && <small>For the person only</small>}
         {!grouped && (
           <div className="message-name">
             <span className="message-author">{name}</span>

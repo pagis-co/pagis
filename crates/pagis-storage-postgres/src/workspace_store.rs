@@ -20,6 +20,7 @@ impl PostgresWorkspaceStore {
 
 fn row_to_workspace(row: &sqlx::postgres::PgRow) -> Result<Workspace, StoreError> {
     Ok(Workspace {
+        delegate_everything: row.get("delegate_everything"),
         kind: if row.get::<String, _>("kind") == "shared" {
             pagis_core::WorkspaceKind::Shared
         } else {
@@ -53,10 +54,23 @@ fn row_to_workspace(row: &sqlx::postgres::PgRow) -> Result<Workspace, StoreError
 
 /// The columns [`row_to_workspace`] reads, in one place.
 const COLUMNS: &str = "id, user_id, name, timezone, created_at, onboarded_at, \
-     chief_of_staff_agent_id, report_schedule_id, home_exit_host_id, monthly_spend_cap_usd, kind, legal_hold";
+     chief_of_staff_agent_id, report_schedule_id, home_exit_host_id, monthly_spend_cap_usd, kind, legal_hold, delegate_everything";
 
 #[async_trait]
 impl WorkspaceStore for PostgresWorkspaceStore {
+    async fn set_delegate_everything(
+        &self,
+        id: &WorkspaceId,
+        enabled: bool,
+    ) -> Result<(), StoreError> {
+        sqlx::query("UPDATE workspaces SET delegate_everything = $1 WHERE id = $2")
+            .bind(enabled)
+            .bind(id.as_str())
+            .execute(&self.pool)
+            .await
+            .map_err(db_err)?;
+        Ok(())
+    }
     async fn start_legal_hold(&self, entry: &pagis_core::AuditEntry) -> Result<(), StoreError> {
         crate::audit_log::change_hold(&self.pool, entry, true).await
     }
@@ -190,7 +204,7 @@ where
 {
     sqlx::query(&format!(
         "INSERT INTO workspaces ({COLUMNS}) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)"
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)"
     ))
     .bind(workspace.id.as_str())
     .bind(workspace.user_id.as_ref().map(UserId::as_str))
@@ -219,6 +233,7 @@ where
             .as_ref()
             .map(|h| serde_json::to_string(h).expect("Legal Hold")),
     )
+    .bind(workspace.delegate_everything)
     .execute(executor)
     .await
     .map_err(db_err)?;

@@ -280,6 +280,7 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         administration::create_workspace,
         workspace::set_chief_of_staff,
         workspace::put_timezone,
+        workspace::put_delegate_everything,
         workspace::get_report,
         system::get_system_settings,
         system::set_system_settings,

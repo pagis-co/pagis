@@ -840,6 +840,8 @@ async fn workspace_conversations_sort_by_message_time_then_id_and_empty_creation
             state
                 .messages
                 .insert(&Message {
+                    for_person_only: false,
+                    author_workspace_id: None,
                     id: MessageId::from(id.to_string()),
                     workspace_id: owner.clone(),
                     channel_id,
@@ -1243,6 +1245,8 @@ async fn search_reads_channel_threads_and_checks_conversation_participation() {
         e.stores
             .messages
             .insert(&Message {
+                for_person_only: false,
+                author_workspace_id: None,
                 id: MessageId::generate(),
                 workspace_id: org.clone(),
                 channel_id: hidden.id.clone(),

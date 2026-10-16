@@ -14,6 +14,7 @@ export type SendState = 'sent' | 'pending' | 'failed'
 
 /** One local optimistic send: `pending` until the daemon confirms. */
 export interface PendingSend {
+  for_person_only?: boolean
   pending_id: string
   text: string
   created_at: number
@@ -44,6 +45,7 @@ export type TimelineInput = TimelineMessage | PointerItem
 
 /** One rendered timeline row, oldest first. */
 export interface TimelineRow {
+  forPersonOnly?: boolean
   key: string
   /** A `pointer` row links to the agent's message elsewhere. */
   kind: 'message' | 'pointer'
@@ -154,6 +156,7 @@ export function mergeTimeline(
       return {
         key: item.id,
         kind: 'message' as const,
+        forPersonOnly: item.for_person_only,
         authorKind: item.author.kind,
         authorName: item.author.name,
         authorId: item.author.id ?? null,
@@ -183,6 +186,7 @@ export function mergeTimeline(
     rows.push({
       key: send.pending_id,
       kind: 'message',
+      forPersonOnly: send.for_person_only,
       authorKind: 'person',
       authorName: person?.name ?? '',
       authorId: person?.id ?? null,

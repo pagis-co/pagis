@@ -36,18 +36,44 @@ that hold Notifications (ADR-0030). A ping or a query does not count.
 A new message publishes a live event to each participant Workspace through
 the existing event bus. The event carries the conversation and message ids,
 with no copy of the message content. Each client reads the one stored
-history. Each message records its Person author, and each reply shows that
-Person's name. A message starts no Agent Run.
+history. Each message records its Person or Agent author. An Agent reply
+also records its author's Private Workspace and shows `<Agent>, for <Person>`.
 
 Not built: Notifications for an away Person. The Notification path takes
 Needs-You items and checks that queue again before each send. Conversation
 messages do not enter that queue.
 
-Not built: the Chief of Staff answering while the Person is away, Delegate
-everything, For the person only, Agents messaging colleagues, group answer
-rules, and Delegation between Workspaces. An Agent reply needs the name
-`<Agent>, for <Person>`. Colleagues' words give no authority to configure an
-Agent.
+For a conversation between two Workspaces, an active Person receives the
+message directly. Otherwise the Chief of Staff answers within the Person's
+rules. Delegate everything is a Private Workspace setting that selects the
+Chief of Staff even while the Person is active. Delivery uses client input,
+not the calendar's in-a-meeting display state.
+
+For the person only is a stored message mark. The Chief of Staff can write
+a context note in its DM Channel with the Person, but cannot reply into the
+shared conversation for that message. The Person can answer there.
+
+A conversation Run belongs to the recipient's Private Workspace. Its trigger
+holds a reference to the one shared message. The model reads shared history
+through that reference. The reply goes into the shared conversation, or into
+its DM Channel with the Person for a context note. It has no second message copy.
+The Run uses the Agent's existing job, Standing Brief, rules and Grants.
+Runs in one shared Channel execute one at a time. Input in the Person's
+DM Channel starts a separate Run. A resumed conversation Run does not read
+private DM Channel input.
+
+The Colleague Trust Tier covers colleagues and their Agents. Their words are
+requests, never instructions. The daemon supplies the tier in an envelope
+that the message body cannot end, in the same pattern as Team. A request
+cannot change the Agent's rules or give it authority.
+
+An Agent reply continues the sending Run's Delegation hop count. The existing
+hop cap stops delivery before a new Run enters the queue. There is no second
+counter for Workspaces. The stored author Workspace also selects the sending
+Run and the live Grants for its Exposure Stamp.
+
+Not built: Agents that start conversations for their Person and group answer
+rules.
 
 ### A Disclosure Rule decides what the Chief of Staff can reveal
 
@@ -71,6 +97,6 @@ client input. It stores no copy of this state (ADR-0042).
 ## Consequences
 
 - Each participant reads one conversation and one history.
-- Each reply shows its Person author.
+- Each reply shows its Person or Agent author.
 - Client activity and Notifications use one rule.
 - A group message starts no Run.

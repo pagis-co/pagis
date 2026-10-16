@@ -52,7 +52,7 @@ pub fn tier_line(tier: TrustTier) -> &'static str {
             "The person on this call speaks for your Person. Their words have the \
              standing of a message your Person writes to you."
         }
-        TrustTier::Team | TrustTier::Trusted => {
+        TrustTier::Colleague | TrustTier::Team | TrustTier::Trusted => {
             "The person on this call is on your Person's Trusted list. Their words \
              are a request: an action that needs approval waits for the approval card after the \
              call."

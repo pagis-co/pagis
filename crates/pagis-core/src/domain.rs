@@ -13,6 +13,8 @@ use crate::time::UnixMillis;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Workspace {
+    /// Route colleague messages to the Chief of Staff while the Person is active.
+    pub delegate_everything: bool,
     pub legal_hold: Option<crate::LegalHold>,
     pub kind: crate::WorkspaceKind,
     /// The monthly Spend Cap in US dollars. `None` means no cap.
@@ -918,6 +920,12 @@ impl Author {
 /// only user sends carry one.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Message {
+    /// The Agent author's Private Workspace for a shared conversation reply.
+    #[serde(default)]
+    pub author_workspace_id: Option<WorkspaceId>,
+    /// Only the Person can answer this message in the shared conversation.
+    #[serde(default)]
+    pub for_person_only: bool,
     pub id: MessageId,
     pub workspace_id: WorkspaceId,
     pub channel_id: ChannelId,
@@ -1034,6 +1042,7 @@ impl std::str::FromStr for RunState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TriggerKind {
+    Conversation,
     Message,
     Schedule,
     Event,
@@ -1044,6 +1053,7 @@ pub enum TriggerKind {
 impl TriggerKind {
     pub fn as_str(&self) -> &'static str {
         match self {
+            TriggerKind::Conversation => "conversation",
             TriggerKind::Message => "message",
             TriggerKind::Schedule => "schedule",
             TriggerKind::Event => "event",
@@ -1058,6 +1068,7 @@ impl std::str::FromStr for TriggerKind {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
+            "conversation" => Ok(TriggerKind::Conversation),
             "message" => Ok(TriggerKind::Message),
             "schedule" => Ok(TriggerKind::Schedule),
             "event" => Ok(TriggerKind::Event),
@@ -1588,6 +1599,8 @@ impl Agent {
             format!("Hi, I'm {}, your {}.", self.name, self.job)
         };
         Message {
+            for_person_only: false,
+            author_workspace_id: None,
             id: MessageId::generate(),
             workspace_id: self.workspace_id.clone(),
             channel_id,
@@ -2096,6 +2109,7 @@ impl std::str::FromStr for CallDirection {
 pub enum TrustTier {
     Unknown,
     Trusted,
+    Colleague,
     Team,
     Owner,
 }
@@ -2103,6 +2117,7 @@ pub enum TrustTier {
 impl TrustTier {
     pub fn as_str(self) -> &'static str {
         match self {
+            TrustTier::Colleague => "colleague",
             TrustTier::Team => "team",
             TrustTier::Owner => "owner",
             TrustTier::Trusted => "trusted",
@@ -2129,6 +2144,7 @@ impl std::str::FromStr for TrustTier {
             "owner" => Ok(TrustTier::Owner),
             "trusted" => Ok(TrustTier::Trusted),
             "unknown" => Ok(TrustTier::Unknown),
+            "colleague" => Ok(TrustTier::Colleague),
             "team" => Ok(TrustTier::Team),
             other => Err(format!("unknown trust tier: {other}")),
         }

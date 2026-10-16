@@ -49,6 +49,8 @@ pub struct StartConversationRequest {
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct ConversationMessageRequest {
+    #[serde(default)]
+    pub for_person_only: bool,
     pub pending_id: String,
     pub text: String,
 }
@@ -179,7 +181,13 @@ async fn dto(
         .last_message(&state.org_workspace_id, &channel.id)
         .await?
     {
-        Some(message) => Some(MessageDto::read(state, message).await?),
+        Some(message) => Some(
+            MessageDto::read(
+                state,
+                crate::channels::readable_message(state, message).await?,
+            )
+            .await?,
+        ),
         None => None,
     };
     Ok(ConversationDto {
@@ -271,7 +279,13 @@ pub async fn list_conversation_messages(
     let more = rows.len() > limit as usize;
     let mut items = Vec::new();
     for entry in rows.into_iter().take(limit as usize) {
-        items.push(MessageDto::read(&state, entry.message).await?);
+        items.push(
+            MessageDto::read(
+                &state,
+                crate::channels::readable_message(&state, entry.message).await?,
+            )
+            .await?,
+        );
     }
     let next_cursor = if more {
         items.last().map(|m| m.id.clone())
@@ -297,11 +311,13 @@ pub async fn send_conversation_message(
     }
     let now = state.clock.now_ms();
     let message = Message {
+        for_person_only: request.for_person_only,
+        author_workspace_id: None,
         id: MessageId::generate(),
         workspace_id: state.org_workspace_id.clone(),
         channel_id: id.clone(),
         parent_message_id: None,
-        author: Author::Person(tenant.user_id),
+        author: Author::Person(tenant.user_id.clone()),
         run_id: None,
         status: MessageStatus::Complete,
         blocks: vec![Block::markdown(&request.text)],
@@ -326,7 +342,7 @@ pub async fn send_conversation_message(
                     agent_id: None,
                     run_id: None,
                     channel_id: Some(id.clone()),
-                    payload: serde_json::json!({ "conversation_id": id, "message_id": message.id }),
+                    payload: serde_json::json!({ "conversation_id": id, "message_id": message.id, "storage_workspace_id": state.org_workspace_id, "sender_workspace_id": tenant.workspace_id }),
                 })
                 .await?;
         }

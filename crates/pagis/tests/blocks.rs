@@ -104,6 +104,8 @@ async fn every_block_variant_survives_the_store_and_the_timeline() {
     let daemon = TestDaemon::start().await;
     let blocks = every_block();
     let message = Message {
+        for_person_only: false,
+        author_workspace_id: None,
         id: MessageId::generate(),
         workspace_id: workspace_id(&daemon).await,
         channel_id: ChannelId::from(daemon.dm_channel_id.clone()),

@@ -4440,6 +4440,7 @@ dependencies = [
  "pagis-core",
  "pagis-knowledge",
  "pagis-memory-git",
+ "pagis-needs-you",
  "pagis-rt",
  "pagis-storage-sqlite",
  "pagis-testkit",

@@ -122,6 +122,11 @@ pub enum StoreError {
 /// reaches it.
 #[async_trait]
 pub trait WorkspaceStore: Send + Sync {
+    async fn set_delegate_everything(
+        &self,
+        id: &WorkspaceId,
+        enabled: bool,
+    ) -> Result<(), StoreError>;
     /// Write the hold and its Audit Entry in one transaction.
     async fn start_legal_hold(&self, entry: &crate::AuditEntry) -> Result<(), StoreError>;
     async fn end_legal_hold(&self, entry: &crate::AuditEntry) -> Result<(), StoreError>;

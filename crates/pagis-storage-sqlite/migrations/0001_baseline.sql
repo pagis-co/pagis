@@ -11,6 +11,7 @@
 -- writes Memory Search with the Page Index.
 
 CREATE TABLE workspaces (
+    delegate_everything BOOLEAN NOT NULL DEFAULT FALSE,
     legal_hold TEXT,
     kind TEXT NOT NULL DEFAULT 'private' CHECK (kind IN ('private', 'shared')),
     id TEXT PRIMARY KEY,
@@ -93,6 +94,8 @@ CREATE UNIQUE INDEX idx_channel_participants_unique
     ON channel_participants (channel_id, participant_kind, COALESCE(person_id, ''), COALESCE(agent_id, ''), COALESCE(participant_workspace_id, ''));
 
 CREATE TABLE messages (
+    author_workspace_id TEXT REFERENCES workspaces (id),
+    for_person_only BOOLEAN NOT NULL DEFAULT FALSE,
     author_kind TEXT NOT NULL CHECK (author_kind IN ('person', 'agent', 'system')),
     author_person_id TEXT REFERENCES users (id),
     author_agent_id TEXT REFERENCES agents (id),
@@ -123,7 +126,7 @@ CREATE TABLE runs (
     agent_id TEXT NOT NULL REFERENCES agents (id),
     channel_id TEXT REFERENCES channels (id),
     root_message_id TEXT REFERENCES messages (id),
-    trigger_kind TEXT NOT NULL CHECK (trigger_kind IN ('message', 'schedule', 'event', 'arrival', 'review')),
+    trigger_kind TEXT NOT NULL CHECK (trigger_kind IN ('message', 'conversation', 'schedule', 'event', 'arrival', 'review')),
     trigger_ref TEXT,
     state TEXT NOT NULL CHECK (state IN (
         'queued', 'running', 'reflecting', 'waiting_for_user', 'waiting_for_approval',

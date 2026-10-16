@@ -42,6 +42,7 @@ impl World {
         stores
             .workspaces
             .create(&pagis_core::Workspace {
+                delegate_everything: false,
                 kind: pagis_core::WorkspaceKind::Private,
                 id: workspace.clone(),
                 user_id: Some(pagis_core::UserId::generate()),

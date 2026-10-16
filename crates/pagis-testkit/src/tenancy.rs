@@ -258,6 +258,7 @@ impl TwoTenants {
         };
         users.create(&b_user).await.expect("write person B");
         let b_workspace = Workspace {
+            delegate_everything: false,
             kind: pagis_core::WorkspaceKind::Private,
             legal_hold: None,
             monthly_spend_cap_usd: None,

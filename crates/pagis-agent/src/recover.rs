@@ -92,6 +92,8 @@ async fn post_restart_note(
     };
     let blocks = vec![Block::markdown(RESTART_NOTE)];
     let note = Message {
+        for_person_only: false,
+        author_workspace_id: None,
         id: MessageId::generate(),
         workspace_id: run.workspace_id.clone(),
         channel_id,

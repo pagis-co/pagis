@@ -1472,6 +1472,7 @@ impl FakeWorkspaces {
     /// One Workspace of a Person of its own, in UTC, with no Home Exit.
     pub fn workspace(id: &WorkspaceId, timezone: &str) -> Workspace {
         Workspace {
+            delegate_everything: false,
             kind: pagis_core::WorkspaceKind::Private,
             legal_hold: None,
             monthly_spend_cap_usd: None,
@@ -1502,6 +1503,15 @@ impl FakeWorkspaces {
 
 #[async_trait]
 impl WorkspaceStore for FakeWorkspaces {
+    async fn set_delegate_everything(
+        &self,
+        id: &WorkspaceId,
+        enabled: bool,
+    ) -> Result<(), StoreError> {
+        self.change(id, |workspace| workspace.delegate_everything = enabled);
+        Ok(())
+    }
+
     async fn start_legal_hold(&self, _: &pagis_core::AuditEntry) -> Result<(), StoreError> {
         Err(StoreError::Conflict(
             "This fake has no Org Audit Log.".into(),
