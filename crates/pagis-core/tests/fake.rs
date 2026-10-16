@@ -790,6 +790,7 @@ async fn workspaces_belong_to_the_named_person() {
     let stores = pagis_core::fake::stores();
     let row = Workspace {
         kind: pagis_core::WorkspaceKind::Private,
+        legal_hold: None,
         monthly_spend_cap_usd: None,
         id: owner(),
         user_id: Some("person".to_string().into()),
@@ -2063,4 +2064,72 @@ fn file_classes_use_the_retention_wire_names() {
     }
     assert_eq!(FileKind::parse("file"), None);
     assert!(serde_json::from_value::<FileKind>(serde_json::json!("file")).is_err());
+}
+
+#[tokio::test]
+async fn legal_hold_and_audit_are_atomic_in_the_fake_store() {
+    let stores = pagis_core::fake::stores();
+    let person = seed_org_and_administrator(stores.orgs.as_ref(), stores.users.as_ref(), "Org", 1)
+        .await
+        .unwrap();
+    let workspace = Workspace {
+        id: WorkspaceId::generate(),
+        kind: WorkspaceKind::Private,
+        user_id: Some(person.id.clone()),
+        name: "Records".into(),
+        timezone: "UTC".into(),
+        created_at: 1,
+        onboarded_at: None,
+        monthly_spend_cap_usd: None,
+        legal_hold: None,
+        chief_of_staff_agent_id: None,
+        report_schedule_id: None,
+        home_exit_host_id: None,
+    };
+    stores.workspaces.create(&workspace).await.unwrap();
+    let org = stores.orgs.list().await.unwrap().remove(0);
+    let start = AuditEntry {
+        id: AuditEntryId::generate(),
+        org_workspace_id: org.workspace_id.clone(),
+        actor: Author::Person(person.id),
+        action: "legal_hold.started".into(),
+        subject_workspace_id: workspace.id.clone(),
+        reason: Some("Preserve".into()),
+        at: 10,
+    };
+    stores.workspaces.start_legal_hold(&start).await.unwrap();
+    assert!(matches!(
+        stores.workspaces.refuse_delete(&workspace.id).await,
+        Err(StoreError::LegalHold)
+    ));
+    let invalid = AuditEntry {
+        action: "legal_hold.ended".into(),
+        at: 20,
+        ..start.clone()
+    };
+    assert!(stores.workspaces.end_legal_hold(&invalid).await.is_err());
+    assert!(
+        stores
+            .workspaces
+            .get(&workspace.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .legal_hold
+            .is_some()
+    );
+    let end = AuditEntry {
+        id: AuditEntryId::generate(),
+        ..invalid
+    };
+    stores.workspaces.end_legal_hold(&end).await.unwrap();
+    stores
+        .workspaces
+        .refuse_delete(&workspace.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        stores.audit.list(&org.workspace_id, 0, 10).await.unwrap(),
+        vec![end, start]
+    );
 }

@@ -514,13 +514,9 @@ impl FileStore for FakeFileStore {
         Ok(rows)
     }
     async fn delete(&self, workspace_id: &WorkspaceId, id: &FileId) -> Result<bool, StoreError> {
-        Ok(self
-            .0
-            .lock()
-            .unwrap()
-            .files
-            .remove(workspace_id, id)
-            .is_some())
+        let mut data = self.0.lock().unwrap();
+        super::audit::refuse_delete(&data, workspace_id)?;
+        Ok(data.files.remove(workspace_id, id).is_some())
     }
 }
 

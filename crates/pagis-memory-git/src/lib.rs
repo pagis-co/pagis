@@ -1012,6 +1012,7 @@ impl MemoryStore for GitMemoryStore {
             .begin(workspace, target, &preview.revision, now, keys)
             .await
             .map_err(|error| match error {
+                pagis_core::StoreError::LegalHold => MemoryError::LegalHold,
                 pagis_core::StoreError::Conflict(_) => MemoryError::Conflict,
                 error => MemoryError::Storage(error.to_string()),
             })
@@ -1021,6 +1022,8 @@ impl MemoryStore for GitMemoryStore {
         workspace: &WorkspaceId,
         operation: &str,
     ) -> Result<(), MemoryError> {
+        let _hold = pagis_core::LegalHold::lock(workspace).await;
+        self.forget.refuse_delete(workspace).await?;
         let lock = self.lock_for(workspace);
         let _serialized = lock.lock().await;
         self.purge_forgotten_locked(workspace, operation).await?;
@@ -1314,6 +1317,10 @@ impl MemoryStore for GitMemoryStore {
         message: &str,
         run_id: Option<&RunId>,
     ) -> Result<String, MemoryError> {
+        let _hold = pagis_core::LegalHold::lock(workspace_id).await;
+        if !changeset.deletes.is_empty() {
+            self.forget.refuse_delete(workspace_id).await?;
+        }
         if changeset.is_empty() {
             return Err(MemoryError::Invalid(
                 "an empty changeset has nothing to commit".to_string(),
@@ -1382,6 +1389,8 @@ impl MemoryStore for GitMemoryStore {
         expected_revision: &str,
         author: &MemoryAuthor,
     ) -> Result<String, MemoryError> {
+        let _hold = pagis_core::LegalHold::lock(workspace_id).await;
+        self.forget.refuse_delete(workspace_id).await?;
         let lock = self.lock_for(workspace_id);
         let _serialized = lock.lock().await;
         let dir = self.repo_dir(workspace_id);

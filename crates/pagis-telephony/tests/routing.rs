@@ -250,6 +250,7 @@ struct World {
 async fn workspace(workspaces: &SqliteWorkspaceStore, person: &User, name: &str) -> WorkspaceId {
     let workspace = Workspace {
         kind: pagis_core::WorkspaceKind::Private,
+        legal_hold: None,
         monthly_spend_cap_usd: None,
         user_id: Some(person.id.clone()),
         id: WorkspaceId::generate(),

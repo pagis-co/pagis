@@ -4,6 +4,7 @@ import type { AdministrationWorkspaceDto, ApiClient } from '../../api/client'
 import { Button, Frame, Input, Row, SectionLabel, Select } from '../../primitives'
 import { useAdministrationWorkspaces, usePeople, useSetSpendCap, workspacesKey } from '../../queries'
 import { money, personLabel } from './People'
+import { AuditLog, LegalHoldControl } from './LegalHold'
 import './People.css'
 
 function WorkspaceRow({ api, workspace }: { api: ApiClient; workspace: AdministrationWorkspaceDto }) {
@@ -31,6 +32,7 @@ function WorkspaceRow({ api, workspace }: { api: ApiClient; workspace: Administr
           Save cap
         </Button>
       </Row>
+      <LegalHoldControl api={api} workspace={workspace} />
       {setCap.isError && <span role="alert" className="settings-error">The Spend Cap could not be saved.</span>}
     </div>
   )
@@ -56,7 +58,7 @@ export function Workspaces({ api }: { api: ApiClient }) {
   })
   return (
     <section className="settings-section people">
-      <div className="people-title"><h1>Workspaces</h1><span>Set the monthly Spend Cap for each Workspace.</span></div>
+      <div className="people-title"><h1>Workspaces</h1><span>Set Spend Caps and Legal Holds for each Workspace.</span></div>
       <SectionLabel>Create a Shared Workspace</SectionLabel>
       <form onSubmit={(event) => {
         event.preventDefault()
@@ -76,6 +78,7 @@ export function Workspaces({ api }: { api: ApiClient }) {
         {(workspaces.data ?? []).map((workspace) => <WorkspaceRow key={workspace.id} api={api} workspace={workspace} />)}
         {workspaces.isError && <Row><span role="alert">The Workspaces could not be read.</span></Row>}
       </Frame>
+      <AuditLog api={api} />
     </section>
   )
 }

@@ -19,6 +19,7 @@ use crate::memory::MemoryOverlay;
 use crate::ui::BlockBuffer;
 
 pub struct ToolRuntimeDeps {
+    pub workspaces: Arc<dyn pagis_core::WorkspaceStore>,
     pub agents: Arc<dyn AgentStore>,
     pub channels: Arc<dyn ChannelStore>,
     pub messages: Arc<dyn pagis_core::MessageStore>,
@@ -1124,6 +1125,10 @@ impl CoreToolRuntime {
     }
 
     async fn execute_memory_delete(&self, call: &AuthorizedCall) -> ToolResult {
+        if let Err(error) = self.deps.workspaces.refuse_delete(&call.workspace_id).await {
+            return ToolResult::error("conflict", error.to_string());
+        }
+
         let path = match parse_path(call) {
             Ok(path) => path,
             Err(result) => return result,

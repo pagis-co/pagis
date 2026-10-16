@@ -151,6 +151,7 @@ struct CheckedMailbox {
 /// drives the whole lifecycle with no network.
 pub struct MailboxDeskDeps {
     pub intake: Arc<crate::MailIntake>,
+    pub workspaces: Arc<dyn pagis_core::WorkspaceStore>,
     pub workspace_mailboxes: Arc<dyn pagis_core::WorkspaceMailboxRecordStore>,
     pub mailboxes: Arc<dyn AgentMailboxStore>,
     pub connections: Arc<dyn ConnectionStore>,
@@ -169,6 +170,7 @@ pub struct MailboxDeskDeps {
 
 pub struct MailboxDesk {
     intake: Arc<crate::MailIntake>,
+    workspaces: Arc<dyn pagis_core::WorkspaceStore>,
     workspace_mailboxes: Arc<dyn pagis_core::WorkspaceMailboxRecordStore>,
     mailboxes: Arc<dyn AgentMailboxStore>,
     connections: Arc<dyn ConnectionStore>,
@@ -189,6 +191,7 @@ impl MailboxDesk {
     pub fn new(deps: MailboxDeskDeps) -> Self {
         Self {
             intake: deps.intake,
+            workspaces: deps.workspaces,
             workspace_mailboxes: deps.workspace_mailboxes,
             mailboxes: deps.mailboxes,
             connections: deps.connections,
@@ -562,6 +565,8 @@ impl MailboxDesk {
         id: &AgentMailboxId,
         confirm_address: &str,
     ) -> Result<MailboxDeletion, MailboxError> {
+        let _hold = pagis_core::LegalHold::lock(workspace_id).await;
+        self.workspaces.refuse_delete(workspace_id).await?;
         let mailbox = self.live_mailbox(workspace_id, id).await?;
         if !confirm_address
             .trim()

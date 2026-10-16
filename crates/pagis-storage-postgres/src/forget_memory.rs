@@ -38,6 +38,7 @@ pub(crate) async fn memory_purged(
     id: &str,
 ) -> Result<(), StoreError> {
     let mut tx = begin_write(pool).await.map_err(db_err)?;
+    crate::audit_log::refuse_delete(&mut tx, workspace).await?;
     let phase: Option<String> = sqlx::query_scalar(
         "SELECT phase FROM forget_operations WHERE workspace_id=$1 AND id=$2 \
          AND error IS NULL AND structured_cleaned=true FOR UPDATE",

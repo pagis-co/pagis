@@ -19,6 +19,7 @@ async fn onboarding_status_without_computers_holds_docker_null() {
     let workspaces = Arc::new(SqliteWorkspaceStore::new(pool.clone()));
     let workspace = Workspace {
         kind: pagis_core::WorkspaceKind::Private,
+        legal_hold: None,
         monthly_spend_cap_usd: None,
         id: WorkspaceId::generate(),
         user_id: Some(person.id.clone()),

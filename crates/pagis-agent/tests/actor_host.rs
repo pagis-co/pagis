@@ -44,6 +44,7 @@ impl ActorHost {
             .workspaces
             .create(&Workspace {
                 kind: pagis_core::WorkspaceKind::Private,
+                legal_hold: None,
                 monthly_spend_cap_usd: None,
                 id: agent.workspace_id.clone(),
                 user_id: Some(person.id),
@@ -114,6 +115,7 @@ impl ActorHost {
         let skills = Arc::new(NoSkills);
         let clock = Arc::new(SystemClock);
         let runtime = Arc::new(CoreToolRuntime::new(ToolRuntimeDeps {
+            workspaces: self.stores.workspaces.clone(),
             agents: self.stores.agents.clone(),
             channels: self.stores.channels.clone(),
             messages: self.stores.messages.clone(),

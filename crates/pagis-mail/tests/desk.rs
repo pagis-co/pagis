@@ -90,6 +90,7 @@ impl World {
                 .unwrap();
         let workspace = Workspace {
             kind: pagis_core::WorkspaceKind::Private,
+            legal_hold: None,
             monthly_spend_cap_usd: None,
             user_id: Some(person.id.clone()),
             id: WorkspaceId::generate(),
@@ -173,6 +174,9 @@ impl World {
                     connections.clone(),
                 )),
             }),
+            workspaces: Arc::new(pagis_storage_sqlite::SqliteWorkspaceStore::new(
+                pool.clone(),
+            )),
             workspace_mailboxes,
             mailboxes: Arc::clone(&mailboxes) as _,
             connections: Arc::clone(&connections) as _,

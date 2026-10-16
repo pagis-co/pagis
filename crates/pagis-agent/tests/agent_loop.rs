@@ -519,6 +519,7 @@ where
     // that drives a host command connects one.
     let host_presence = Arc::new(pagis_broker::HostPresence::new());
     let tool_runtime = Arc::new(CoreToolRuntime::new(ToolRuntimeDeps {
+        workspaces: pagis_storage_sqlite::stores(pool.clone()).workspaces,
         presence: Arc::clone(&host_presence),
         agents: Arc::clone(&agents) as _,
         channels: Arc::clone(&channels) as _,
@@ -859,6 +860,7 @@ async fn two_runs_of_one_person_send_one_opaque_id_and_another_person_sends_anot
     let other = pagis_core::User::new(owner.org_id, pagis_core::UserRole::Member, now_ms());
     people.create(&other).await.unwrap();
     let workspace = Workspace {
+        legal_hold: None,
         monthly_spend_cap_usd: None,
         user_id: Some(other.id.clone()),
         ..fixture::workspace()

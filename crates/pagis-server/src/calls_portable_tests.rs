@@ -37,6 +37,7 @@ async fn portable_archive_releases_credentials_sleeps_mailbox_and_reports_no_num
         .workspaces
         .create(&Workspace {
             kind: pagis_core::WorkspaceKind::Private,
+            legal_hold: None,
             monthly_spend_cap_usd: None,
             id: workspace_id.clone(),
             user_id: Some(user_id.clone()),
@@ -99,6 +100,7 @@ async fn portable_archive_releases_credentials_sleeps_mailbox_and_reports_no_num
                 stores.connections.clone(),
             )),
         }),
+        workspaces: stores.workspaces.clone(),
         workspace_mailboxes: stores.workspace_mailboxes.clone(),
         mailboxes: stores.agent_mailboxes.clone(),
         connections: stores.connections.clone(),

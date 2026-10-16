@@ -99,6 +99,8 @@ pub trait PendingEvidenceStore: Send + Sync {
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
+    #[error("{}", crate::LegalHold::MESSAGE)]
+    LegalHold,
     #[error("database error: {0}")]
     Database(#[source] Box<dyn std::error::Error + Send + Sync>),
     #[error("corrupt record: {0}")]
@@ -120,6 +122,13 @@ pub enum StoreError {
 /// reaches it.
 #[async_trait]
 pub trait WorkspaceStore: Send + Sync {
+    /// Write the hold and its Audit Entry in one transaction.
+    async fn start_legal_hold(&self, entry: &crate::AuditEntry) -> Result<(), StoreError>;
+    async fn end_legal_hold(&self, entry: &crate::AuditEntry) -> Result<(), StoreError>;
+    async fn refuse_delete(&self, id: &WorkspaceId) -> Result<(), StoreError> {
+        crate::LegalHold::refuse_delete(self.get(id).await?.is_some_and(|w| w.legal_hold.is_some()))
+    }
+
     /// Set or clear the monthly Spend Cap. `false` when the Workspace is missing.
     async fn set_monthly_spend_cap(
         &self,

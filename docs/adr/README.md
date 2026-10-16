@@ -63,3 +63,5 @@ built. Read the records that touch an area before you change it.
 - [0041](0041-a-workspace-has-one-number-that-its-chief-of-staff-answers.md): A Workspace has one number that its Chief of Staff answers
 - [0042](0042-each-workspace-holds-a-calendar.md): Each Workspace holds a calendar
 - [0043](0043-messages-between-workspaces-follow-disclosure-rules.md): Messages between Workspaces follow Disclosure Rules
+
+- [0044](0044-a-legal-hold-stops-each-delete-in-a-workspace.md): A Legal Hold stops each delete in a Workspace

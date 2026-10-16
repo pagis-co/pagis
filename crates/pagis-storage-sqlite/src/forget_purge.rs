@@ -16,6 +16,7 @@ pub(crate) async fn begin(
     // that read.
     let suppression = keys.suppression_key(workspace)?;
     let mut tx = begin_write(pool).await.map_err(db_err)?;
+    crate::audit_log::refuse_delete(&mut tx, workspace).await?;
     let plan = crate::forget_plan::load(&mut tx, workspace, target).await?;
     if plan.preview()?.revision != expected {
         return Err(StoreError::Conflict(
@@ -100,6 +101,7 @@ pub(crate) async fn purge(
     id: &str,
 ) -> Result<(), StoreError> {
     let mut tx = begin_write(pool).await.map_err(db_err)?;
+    crate::audit_log::refuse_delete(&mut tx, workspace).await?;
     let row = sqlx::query(
         "SELECT phase,error,purge_plan FROM forget_operations WHERE workspace_id=? AND id=?",
     )

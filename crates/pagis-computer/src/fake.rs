@@ -1473,6 +1473,7 @@ impl FakeWorkspaces {
     pub fn workspace(id: &WorkspaceId, timezone: &str) -> Workspace {
         Workspace {
             kind: pagis_core::WorkspaceKind::Private,
+            legal_hold: None,
             monthly_spend_cap_usd: None,
             id: id.clone(),
             user_id: Some(pagis_core::UserId::generate()),
@@ -1501,6 +1502,17 @@ impl FakeWorkspaces {
 
 #[async_trait]
 impl WorkspaceStore for FakeWorkspaces {
+    async fn start_legal_hold(&self, _: &pagis_core::AuditEntry) -> Result<(), StoreError> {
+        Err(StoreError::Conflict(
+            "This fake has no Org Audit Log.".into(),
+        ))
+    }
+    async fn end_legal_hold(&self, _: &pagis_core::AuditEntry) -> Result<(), StoreError> {
+        Err(StoreError::Conflict(
+            "This fake has no Org Audit Log.".into(),
+        ))
+    }
+
     async fn set_monthly_spend_cap(
         &self,
         id: &WorkspaceId,

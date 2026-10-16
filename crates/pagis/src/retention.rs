@@ -41,6 +41,9 @@ pub async fn sweep(deps: &RetentionDeps, now: UnixMillis) -> anyhow::Result<u64>
     let days = i64::from(deps.capture.retention_days());
     let mut deleted = deps.captures.delete_before(now - days * DAY_MS).await?;
     for workspace in deps.workspaces.list().await? {
+        if workspace.legal_hold.is_some() {
+            continue;
+        }
         for policy in deps.policies.list(&workspace.id).await? {
             let Some(cutoff) = policy.cutoff(now) else {
                 continue;
@@ -71,6 +74,12 @@ async fn sweep_class(
         }
         let mut removed_in_batch = 0;
         for file in batch {
+            let _hold = pagis_core::LegalHold::lock(workspace_id).await;
+            match deps.workspaces.refuse_delete(workspace_id).await {
+                Ok(()) => {}
+                Err(pagis_core::StoreError::LegalHold) => return Ok(deleted),
+                Err(error) => return Err(error.into()),
+            }
             let path = object_store::path::Path::from(file.storage_key.clone());
             match deps.blobs.delete(&path).await {
                 Ok(()) => {}

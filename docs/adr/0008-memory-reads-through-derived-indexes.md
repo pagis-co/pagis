@@ -16,6 +16,10 @@ records, conversations and the database files.
 
 ## Decision
 
+A Legal Hold refuses Forget and stops a purge while the Workspace is held.
+The preservation rule takes precedence over the deletion rules below
+(ADR-0044).
+
 The memory repository stays the source of truth. The daemon keeps derived
 indexes beside it in the installation's database, and they hold nothing the
 history does not hold. The database is SQLite or Postgres (ADR-0024), so each

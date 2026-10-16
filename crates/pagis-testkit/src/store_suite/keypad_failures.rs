@@ -17,6 +17,7 @@ const NOW: i64 = 1_790_305_200_000;
 /// cross one.
 async fn second_workspace(backend: &Backend, first: &Workspace) -> Workspace {
     let second = Workspace {
+        legal_hold: None,
         monthly_spend_cap_usd: None,
         id: WorkspaceId::generate(),
         ..first.clone()

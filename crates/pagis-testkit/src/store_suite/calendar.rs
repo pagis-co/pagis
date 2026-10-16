@@ -303,12 +303,63 @@ pub async fn calendar_free_busy(backend: &Backend) {
     );
 }
 
+pub async fn legal_hold_preserves_events_and_occurrences(backend: &Backend) {
+    use pagis_core::{AuditEntry, AuditEntryId, StoreError};
+    let workspace = backend.seeded_workspace().await;
+    let stores = backend.stores();
+    let org = stores.orgs.list().await.unwrap().remove(0);
+    let row = event(workspace.id.clone());
+    stores.calendar.create(&row).await.unwrap();
+    let start = AuditEntry {
+        id: AuditEntryId::generate(),
+        org_workspace_id: org.workspace_id,
+        subject_workspace_id: workspace.id.clone(),
+        action: "legal_hold.started".into(),
+        actor: Author::System,
+        reason: Some("Preserve".into()),
+        at: 100,
+    };
+    stores.workspaces.start_legal_hold(&start).await.unwrap();
+    assert!(matches!(
+        stores.calendar.delete(&workspace.id, &row.id).await,
+        Err(StoreError::LegalHold)
+    ));
+    let mut data = row.data.clone();
+    data.exdates.push("2026-03-07T09:00:00".into());
+    assert!(matches!(
+        stores.calendar.update(&workspace.id, &row.id, &data).await,
+        Err(StoreError::LegalHold)
+    ));
+    assert_eq!(
+        stores.calendar.get(&workspace.id, &row.id).await.unwrap(),
+        Some(row.clone())
+    );
+    stores
+        .workspaces
+        .end_legal_hold(&AuditEntry {
+            id: AuditEntryId::generate(),
+            action: "legal_hold.ended".into(),
+            at: 200,
+            ..start
+        })
+        .await
+        .unwrap();
+    assert!(
+        stores
+            .calendar
+            .delete(&workspace.id, &row.id)
+            .await
+            .unwrap()
+    );
+}
+
 #[macro_export]
 macro_rules! store_suite_calendar {
     ($emit:path) => {
         $emit!(
             calendar,
             calendar_free_busy,
+            legal_hold_preserves_events_and_occurrences,
             calendar_crud_and_workspace_boundary,
             calendar_recurrence_dst_exdate_and_range,
             calendar_all_day_and_occurrence_cap,

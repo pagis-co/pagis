@@ -263,6 +263,8 @@ impl AgentMailboxStore for PostgresAgentMailboxStore {
         id: &AgentMailboxId,
         at: UnixMillis,
     ) -> Result<bool, StoreError> {
+        let mut tx = self.pool.begin().await.map_err(db_err)?;
+        crate::audit_log::refuse_delete(&mut tx, workspace_id).await?;
         // The tombstone keeps the address, the Agent and the time, and
         // loses the cursor and the reason: nothing reads a deleted
         // mailbox but the ledger.
@@ -277,9 +279,10 @@ impl AgentMailboxStore for PostgresAgentMailboxStore {
         .bind(id.as_str())
         .bind(workspace_id.as_str())
         .bind(AgentMailboxState::Deleted.as_str())
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(db_err)?;
+        tx.commit().await.map_err(db_err)?;
         Ok(updated.rows_affected() > 0)
     }
 

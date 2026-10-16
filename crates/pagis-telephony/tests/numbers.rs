@@ -23,6 +23,7 @@ async fn desk() -> (
         user_id: Some(pagis_core::UserId::generate()),
         name: "Workspace".into(),
         timezone: "UTC".into(),
+        legal_hold: None,
         monthly_spend_cap_usd: None,
         created_at: now_ms(),
         onboarded_at: None,

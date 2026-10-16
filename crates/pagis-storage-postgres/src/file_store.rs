@@ -139,12 +139,15 @@ impl FileStore for PostgresFileStore {
     }
 
     async fn delete(&self, workspace_id: &WorkspaceId, id: &FileId) -> Result<bool, StoreError> {
+        let mut tx = self.pool.begin().await.map_err(db_err)?;
+        crate::audit_log::refuse_delete(&mut tx, workspace_id).await?;
         let result = sqlx::query("DELETE FROM files WHERE id = $1 AND workspace_id = $2")
             .bind(id.as_str())
             .bind(workspace_id.as_str())
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(db_err)?;
+        tx.commit().await.map_err(db_err)?;
         Ok(result.rows_affected() == 1)
     }
 }

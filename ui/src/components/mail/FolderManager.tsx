@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { ApiClient } from '../../api/client'
 import { Button, Input } from '../../primitives'
-import { useMailFolderMutation } from '../../queries'
+import { errorMessage, useMailFolderMutation } from '../../queries'
 
 export function FolderManager({
   api,
@@ -99,7 +99,7 @@ function FolderItem({ api, name }: { api: ApiClient; name: string }) {
       )}
       {mutation.isError && (
         <p role="alert">
-          Could not change the folder. System folders cannot change.
+          {errorMessage(mutation.error, 'Could not change the folder. System folders cannot change.')}
         </p>
       )}
     </li>

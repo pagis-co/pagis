@@ -64,6 +64,7 @@ pub(super) async fn setup() -> (Stores, CallHandoffs, Call, Agent) {
         user_id: Some(person.id),
         name: "Workspace".into(),
         timezone: "UTC".into(),
+        legal_hold: None,
         monthly_spend_cap_usd: None,
         created_at: now_ms(),
         onboarded_at: None,

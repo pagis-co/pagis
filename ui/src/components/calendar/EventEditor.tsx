@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import type { ApiClient } from '../../api/client'
 import { Button, Combobox, Input, Select, Textarea } from '../../primitives'
 import { FreeBusy } from './FreeBusy'
+import { errorMessage } from '../../queries'
 import { AttendeesEditor } from './AttendeesEditor'
 import { shiftDate } from './dates'
 import { useDeleteEvent, useSaveEvent } from './queries'
@@ -68,7 +69,7 @@ export function EventEditor({ api, date, event, occurrenceStart, onClose }: {
   const busy = save.isPending || remove.isPending
   const failure = validation || (
     save.isError || remove.isError
-      ? 'Could not save the change. Check the times, time zone and recurrence rule.'
+      ? errorMessage(remove.error ?? save.error, 'Could not save the change. Check the times, time zone and recurrence rule.')
       : ''
   )
 
