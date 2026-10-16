@@ -171,6 +171,54 @@ impl Embedder {
         administration_sections: pagis_server::AdministrationSections,
         person_notice: Arc<dyn pagis_server::PersonNotice>,
     ) -> Self {
+        Self::build(
+            brain,
+            executor,
+            gate,
+            source,
+            stdio,
+            http,
+            org_menu,
+            administration_sections,
+            person_notice,
+            None,
+        )
+        .await
+    }
+
+    #[allow(dead_code)]
+    pub async fn with_workspace_mail(host: Arc<dyn pagis_mail::WorkspaceMailHost>) -> Self {
+        let services = Arc::new(UnusedServices);
+        Self::build(
+            services.clone(),
+            services.clone(),
+            services,
+            Arc::new(pagis_plugin::fake::FixedPackageSource::new(
+                Default::default(),
+            )),
+            Arc::new(pagis_plugins::NoStdioServers),
+            Arc::new(pagis_plugins::ReqwestMcpHttp::default()),
+            Arc::new(pagis_server::NoOrgMenu),
+            Default::default(),
+            Arc::new(pagis_server::NoPersonNotice),
+            Some(host),
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn build(
+        brain: Arc<dyn pagis_agent::Brain>,
+        executor: Arc<dyn ToolExecutor>,
+        gate: Arc<dyn pagis_agent::ModelCallGate>,
+        source: Arc<dyn pagis_plugin::PackageSource>,
+        stdio: Arc<dyn pagis_plugins::StdioServers>,
+        http: Arc<dyn pagis_plugins::McpHttp>,
+        org_menu: Arc<dyn pagis_server::OrgMenu>,
+        administration_sections: pagis_server::AdministrationSections,
+        person_notice: Arc<dyn pagis_server::PersonNotice>,
+        workspace_mail: Option<Arc<dyn pagis_mail::WorkspaceMailHost>>,
+    ) -> Self {
         let database = FakeDatabase::default();
         let stores = database.stores();
         let person = seed_org_and_administrator(
@@ -296,6 +344,13 @@ impl Embedder {
         let mail_transport = Arc::new(pagis_mail::fake::FakeMailTransport::default());
         let mailbox_host = Arc::new(pagis_mail::fake::FakeMailboxHost::default());
         let mailbox_desk = Arc::new(pagis_mail::MailboxDesk::new(pagis_mail::MailboxDeskDeps {
+            workspace_mail: workspace_mail.unwrap_or_else(|| {
+                Arc::new(pagis_mail::ImapWorkspaceMailHost::new(
+                    mailbox_host.clone(),
+                    mail_transport.clone(),
+                    secrets.clone(),
+                ))
+            }),
             grants: stores.grants.clone(),
             intake: Arc::new(pagis_mail::MailIntake {
                 workspaces: stores.workspaces.clone(),

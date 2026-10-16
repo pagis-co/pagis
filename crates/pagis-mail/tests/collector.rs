@@ -133,6 +133,11 @@ impl World {
         let transport = Arc::new(transport);
         let verdicts = Arc::new(pagis_mail::fake::FakeSpamVerdicts::default());
         let desk = Arc::new(MailboxDesk::new(MailboxDeskDeps {
+            workspace_mail: Arc::new(pagis_mail::ImapWorkspaceMailHost::new(
+                host.clone(),
+                Arc::clone(&transport) as _,
+                Arc::clone(&secrets) as _,
+            )),
             grants: Arc::new(pagis_storage_sqlite::SqliteGrantStore::new(pool.clone())),
             intake: Arc::new(pagis_mail::MailIntake {
                 workspaces: Arc::new(pagis_storage_sqlite::SqliteWorkspaceStore::new(

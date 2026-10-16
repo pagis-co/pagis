@@ -1,6 +1,6 @@
-//! Workspace Mailbox provisioning and access use the Agent Mailbox host seams.
+//! Workspace Mailbox provisioning and access use the supplied store.
 use super::*;
-use crate::{ImapWorkspaceMailStore, WorkspaceMailStore};
+use crate::WorkspaceMailStore;
 use pagis_core::WorkspaceMailbox;
 
 impl MailboxDesk {
@@ -73,64 +73,38 @@ impl MailboxDesk {
                 "this Workspace already has a Workspace Mailbox".into(),
             ));
         }
-        let checked = self.checked(&request).await?;
-        if checked.settings.imap.is_none()
-            || checked.settings.smtp.is_none()
-            || checked.password.is_none()
-        {
-            return Err(MailboxError::Validation(
-                "this Workspace Mailbox needs an IMAP login".into(),
-            ));
+        let (connection, settings) = self.connected_provider(&request.connection_id).await?;
+        let local_part = validate_local_part(&request.local_part).map_err(validation)?;
+        let address = mailbox_address(&local_part, &settings.domain);
+        if self.mailboxes.address_taken(&address).await? {
+            return Err(MailboxError::Conflict(format!(
+                "{address} is in the address ledger. Choose another name."
+            )));
         }
-        let host = self.host_of(&checked.connection);
-        let account = self.host_account(&checked.connection, &checked.settings)?;
         let mailbox = WorkspaceMailbox {
             workspace_id: workspace.clone(),
-            connection_id: checked.connection.id,
-            address: checked.address,
+            connection_id: connection.id.clone(),
+            address,
             spam_mode: pagis_core::MailScoringMode::ScoreOnly,
-            outgoing_cap: checked.outgoing_cap,
+            outgoing_cap: self.outgoing_cap(request.outgoing_cap)?,
             created_at: now_ms(),
         };
-        self.workspace_mailboxes
-            .create(&mailbox)
-            .await
-            .map_err(store_error)?;
-        if let Err(error) = host
-            .create(
-                &account,
-                &checked.local_part,
-                checked.password.as_ref(),
-                checked.outgoing_cap,
+        let request = NewMailbox {
+            local_part,
+            ..request
+        };
+        let context = self.workspace_read_context(&mailbox, &connection, None);
+        let mut store = self
+            .workspace_mail
+            .provision(
+                &connection,
+                &mailbox,
+                &request,
+                context,
+                self.workspace_mailboxes.as_ref(),
             )
-            .await
-        {
-            self.workspace_mailboxes
-                .drop_reservation(workspace, &mailbox.address)
-                .await?;
-            return Err(error.into());
-        }
-        let password = checked
-            .password
-            .as_ref()
-            .expect("the checked mailbox has a password");
-        if self
-            .secrets
-            .set(
-                &mailbox_password_secret_name(workspace, &mailbox.address),
-                password.expose(),
-            )
-            .is_err()
-        {
-            if host.delete(&account, &mailbox.address).await.is_ok() {
-                self.workspace_mailboxes
-                    .drop_reservation(workspace, &mailbox.address)
-                    .await?;
-            }
-            return Err(MailboxError::Validation(
-                "the daemon could not store the mailbox password".into(),
-            ));
-        }
+            .await?;
+        let _ = store.close().await;
         self.bus
             .publish(NewEvent {
                 workspace_id: workspace.clone(),
@@ -202,34 +176,28 @@ impl MailboxDesk {
             .get(workspace)
             .await?
             .ok_or(MailboxError::NotFound)?;
-        let (connection, settings) = self.connected_provider(&mailbox.connection_id).await?;
-        let (Some(imap), Some(smtp)) = (settings.imap, settings.smtp) else {
-            return Err(MailboxError::Validation(
-                "this Workspace Mailbox needs an IMAP login".into(),
-            ));
-        };
-        let password = self
-            .secrets
-            .get(&mailbox_password_secret_name(workspace, &mailbox.address))
-            .ok()
-            .flatten()
-            .ok_or_else(|| {
-                MailboxError::Conflict("the Workspace Mailbox password is unavailable".into())
-            })?;
-        let context = crate::MailReadContext {
+        let (connection, _) = self.connected_provider(&mailbox.connection_id).await?;
+        let context = self.workspace_read_context(&mailbox, &connection, agent);
+        self.workspace_mail
+            .open(&connection, &mailbox, context)
+            .await
+    }
+
+    fn workspace_read_context(
+        &self,
+        mailbox: &WorkspaceMailbox,
+        connection: &Connection,
+        agent: Option<AgentId>,
+    ) -> crate::MailReadContext {
+        crate::MailReadContext {
             intake: self.intake.clone(),
-            workspace: workspace.clone(),
+            workspace: mailbox.workspace_id.clone(),
             address: mailbox.address.clone(),
             agent,
             authserv_ids: crate::authserv_ids(&connection.provider)
                 .iter()
                 .map(|s| s.to_string())
                 .collect(),
-        };
-        let credential = MailboxCredential::new(mailbox.address, password, imap, smtp);
-        Ok(Box::new(ImapWorkspaceMailStore::new(
-            self.transport.login(&credential).await?,
-            context,
-        )))
+        }
     }
 }
