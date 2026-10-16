@@ -23027,6 +23027,33 @@
           }
         }
       },
+      "SpamVerdictDto": {
+        "type": "object",
+        "required": [
+          "score",
+          "action",
+          "reasons",
+          "source"
+        ],
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "score": {
+            "type": "number",
+            "format": "double"
+          },
+          "source": {
+            "type": "string"
+          }
+        }
+      },
       "StartConversationRequest": {
         "type": "object",
         "required": [
@@ -24873,7 +24900,9 @@
           "date",
           "seen",
           "flagged",
-          "labels"
+          "labels",
+          "spam_verdict",
+          "trust_tier"
         ],
         "properties": {
           "date": {
@@ -24901,6 +24930,9 @@
           "snippet": {
             "type": "string"
           },
+          "spam_verdict": {
+            "$ref": "#/components/schemas/SpamVerdictDto"
+          },
           "subject": {
             "type": "string"
           },
@@ -24912,6 +24944,9 @@
             "items": {
               "type": "string"
             }
+          },
+          "trust_tier": {
+            "type": "string"
           }
         }
       },
@@ -24932,6 +24967,7 @@
       "WorkspaceMailboxDto": {
         "type": "object",
         "required": [
+          "spam_mode",
           "workspace_id",
           "connection_id",
           "address",
@@ -24947,6 +24983,9 @@
           "created_at": {
             "type": "integer",
             "format": "int64"
+          },
+          "spam_mode": {
+            "type": "string"
           },
           "workspace_id": {
             "type": "string"

@@ -249,6 +249,7 @@ impl FakeDatabase {
     }
     pub fn stores(&self) -> Stores {
         Stores {
+            mail_assessments: Arc::new(FakeMailAssessmentStore(self.0.clone())),
             workspace_mailboxes: Arc::new(FakeWorkspaceMailboxStore(self.0.clone())),
             agent_mailboxes: Arc::new(FakeAgentMailboxStore(self.0.clone())),
             agents: Arc::new(FakeAgentStore(self.0.clone())),
@@ -306,6 +307,7 @@ impl FakeDatabase {
 #[derive(Default)]
 struct Data {
     workspace_mail_sends: BTreeMap<WorkspaceId, (i64, u32)>,
+    mail_assessments: BTreeMap<(WorkspaceId, String, String), crate::MailAssessment>,
     workspace_mailboxes: BTreeMap<WorkspaceId, crate::WorkspaceMailbox>,
     agents: Table<AgentId, Agent>,
     model_aliases: Table<String, ModelAlias>,
@@ -426,3 +428,36 @@ fn queued_run(
 /// The in-memory Workspace Mailbox records share the Address Ledger.
 #[derive(Clone, Default)]
 pub struct FakeWorkspaceMailboxStore(Shared);
+
+#[derive(Clone, Default)]
+pub struct FakeMailAssessmentStore(Shared);
+#[async_trait::async_trait]
+impl crate::MailAssessmentStore for FakeMailAssessmentStore {
+    async fn get(
+        &self,
+        workspace: &WorkspaceId,
+        mailbox: &str,
+        message: &str,
+    ) -> Result<Option<crate::MailAssessment>, StoreError> {
+        Ok(self
+            .0
+            .lock()
+            .unwrap()
+            .mail_assessments
+            .get(&(workspace.clone(), mailbox.into(), message.into()))
+            .cloned())
+    }
+    async fn put(
+        &self,
+        workspace: &WorkspaceId,
+        mailbox: &str,
+        message: &str,
+        assessment: &crate::MailAssessment,
+    ) -> Result<(), StoreError> {
+        self.0.lock().unwrap().mail_assessments.insert(
+            (workspace.clone(), mailbox.into(), message.into()),
+            assessment.clone(),
+        );
+        Ok(())
+    }
+}

@@ -200,6 +200,7 @@ pub struct TestDaemonOptions {
     /// The mail half of a Mailbox Provider (ADR-0019): a transport
     /// that answers from memory, so no socket opens. Keep an `Arc` to
     /// refuse a login and drive a mailbox to `unavailable`.
+    pub spam_verdict_source: Arc<dyn pagis_mail::SpamVerdictSource>,
     pub mail_transport: Arc<dyn pagis_mail::MailTransport>,
     /// How the mailbox login proof waits (ADR-0019). The default gives
     /// up at once, so a test never waits three minutes.
@@ -277,6 +278,7 @@ impl Default for TestDaemonOptions {
             ])),
             text_transport: Arc::new(pagis_telephony::fake::FakeTextTransport::default()),
             mail_host: Arc::new(pagis_mail::fake::FakeMailboxHost::default()),
+            spam_verdict_source: Arc::new(pagis_mail::HostSpamVerdicts),
             mail_transport: Arc::new(pagis_mail::fake::FakeMailTransport::default()),
             mailbox_proof: pagis_mail::ProofTiming {
                 first_wait: std::time::Duration::from_millis(1),
@@ -606,6 +608,7 @@ impl TestDaemon {
                     options.text_transport,
                 ))),
                 mail_host: Some(options.mail_host),
+                spam_verdict_source: Some(options.spam_verdict_source),
                 mail_transport: Some(options.mail_transport),
                 mailbox_proof: options.mailbox_proof,
                 voice: Some(options.voice),

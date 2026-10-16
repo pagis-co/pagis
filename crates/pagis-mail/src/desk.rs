@@ -150,6 +150,7 @@ struct CheckedMailbox {
 /// Everything the desk needs. Every collaborator is a seam, so a test
 /// drives the whole lifecycle with no network.
 pub struct MailboxDeskDeps {
+    pub intake: Arc<crate::MailIntake>,
     pub workspace_mailboxes: Arc<dyn pagis_core::WorkspaceMailboxRecordStore>,
     pub mailboxes: Arc<dyn AgentMailboxStore>,
     pub connections: Arc<dyn ConnectionStore>,
@@ -167,6 +168,7 @@ pub struct MailboxDeskDeps {
 }
 
 pub struct MailboxDesk {
+    intake: Arc<crate::MailIntake>,
     workspace_mailboxes: Arc<dyn pagis_core::WorkspaceMailboxRecordStore>,
     mailboxes: Arc<dyn AgentMailboxStore>,
     connections: Arc<dyn ConnectionStore>,
@@ -186,6 +188,7 @@ pub struct MailboxDesk {
 impl MailboxDesk {
     pub fn new(deps: MailboxDeskDeps) -> Self {
         Self {
+            intake: deps.intake,
             workspace_mailboxes: deps.workspace_mailboxes,
             mailboxes: deps.mailboxes,
             connections: deps.connections,
@@ -199,6 +202,24 @@ impl MailboxDesk {
             standing_rule: deps.standing_rule,
             proof: deps.proof,
         }
+    }
+
+    pub async fn read_context(
+        &self,
+        mailbox: &AgentMailbox,
+    ) -> Result<crate::MailReadContext, MailboxError> {
+        Ok(crate::MailReadContext {
+            intake: self.intake.clone(),
+            workspace: mailbox.workspace_id.clone(),
+            address: mailbox.address.clone(),
+            agent: Some(mailbox.agent_id.clone()),
+            authserv_ids: self
+                .authserv_ids(mailbox)
+                .await?
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
+        })
     }
 
     /// The mailbox one Agent holds now, when it holds one.
@@ -991,6 +1012,7 @@ impl crate::Mailboxes for MailboxDesk {
         Ok(Box::new(crate::ImapMailbox::new(
             session,
             mailbox.cursor.clone(),
+            self.read_context(mailbox).await?,
         )))
     }
 }

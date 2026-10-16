@@ -422,3 +422,28 @@ async fn workspace_mailbox_attachments_replies_forward_move_and_labels() {
     );
     assert_eq!(response.bytes().await.unwrap(), b"invoice".as_slice());
 }
+
+#[tokio::test]
+async fn workspace_mailbox_stores_verdicts_without_moving_mail() {
+    let app = MailboxApp::with_mailbox().await;
+    assert_eq!(
+        app.get("/api/v1/workspace/mailbox").await["mailbox"]["spam_mode"],
+        "score_only"
+    );
+    app.transport.deliver_raw(b"From: sender@example.com\r\nSubject: Spam sample\r\nX-Spam-Status: Yes, score=7.2 required=5.0 tests=GTUBE autolearn=no\r\n\r\nbody");
+    let page = app.get("/api/v1/workspace/mail/messages").await;
+    let item = &page["items"][0];
+    assert_eq!(item["spam_verdict"]["score"], 7.2);
+    assert_eq!(item["spam_verdict"]["action"], "add header");
+    assert_eq!(item["spam_verdict"]["reasons"], json!(["GTUBE"]));
+    assert_eq!(item["trust_tier"], "unknown");
+    assert_eq!(app.transport.summaries("INBOX").len(), 1);
+    let id = item["id"].as_str().unwrap();
+    let message = app
+        .get(&format!(
+            "/api/v1/workspace/mail/messages/{}",
+            id.replace(":", "%3A")
+        ))
+        .await;
+    assert_eq!(message["spam_verdict"], item["spam_verdict"]);
+}

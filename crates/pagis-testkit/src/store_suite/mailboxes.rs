@@ -449,6 +449,7 @@ pub async fn workspace_mailbox_record_and_ledger(backend: &Backend) {
         workspace_id: ws.id.clone(),
         connection_id: ConnectionId::generate(),
         address: "person@example.com".into(),
+        spam_mode: pagis_core::MailScoringMode::ScoreOnly,
         outgoing_cap: 20,
         created_at: now_ms(),
     };
@@ -518,6 +519,145 @@ pub async fn workspace_mailbox_record_and_ledger(backend: &Backend) {
     ));
 }
 
+/// Verdict and Trust Tier are one record, isolated by Workspace and mailbox.
+pub async fn mail_assessment_roundtrip(backend: &Backend) {
+    let ws = backend.seeded_workspace().await;
+    let other = backend.seeded_workspace().await;
+    let store = &backend.stores().mail_assessments;
+    let assessment = pagis_core::MailAssessment {
+        verdict: pagis_core::SpamVerdict {
+            score: 7200,
+            action: pagis_core::SpamAction::AddHeader,
+            reasons: vec!["GTUBE".into()],
+            source: "mail_host".into(),
+        },
+        trust_tier: pagis_core::TrustTier::Unknown,
+    };
+    assert!(
+        store
+            .get(&ws.id, "one@example.com", "<stable@example.com>")
+            .await
+            .unwrap()
+            .is_none()
+    );
+    store
+        .put(
+            &ws.id,
+            "one@example.com",
+            "<stable@example.com>",
+            &assessment,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        store
+            .get(&ws.id, "one@example.com", "<stable@example.com>")
+            .await
+            .unwrap(),
+        Some(assessment.clone())
+    );
+    assert!(
+        store
+            .get(&other.id, "one@example.com", "<stable@example.com>")
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        store
+            .get(&ws.id, "two@example.com", "<stable@example.com>")
+            .await
+            .unwrap()
+            .is_none()
+    );
+    let changed = pagis_core::MailAssessment {
+        trust_tier: pagis_core::TrustTier::Trusted,
+        ..assessment
+    };
+    store
+        .put(&ws.id, "one@example.com", "<stable@example.com>", &changed)
+        .await
+        .unwrap();
+    assert_eq!(
+        store
+            .get(&ws.id, "one@example.com", "<stable@example.com>")
+            .await
+            .unwrap(),
+        Some(changed)
+    );
+}
+
+/// A host move and UIDVALIDITY change keep the stored Spam Verdict.
+pub async fn mail_assessment_survives_a_folder_move(backend: &Backend) {
+    use pagis_mail::fake::FakeMailTransport;
+    use pagis_mail::{
+        Endpoint, ImapWorkspaceMailStore, MailTransport, MailboxCredential, PageRequest,
+        WorkspaceMailReader, WorkspaceMailWriter,
+    };
+    use std::sync::Arc;
+    let ws = backend.seeded_workspace().await;
+    let stores = backend.stores();
+    let transport = FakeMailTransport::default();
+    let id = transport.deliver_raw(b"Message-ID: <stable@example.test>\r\nFrom: sender@example.test\r\nX-Spam-Score: 7.2\r\n\r\nbody");
+    let credential = MailboxCredential::new(
+        "person@example.com",
+        "password",
+        Endpoint::new("imap.test", 993),
+        Endpoint::new("smtp.test", 465),
+    );
+    let context = pagis_mail::MailReadContext {
+        intake: Arc::new(pagis_mail::MailIntake {
+            workspaces: stores.workspaces.clone(),
+            agents: stores.agents.clone(),
+            records: stores.mail_assessments.clone(),
+            source: Arc::new(pagis_mail::HostSpamVerdicts),
+            trust: Arc::new(pagis_mail::ListedSenders::new(
+                stores.trust_list.clone(),
+                stores.connections.clone(),
+            )),
+        }),
+        workspace: ws.id.clone(),
+        address: "person@example.com".into(),
+        agent: None,
+        authserv_ids: Vec::new(),
+    };
+    let records = context.intake.records.clone();
+    let workspace = context.workspace.clone();
+    let address = context.address.clone();
+    let mut store =
+        ImapWorkspaceMailStore::new(transport.login(&credential).await.unwrap(), context);
+    let original = store.message(&id).await.unwrap().message.summary;
+    let key = original.message_id.as_str();
+    let saved = records.get(&workspace, &address, key).await.unwrap();
+    assert_eq!(saved, original.assessment);
+    assert!(
+        records
+            .get(&workspace, &address, id.as_str())
+            .await
+            .unwrap()
+            .is_none()
+    );
+    store.create_folder("Filed").await.unwrap();
+    store.move_message(&id, "Filed").await.unwrap();
+    transport.renumber("Filed");
+    let moved = store
+        .messages("Filed", "", &PageRequest::new(None, 20))
+        .await
+        .unwrap()
+        .items
+        .remove(0)
+        .summary;
+    assert_ne!(moved.id, id);
+    assert_eq!(moved.assessment, saved);
+    assert_eq!(
+        records
+            .get(&workspace, &address, &moved.message_id)
+            .await
+            .unwrap(),
+        saved
+    );
+}
+
 /// Every body of this module. [`crate::store_suite!`] turns each one
 /// into a SQLite test and a Postgres test.
 #[macro_export]
@@ -526,6 +666,8 @@ macro_rules! store_suite_mailboxes {
         $emit!(
             mailboxes,
             workspace_mailbox_record_and_ledger,
+            mail_assessment_roundtrip,
+            mail_assessment_survives_a_folder_move,
             allow_rules_are_added_once_and_keep_their_order,
             a_deleted_mailbox_takes_no_allow_rule,
             a_mailbox_roundtrips_through_the_store,

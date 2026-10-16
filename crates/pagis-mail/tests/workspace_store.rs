@@ -113,7 +113,10 @@ async fn workspace_mail_store_fake_transport_conforms() {
         Endpoint::new("imap.test", 993),
         Endpoint::new("smtp.test", 465),
     );
-    let mut store = ImapWorkspaceMailStore::new(transport.login(&credential).await.unwrap());
+    let mut store = ImapWorkspaceMailStore::new(
+        transport.login(&credential).await.unwrap(),
+        crate::spam::context(),
+    );
     conformance(&mut store).await;
 }
 
@@ -130,7 +133,7 @@ async fn workspace_mail_store_all_mail_includes_archive_and_scopes_cursors() {
     let mut session = transport.login(&credential).await.unwrap();
     session.move_to_archive(&first).await.unwrap();
     transport.deliver("sender@example.test", "Other", "second");
-    let mut store = ImapWorkspaceMailStore::new(session);
+    let mut store = ImapWorkspaceMailStore::new(session, crate::spam::context());
     let first = store
         .messages("", "", &PageRequest::new(None, 1))
         .await
@@ -196,7 +199,10 @@ async fn workspace_mail_store_writes_and_organizes() {
         Endpoint::new("imap.test", 993),
         Endpoint::new("smtp.test", 465),
     );
-    let mut store = ImapWorkspaceMailStore::new(transport.login(&credential).await.unwrap());
+    let mut store = ImapWorkspaceMailStore::new(
+        transport.login(&credential).await.unwrap(),
+        crate::spam::context(),
+    );
     write_conformance(&mut store, credential.address(), "recipient@example.test").await;
     assert_eq!(transport.sent()[0].attachments[0].data, b"invoice");
     assert_eq!(
@@ -282,7 +288,10 @@ async fn workspace_mail_reply_all_uses_sender_to_cc_and_excludes_own_address() {
         Endpoint::new("imap.test", 993),
         Endpoint::new("smtp.test", 465),
     );
-    let mut store = ImapWorkspaceMailStore::new(transport.login(&credential).await.unwrap());
+    let mut store = ImapWorkspaceMailStore::new(
+        transport.login(&credential).await.unwrap(),
+        crate::spam::context(),
+    );
     let original = store.message(&id).await.unwrap().message;
     let reply = pagis_mail::reply_message(&original, "person@test", true);
     assert_eq!(reply.to, ["sender@test", "other@test"]);
@@ -308,7 +317,10 @@ async fn workspace_mail_store_protects_host_system_folders_and_rejects_bad_names
         Endpoint::new("imap.test", 993),
         Endpoint::new("smtp.test", 465),
     );
-    let mut store = ImapWorkspaceMailStore::new(transport.login(&credential).await.unwrap());
+    let mut store = ImapWorkspaceMailStore::new(
+        transport.login(&credential).await.unwrap(),
+        crate::spam::context(),
+    );
     assert!(store.rename_folder("Archive", "Other").await.is_err());
     assert!(store.delete_folder("Archive").await.is_err());
     for name in ["", "  ", "folder\r\nDELETE INBOX"] {
@@ -325,7 +337,10 @@ async fn a_thread_shows_mail_sent_to_the_own_address_once() {
         Endpoint::new("imap.test", 993),
         Endpoint::new("smtp.test", 465),
     );
-    let mut store = ImapWorkspaceMailStore::new(transport.login(&credential).await.unwrap());
+    let mut store = ImapWorkspaceMailStore::new(
+        transport.login(&credential).await.unwrap(),
+        crate::spam::context(),
+    );
     let sent = store
         .send(&pagis_mail::OutgoingMessage {
             to: vec![credential.address().to_string()],
@@ -352,4 +367,60 @@ async fn a_thread_shows_mail_sent_to_the_own_address_once() {
         .summary
         .thread_id;
     assert_eq!(store.thread(&thread_id).await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn junk_folder_sets_a_stored_verdict_without_a_header() {
+    let transport = FakeMailTransport::default();
+    let credential = MailboxCredential::new(
+        "person@example.com",
+        "password",
+        Endpoint::new("imap.test", 993),
+        Endpoint::new("smtp.test", 465),
+    );
+    transport.deliver("sender@test", "Junk sample", "body");
+    let mut session = transport.login(&credential).await.unwrap();
+    session.create_folder("Junk").await.unwrap();
+    session
+        .move_message(&pagis_mail::MessageId::new("INBOX:1"), "Junk")
+        .await
+        .unwrap();
+    let context = crate::spam::context();
+    let records = context.intake.records.clone();
+    let workspace = context.workspace.clone();
+    let address = context.address.clone();
+    let mut store = ImapWorkspaceMailStore::new(session, context);
+    let page = store
+        .messages("Junk", "", &PageRequest::new(None, 20))
+        .await
+        .unwrap();
+    let summary = &page.items[0].summary;
+    assert_eq!(
+        summary.assessment.as_ref().unwrap().verdict.action,
+        pagis_core::SpamAction::Junk
+    );
+    assert_eq!(
+        records
+            .get(&workspace, &address, summary.assessment_key())
+            .await
+            .unwrap(),
+        summary.assessment
+    );
+    assert!(
+        store
+            .messages("INBOX", "", &PageRequest::new(None, 20))
+            .await
+            .unwrap()
+            .items
+            .is_empty()
+    );
+    assert_eq!(
+        store
+            .messages("Junk", "", &PageRequest::new(None, 20))
+            .await
+            .unwrap()
+            .items
+            .len(),
+        1
+    );
 }

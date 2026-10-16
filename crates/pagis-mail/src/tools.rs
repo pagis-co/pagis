@@ -366,6 +366,7 @@ fn summary_json(summary: &MessageSummary) -> serde_json::Value {
         "date": summary.date,
         "subject": summary.subject,
         "snippet": summary.snippet,
+        "assessment": summary.assessment,
         "has_attachments": summary.has_attachments
     })
 }

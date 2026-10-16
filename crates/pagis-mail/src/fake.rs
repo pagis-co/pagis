@@ -436,6 +436,8 @@ impl FakeMailTransport {
                 subject: subject.clone(),
                 snippet: body.chars().take(200).collect(),
                 has_attachments: false,
+                spam_headers: Vec::new(),
+                assessment: None,
                 authentication_results: Vec::new(),
             };
             let mut headers = vec![
@@ -608,6 +610,10 @@ impl FakeMailSession {
 
 #[async_trait]
 impl MailSession for FakeMailSession {
+    async fn junk_folders(&mut self) -> Result<Vec<String>, TransportError> {
+        self.refuse()?;
+        Ok(vec!["Junk".into()])
+    }
     async fn system_folders(&mut self) -> Result<Vec<String>, TransportError> {
         self.refuse()?;
         Ok(vec!["INBOX".into(), "Sent".into(), "Archive".into()])
@@ -1045,5 +1051,43 @@ impl MailIngest for FakeMailIngest {
         self.passes.lock().unwrap().push(batch);
         self.changes.send_modify(|version| *version += 1);
         Ok(())
+    }
+}
+
+/// A test controls both the Spam Verdict and source failures.
+pub struct FakeSpamVerdicts(
+    pub std::sync::Mutex<Result<pagis_core::SpamVerdict, TransportError>>,
+    std::sync::atomic::AtomicUsize,
+);
+impl FakeSpamVerdicts {
+    pub fn calls(&self) -> usize {
+        self.1.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+impl Default for FakeSpamVerdicts {
+    fn default() -> Self {
+        Self(
+            std::sync::Mutex::new(Ok(pagis_core::SpamVerdict {
+                score: 0,
+                action: pagis_core::SpamAction::NoAction,
+                reasons: Vec::new(),
+                source: "fake".into(),
+            })),
+            std::sync::atomic::AtomicUsize::new(0),
+        )
+    }
+}
+#[async_trait]
+impl crate::SpamVerdictSource for FakeSpamVerdicts {
+    async fn verdict(
+        &self,
+        _: &MessageSummary,
+        _: bool,
+    ) -> Result<pagis_core::SpamVerdict, TransportError> {
+        self.1.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        match &*self.0.lock().unwrap() {
+            Ok(v) => Ok(v.clone()),
+            Err(e) => Err(TransportError(e.0)),
+        }
     }
 }

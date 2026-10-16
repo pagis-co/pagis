@@ -752,6 +752,7 @@ CREATE TABLE workspace_mailboxes (
     workspace_id TEXT PRIMARY KEY REFERENCES workspaces (id),
     connection_id TEXT NOT NULL,
     address TEXT NOT NULL UNIQUE,
+    spam_mode TEXT NOT NULL DEFAULT 'score_only' CHECK (spam_mode = 'score_only'),
     outgoing_cap BIGINT NOT NULL DEFAULT 20,
     sends_today BIGINT NOT NULL DEFAULT 0,
     send_day BIGINT NOT NULL DEFAULT 0,
@@ -1569,3 +1570,11 @@ CREATE TABLE calendar_events (
         OR (author_kind = 'system' AND author_person_id IS NULL AND author_agent_id IS NULL))
 );
 CREATE INDEX idx_calendar_events_start ON calendar_events(workspace_id, starts_at);
+
+CREATE TABLE mail_assessments (
+    workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    mailbox TEXT NOT NULL,
+    message_id TEXT NOT NULL,
+    assessment TEXT NOT NULL,
+    PRIMARY KEY (workspace_id, mailbox, message_id)
+);

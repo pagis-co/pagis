@@ -110,6 +110,16 @@ impl World {
             standing.clone()
         };
         let desk = Arc::new(MailboxDesk::new(MailboxDeskDeps {
+            intake: Arc::new(pagis_mail::MailIntake {
+                workspaces: stores.workspaces.clone(),
+                agents: stores.agents.clone(),
+                source: Arc::new(pagis_mail::HostSpamVerdicts),
+                records: stores.mail_assessments.clone(),
+                trust: Arc::new(pagis_mail::ListedSenders::new(
+                    stores.trust_list.clone(),
+                    stores.connections.clone(),
+                )),
+            }),
             workspace_mailboxes: stores.workspace_mailboxes.clone(),
             mailboxes: stores.agent_mailboxes.clone(),
             connections: stores.connections.clone(),

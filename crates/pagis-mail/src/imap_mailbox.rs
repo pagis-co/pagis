@@ -54,11 +54,31 @@ impl From<ImapMessageId> for MessageId {
 pub struct ImapMailbox {
     session: Box<dyn MailSession>,
     cursor: Option<Cursor>,
+    intake: crate::MailReadContext,
 }
 
 impl ImapMailbox {
-    pub fn new(session: Box<dyn MailSession>, cursor: Option<Cursor>) -> Self {
-        Self { session, cursor }
+    pub fn new(
+        session: Box<dyn MailSession>,
+        cursor: Option<Cursor>,
+        intake: crate::MailReadContext,
+    ) -> Self {
+        Self {
+            session,
+            cursor,
+            intake,
+        }
+    }
+
+    async fn assess(&mut self, summary: &mut MessageSummary) -> Result<(), TransportError> {
+        let folder = summary.id.as_str().parse::<ImapMessageId>()?.folder;
+        let in_junk = self
+            .session
+            .junk_folders()
+            .await?
+            .iter()
+            .any(|f| f.eq_ignore_ascii_case(&folder));
+        self.intake.assess(summary, in_junk).await
     }
 
     async fn select_checked(&mut self, folder: &str) -> Result<(), TransportError> {
@@ -84,7 +104,10 @@ impl Mailbox for ImapMailbox {
         let mut query = query.clone();
         query.limit =
             u32::try_from(skip.saturating_add(page.limit).saturating_add(1)).unwrap_or(u32::MAX);
-        let found = self.session.search(&query).await?;
+        let mut found = self.session.search(&query).await?;
+        for summary in &mut found {
+            self.assess(summary).await?;
+        }
         let next = (found.len() > skip.saturating_add(page.limit))
             .then(|| skip.saturating_add(page.limit).to_string());
         Ok(Page {
@@ -96,7 +119,9 @@ impl Mailbox for ImapMailbox {
     async fn message(&mut self, id: &MessageId) -> Result<Message, TransportError> {
         let imap = id.as_str().parse::<ImapMessageId>()?;
         self.select_checked(&imap.folder).await?;
-        self.session.fetch(id).await
+        let mut message = self.session.fetch(id).await?;
+        self.assess(&mut message.summary).await?;
+        Ok(message)
     }
 
     async fn thread(
@@ -107,6 +132,9 @@ impl Mailbox for ImapMailbox {
         let skip = offset(page)?;
         self.select_checked(INBOX).await?;
         let mut found = self.session.fetch_thread(id).await?;
+        for message in &mut found {
+            self.assess(&mut message.summary).await?;
+        }
         let end = found.len().saturating_sub(skip);
         let start = end.saturating_sub(page.limit);
         let next = (start > 0).then(|| skip.saturating_add(end - start).to_string());

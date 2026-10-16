@@ -27,6 +27,7 @@ function setup(mailbox: object | null = { address: 'person@example.com' }) {
     seen: false,
     labels: [],
     flagged: false,
+    spam_verdict: { score: 7.2, action: 'add header', reasons: ['GTUBE'] },
   }
   let seen = false
   const GET = vi.fn(
@@ -173,4 +174,11 @@ it('links to Settings when the Workspace has no mailbox', async () => {
     name: 'Set up your Workspace Mailbox',
   })
   expect(link.getAttribute('href')).toBe('/settings/mailbox')
+})
+
+it('shows the Spam Verdict with reasons on each message', async () => {
+  setup()
+  fireEvent.click(await allMail())
+  expect(await screen.findAllByText('Spam score 7.2 · add header')).toHaveLength(2)
+  expect(screen.getAllByText('GTUBE')).toHaveLength(2)
 })

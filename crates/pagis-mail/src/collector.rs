@@ -30,7 +30,7 @@ use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
 use crate::desk::{MailboxDesk, MailboxError};
-use crate::events::{MAIL_MESSAGE_RECEIVED, OWN_MAILBOX, SenderTrust, message_event};
+use crate::events::{MAIL_MESSAGE_RECEIVED, OWN_MAILBOX, message_event};
 use crate::proof::Backoff;
 use crate::sender::SenderEvidence;
 use crate::transport::{INBOX, MailSession, MessageSummary, TransportError, TransportErrorCode};
@@ -63,6 +63,8 @@ pub struct IngestError(pub String);
 enum PassError {
     #[error(transparent)]
     Transport(#[from] TransportError),
+    #[error("the mail assessment failed: {0}")]
+    Assessment(TransportError),
     #[error(transparent)]
     Ingest(#[from] IngestError),
     #[error(transparent)]
@@ -75,7 +77,6 @@ pub struct MailCollectorDeps {
     /// The sent-message table, which lands a reply in the Thread that
     /// sent the message it answers (ADR-0019).
     pub sent: Arc<dyn SentMailStore>,
-    pub trust: Arc<dyn SenderTrust>,
     pub ingest: Arc<dyn MailIngest>,
     /// One IDLE turn. The daemon owns the deadline (ADR-0019).
     pub idle_turn: Duration,
@@ -85,7 +86,6 @@ pub struct MailCollectorDeps {
 pub struct MailCollector {
     desk: Arc<MailboxDesk>,
     sent: Arc<dyn SentMailStore>,
-    trust: Arc<dyn SenderTrust>,
     ingest: Arc<dyn MailIngest>,
     idle_turn: Duration,
     state: Mutex<CollectorState>,
@@ -135,7 +135,6 @@ impl MailCollector {
         Self {
             desk: deps.desk,
             sent: deps.sent,
-            trust: deps.trust,
             ingest: deps.ingest,
             idle_turn: deps.idle_turn,
             state: Mutex::new(CollectorState::default()),
@@ -460,20 +459,29 @@ impl MailCollector {
         authserv_ids: &[&str],
         summary: &MessageSummary,
     ) -> Result<NormalizedEvent, PassError> {
-        let sender = SenderEvidence::of_message(summary, authserv_ids);
-        let tier = self
-            .trust
-            .tier(&mailbox.workspace_id, &mailbox.agent_id, &sender)
+        let mut summary = summary.clone();
+        self.desk
+            .read_context(mailbox)
+            .await?
+            .assess(&mut summary, false)
             .await
-            .map_err(MailboxError::from)?;
+            .map_err(PassError::Assessment)?;
+        let sender = SenderEvidence::of_message(&summary, authserv_ids);
+        let assessment = summary
+            .assessment
+            .as_ref()
+            .expect("intake stores the assessment");
+        let tier = assessment.trust_tier;
         let mut event = message_event(
             OWN_MAILBOX,
             &mailbox.address,
-            summary,
+            &summary,
             sender.verification,
             tier,
         );
-        event.landing = self.landing(mailbox, summary).await?;
+        event.metadata["spam_verdict"] =
+            serde_json::to_value(&assessment.verdict).expect("a Spam Verdict serializes");
+        event.landing = self.landing(mailbox, &summary).await?;
         Ok(event)
     }
 

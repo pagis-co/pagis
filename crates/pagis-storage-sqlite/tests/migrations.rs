@@ -38,6 +38,7 @@ const TABLES: &[&str] = &[
     "keypad_failures",
     "knowledge_generations",
     "knowledge_invalidations",
+    "mail_assessments",
     "memory_brief_cursors",
     "memory_page_index",
     "memory_page_index_heads",

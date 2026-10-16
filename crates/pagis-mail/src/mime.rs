@@ -104,6 +104,12 @@ pub fn read_mime(raw: &[u8], id: MessageId) -> Result<Message, TransportError> {
         in_reply_to,
         thread_id,
         id,
+        spam_headers: parsed
+            .headers_raw()
+            .filter(|(name, _)| crate::spam::is_spam_header(name))
+            .map(|(name, value)| (name.to_string(), value.trim().to_string()))
+            .collect(),
+        assessment: None,
         authentication_results: parsed
             .headers_raw()
             .filter(|(name, _)| name.eq_ignore_ascii_case(AUTHENTICATION_RESULTS))

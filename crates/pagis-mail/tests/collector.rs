@@ -25,10 +25,9 @@ use pagis_mail::fake::{
     FakeMailIngest, FakeMailTransport, FakeMailboxHost, FakeStandingRule, raw_message,
 };
 use pagis_mail::{
-    Endpoint, ListedSenders, MAIL_MESSAGE_RECEIVED, MailCollector, MailCollectorDeps,
-    MailMessageMatcher, MailboxCapabilities, MailboxDesk, MailboxDeskDeps, MailboxHost,
-    MailboxProvider, NewMailbox, OWN_MAILBOX, ProofTiming, TransportErrorCode,
-    host_api_key_secret_name,
+    Endpoint, MAIL_MESSAGE_RECEIVED, MailCollector, MailCollectorDeps, MailMessageMatcher,
+    MailboxCapabilities, MailboxDesk, MailboxDeskDeps, MailboxHost, MailboxProvider, NewMailbox,
+    OWN_MAILBOX, ProofTiming, TransportErrorCode, host_api_key_secret_name,
 };
 use pagis_storage_sqlite::{
     SqliteAgentMailboxStore, SqliteAgentStore, SqliteChannelStore, SqliteConnectionStore,
@@ -64,6 +63,7 @@ struct World {
     /// The Mailbox Provider is a manual host, where the user types the
     /// mailbox password.
     manual: bool,
+    verdicts: Arc<pagis_mail::fake::FakeSpamVerdicts>,
 }
 
 impl World {
@@ -130,7 +130,24 @@ impl World {
         ));
         let sent = Arc::new(SqliteSentMailStore::new(pool.clone()));
         let transport = Arc::new(transport);
+        let verdicts = Arc::new(pagis_mail::fake::FakeSpamVerdicts::default());
         let desk = Arc::new(MailboxDesk::new(MailboxDeskDeps {
+            intake: Arc::new(pagis_mail::MailIntake {
+                workspaces: Arc::new(pagis_storage_sqlite::SqliteWorkspaceStore::new(
+                    pool.clone(),
+                )),
+                agents: agents.clone(),
+                source: verdicts.clone(),
+                records: Arc::new(pagis_storage_sqlite::SqliteMailAssessmentStore::new(
+                    pool.clone(),
+                )),
+                trust: Arc::new(pagis_mail::ListedSenders::new(
+                    Arc::new(pagis_storage_sqlite::SqliteTrustListStore::new(
+                        pool.clone(),
+                    )),
+                    connections.clone(),
+                )),
+            }),
             workspace_mailboxes,
             mailboxes: Arc::clone(&mailboxes) as _,
             connections: Arc::clone(&connections) as _,
@@ -201,10 +218,6 @@ impl World {
         let collector = Arc::new(MailCollector::new(MailCollectorDeps {
             desk: Arc::clone(&desk),
             sent: Arc::clone(&sent) as _,
-            trust: Arc::new(ListedSenders::new(
-                Arc::clone(&trust_list) as _,
-                Arc::clone(&connections) as _,
-            )),
             ingest: Arc::clone(&ingest) as _,
             idle_turn: TURN,
         }));
@@ -225,6 +238,7 @@ impl World {
             thread_id: root.id,
             run_id: run.id,
             manual,
+            verdicts,
         }
     }
 
@@ -1608,4 +1622,147 @@ async fn a_server_without_idle_has_no_second_task_and_receives_mail_on_the_next_
     assert_eq!(world.ingest.events().len(), 1);
     assert_eq!(world.read(&mailbox).await.cursor.unwrap().last_uid, 1);
     assert_eq!(world.transport.open_sessions(), 0);
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn a_failed_verdict_holds_the_cursor_and_retries_on_the_next_poll(pool: SqlitePool) {
+    let world = World::with_transport(pool.clone(), FakeMailTransport::with_idle(false)).await;
+    world.provision(&world.agent_id, "ada").await;
+    world
+        .collector
+        .poll_workspace(&world.workspace_id)
+        .await
+        .unwrap();
+    let before = world
+        .desk
+        .for_agent(&world.workspace_id, &world.agent_id)
+        .await
+        .unwrap()
+        .unwrap();
+    world
+        .transport
+        .deliver("care@clinic.test", "Held mail", "body");
+    *world.verdicts.0.lock().unwrap() =
+        Err(pagis_mail::TransportError(TransportErrorCode::Unauthorized));
+    world
+        .collector
+        .poll_workspace(&world.workspace_id)
+        .await
+        .unwrap();
+    assert!(world.ingest.events().is_empty());
+    let held = world
+        .desk
+        .for_agent(&world.workspace_id, &world.agent_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(held.cursor, before.cursor);
+    assert_eq!(held.state, AgentMailboxState::Active);
+    *world.verdicts.0.lock().unwrap() = Ok(pagis_core::SpamVerdict {
+        score: 7200,
+        action: pagis_core::SpamAction::AddHeader,
+        reasons: vec!["GTUBE".into()],
+        source: "fake".into(),
+    });
+    world
+        .collector
+        .poll_workspace(&world.workspace_id)
+        .await
+        .unwrap();
+    let events = world.ingest.events();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].metadata["spam_verdict"]["score"], 7200);
+    assert_eq!(events[0].metadata["trust_tier"], "unknown");
+    use pagis_core::MailAssessmentStore;
+    let saved = pagis_storage_sqlite::SqliteMailAssessmentStore::new(pool)
+        .get(
+            &world.workspace_id,
+            &before.address,
+            world.transport.summaries("INBOX")[0].assessment_key(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(saved.verdict.score, 7200);
+    assert_eq!(saved.trust_tier, TrustTier::Unknown);
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn workspace_mail_uses_the_current_active_chief_of_staff_trust_list(pool: SqlitePool) {
+    let world = World::new(pool.clone()).await;
+    world
+        .list_for(
+            Some(&world.agent_id),
+            "care@clinic.test",
+            TrustTier::Trusted,
+        )
+        .await;
+    world
+        .list_for(
+            Some(&world.other_agent_id),
+            "care@clinic.test",
+            TrustTier::Owner,
+        )
+        .await;
+    world
+        .desk
+        .provision_workspace(
+            &world.workspace_id,
+            NewMailbox {
+                connection_id: world.connection_id.clone(),
+                local_part: "workspace".into(),
+                outgoing_cap: None,
+                password: None,
+            },
+        )
+        .await
+        .unwrap();
+    let id = world.transport.deliver_raw(&raw_message(
+        "care@clinic.test",
+        "Trust",
+        &[&result("aspmx1.migadu.com", "pass", "clinic.test")],
+    ));
+    let mut store = world
+        .desk
+        .open_workspace(&world.workspace_id)
+        .await
+        .unwrap();
+    let workspaces = SqliteWorkspaceStore::new(pool.clone());
+    for (chief, expected) in [
+        (None, TrustTier::Unknown),
+        (Some(&world.agent_id), TrustTier::Trusted),
+        (Some(&world.other_agent_id), TrustTier::Owner),
+        (None, TrustTier::Unknown),
+    ] {
+        workspaces
+            .set_chief_of_staff(&world.workspace_id, chief)
+            .await
+            .unwrap();
+        let summary = store.message(&id).await.unwrap().message.summary;
+        assert_eq!(summary.assessment.unwrap().trust_tier, expected);
+    }
+    let agents = SqliteAgentStore::new(pool);
+    let mut archived = agents
+        .get(&world.workspace_id, &world.other_agent_id)
+        .await
+        .unwrap()
+        .unwrap();
+    archived.status = AgentStatus::Archived;
+    agents.update(&archived).await.unwrap();
+    workspaces
+        .set_chief_of_staff(&world.workspace_id, Some(&world.other_agent_id))
+        .await
+        .unwrap();
+    assert_eq!(
+        store
+            .message(&id)
+            .await
+            .unwrap()
+            .message
+            .summary
+            .assessment
+            .unwrap()
+            .trust_tier,
+        TrustTier::Unknown
+    );
 }

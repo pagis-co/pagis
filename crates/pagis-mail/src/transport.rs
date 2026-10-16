@@ -159,6 +159,8 @@ pub struct MessageSummary {
     /// (RFC 8601). The collector verifies the sender from them
     /// (ADR-0019); the tools never show them.
     pub authentication_results: Vec<String>,
+    pub spam_headers: Vec<(String, String)>,
+    pub assessment: Option<pagis_core::MailAssessment>,
 }
 
 /// One message with its body. HTML is converted to text, and the bytes
@@ -299,6 +301,7 @@ pub trait MailSession: Send {
     async fn create_folder(&mut self, name: &str) -> Result<(), TransportError>;
     async fn rename_folder(&mut self, name: &str, new_name: &str) -> Result<(), TransportError>;
     async fn delete_folder(&mut self, name: &str) -> Result<(), TransportError>;
+    async fn junk_folders(&mut self) -> Result<Vec<String>, TransportError>;
     async fn system_folders(&mut self) -> Result<Vec<String>, TransportError>;
     async fn move_message(&mut self, id: &MessageId, folder: &str) -> Result<(), TransportError>;
     async fn set_label(

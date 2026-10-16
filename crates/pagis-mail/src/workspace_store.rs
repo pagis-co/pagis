@@ -78,10 +78,21 @@ impl<T: WorkspaceMailReader + WorkspaceMailWriter> WorkspaceMailStore for T {}
 
 pub struct ImapWorkspaceMailStore {
     session: Box<dyn MailSession>,
+    intake: crate::MailReadContext,
 }
 impl ImapWorkspaceMailStore {
-    pub fn new(session: Box<dyn MailSession>) -> Self {
-        Self { session }
+    pub fn new(session: Box<dyn MailSession>, intake: crate::MailReadContext) -> Self {
+        Self { session, intake }
+    }
+    async fn assess(&mut self, summary: &mut MessageSummary) -> Result<(), TransportError> {
+        let folder = summary.id.as_str().parse::<ImapMessageId>()?.folder;
+        let in_junk = self
+            .session
+            .junk_folders()
+            .await?
+            .iter()
+            .any(|f| f.eq_ignore_ascii_case(&folder));
+        self.intake.assess(summary, in_junk).await
     }
     async fn mutable_folder(&mut self, name: &str) -> Result<(), TransportError> {
         valid_folder(name)?;
@@ -109,8 +120,9 @@ impl ImapWorkspaceMailStore {
     }
     async fn with_metadata(
         &mut self,
-        message: Message,
+        mut message: Message,
     ) -> Result<WorkspaceMailMessage, TransportError> {
+        self.assess(&mut message.summary).await?;
         let flags = self.session.metadata(&message.summary.id).await?;
         Ok(WorkspaceMailMessage {
             labels: flags.labels.clone(),
@@ -234,11 +246,12 @@ impl WorkspaceMailReader for ImapWorkspaceMailStore {
             let Some(folder) = folder else {
                 break;
             };
-            let summary = pending
+            let mut summary = pending
                 .get_mut(&folder)
                 .and_then(VecDeque::pop_front)
                 .ok_or_else(invalid)?;
             cursor.bounds.get_mut(&folder).ok_or_else(invalid)?.1 = uid(&summary.id);
+            self.assess(&mut summary).await?;
             let flags = self.session.metadata(&summary.id).await?;
             items.push(WorkspaceMailSummary {
                 labels: flags.labels.clone(),

@@ -13,7 +13,11 @@ async fn open(transport: &FakeMailTransport, cursor: Option<Cursor>) -> ImapMail
         Endpoint::new("imap.example.test", 993),
         Endpoint::new("smtp.example.test", 465),
     );
-    ImapMailbox::new(transport.login(&credential).await.unwrap(), cursor)
+    ImapMailbox::new(
+        transport.login(&credential).await.unwrap(),
+        cursor,
+        crate::spam::context(),
+    )
 }
 
 #[test]
