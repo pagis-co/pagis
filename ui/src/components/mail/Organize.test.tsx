@@ -202,3 +202,13 @@ it('keeps the message open when deletion fails', async () => {
   expect(await screen.findByRole('alert')).toBeTruthy()
   expect(closed).not.toHaveBeenCalled()
 })
+
+it.each(['Spam', 'Not spam'])('sends a %s correction through the verdict route', async (label) => {
+  const POST = vi.fn(async () => ({}))
+  const GET = vi.fn(async () => ({ data: { items: ['INBOX', 'Junk'] } }))
+  render(<QueryClientProvider client={new QueryClient()}><MessageControls api={{ POST, GET } as unknown as ApiClient} id="INBOX:1" labels={[]} /></QueryClientProvider>)
+  fireEvent.click(screen.getByRole('button', { name: label }))
+  await waitFor(() => expect(POST).toHaveBeenCalledWith('/api/v1/workspace/mail/messages/{message_id}/spam', {
+    params: { path: { message_id: 'INBOX:1' } }, body: { spam: label === 'Spam' },
+  }))
+})

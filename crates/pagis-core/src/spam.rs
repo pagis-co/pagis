@@ -16,6 +16,7 @@ pub enum SpamAction {
     SoftReject,
     Reject,
     Junk,
+    Quarantine,
 }
 
 impl SpamAction {
@@ -27,6 +28,7 @@ impl SpamAction {
             Self::SoftReject => "soft reject",
             Self::Reject => "reject",
             Self::Junk => "junk",
+            Self::Quarantine => "quarantine",
         }
     }
 }
@@ -134,6 +136,7 @@ impl SpamVerdict {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MailAssessment {
+    pub junk: bool,
     pub verdict: SpamVerdict,
     pub trust_tier: TrustTier,
 }

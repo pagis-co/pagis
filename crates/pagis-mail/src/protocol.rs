@@ -385,13 +385,33 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> MailSession for StandardSession<S
         self.selected = None;
         Ok(())
     }
-    async fn move_message(&mut self, id: &MessageId, folder: &str) -> Result<(), TransportError> {
+    async fn move_message(
+        &mut self,
+        id: &MessageId,
+        folder: &str,
+    ) -> Result<MessageId, TransportError> {
         let id = id.as_str().parse::<ImapMessageId>()?;
         self.ensure_selected(&id.folder).await?;
-        self.imap
+        let responses = self
+            .imap
             .command_text(&format!("UID MOVE {} {}", id.uid, quoted(folder)))
             .await?;
-        Ok(())
+        for response in responses {
+            if let Response::Status(status) = response
+                && let Some(Code::CopyUid { destination, .. }) = status.code()
+            {
+                use imap_next::imap_types::extensions::uidplus::UidElement;
+                let uid = match destination.0.as_ref() {
+                    [UidElement::Single(uid)] => Some(uid.get()),
+                    [UidElement::Range(first, last)] if first == last => Some(first.get()),
+                    _ => None,
+                };
+                if let Some(uid) = uid {
+                    return Ok(ImapMessageId::new(folder, uid).into());
+                }
+            }
+        }
+        Err(TransportError(TransportErrorCode::Unreadable))
     }
     async fn set_label(
         &mut self,
@@ -1228,7 +1248,7 @@ mod tests {
             select_turn("A5"),
             ("A6 UID STORE 9 +FLAGS (finance)\r\n".into(), "A6 OK stored\r\n".into()),
             ("A7 UID STORE 9 -FLAGS (finance)\r\n".into(), "A7 OK stored\r\n".into()),
-            ("A8 UID MOVE 9 \"Paid\"\r\n".into(), "A8 OK moved\r\n".into()),
+            ("A8 UID MOVE 9 \"Paid\"\r\n".into(), "A8 OK [COPYUID 7 9 23] moved\r\n".into()),
             ("A9 DELETE \"Paid\"\r\n".into(), "A9 OK deleted\r\n".into()),
             ("A10 LIST \"\" \"*\"\r\n".into(), "* LIST (\\Sent) \"/\" \"Sent Mail\"\r\n* LIST (\\Junk) \"/\" Spam\r\nA10 OK list\r\n".into()),
         ]);
@@ -1239,7 +1259,10 @@ mod tests {
         let id = MessageId::new("INBOX:9");
         session.set_label(&id, "finance", true).await.unwrap();
         session.set_label(&id, "finance", false).await.unwrap();
-        session.move_message(&id, "Paid").await.unwrap();
+        assert_eq!(
+            session.move_message(&id, "Paid").await.unwrap().as_str(),
+            "Paid:23"
+        );
         session.delete_folder("Paid").await.unwrap();
         assert_eq!(
             session.system_folders().await.unwrap(),

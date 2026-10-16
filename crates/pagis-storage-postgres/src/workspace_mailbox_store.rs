@@ -61,6 +61,23 @@ impl WorkspaceMailboxRecordStore for PostgresWorkspaceMailboxStore {
         sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM workspace_mail_escalations WHERE workspace_id = $1 AND message_id = $2)")
             .bind(workspace.as_str()).bind(message).fetch_one(&self.pool).await.map_err(db_err)
     }
+    async fn set_spam_mode(
+        &self,
+        workspace: &WorkspaceId,
+        mode: pagis_core::MailScoringMode,
+    ) -> Result<(), StoreError> {
+        let result =
+            sqlx::query("UPDATE workspace_mailboxes SET spam_mode = $1 WHERE workspace_id = $2")
+                .bind(mode.as_str())
+                .bind(workspace.as_str())
+                .execute(&self.pool)
+                .await
+                .map_err(db_err)?;
+        if result.rows_affected() == 0 {
+            return Err(StoreError::Conflict("mail record does not exist".into()));
+        }
+        Ok(())
+    }
     async fn reserve_send(&self, workspace: &WorkspaceId, day: i64) -> Result<bool, StoreError> {
         let result = sqlx::query("UPDATE workspace_mailboxes SET sends_today = CASE WHEN send_day = $1 THEN sends_today + 1 ELSE 1 END, send_day = $2 WHERE workspace_id = $3 AND (send_day <> $4 OR sends_today < outgoing_cap)")
             .bind(day).bind(day).bind(workspace.as_str()).bind(day).execute(&self.pool).await.map_err(db_err)?;
