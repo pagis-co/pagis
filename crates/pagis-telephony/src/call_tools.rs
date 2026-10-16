@@ -21,6 +21,15 @@ use pagis_core::{AgentId, RequestState, RunId};
 /// One tool call from inside a live call.
 #[async_trait]
 pub trait CallTools: Send + Sync {
+    async fn hand_off(
+        &self,
+        _workspace_id: &WorkspaceId,
+        _call_id: &pagis_core::CallId,
+        _run_id: &RunId,
+        _target: &AgentId,
+    ) -> Result<(RunId, crate::CallBrief), String> {
+        Err("Call hand-off is unavailable".into())
+    }
     async fn invoke(
         &self,
         workspace_id: &WorkspaceId,
@@ -33,16 +42,28 @@ pub trait CallTools: Send + Sync {
 /// The broker, as the bridge reaches it.
 pub struct BrokerCallTools {
     broker: Arc<Broker>,
+    handoffs: Arc<crate::handoff::CallHandoffs>,
 }
 
 impl BrokerCallTools {
-    pub fn new(broker: Arc<Broker>) -> Self {
-        Self { broker }
+    pub fn new(broker: Arc<Broker>, handoffs: Arc<crate::handoff::CallHandoffs>) -> Self {
+        Self { broker, handoffs }
     }
 }
 
 #[async_trait]
 impl CallTools for BrokerCallTools {
+    async fn hand_off(
+        &self,
+        workspace_id: &WorkspaceId,
+        call_id: &pagis_core::CallId,
+        run_id: &RunId,
+        target: &AgentId,
+    ) -> Result<(RunId, crate::CallBrief), String> {
+        self.handoffs
+            .prepare(workspace_id, call_id, run_id, target)
+            .await
+    }
     async fn invoke(
         &self,
         workspace_id: &WorkspaceId,

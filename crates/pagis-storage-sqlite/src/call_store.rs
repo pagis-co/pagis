@@ -125,7 +125,7 @@ impl CallStore for SqliteCallStore {
         let updated = sqlx::query(
             "UPDATE calls SET tier = ?, state = ?, outcome = ?, ended_reason = ?, \
              classification = ?, message_left = ?, transcript = ?, \
-             recording_file_id = ?, ringing_at = ?, answered_at = ?, ended_at = ? \
+             recording_file_id = ?, ringing_at = ?, answered_at = ?, ended_at = ?, agent_id = ?, run_id = ?, agent_name = ?, purpose = ?, tools = ? \
              WHERE id = ? AND workspace_id = ?",
         )
         .bind(call.tier.as_str())
@@ -139,6 +139,11 @@ impl CallStore for SqliteCallStore {
         .bind(call.ringing_at)
         .bind(call.answered_at)
         .bind(call.ended_at)
+        .bind(call.agent_id.as_str())
+        .bind(call.run_id.as_str())
+        .bind(&call.agent_name)
+        .bind(&call.purpose)
+        .bind(serde_json::to_string(&call.tools).map_err(|error| StoreError::Corrupt(error.to_string()))?)
         .bind(call.id.as_str())
         .bind(call.workspace_id.as_str())
         .execute(&self.pool)

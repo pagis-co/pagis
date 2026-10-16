@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { BookOpen, Clock3, Lock, MessageSquare, Moon, Phone } from 'lucide-react'
+import { BookOpen, Clock3, Lock, MessageSquare, Moon } from 'lucide-react'
 import type { AgentDto, ApiClient } from '../../api/client'
 import { Badge, Button, Frame, Row, Sheet } from '../../primitives'
 import { Avatar } from '../../avatars/Avatar'
@@ -8,24 +8,21 @@ import {
   useChannels,
   useComputer,
   useGrants,
-  usePhoneNumbers,
   useRecentChanges,
   useRuns,
   useUpdateAgent,
   useUpdateAppearance,
   useWorkspace,
 } from '../../queries'
-import { agentPresence, liveCallOf, usePresence } from '../../state/presence'
+import { agentPresence, usePresence } from '../../state/presence'
 import { LiveScreen } from '../LiveScreen'
 import { AgentForm } from './AgentForm'
 import { AppearanceControls } from '../../avatars/AppearanceControls'
-import { AgentPhoneNumber } from '../AgentPhoneNumber'
 import { AgentMailbox } from '../AgentMailbox'
 import { directMessageChannel } from '../AskAnAgent'
 import { NavBar } from '../phone/TopBar'
 import { activityTone, activityWord, computerStateWord } from '../stateWords'
 import { changeTimeLabel } from '../memory/pages'
-import { formatE164 } from '../../blocks/call'
 
 export function AgentProfilePhone({ api, agent }: { api: ApiClient; agent: AgentDto }) {
   const navigate = useNavigate()
@@ -33,19 +30,16 @@ export function AgentProfilePhone({ api, agent }: { api: ApiClient; agent: Agent
   const channels = useChannels(api)
   const computer = useComputer(api, agent.id)
   const grants = useGrants(api)
-  const numbers = usePhoneNumbers(api)
   const changes = useRecentChanges(api, `agent:${agent.id}`, 1)
   const runs = useRuns(api, agent.id, '', '')
   const update = useUpdateAgent(api)
   const updateAppearance = useUpdateAppearance(api)
   const presence = usePresence((state) => agentPresence(state, agent.id))
-  const call = usePresence((state) => liveCallOf(state, agent.id))
   const caption = usePresence(
     (state) => Object.values(state.runs).find((run) => run.agentId === agent.id)?.caption ?? null,
   )
   const [editing, setEditing] = useState(false)
   const [appearance, setAppearance] = useState(agent.avatar)
-  const phone = numbers.data?.items.find((row) => row.agent_id === agent.id)?.e164
   const owned = (grants.data ?? []).filter((row) => row.agent_id === agent.id)
   const accounts = owned.filter((row) => row.resource_kind === 'connection').length
   const hosts = owned.filter((row) => row.resource_kind === 'host').length
@@ -80,7 +74,6 @@ export function AgentProfilePhone({ api, agent }: { api: ApiClient; agent: Agent
           <div className="phone-badges">
             <Badge tone={activityTone(presence)}>{activityWord(presence)}</Badge>
             {workspace.data?.chief_of_staff_agent_id === agent.id && <Badge>Main sprite</Badge>}
-            {phone && <Badge>{formatE164(phone)}</Badge>}
             {agent.email_address && <Badge>{agent.email_address}</Badge>}
           </div>
         </header>
@@ -98,21 +91,7 @@ export function AgentProfilePhone({ api, agent }: { api: ApiClient; agent: Agent
               </span>
             </Row>
           </Frame>
-          {phone && (
-            <Frame>
-              <Row
-                disabled={!call}
-                onClick={() => {
-                  if (call) void navigate({ to: '/calls/$callId', params: { callId: call } })
-                }}
-              >
-                <span className="phone-profile-action">
-                  <Phone size={20} aria-hidden />
-                  Call
-                </span>
-              </Row>
-            </Frame>
-          )}
+
         </div>
         <Frame>
           <Row>
@@ -214,7 +193,6 @@ export function AgentProfilePhone({ api, agent }: { api: ApiClient; agent: Agent
               }
             }}
           />
-          <AgentPhoneNumber api={api} agent={agent} />
           <AgentMailbox api={api} agent={agent} />
         </div>
       </Sheet>

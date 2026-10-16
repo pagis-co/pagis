@@ -1,8 +1,4 @@
-//! Whether a number is on a call right now.
-//!
-//! Assign, unassign and release all refuse while a Call on the number
-//! is active (ADR-0018), and so does deleting the carrier Connection.
-//! This seam is how the refusals ask, so a test can script the answer.
+//! A Workspace Number cannot be released while a Call on it is active.
 
 use async_trait::async_trait;
 use pagis_core::PhoneNumberId;

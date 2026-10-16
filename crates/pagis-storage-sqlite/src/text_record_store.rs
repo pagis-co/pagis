@@ -12,7 +12,7 @@
 
 use async_trait::async_trait;
 use pagis_core::{
-    AgentId, ChannelId, FileId, MessageId, PhoneNumberId, RunId, StoreError, TEXT_THREAD_WINDOW_MS,
+    ChannelId, FileId, MessageId, PhoneNumberId, RunId, StoreError, TEXT_THREAD_WINDOW_MS,
     TextConversation, TextDeliveryStatus, TextDirection, TextRecord, TextRecordId, TextRecordStore,
     TrustTier, UnixMillis, WorkspaceId,
 };
@@ -31,7 +31,7 @@ impl SqliteTextRecordStore {
     }
 }
 
-const COLUMNS: &str = "id, workspace_id, agent_id, phone_number_id, counterpart_e164, direction, \
+const COLUMNS: &str = "id, workspace_id, phone_number_id, counterpart_e164, direction, \
      tier, body, segments, media_file_ids, carrier_message_id, run_id, channel_id, thread_id, \
      delivery_state, delivery_code, delivery_reason, occurred_at";
 
@@ -62,7 +62,6 @@ fn from_row(row: &sqlx::sqlite::SqliteRow) -> Result<TextRecord, StoreError> {
     Ok(TextRecord {
         id: TextRecordId::from(row.get::<String, _>("id")),
         workspace_id: WorkspaceId::from(row.get::<String, _>("workspace_id")),
-        agent_id: AgentId::from(row.get::<String, _>("agent_id")),
         phone_number_id: PhoneNumberId::from(row.get::<String, _>("phone_number_id")),
         counterpart_e164: row.get("counterpart_e164"),
         direction: parse::<TextDirection>(&row.get::<String, _>("direction"))?,
@@ -97,11 +96,10 @@ impl TextRecordStore for SqliteTextRecordStore {
     async fn insert(&self, record: &TextRecord) -> Result<(), StoreError> {
         sqlx::query(&format!(
             "INSERT INTO text_records ({COLUMNS}) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         ))
         .bind(record.id.as_str())
         .bind(record.workspace_id.as_str())
-        .bind(record.agent_id.as_str())
         .bind(record.phone_number_id.as_str())
         .bind(&record.counterpart_e164)
         .bind(record.direction.as_str())
@@ -171,7 +169,6 @@ impl TextRecordStore for SqliteTextRecordStore {
     async fn list_conversation(
         &self,
         workspace_id: &WorkspaceId,
-        agent_id: &AgentId,
         phone_number_id: &PhoneNumberId,
         counterpart_e164: &str,
         max: u32,
@@ -188,12 +185,11 @@ impl TextRecordStore for SqliteTextRecordStore {
         };
         let sql = format!(
             "SELECT {COLUMNS} FROM text_records \
-             WHERE agent_id = ? AND workspace_id = ? \
+             WHERE workspace_id = ? \
              AND phone_number_id = ? AND counterpart_e164 = ?{cursor} \
              ORDER BY occurred_at DESC, id DESC LIMIT ?"
         );
         let mut query = sqlx::query(&sql)
-            .bind(agent_id.as_str())
             .bind(workspace_id.as_str())
             .bind(phone_number_id.as_str())
             .bind(counterpart_e164);
@@ -211,7 +207,6 @@ impl TextRecordStore for SqliteTextRecordStore {
     async fn list_conversations(
         &self,
         workspace_id: &WorkspaceId,
-        agent_id: &AgentId,
         phone_number_id: &PhoneNumberId,
         max: u32,
     ) -> Result<Vec<TextConversation>, StoreError> {
@@ -224,10 +219,9 @@ impl TextRecordStore for SqliteTextRecordStore {
                             PARTITION BY counterpart_e164 ORDER BY occurred_at DESC, id DESC \
                         ) AS row_rank \
                  FROM text_records \
-                 WHERE agent_id = ? AND workspace_id = ? AND phone_number_id = ? \
+                 WHERE workspace_id = ? AND phone_number_id = ? \
              ) WHERE row_rank = 1 ORDER BY occurred_at DESC LIMIT ?",
         )
-        .bind(agent_id.as_str())
         .bind(workspace_id.as_str())
         .bind(phone_number_id.as_str())
         .bind(i64::from(max))
@@ -240,19 +234,17 @@ impl TextRecordStore for SqliteTextRecordStore {
     async fn landing_thread(
         &self,
         workspace_id: &WorkspaceId,
-        agent_id: &AgentId,
         phone_number_id: &PhoneNumberId,
         counterpart_e164: &str,
         now: UnixMillis,
     ) -> Result<Option<MessageId>, StoreError> {
         let row = sqlx::query(
             "SELECT thread_id FROM text_records \
-             WHERE agent_id = ? AND workspace_id = ? \
+             WHERE workspace_id = ? \
                AND phone_number_id = ? AND counterpart_e164 = ? \
                AND direction = 'outbound' AND thread_id IS NOT NULL AND occurred_at > ? \
              ORDER BY occurred_at DESC, id DESC LIMIT 1",
         )
-        .bind(agent_id.as_str())
         .bind(workspace_id.as_str())
         .bind(phone_number_id.as_str())
         .bind(counterpart_e164)

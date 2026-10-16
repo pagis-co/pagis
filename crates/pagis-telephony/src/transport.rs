@@ -124,7 +124,7 @@ pub enum Refusal {
     /// The dialed number is missing or is not E.164, or the
     /// installation does not hold it.
     NotFound,
-    /// No Agent holds the dialed number, or the number matches more
+    /// The Workspace has no Chief of Staff, or the number matches more
     /// than one stored record.
     Unavailable,
 }
@@ -172,7 +172,7 @@ pub trait Line: Send + Sync {
     /// binding now instead of at expiry.
     async fn unregister(&mut self) -> Result<(), TransportError>;
 
-    /// Send `INVITE` from one Agent Phone Number to one E.164 number.
+    /// Send `INVITE` from one Workspace Number to one E.164 number.
     /// Returns as soon as the offer is out; ringing, the answer and the
     /// end arrive on the leg.
     async fn dial(&mut self, from_e164: &str, to_e164: &str) -> Result<MediaLeg, TransportError>;

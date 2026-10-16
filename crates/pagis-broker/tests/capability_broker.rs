@@ -14,8 +14,8 @@ use pagis_core::{
 };
 use pagis_storage_sqlite::{
     SqliteAgentMailboxStore, SqliteAgentStore, SqliteCapabilitySnapshotStore, SqliteChannelStore,
-    SqliteConnectionStore, SqliteEventLog, SqliteGrantStore, SqlitePhoneNumberStore,
-    SqliteRequestStore, SqliteRunStore, SqliteWorkspaceStore,
+    SqliteConnectionStore, SqliteEventLog, SqliteGrantStore, SqliteRequestStore, SqliteRunStore,
+    SqliteWorkspaceStore,
 };
 use sqlx::SqlitePool;
 
@@ -249,7 +249,7 @@ async fn harness_with(
         ),
         bus,
         executor: behind,
-        phone_numbers: Arc::new(SqlitePhoneNumberStore::new(pool.clone())),
+
         mailboxes: Arc::new(SqliteAgentMailboxStore::new(pool.clone())),
         hosts: Arc::clone(&hosts) as _,
         presence: Arc::clone(&presence),
@@ -404,6 +404,7 @@ async fn snapshots_are_stable_frozen_and_sorted(pool: SqlitePool) {
             "event_subscription_create",
             "event_subscription_list",
             "event_subscription_update",
+            "call_transcript",
             "software_publish",
             "tool_search",
             "software_fork",
@@ -432,7 +433,7 @@ async fn snapshots_are_stable_frozen_and_sorted(pool: SqlitePool) {
         .await
         .unwrap();
 
-    assert_eq!(before.tools.len(), 26, "the first snapshot stays frozen");
+    assert_eq!(before.tools.len(), 27, "the first snapshot stays frozen");
     assert_eq!(after.tools.last().unwrap().name, "google__calendar_events");
 
     let third_channel = channel(&harness.workspace.id);

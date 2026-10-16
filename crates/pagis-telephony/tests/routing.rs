@@ -1,11 +1,4 @@
-//! The line of a carrier Connection routes each inbound Call by the
-//! number that was dialed (ADR-0020). Two People hold one Agent Phone
-//! Number each on one carrier Connection, and the carrier sends every
-//! `INVITE` of the account to one contact. The stored record of the
-//! dialed number names the Workspace and the Agent; the socket that took
-//! the `INVITE` names neither. A call that no Agent can take is refused
-//! before it is answered, so it opens no Run, no Call record and no
-//! bridge.
+//! Inbound Calls route by the Workspace Number to its Chief of Staff.
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -45,7 +38,7 @@ use tokio_util::sync::CancellationToken;
 
 const ALICE_LINE: &str = "+14155550123";
 const BOB_LINE: &str = "+14155550124";
-/// A number the installation holds and no Agent holds.
+/// The number of a Workspace without a Chief of Staff.
 const SPARE_LINE: &str = "+14155550125";
 /// A number the installation does not hold.
 const NOT_HELD: &str = "+14155550126";
@@ -238,6 +231,7 @@ enum Bridge {
 struct World {
     desk: NumberDesk,
     numbers: Arc<SqlitePhoneNumberStore>,
+    workspaces: SqliteWorkspaceStore,
     transport: Arc<FakeCallTransport>,
     scripted: Arc<FakeCallBridge>,
     holding: Arc<HoldingBridge>,
@@ -248,7 +242,6 @@ struct World {
     calls: Arc<SqliteCallStore>,
     bus: Arc<dyn pagis_core::EventBus>,
     org: WorkspaceId,
-    carrier: ConnectionId,
     alice: Person,
     bob: Person,
     _cancel: tokio_util::sync::DropGuard,
@@ -298,9 +291,15 @@ async fn person(
     name: &str,
 ) -> Person {
     let workspace_id = workspace(workspaces, user, name).await;
+    let agent_id = agent(agents, &workspace_id, &format!("{name}'s Agent")).await;
+    let second_agent_id = agent(agents, &workspace_id, &format!("{name}'s second Agent")).await;
+    workspaces
+        .set_chief_of_staff(&workspace_id, Some(&agent_id))
+        .await
+        .unwrap();
     Person {
-        agent_id: agent(agents, &workspace_id, &format!("{name}'s Agent")).await,
-        second_agent_id: agent(agents, &workspace_id, &format!("{name}'s second Agent")).await,
+        agent_id,
+        second_agent_id,
         workspace_id,
     }
 }
@@ -362,6 +361,8 @@ impl World {
             Arc::new(AuditEventBus::new(Arc::clone(&events) as _));
         let transport = Arc::new(FakeCallTransport::new(Arc::new(TokioClock)));
         let endpoints = Arc::new(Endpoints::new(EndpointsDeps {
+            agents: Arc::clone(&agents) as _,
+            workspaces: Arc::new(SqliteWorkspaceStore::new(pool.clone())),
             transport: Arc::clone(&transport) as _,
             numbers: Arc::clone(&numbers) as _,
             connections: Arc::clone(&connections) as _,
@@ -374,7 +375,6 @@ impl World {
             numbers: Arc::clone(&numbers) as _,
             connections: Arc::clone(&connections) as _,
             org_workspace_id: org.clone(),
-            agents: Arc::clone(&agents) as _,
             catalogs: Arc::new(NumberCatalogs::single(
                 TELNYX_PROVIDER,
                 Arc::new(FakeNumberCatalog::offering(&[
@@ -386,7 +386,6 @@ impl World {
             calls: Arc::clone(&live) as _,
             bus: Arc::clone(&bus),
             endpoints: Arc::clone(&endpoints),
-            standing_rule: Arc::new(FakeStandingCallRule::default()),
         });
 
         let cancel = CancellationToken::new();
@@ -425,6 +424,8 @@ impl World {
             closed: Mutex::new(Vec::new()),
         });
         let inbound = Arc::new(InboundCalls::new(InboundCallsDeps {
+            calls: Arc::clone(&calls) as _,
+            standing_rule: Arc::new(FakeStandingCallRule::default()),
             numbers: Arc::clone(&numbers) as _,
             agents: Arc::clone(&agents) as _,
             workspaces: Arc::new(SqliteWorkspaceStore::new(pool.clone())),
@@ -454,6 +455,7 @@ impl World {
         Self {
             desk,
             numbers,
+            workspaces,
             transport,
             scripted,
             holding,
@@ -464,20 +466,15 @@ impl World {
             calls,
             bus,
             org,
-            carrier: carrier.id,
             alice,
             bob,
             _cancel: cancel.drop_guard(),
         }
     }
 
-    /// Buy a number for a Person, and give it to the Agent when one is
-    /// named.
-    async fn buy(&self, person: &Person, e164: &str, agent_id: Option<&AgentId>) -> PhoneNumber {
-        self.desk
-            .buy(&person.workspace_id, e164, agent_id)
-            .await
-            .unwrap()
+    /// Buy the number of the Person's Workspace.
+    async fn buy(&self, person: &Person, e164: &str) -> PhoneNumber {
+        self.desk.buy(&person.workspace_id, e164).await.unwrap()
     }
 
     /// The daemon starts the carrier's line, which registers the
@@ -580,14 +577,10 @@ impl World {
 }
 
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
-async fn each_call_runs_under_the_agent_that_holds_the_dialed_number(pool: SqlitePool) {
+async fn each_call_reaches_the_chief_of_the_dialed_workspace(pool: SqlitePool) {
     let world = World::build(pool, Bridge::Scripted).await;
-    world
-        .buy(&world.alice, ALICE_LINE, Some(&world.alice.agent_id))
-        .await;
-    world
-        .buy(&world.bob, BOB_LINE, Some(&world.bob.agent_id))
-        .await;
+    world.buy(&world.alice, ALICE_LINE).await;
+    world.buy(&world.bob, BOB_LINE).await;
     world.line_up().await;
 
     assert_eq!(world.call(ALICE_LINE).await, world.ran_in(&world.alice));
@@ -608,49 +601,11 @@ async fn each_call_runs_under_the_agent_that_holds_the_dialed_number(pool: Sqlit
 }
 
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
-async fn a_call_follows_the_dialed_number_in_either_order_of_assignment(pool: SqlitePool) {
+async fn calls_route_to_each_workspace_in_either_purchase_order(pool: SqlitePool) {
     let world = World::build(pool, Bridge::Scripted).await;
-    let alices = world.buy(&world.alice, ALICE_LINE, None).await;
-    let bobs = world.buy(&world.bob, BOB_LINE, None).await;
+    world.buy(&world.bob, BOB_LINE).await;
+    world.buy(&world.alice, ALICE_LINE).await;
     world.line_up().await;
-
-    // Alice's number is assigned first.
-    world
-        .desk
-        .assign(&world.alice.workspace_id, &alices.id, &world.alice.agent_id)
-        .await
-        .unwrap();
-    world
-        .desk
-        .assign(&world.bob.workspace_id, &bobs.id, &world.bob.agent_id)
-        .await
-        .unwrap();
-    world.registered().await;
-    assert_eq!(world.call(ALICE_LINE).await, world.ran_in(&world.alice));
-    assert_eq!(world.call(BOB_LINE).await, world.ran_in(&world.bob));
-
-    // Bob's number is assigned first.
-    world
-        .desk
-        .unassign(&world.alice.workspace_id, &alices.id)
-        .await
-        .unwrap();
-    world
-        .desk
-        .unassign(&world.bob.workspace_id, &bobs.id)
-        .await
-        .unwrap();
-    world
-        .desk
-        .assign(&world.bob.workspace_id, &bobs.id, &world.bob.agent_id)
-        .await
-        .unwrap();
-    world
-        .desk
-        .assign(&world.alice.workspace_id, &alices.id, &world.alice.agent_id)
-        .await
-        .unwrap();
-    world.registered().await;
     assert_eq!(world.call(ALICE_LINE).await, world.ran_in(&world.alice));
     assert_eq!(world.call(BOB_LINE).await, world.ran_in(&world.bob));
 }
@@ -658,9 +613,7 @@ async fn a_call_follows_the_dialed_number_in_either_order_of_assignment(pool: Sq
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
 async fn a_call_to_a_number_the_installation_does_not_hold_is_refused_with_404(pool: SqlitePool) {
     let world = World::build(pool, Bridge::Scripted).await;
-    world
-        .buy(&world.alice, ALICE_LINE, Some(&world.alice.agent_id))
-        .await;
+    world.buy(&world.alice, ALICE_LINE).await;
     world.line_up().await;
 
     let party = world.ring(NOT_HELD, CALLER).await;
@@ -672,12 +625,15 @@ async fn a_call_to_a_number_the_installation_does_not_hold_is_refused_with_404(p
 }
 
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
-async fn a_call_to_a_number_no_agent_holds_is_refused_with_480(pool: SqlitePool) {
+async fn a_call_to_a_workspace_without_a_chief_is_refused_with_480(pool: SqlitePool) {
     let world = World::build(pool, Bridge::Scripted).await;
+    world.buy(&world.alice, ALICE_LINE).await;
+    world.buy(&world.bob, SPARE_LINE).await;
     world
-        .buy(&world.alice, ALICE_LINE, Some(&world.alice.agent_id))
-        .await;
-    world.buy(&world.bob, SPARE_LINE, None).await;
+        .workspaces
+        .set_chief_of_staff(&world.bob.workspace_id, None)
+        .await
+        .unwrap();
     world.line_up().await;
 
     let party = world.ring(SPARE_LINE, CALLER).await;
@@ -691,9 +647,7 @@ async fn a_call_to_a_number_no_agent_holds_is_refused_with_480(pool: SqlitePool)
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
 async fn a_call_with_no_dialed_number_is_refused_before_it_is_answered(pool: SqlitePool) {
     let world = World::build(pool, Bridge::Scripted).await;
-    world
-        .buy(&world.alice, ALICE_LINE, Some(&world.alice.agent_id))
-        .await;
+    world.buy(&world.alice, ALICE_LINE).await;
     world.line_up().await;
 
     // No number at all, and a national number that is not E.164.
@@ -711,12 +665,8 @@ async fn a_call_with_no_dialed_number_is_refused_before_it_is_answered(pool: Sql
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
 async fn a_request_uri_that_names_the_sip_username_routes_by_the_to_number(pool: SqlitePool) {
     let world = World::build(pool, Bridge::Scripted).await;
-    world
-        .buy(&world.alice, ALICE_LINE, Some(&world.alice.agent_id))
-        .await;
-    world
-        .buy(&world.bob, BOB_LINE, Some(&world.bob.agent_id))
-        .await;
+    world.buy(&world.alice, ALICE_LINE).await;
+    world.buy(&world.bob, BOB_LINE).await;
     world.line_up().await;
     let invite = rsipstack::sip::Request::try_from(format!(
         "INVITE sip:{USERNAME}@192.0.2.10:5061;transport=tls SIP/2.0\r\n\
@@ -741,12 +691,8 @@ async fn a_request_uri_that_names_the_sip_username_routes_by_the_to_number(pool:
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
 async fn the_line_routes_by_the_dialed_number_after_it_reconnects(pool: SqlitePool) {
     let world = World::build(pool, Bridge::Scripted).await;
-    let alices = world
-        .buy(&world.alice, ALICE_LINE, Some(&world.alice.agent_id))
-        .await;
-    world
-        .buy(&world.bob, BOB_LINE, Some(&world.bob.agent_id))
-        .await;
+    let alices = world.buy(&world.alice, ALICE_LINE).await;
+    world.buy(&world.bob, BOB_LINE).await;
     // A short expiry, so the line refreshes every second.
     world.transport.grant_expiry(Some(Duration::from_secs(2)));
     world.line_up().await;
@@ -778,91 +724,23 @@ async fn the_line_routes_by_the_dialed_number_after_it_reconnects(pool: SqlitePo
 }
 
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
-async fn a_number_moved_to_another_agent_reaches_the_new_holder(pool: SqlitePool) {
+async fn the_next_call_follows_the_chief_of_staff(pool: SqlitePool) {
     let world = World::build(pool, Bridge::Scripted).await;
-    let alices = world
-        .buy(&world.alice, ALICE_LINE, Some(&world.alice.agent_id))
-        .await;
-    world
-        .buy(&world.bob, BOB_LINE, Some(&world.bob.agent_id))
-        .await;
+    world.buy(&world.alice, ALICE_LINE).await;
     world.line_up().await;
-    assert_eq!(world.call(ALICE_LINE).await, world.ran_in(&world.alice));
-
+    assert_eq!(world.call(ALICE_LINE).await.agent_id, world.alice.agent_id);
     world
-        .desk
-        .unassign(&world.alice.workspace_id, &alices.id)
-        .await
-        .unwrap();
-    world
-        .desk
-        .assign(
+        .workspaces
+        .set_chief_of_staff(
             &world.alice.workspace_id,
-            &alices.id,
-            &world.alice.second_agent_id,
+            Some(&world.alice.second_agent_id),
         )
         .await
         .unwrap();
-    world.registered().await;
-
     assert_eq!(
-        world.call(ALICE_LINE).await,
-        OpenedRun {
-            workspace_id: world.alice.workspace_id.clone(),
-            agent_id: world.alice.second_agent_id.clone(),
-        }
+        world.call(ALICE_LINE).await.agent_id,
+        world.alice.second_agent_id
     );
-    assert_eq!(world.call(BOB_LINE).await, world.ran_in(&world.bob));
-}
-
-#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
-async fn assigning_a_number_leaves_the_line_and_a_new_credential_restarts_it(pool: SqlitePool) {
-    let world = World::build(pool, Bridge::Scripted).await;
-    let alices = world.buy(&world.alice, ALICE_LINE, None).await;
-    world.line_up().await;
-    let before = world.transport.calls();
-
-    world
-        .desk
-        .assign(&world.alice.workspace_id, &alices.id, &world.alice.agent_id)
-        .await
-        .unwrap();
-    world
-        .desk
-        .unassign(&world.alice.workspace_id, &alices.id)
-        .await
-        .unwrap();
-    world
-        .desk
-        .assign(&world.alice.workspace_id, &alices.id, &world.alice.agent_id)
-        .await
-        .unwrap();
-    tokio::time::sleep(Duration::from_millis(100)).await;
-
-    // The line neither registered again nor dropped its registration.
-    assert_eq!(world.transport.calls(), before);
-    assert!(world.transport.is_registered(USERNAME));
-    assert_eq!(
-        world.line_state(&world.alice, &alices).await,
-        RegistrationState::Registered
-    );
-
-    // A new SIP credential restarts the one line.
-    world.desk.sip_credential_changed(&world.carrier).await;
-    world.registered().await;
-    let after: Vec<LineCall> = world.transport.calls()[before.len()..].to_vec();
-    assert!(
-        matches!(
-            after.as_slice(),
-            [
-                LineCall::Unregister { .. },
-                LineCall::Open { .. },
-                LineCall::Register { .. },
-            ]
-        ),
-        "{after:?}"
-    );
-    assert_eq!(world.call(ALICE_LINE).await, world.ran_in(&world.alice));
 }
 
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
@@ -870,12 +748,8 @@ async fn a_second_call_to_a_number_on_a_call_is_busy_and_the_other_number_answer
     pool: SqlitePool,
 ) {
     let world = World::build(pool, Bridge::Holding).await;
-    world
-        .buy(&world.alice, ALICE_LINE, Some(&world.alice.agent_id))
-        .await;
-    world
-        .buy(&world.bob, BOB_LINE, Some(&world.bob.agent_id))
-        .await;
+    world.buy(&world.alice, ALICE_LINE).await;
+    world.buy(&world.bob, BOB_LINE).await;
     world.line_up().await;
 
     let first = world.ring(ALICE_LINE, CALLER).await;
@@ -910,12 +784,8 @@ async fn a_second_call_to_a_number_on_a_call_is_busy_and_the_other_number_answer
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
 async fn the_call_record_of_an_inbound_call_names_the_dialed_number(pool: SqlitePool) {
     let world = World::build(pool, Bridge::Realtime).await;
-    let alices = world
-        .buy(&world.alice, ALICE_LINE, Some(&world.alice.agent_id))
-        .await;
-    let bobs = world
-        .buy(&world.bob, BOB_LINE, Some(&world.bob.agent_id))
-        .await;
+    let alices = world.buy(&world.alice, ALICE_LINE).await;
+    let bobs = world.buy(&world.bob, BOB_LINE).await;
     world.line_up().await;
 
     for (person, number) in [(&world.alice, &alices), (&world.bob, &bobs)] {
@@ -950,12 +820,8 @@ async fn the_call_record_of_an_inbound_call_names_the_dialed_number(pool: Sqlite
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
 async fn each_number_on_one_line_places_its_own_outbound_call(pool: SqlitePool) {
     let world = World::build(pool, Bridge::Scripted).await;
-    let alices = world
-        .buy(&world.alice, ALICE_LINE, Some(&world.alice.agent_id))
-        .await;
-    let bobs = world
-        .buy(&world.bob, BOB_LINE, Some(&world.bob.agent_id))
-        .await;
+    let alices = world.buy(&world.alice, ALICE_LINE).await;
+    let bobs = world.buy(&world.bob, BOB_LINE).await;
     world.line_up().await;
 
     let mut placed_ids = Vec::new();
@@ -1007,7 +873,7 @@ async fn each_number_on_one_line_places_its_own_outbound_call(pool: SqlitePool) 
 }
 
 impl World {
-    /// An outbound call one Person's Agent places from its number, with
+    /// An outbound transport Call from a Workspace Number, with
     /// the Run it belongs to.
     async fn outbound(&self, person: &Person, number: &PhoneNumber) -> PlacedCall {
         let run = Run {

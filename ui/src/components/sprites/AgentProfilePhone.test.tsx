@@ -39,10 +39,6 @@ beforeEach(() => {
   }))
   vi.stubGlobal('fetch', vi.fn(async () => new Response('missing', { status: 404 })))
   responses = {
-    '/api/v1/settings/phone-numbers': {
-      items: [{ id: 'number-1', agent_id: 'agent-1', e164: '+14155550199' }],
-      carrier: null,
-    },
     '/api/v1/grants': {
       items: [
         { id: 'grant-1', agent_id: 'agent-1', resource_kind: 'connection', resource_id: 'c-1', capabilities: [] },
@@ -73,11 +69,7 @@ function mount(path: string) {
   return history
 }
 
-it('shows the phone number of the sprite in its written form', async () => {
-  mount('/sprites/agent-1')
-  expect(await screen.findByText('+1 415 555 0199')).not.toBeNull()
-  expect(screen.queryByText('+14155550199')).toBeNull()
-})
+
 
 it('sums the access and shows the latest memory change and run', async () => {
   const history = mount('/sprites/agent-1')

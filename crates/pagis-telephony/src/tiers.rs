@@ -31,7 +31,7 @@ use crate::bridge::CallLog;
 use crate::hub::MediaHub;
 use crate::keypad::{self, CHALLENGE_TIMEOUT, Entry, Keypad, MAX_ATTEMPTS, Typed};
 
-/// The tier caller ID proposes for one number on one Agent's line.
+/// The tier caller ID proposes for one Remote Party on a Call.
 /// A number on no list proposes Unknown, and it is never challenged.
 pub async fn candidate_tier(
     lists: &dyn TrustListStore,

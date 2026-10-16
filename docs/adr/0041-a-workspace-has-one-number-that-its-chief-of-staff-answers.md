@@ -4,55 +4,59 @@ Status: accepted.
 
 ## Context
 
-A caller wants to reach a Person or team. A number for each Agent makes the
-caller choose the helper before the conversation starts. A shared front
-desk answers one line and sends the caller to the right helper. A callback
-needs to reach the helper who made the call.
-
-Not built: Workspace Number. The daemon assigns each number to one Agent
-(ADR-0020). This decision supersedes the per-Agent number ownership,
-assignment, authority and routing parts of ADR-0018, ADR-0020 and ADR-0021.
-The SIP and RTP transport of ADR-0020 stays in place.
+A caller wants to reach a Person or team. A shared front desk answers one
+line and sends the caller to the right helper. This decision supersedes the
+number ownership, authority, routing and text ownership rules of ADR-0018,
+ADR-0020 and ADR-0021. The SIP and RTP transport of ADR-0020 stays in place.
 
 ## Decision
 
 ### A Workspace holds at most one Workspace Number
 
-A Workspace Number belongs to its Workspace. It is optional and is made on
-request. Private and Shared Workspaces use the same number model. The Org's
-carrier Connection serves them (ADR-0023). Text Conversations and Text
-Messages belong to the Workspace Number, not an Agent's identity.
-Not built: Workspace Number and texts through it.
+A Workspace Number belongs to its Workspace. It is optional. The Person buys
+it in Settings, sees its carrier registration and releases it there. The
+Org's carrier Connection serves every Workspace (ADR-0023). A unique index
+permits at most one active number in each Workspace. A released record stays
+for its Calls and Text Records. Number ownership has no Agent field.
 
-Per-Agent phone numbers are removed with no compatibility path, fallback,
-migration or data move. Not built: this removal. The daemon assigns each
-number to one Agent.
+Text Conversations and Text Messages belong to the Workspace Number. A Text
+Record has no Agent field. The Run names the Agent that handles the message.
 
 ### The Chief of Staff answers and can hand off a Call
 
-An inbound Call goes to the Chief of Staff. It can hand the Call to another
-Agent of the Workspace. The Chief of Staff gets the Workspace Number
-through a default Grant, not through its designation (ADR-0022).
-Not built: default number Grants, Chief of Staff routing and Call handoff.
+An inbound Call reads the Workspace's Chief of Staff designation at Call
+time (ADR-0022). A Workspace with no active Chief of Staff refuses the Call
+before answer. Its Call Brief uses that Agent's Standing Brief. A change of
+Chief of Staff changes the Agent that answers the next Call. No brief or
+rule is copied to the new Agent.
 
-### Outbound Calls need a Grant and callbacks keep their Agent
+The Chief of Staff can use `hand_off_call(agent)` during a Call with a
+confirmed Trust Tier. The target must be an active Agent of the same
+Workspace. The Call record names the new Agent and its new Run. A new model
+session uses its voice and instructions. The Remote Party keeps the same
+carrier connection. The Trust Tier stays in force.
 
-An Agent with a Grant calls out from the Workspace Number. The number alone
-gives no authority to call. A record of recent outbound Calls routes a
-callback from the Remote Party to the Agent that called. With no such
-record, the Chief of Staff answers. Not built: number Grants and callback
-routing.
+Inbound texts are stored as Text Records and wake the Chief of Staff through
+a Standing Text Rule. The sender's number supplies the Trust Tier. The words
+reach the Run inside the untrusted envelope.
+
+### Outbound Calls and texts need a Grant
+
+Not built: outbound Calls and outbound texts from the Workspace Number,
+number Grants, default number Grants and callback routing to the Agent that
+called. No Agent tool places a Call or sends a text from a number it owns.
+The designation grants no outbound authority.
 
 ### Trust remains separate from access
 
 The Trust Tier gates the Remote Party's authority (ADR-0021). The Keypad
-Code exists only in a Private Workspace (ADR-0039). A Shared Workspace has
-no Keypad Code. Number routing does not grant access or raise trust.
-Not built: these Workspace kinds and their number access rules.
+Code confirms an inbound tier above Unknown. Number routing and hand-off do
+not raise trust. Not built: Private and Shared Workspace kinds and their
+separate number access rules (ADR-0039). Shared Workspace number routes are
+not built. Number handlers use the request's tenant Workspace.
 
 ## Consequences
 
 - A caller reaches a Workspace without choosing an Agent.
-- A Grant decides which Agent can call out from the shared identity.
-- A callback can continue with the Agent who made the outbound Call.
+- The Call holder changes without a new carrier connection.
 - The carrier transport stays separate from number ownership and routing.

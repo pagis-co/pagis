@@ -76,6 +76,14 @@ pub struct CallLog {
 }
 
 impl CallLog {
+    pub fn call_id(&self) -> &CallId {
+        &self.call_id
+    }
+    pub fn set_holder(&mut self, agent_id: AgentId, run_id: RunId) {
+        self.agent_id = agent_id;
+        self.run_id = run_id;
+    }
+
     pub fn new(bus: std::sync::Arc<dyn EventBus>, call: &PlacedCall) -> Self {
         Self {
             bus,
@@ -102,6 +110,10 @@ impl CallLog {
     }
 
     /// The carrier reported the call answered.
+    pub async fn handed_off(&self) -> Result<(), StoreError> {
+        self.publish("call.handed_off", serde_json::json!({})).await
+    }
+
     pub async fn answered(&self) -> Result<(), StoreError> {
         self.publish("call.answered", serde_json::json!({})).await
     }

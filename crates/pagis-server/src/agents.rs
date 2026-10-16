@@ -29,8 +29,8 @@ pub struct AgentDto {
     /// The Agent Voice (ADR-0020): a catalogue name, or `null` for the
     /// provider's default.
     pub voice: Option<String>,
-    /// The standing brief (ADR-0020): what an inbound call to the
-    /// Agent's desk line is for, or `null` for none.
+    /// The standing brief (ADR-0020): what a Call the Agent
+    /// answers is for, or `null` for none.
     pub standing_brief: Option<String>,
     pub status: String,
     /// The address of the Agent Mailbox it holds, or `null` when it
@@ -86,7 +86,7 @@ pub struct CreateAgentRequest {
     /// declares no voice.
     #[serde(default)]
     pub voice: Option<String>,
-    /// What an inbound call to the Agent's desk line is for; absent or
+    /// What a Call the Agent answers is for; absent or
     /// empty declares none.
     #[serde(default)]
     pub standing_brief: Option<String>,
@@ -442,8 +442,6 @@ pub(crate) struct ArchiveState {
     pub credentials: Arc<dyn pagis_core::CredentialStore>,
     pub mailbox_desk: Arc<pagis_mail::MailboxDesk>,
     pub bus: Arc<dyn pagis_core::EventBus>,
-    #[cfg(feature = "native")]
-    pub numbers: Arc<pagis_telephony::NumberDesk>,
 }
 
 impl axum::extract::FromRef<Arc<AppState>> for ArchiveState {
@@ -454,8 +452,6 @@ impl axum::extract::FromRef<Arc<AppState>> for ArchiveState {
             credentials: state.credentials.clone(),
             mailbox_desk: state.mailbox_desk.clone(),
             bus: state.bus.clone(),
-            #[cfg(feature = "native")]
-            numbers: state.native.numbers.clone(),
         }
     }
 }
@@ -524,18 +520,7 @@ pub async fn archive_agent(
         .credentials
         .release_owner(&tenant.workspace_id, &agent.id)
         .await?;
-    // Archiving an Agent unassigns its number (ADR-0018). The Workspace
-    // keeps the number and keeps paying for it, and the Calls stay with
-    // the Agent that made them.
-    #[cfg(feature = "native")]
-    let unassigned = state
-        .numbers
-        .unassign_for_agent(&tenant.workspace_id, &agent.id)
-        .await
-        .map_err(crate::phone_numbers::number_error)?
-        .map(|number| number.e164);
-    #[cfg(not(feature = "native"))]
-    let unassigned: Option<String> = None;
+
     // Archiving an Agent puts its mailbox to sleep (ADR-0019). Unlike
     // the number, the mailbox stays with the Agent: the mail is kept,
     // nothing wakes and nothing sends.
@@ -556,7 +541,6 @@ pub async fn archive_agent(
             payload: serde_json::json!({
                 "name": agent.name,
                 "released_credentials": released,
-                "unassigned_e164": unassigned,
                 "dormant_mailbox": email_address,
                 "chief_of_staff_moved": chief_moved,
             }),

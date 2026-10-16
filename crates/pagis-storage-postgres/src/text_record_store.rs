@@ -12,7 +12,7 @@
 
 use async_trait::async_trait;
 use pagis_core::{
-    AgentId, ChannelId, FileId, MessageId, PhoneNumberId, RunId, StoreError, TEXT_THREAD_WINDOW_MS,
+    ChannelId, FileId, MessageId, PhoneNumberId, RunId, StoreError, TEXT_THREAD_WINDOW_MS,
     TextConversation, TextDeliveryStatus, TextDirection, TextRecord, TextRecordId, TextRecordStore,
     TrustTier, UnixMillis, WorkspaceId,
 };
@@ -31,7 +31,7 @@ impl PostgresTextRecordStore {
     }
 }
 
-const COLUMNS: &str = "id, workspace_id, agent_id, phone_number_id, counterpart_e164, direction, \
+const COLUMNS: &str = "id, workspace_id, phone_number_id, counterpart_e164, direction, \
      tier, body, segments, media_file_ids, carrier_message_id, run_id, channel_id, thread_id, \
      delivery_state, delivery_code, delivery_reason, occurred_at";
 
@@ -62,7 +62,6 @@ fn from_row(row: &sqlx::postgres::PgRow) -> Result<TextRecord, StoreError> {
     Ok(TextRecord {
         id: TextRecordId::from(row.get::<String, _>("id")),
         workspace_id: WorkspaceId::from(row.get::<String, _>("workspace_id")),
-        agent_id: AgentId::from(row.get::<String, _>("agent_id")),
         phone_number_id: PhoneNumberId::from(row.get::<String, _>("phone_number_id")),
         counterpart_e164: row.get("counterpart_e164"),
         direction: parse::<TextDirection>(&row.get::<String, _>("direction"))?,
@@ -97,12 +96,10 @@ impl TextRecordStore for PostgresTextRecordStore {
     async fn insert(&self, record: &TextRecord) -> Result<(), StoreError> {
         sqlx::query(&format!(
             "INSERT INTO text_records ({COLUMNS}) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, \
-             $18)"
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)"
         ))
         .bind(record.id.as_str())
         .bind(record.workspace_id.as_str())
-        .bind(record.agent_id.as_str())
         .bind(record.phone_number_id.as_str())
         .bind(&record.counterpart_e164)
         .bind(record.direction.as_str())
@@ -172,7 +169,6 @@ impl TextRecordStore for PostgresTextRecordStore {
     async fn list_conversation(
         &self,
         workspace_id: &WorkspaceId,
-        agent_id: &AgentId,
         phone_number_id: &PhoneNumberId,
         counterpart_e164: &str,
         max: u32,
@@ -180,23 +176,22 @@ impl TextRecordStore for PostgresTextRecordStore {
     ) -> Result<Vec<TextRecord>, StoreError> {
         // The page is keyed on the time and the id together, so two
         // texts of the same millisecond never hide each other. The
-        // cursor takes `$5`, so the page size follows it.
+        // cursor takes `$4`, so the page size follows it.
         let (cursor, page) = match before {
             Some(_) => (
                 " AND (occurred_at, id) < \
-                        (SELECT occurred_at, id FROM text_records WHERE id = $5)",
-                "$6",
+                        (SELECT occurred_at, id FROM text_records WHERE id = $4)",
+                "$5",
             ),
-            None => ("", "$5"),
+            None => ("", "$4"),
         };
         let sql = format!(
             "SELECT {COLUMNS} FROM text_records \
-             WHERE agent_id = $1 AND workspace_id = $2 \
-             AND phone_number_id = $3 AND counterpart_e164 = $4{cursor} \
+             WHERE workspace_id = $1 \
+             AND phone_number_id = $2 AND counterpart_e164 = $3{cursor} \
              ORDER BY occurred_at DESC, id DESC LIMIT {page}"
         );
         let mut query = sqlx::query(&sql)
-            .bind(agent_id.as_str())
             .bind(workspace_id.as_str())
             .bind(phone_number_id.as_str())
             .bind(counterpart_e164);
@@ -214,7 +209,6 @@ impl TextRecordStore for PostgresTextRecordStore {
     async fn list_conversations(
         &self,
         workspace_id: &WorkspaceId,
-        agent_id: &AgentId,
         phone_number_id: &PhoneNumberId,
         max: u32,
     ) -> Result<Vec<TextConversation>, StoreError> {
@@ -227,10 +221,9 @@ impl TextRecordStore for PostgresTextRecordStore {
                             PARTITION BY counterpart_e164 ORDER BY occurred_at DESC, id DESC \
                         ) AS row_rank \
                  FROM text_records \
-                 WHERE agent_id = $1 AND workspace_id = $2 AND phone_number_id = $3 \
-             ) AS newest WHERE row_rank = 1 ORDER BY occurred_at DESC LIMIT $4",
+                 WHERE workspace_id = $1 AND phone_number_id = $2 \
+             ) AS newest WHERE row_rank = 1 ORDER BY occurred_at DESC LIMIT $3",
         )
-        .bind(agent_id.as_str())
         .bind(workspace_id.as_str())
         .bind(phone_number_id.as_str())
         .bind(i64::from(max))
@@ -243,19 +236,17 @@ impl TextRecordStore for PostgresTextRecordStore {
     async fn landing_thread(
         &self,
         workspace_id: &WorkspaceId,
-        agent_id: &AgentId,
         phone_number_id: &PhoneNumberId,
         counterpart_e164: &str,
         now: UnixMillis,
     ) -> Result<Option<MessageId>, StoreError> {
         let row = sqlx::query(
             "SELECT thread_id FROM text_records \
-             WHERE agent_id = $1 AND workspace_id = $2 \
-               AND phone_number_id = $3 AND counterpart_e164 = $4 \
-               AND direction = 'outbound' AND thread_id IS NOT NULL AND occurred_at > $5 \
+             WHERE workspace_id = $1 \
+               AND phone_number_id = $2 AND counterpart_e164 = $3 \
+               AND direction = 'outbound' AND thread_id IS NOT NULL AND occurred_at > $4 \
              ORDER BY occurred_at DESC, id DESC LIMIT 1",
         )
-        .bind(agent_id.as_str())
         .bind(workspace_id.as_str())
         .bind(phone_number_id.as_str())
         .bind(counterpart_e164)

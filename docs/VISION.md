@@ -24,11 +24,13 @@ time.
 2. **A watchable desk.** Every Agent has a real computer. The person can
    watch its screen live, take control at any moment, and give control
    back. The Agent gives control to the person when it needs them.
-3. **A phone and a voice.** Each Agent can have its own number, the way an
-   employee has a desk line. Agents make and answer real calls. The person
-   can speak to Agents, and Agents can speak back.
-4. **Connect once.** The person connects an account, saves a Credential or
-   adds a number one time. Every Agent with a Grant can then use it.
+3. **A phone and a voice.** A Workspace can have one Workspace Number.
+   Its Chief of Staff answers inbound Calls and receives texts. It can
+   hand a Call to another active Agent of the Workspace. Not built:
+   outbound Calls and outbound texts from the Workspace Number.
+
+4. **Connect once.** The Person connects an account or saves a Credential
+   once. Each Agent with a Grant can use it.
 5. **A software factory.** Agents build their own tools for repeated work:
    scripts and applications for one purpose, versioned, published to the
    Software List of the Workspace, and usable, forkable and changeable by

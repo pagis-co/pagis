@@ -9,21 +9,22 @@
 //! called, which tier they reached, how the call ended, and the id of
 //! the transcript File. The Agent reads the words with a live
 //! `call_transcript`, which wraps them in the untrusted envelope with
-//! the tier, the way `phone_call` wraps an outbound transcript.
+//! the tier.
 //!
 //! The mail declaration next door is the model: one kind, one matcher,
 //! one declaration per provider that supplies it.
 
 use crate::{CapabilityManifest, IncomingEventKind};
 
-/// The namespace of the call events. It holds no tool: `phone_call`
-/// and `call_transcript` are core tools, because a core tool name
-/// carries no namespace prefix.
+/// The namespace for Call and inbound text events.
 pub const CALL_NAMESPACE: &str = "call";
 
 /// The one call Incoming Event kind: a Call the Agent answered has
 /// ended and its transcript is stored.
 pub const CALL_ENDED: &str = "call.ended";
+
+/// An inbound Text Message is stored and ready for its Standing Rule.
+pub const TEXT_MESSAGE_RECEIVED: &str = "text.message_received";
 
 /// The name of the trusted matcher that reads its typed filter.
 pub const CALL_MATCHER: &str = "call.ended";
@@ -48,7 +49,11 @@ pub fn call_manifest() -> CapabilityManifest {
         namespace: CALL_NAMESPACE.to_string(),
         source_version: env!("CARGO_PKG_VERSION").to_string(),
         tools: Vec::new(),
-        event_kinds: CARRIER_PROVIDERS.iter().copied().map(call_ended).collect(),
+        event_kinds: CARRIER_PROVIDERS
+            .iter()
+            .copied()
+            .flat_map(|provider| [call_ended(provider), text_received(provider)])
+            .collect(),
     }
 }
 
@@ -97,15 +102,38 @@ pub fn call_ended(provider: &str) -> IncomingEventKind {
             },
             "additionalProperties": false
         }),
-        // The Agent holds its own desk line as its own identity, with
-        // no Grant (ADR-0018 allows no phone Grant), so the rule keeps
-        // working when the carrier credential does not.
+        // Inbound Calls need no Grant on the Org's carrier Connection.
         required_capability: String::new(),
         matcher: CALL_MATCHER.to_string(),
         provider: provider.to_string(),
         // No Sync acquires a Call of the desk line, which is on an
         // Installation Connection, so a Forget does not apply to it
         // (ADR-0008).
+        source_resource: None,
+    }
+}
+
+fn text_received(provider: &str) -> IncomingEventKind {
+    IncomingEventKind {
+        name: TEXT_MESSAGE_RECEIVED.into(),
+        metadata_schema: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "text_record_id": {"type": "string"},
+                "from": {"type": "string"},
+                "number": {"type": "string"},
+                "trust_tier": {"type": "string", "enum": ["owner", "trusted", "unknown"]},
+                "received_at": {"type": "integer"},
+                "segments": {"type": "integer"},
+                "has_media": {"type": "boolean"}
+            },
+            "required": ["text_record_id", "from", "number", "trust_tier", "received_at", "segments", "has_media"],
+            "additionalProperties": false
+        }),
+        filter_schema: serde_json::json!({"type":"object", "properties":{}, "additionalProperties":false}),
+        required_capability: String::new(),
+        matcher: CALL_MATCHER.into(),
+        provider: provider.into(),
         source_resource: None,
     }
 }
@@ -117,12 +145,11 @@ mod tests {
     #[test]
     fn every_carrier_declares_the_same_call_event() {
         let manifest = call_manifest();
-        assert_eq!(manifest.event_kinds.len(), CARRIER_PROVIDERS.len());
+        assert_eq!(manifest.event_kinds.len(), CARRIER_PROVIDERS.len() * 2);
         for kind in &manifest.event_kinds {
-            assert_eq!(kind.name, CALL_ENDED);
+            assert!([CALL_ENDED, TEXT_MESSAGE_RECEIVED].contains(&kind.name.as_str()));
             assert_eq!(kind.matcher, CALL_MATCHER);
-            // The desk line is the Agent's own identity, so the rule
-            // needs no Grant on the carrier Connection.
+            // Inbound Calls and texts need no Grant on the carrier Connection.
             assert!(kind.required_capability.is_empty());
         }
     }
@@ -133,6 +160,25 @@ mod tests {
         // acquires a Call, so a Forget does not apply to it (ADR-0008).
         for kind in &call_manifest().event_kinds {
             assert_eq!(kind.source_resource, None);
+        }
+    }
+
+    #[test]
+    fn text_metadata_names_the_record_without_its_body() {
+        let kind = text_received(TELNYX_PROVIDER);
+        assert_eq!(kind.name, "text.message_received");
+        let properties = kind.metadata_schema["properties"].as_object().unwrap();
+        assert!(!properties.contains_key("body"));
+        for name in [
+            "text_record_id",
+            "number",
+            "from",
+            "trust_tier",
+            "received_at",
+            "segments",
+            "has_media",
+        ] {
+            assert!(properties.contains_key(name), "missing {name}");
         }
     }
 

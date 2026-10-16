@@ -1,3 +1,4 @@
+import { WorkspaceNumber } from './settings/WorkspaceNumber'
 import { useState, type ReactNode } from 'react'
 import { useLocation, useNavigate } from '@tanstack/react-router'
 import { useIsMobile } from '../primitives/useMediaQuery'
@@ -108,6 +109,7 @@ export function SettingsPanel({
       {section === 'trusted-contacts' && <TrustedContacts api={api} />}
       {section === 'models' && <ModelsSettings api={api} />}
       {section === 'usage' && <Usage api={api} />}
+      {section === 'workspace-number' && <WorkspaceNumber api={api} />}
       {section === 'retention' && <Retention api={api} />}
       {section === 'timezone' && <TimezoneSection api={api} />}
       {section === 'sound' && <SoundSection />}

@@ -467,9 +467,9 @@ async fn a_keypad_delay_enters_the_queue_and_the_settings_clear_takes_it_out() {
         .await;
     assert_eq!(status, 200, "{body}");
     let number = client
-        .post(format!("{}/api/v1/settings/phone-numbers", daemon.base_url))
+        .post(format!("{}/api/v1/workspace/number", daemon.base_url))
         .header("cookie", daemon.cookie())
-        .json(&serde_json::json!({ "e164": OWN, "agent_id": daemon.agent_id }))
+        .json(&serde_json::json!({ "e164": OWN }))
         .send()
         .await
         .expect("buy the number");

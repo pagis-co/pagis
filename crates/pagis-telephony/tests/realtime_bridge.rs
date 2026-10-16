@@ -103,11 +103,28 @@ impl EventBus for RecordingBus {
 /// it was asked.
 #[derive(Default)]
 struct RecordingTools {
+    handoff: Mutex<Option<(RunId, CallBrief)>>,
+    holders: Mutex<Vec<(AgentId, RunId)>>,
     calls: Mutex<Vec<ToolCall>>,
 }
 
 #[async_trait]
 impl CallTools for RecordingTools {
+    async fn hand_off(
+        &self,
+        _: &WorkspaceId,
+        _: &CallId,
+        _: &RunId,
+        target: &AgentId,
+    ) -> Result<(RunId, CallBrief), String> {
+        self.handoff
+            .lock()
+            .unwrap()
+            .take()
+            .filter(|(_, brief)| &brief.agent_id == target)
+            .ok_or_else(|| "target unavailable".into())
+    }
+
     async fn invoke(
         &self,
         _workspace: &WorkspaceId,
@@ -115,6 +132,10 @@ impl CallTools for RecordingTools {
         _run: &RunId,
         call: ToolCall,
     ) -> ToolResult {
+        self.holders
+            .lock()
+            .unwrap()
+            .push((_agent.clone(), _run.clone()));
         self.calls.lock().unwrap().push(call);
         ToolResult::success("done")
     }
@@ -230,7 +251,7 @@ impl Call {
         Self::start(brief, None, None).await
     }
 
-    /// A call that arrived on the Agent's line and was answered.
+    /// An inbound Call that the Agent answers.
     async fn inbound(brief: CallBrief) -> Self {
         Self::start(brief, Some(REMOTE), None).await
     }
@@ -413,7 +434,10 @@ async fn an_outbound_session_classifies_before_it_listens() {
     let updates = peer.sent_of("session.update");
     assert_eq!(updates.len(), 2, "one swap on the verdict");
     let bound = bound_tools(&updates[1]);
-    assert_eq!(bound, vec![HANG_UP, SEND_DIGITS, "memory_read"]);
+    assert_eq!(
+        bound,
+        vec![HANG_UP, SEND_DIGITS, "hand_off_call", "memory_read"]
+    );
     assert!(instructions(&updates[1]).contains("book a table for four"));
 
     call.party.hangup();
@@ -433,7 +457,7 @@ async fn an_inbound_call_skips_the_classify_phase() {
 
     assert_eq!(
         bound_tools(&first),
-        vec![HANG_UP, SEND_DIGITS, "memory_read"]
+        vec![HANG_UP, SEND_DIGITS, "hand_off_call", "memory_read"]
     );
     peer.caller_transcript("is that the vet?");
     peer.agent_transcript("no, this is Robin.");
@@ -462,7 +486,7 @@ async fn the_unknown_tier_binds_no_brief_tool_and_a_raised_tier_binds_them() {
     assert_eq!(updates.len(), 2);
     assert_eq!(
         bound_tools(&updates[1]),
-        vec![HANG_UP, SEND_DIGITS, "memory_read"]
+        vec![HANG_UP, SEND_DIGITS, "hand_off_call", "memory_read"]
     );
 
     call.party.hangup();
@@ -930,7 +954,10 @@ async fn a_carrier_without_dtmf_binds_no_send_digits() {
     drop(session);
 
     let update = sessions.peer().wait_for("session.update").await;
-    assert_eq!(bound_tools(&update), vec![HANG_UP, "memory_read"]);
+    assert_eq!(
+        bound_tools(&update),
+        vec![HANG_UP, "hand_off_call", "memory_read"]
+    );
 }
 
 #[tokio::test(start_paused = true)]
@@ -1104,7 +1131,7 @@ async fn a_late_code_raises_the_tier_of_a_live_call() {
     assert_eq!(updates.len(), 2);
     assert_eq!(
         bound_tools(&updates[1]),
-        vec![HANG_UP, SEND_DIGITS, "memory_read"]
+        vec![HANG_UP, SEND_DIGITS, "hand_off_call", "memory_read"]
     );
 
     let bus = Arc::clone(&call.bus);
@@ -1186,7 +1213,7 @@ async fn the_digits_of_the_challenge_reach_no_transcript_line() {
     let first = peer.wait_for("session.update").await;
     assert_eq!(
         bound_tools(&first),
-        vec![HANG_UP, SEND_DIGITS, "memory_read"]
+        vec![HANG_UP, SEND_DIGITS, "hand_off_call", "memory_read"]
     );
 
     let bus = Arc::clone(&call.bus);
@@ -1318,7 +1345,7 @@ async fn the_realtime_bridge_pumps_audio_and_transcripts_over_a_memory_transport
     };
     assert_eq!(
         bound_tools(&serde_json::from_str(&update).unwrap()),
-        vec![HANG_UP, SEND_DIGITS, "memory_read"]
+        vec![HANG_UP, SEND_DIGITS, "hand_off_call", "memory_read"]
     );
 
     line.party.speak(Frame::silence(Codec::Pcmu));
@@ -1398,7 +1425,10 @@ async fn frame_legs_convert_at_the_model_edge_and_have_no_send_digits_tool() {
         let report = tokio::spawn(async move { session.run(hub, &log).await });
         let peer = sessions.peer();
         let update = peer.wait_for("session.update").await;
-        assert_eq!(bound_tools(&update), vec![HANG_UP, "memory_read"]);
+        assert_eq!(
+            bound_tools(&update),
+            vec![HANG_UP, "hand_off_call", "memory_read"]
+        );
         for _ in 0..8 {
             tokio::task::yield_now().await;
         }
@@ -1422,4 +1452,48 @@ async fn frame_legs_convert_at_the_model_edge_and_have_no_send_digits_tool() {
         far.hangup();
         assert_eq!(report.await.unwrap().ended_reason, "remote_hangup");
     }
+}
+
+#[tokio::test(start_paused = true)]
+async fn hand_off_replaces_the_model_and_run_on_the_same_carrier_call() {
+    let call = Call::inbound(brief(CallDirection::Inbound, TrustTier::Trusted)).await;
+    let first = call.peer();
+    first.wait_for("session.update").await;
+    let mut next = brief(CallDirection::Inbound, TrustTier::Trusted);
+    next.agent_name = "Wren".into();
+    next.voice = Some("nova".into());
+    next.purpose = "Arrange clinic appointments.".into();
+    let target = next.agent_id.clone();
+    let run = RunId::generate();
+    *call.tools.handoff.lock().unwrap() = Some((run.clone(), next));
+    first.caller_transcript("I need an appointment.");
+    first.function_call(
+        "handoff",
+        "hand_off_call",
+        serde_json::json!({"agent":target}),
+    );
+    while call.sessions.peers().len() < 2 {
+        tokio::task::yield_now().await;
+    }
+    let second = call.sessions.peers()[1].clone();
+    let config = second.wait_for("session.update").await;
+    assert_eq!(config["session"]["audio"]["output"]["voice"], "nova");
+    assert!(instructions(&config).contains("Wren"));
+    assert!(instructions(&config).contains("Arrange clinic appointments."));
+    assert!(!matches!(
+        call.party.state(),
+        pagis_telephony::fake::PartyState::Ended(_)
+    ));
+    second.function_call("read", "memory_read", serde_json::json!({}));
+    while call.tools.holders.lock().unwrap().is_empty() {
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(
+        call.tools.holders.lock().unwrap().as_slice(),
+        &[(target, run)]
+    );
+    call.party.hangup();
+    let report = call.finished().await;
+    assert_eq!(report.tier, TrustTier::Trusted);
+    assert!(render_transcript(&report.transcript).contains("I need an appointment."));
 }

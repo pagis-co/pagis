@@ -1,11 +1,4 @@
-//! The runner of the calls the lines answer. The line routes a call by
-//! its dialed number, answers it and hands the hub over; this is what
-//! runs it. A call nobody placed has no Run and no Thread, so the
-//! runner opens a Run for the Agent that holds the number, in its
-//! Thread with the user (ADR-0022), writes the Call Brief from the
-//! standing brief, marks the number live, hands the call to the bridge
-//! and settles the transcript, the way the call tool does for an
-//! outbound call.
+//! Inbound Calls run under the Chief of Staff and can move to another Agent of the Workspace.
 
 use std::sync::Arc;
 
@@ -48,6 +41,7 @@ pub trait InboundRuns: Send + Sync {
 
 pub struct InboundCallsDeps {
     pub numbers: Arc<dyn PhoneNumberStore>,
+    pub calls: Arc<dyn pagis_core::CallStore>,
     pub agents: Arc<dyn AgentStore>,
     pub workspaces: Arc<dyn pagis_core::WorkspaceStore>,
     pub users: Arc<dyn pagis_core::UserStore>,
@@ -64,6 +58,7 @@ pub struct InboundCallsDeps {
     /// Where the `call.ended` event goes when the call settles. It is
     /// the Run that reads the call afterwards (ADR-0021).
     pub events: Arc<dyn CallEvents>,
+    pub standing_rule: Arc<dyn crate::events::StandingCallRule>,
 }
 
 pub struct InboundCalls {
@@ -122,10 +117,14 @@ impl InboundCalls {
         let number = self
             .held_number(&incoming.workspace_id, &incoming.phone_number_id)
             .await?;
-        let agent_id = number
-            .agent_id
-            .clone()
-            .ok_or_else(|| InboundError(format!("{} is held by no Agent", number.e164)))?;
+        let agent_id = self
+            .deps
+            .workspaces
+            .get(&number.workspace_id)
+            .await
+            .map_err(|error| InboundError(error.to_string()))?
+            .and_then(|workspace| workspace.chief_of_staff_agent_id)
+            .ok_or_else(|| InboundError("this Workspace has no Chief of Staff".into()))?;
         let agent = self
             .deps
             .agents
@@ -202,6 +201,29 @@ impl InboundCalls {
                 return Err(InboundError(error.0));
             }
         };
+        let (agent, run) = match self.deps.calls.get(&number.workspace_id, &call_id).await {
+            Ok(Some(call)) if call.run_id != run.id => {
+                let agent = self
+                    .deps
+                    .agents
+                    .get(&number.workspace_id, &call.agent_id)
+                    .await
+                    .map_err(|error| InboundError(error.to_string()))?
+                    .ok_or_else(|| InboundError("Call Agent not found".into()))?;
+                let run = self
+                    .deps
+                    .run_records
+                    .get(&number.workspace_id, &call.run_id)
+                    .await
+                    .map_err(|error| InboundError(error.to_string()))?
+                    .ok_or_else(|| InboundError("Call Run not found".into()))?;
+                (agent, run)
+            }
+            _ => (agent, run),
+        };
+        let mut log = log;
+        log.set_holder(agent.id.clone(), run.id.clone());
+        self.ensure_standing_rule(&number, &agent.id).await?;
         let transcript_id = store_transcript(
             self.deps.files.as_ref(),
             self.deps.blobs.as_ref(),
@@ -240,6 +262,20 @@ impl InboundCalls {
         Ok(call_id)
     }
 
+    /// The Standing Call Rule follows the settled holder, because a hand-off
+    /// moves the Call and its follow-up work to that Agent's Run.
+    async fn ensure_standing_rule(
+        &self,
+        number: &PhoneNumber,
+        agent: &AgentId,
+    ) -> Result<(), InboundError> {
+        self.deps
+            .standing_rule
+            .create(number, agent)
+            .await
+            .map_err(|error| InboundError(error.to_string()))
+    }
+
     /// Hand one finished call to the Trigger module.
     async fn report(
         &self,
@@ -254,8 +290,7 @@ impl InboundCalls {
         let batch = IngestBatch {
             workspace_id: number.workspace_id.clone(),
             source: pagis_core::EventSource::connection(number.connection_id.clone()),
-            // The desk line is one Agent's own identity, so only that
-            // Agent's rules read the call (ADR-0019).
+            // Only the settled holder's rules read this Call.
             agent_id: Some(agent_id.clone()),
             event_kind: CALL_ENDED.to_string(),
             cursor: None,
@@ -319,13 +354,7 @@ impl InboundCalls {
         })
     }
 
-    /// The number the call was dialed to, read again now. The line
-    /// answers only a number an Agent holds, so a number that no Agent
-    /// holds now was unassigned while the call rang.
-    ///
-    /// The carrier names an E.164 and no tenant. The line found the
-    /// stored record of the dialed number, and that record names the
-    /// Workspace; every read after this one uses that Workspace.
+    /// Read the active Workspace Number again before the Call runs.
     async fn held_number(
         &self,
         workspace_id: &WorkspaceId,
@@ -336,6 +365,7 @@ impl InboundCalls {
             .get(workspace_id, id)
             .await
             .map_err(|error| InboundError(error.to_string()))?
-            .ok_or_else(|| InboundError(format!("{id} is not a number of this Workspace")))
+            .filter(|number| number.status == pagis_core::PhoneNumberStatus::Active)
+            .ok_or_else(|| InboundError(format!("{id} is not an active Workspace Number")))
     }
 }

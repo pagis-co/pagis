@@ -1120,38 +1120,14 @@ pub const ROUTES: &[Route] = &[
         part: Some("Hosts"),
     },
     Route {
-        path: "/api/v1/settings/phone-numbers",
-        methods: &["get", "post"],
-        authenticated: true,
-        part: Some("Calls"),
-    },
-    Route {
-        path: "/api/v1/settings/phone-numbers/adopt",
-        methods: &["post"],
+        path: "/api/v1/workspace/number",
+        methods: &["get", "post", "delete"],
         authenticated: true,
         part: Some("Calls"),
     },
     Route {
         path: "/api/v1/settings/phone-numbers/available",
         methods: &["get"],
-        authenticated: true,
-        part: Some("Calls"),
-    },
-    Route {
-        path: "/api/v1/settings/phone-numbers/{phone_number_id}/assign",
-        methods: &["post"],
-        authenticated: true,
-        part: Some("Calls"),
-    },
-    Route {
-        path: "/api/v1/settings/phone-numbers/{phone_number_id}/unassign",
-        methods: &["post"],
-        authenticated: true,
-        part: Some("Calls"),
-    },
-    Route {
-        path: "/api/v1/settings/phone-numbers/{phone_number_id}/release",
-        methods: &["post"],
         authenticated: true,
         part: Some("Calls"),
     },
@@ -1681,9 +1657,10 @@ mod tests {
             .filter(|route| {
                 route.path.starts_with("/api/v1/calls")
                     || route.path.starts_with("/api/v1/settings/phone-numbers")
+                    || route.path == "/api/v1/workspace/number"
             })
             .collect();
-        assert_eq!(routes.len(), 13);
+        assert_eq!(routes.len(), 9);
         for route in routes {
             assert_eq!(route.part, Some("Calls"), "{}", route.path);
             let path = route

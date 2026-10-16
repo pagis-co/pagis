@@ -82,9 +82,7 @@ function stubApi() {
           },
         }
       }
-      if (path === '/api/v1/settings/phone-numbers') {
-        return { data: { items: [{ agent_id: 'ag1', e164: '+14085550142' }] } }
-      }
+
       if (path === '/api/v1/memory/feed') {
         return {
           data: {
@@ -140,13 +138,12 @@ describe('the Memory tab of an agent profile', () => {
     expect(handlers.onOpenMemory).toHaveBeenLastCalledWith({ scope: 'shared', view: 'pages' })
   })
 
-  it('names the connections it is responsible for, its desk line and its conversations', async () => {
+  it('names the connections it is responsible for, its conversations', async () => {
     const api = stubApi()
     const handlers = mount(api)
 
     expect(await screen.findByText('Google · personal')).toBeTruthy()
     expect(screen.getByText('Responsible sprite · up to date · 4 rules')).toBeTruthy()
-    expect(await screen.findByText('Desk line +1 408 555 0142')).toBeTruthy()
     expect(screen.getByText('Its conversations')).toBeTruthy()
     expect(api.GET).toHaveBeenCalledWith('/api/v1/agents/{agent_id}/sync-connections', {
       params: { path: { agent_id: 'ag1' } },

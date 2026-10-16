@@ -157,6 +157,7 @@ pub struct AppOptions {
     /// What executes one call (ADR-0020); `None` builds the
     /// realtime bridge over the Provider Keys. Tests inject the
     /// scripted fake.
+    pub model_sessions: Option<Arc<dyn pagis_telephony::ModelSessions>>,
     pub call_bridge: Option<Arc<dyn pagis_telephony::CallBridge>>,
     /// The media hubs of the calls that run right now; `None` builds a
     /// fresh registry. Tests keep an `Arc` so they can make a call
@@ -262,6 +263,7 @@ impl AppOptions {
             mailbox_proof: pagis_mail::ProofTiming::default(),
             voice: None,
             call_transport: None,
+            model_sessions: None,
             call_bridge: None,
             live_calls: None,
             live_tiers: None,
@@ -843,6 +845,8 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     };
     let endpoints = Arc::new(pagis_telephony::Endpoints::new(
         pagis_telephony::EndpointsDeps {
+            workspaces: Arc::clone(&workspaces) as _,
+            agents: Arc::clone(&agent_store) as _,
             transport: Arc::clone(&call_transport),
             numbers: Arc::clone(&phone_numbers) as _,
             connections: Arc::clone(&connections) as _,
@@ -866,14 +870,12 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
             numbers: Arc::clone(&phone_numbers) as _,
             connections: Arc::clone(&connections) as _,
             org_workspace_id: org_workspace_id.clone(),
-            agents: Arc::clone(&agent_store) as _,
             catalogs: number_catalogs,
             text_transports: Arc::clone(&text_transports),
             secrets: Arc::clone(&options.secrets),
             calls: Arc::clone(&live_calls) as _,
             bus: Arc::clone(&bus),
             endpoints: Arc::clone(&endpoints),
-            standing_rule: Arc::clone(&standing_call_rule) as _,
         },
     ));
     // A purchase that outlived the daemon is settled against the
@@ -957,13 +959,33 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
                 Arc::clone(&model_routes),
             )) as _,
         )),
-        phone_numbers: Arc::clone(&phone_numbers) as _,
+
         mailboxes: Arc::clone(&mailbox_store) as _,
         hosts: stores.hosts.clone(),
         presence: Arc::clone(&host_presence),
         session_starts: Arc::clone(&session_starts) as _,
         computer: options.agents.computer,
     }));
+    let inbound_runs: Arc<dyn pagis_telephony::InboundRuns> =
+        Arc::new(crate::tools::BrokerInboundRuns {
+            runs: Arc::clone(&runs) as _,
+            channels: Arc::clone(&channels) as _,
+            broker: Arc::clone(&broker),
+            bus: Arc::clone(&bus),
+            clock: Arc::clone(&options.clock),
+        });
+    let handoffs = Arc::new(pagis_telephony::handoff::CallHandoffs {
+        messages: Arc::clone(&messages) as _,
+        run_records: Arc::clone(&runs) as _,
+        bus: Arc::clone(&bus),
+        agents: Arc::clone(&agent_store) as _,
+        workspaces: Arc::clone(&workspaces) as _,
+        users: Arc::clone(&stores.users) as _,
+        numbers: Arc::clone(&phone_numbers) as _,
+        calls: Arc::clone(&calls) as _,
+        runs: Arc::clone(&inbound_runs),
+        run_tools: Arc::new(crate::tools::BrokerRunTools(Arc::clone(&broker))),
+    });
     // The realtime bridge: the model session, the SIP leg
     // and the recording of one call. A test injects a scripted bridge
     // instead; the daemon builds this one.
@@ -975,11 +997,16 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
             let bridge = Arc::new(pagis_telephony::RealtimeBridge::new(
                 pagis_telephony::RealtimeBridgeDeps {
                     endpoints: Arc::clone(&endpoints),
-                    sessions: Arc::new(pagis_telephony::KeyedModelSessions::new(
-                        Arc::clone(&keys),
-                        Arc::clone(&model_aliases) as _,
+                    sessions: options.model_sessions.unwrap_or_else(|| {
+                        Arc::new(pagis_telephony::KeyedModelSessions::new(
+                            Arc::clone(&keys),
+                            Arc::clone(&model_aliases) as _,
+                        ))
+                    }),
+                    tools: Arc::new(pagis_telephony::BrokerCallTools::new(
+                        Arc::clone(&broker),
+                        handoffs,
                     )),
-                    tools: Arc::new(pagis_telephony::BrokerCallTools::new(Arc::clone(&broker))),
                     calls: Arc::clone(&calls) as _,
                     files: Arc::clone(&files) as _,
                     blobs: Arc::clone(&blobs),
@@ -1008,21 +1035,9 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     };
     phone_tools.set(Arc::new(pagis_telephony::PhoneToolRuntime::new(
         pagis_telephony::PhoneToolDeps {
-            desk: Arc::clone(&numbers),
-            agents: Arc::clone(&agent_store) as _,
-            workspaces: Arc::clone(&workspaces) as _,
-            users: Arc::clone(&stores.users) as _,
-            runs: Arc::new(crate::tools::BrokerRunTools(Arc::clone(&broker))),
-            run_records: Arc::clone(&runs) as _,
-            messages: Arc::clone(&messages) as _,
             calls: Arc::clone(&calls) as _,
-            tiers: Arc::clone(&trust_list) as _,
-            transport: Arc::clone(&call_transport),
-            bridge: Arc::clone(&call_bridge),
-            live: Arc::clone(&live_calls),
-            files: Arc::clone(&files) as _,
             blobs: Arc::clone(&blobs),
-            bus: Arc::clone(&bus),
+            files: Arc::clone(&files) as _,
         },
     )));
     // The calls the carrier's line answers: each runs under the
@@ -1032,17 +1047,13 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     // runner serves the numbers of every person.
     let inbound_calls = Arc::new(pagis_telephony::InboundCalls::new(
         pagis_telephony::InboundCallsDeps {
+            standing_rule: Arc::clone(&standing_call_rule) as _,
             numbers: Arc::clone(&phone_numbers) as _,
             agents: Arc::clone(&agent_store) as _,
             workspaces: Arc::clone(&workspaces) as _,
             users: Arc::clone(&stores.users) as _,
-            runs: Arc::new(crate::tools::BrokerInboundRuns {
-                runs: Arc::clone(&runs) as _,
-                channels: Arc::clone(&channels) as _,
-                broker: Arc::clone(&broker),
-                bus: Arc::clone(&bus),
-                clock: Arc::clone(&options.clock),
-            }),
+            runs: inbound_runs,
+            calls: Arc::clone(&calls) as _,
             run_tools: Arc::new(crate::tools::BrokerRunTools(Arc::clone(&broker))),
             run_records: Arc::clone(&runs) as _,
             messages: Arc::clone(&messages) as _,
@@ -1260,6 +1271,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         agents: Arc::clone(&agent_store) as _,
         channels: Arc::clone(&channels) as _,
         messages: Arc::clone(&messages) as _,
+        text_records: stores.text_records.clone(),
         runs: Arc::clone(&runs) as _,
         model_aliases: Arc::clone(&model_aliases) as _,
         usage: stores.usage.clone(),
@@ -1404,6 +1416,23 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
             idle_turn: pagis_mail::MAX_IDLE_TURN,
         },
     ));
+    Arc::new(pagis_telephony::text::TextCollector {
+        numbers: Arc::clone(&phone_numbers) as _,
+        workspaces: Arc::clone(&workspaces) as _,
+        agents: Arc::clone(&agent_store) as _,
+        connections: Arc::clone(&connections) as _,
+        org_workspace_id: org_workspace_id.clone(),
+        secrets: Arc::clone(&options.secrets),
+        transports: Arc::clone(&text_transports),
+        records: Arc::clone(&texts) as _,
+        trust: Arc::clone(&trust_list) as _,
+        events: Arc::new(crate::text_events::IncomingTexts {
+            trigger: Arc::clone(&trigger),
+            channels: Arc::clone(&channels) as _,
+        }),
+    })
+    .spawn(options.cancel.clone());
+
     Arc::new(crate::sweeps::Sweeps {
         workspaces: Arc::clone(&workspaces) as _,
         bus: Arc::clone(&bus),
@@ -1705,7 +1734,7 @@ fn spawn_carrier_start(
         let started = cancel.run_until_cancelled(async move {
             numbers.start_carrier().await?;
             for workspace in workspaces.list().await? {
-                numbers.prepare_assigned_texting(&workspace.id).await?;
+                numbers.prepare_texting_for_workspace(&workspace.id).await?;
             }
             Ok::<(), anyhow::Error>(())
         });

@@ -126,8 +126,8 @@ impl CallStore for PostgresCallStore {
         let updated = sqlx::query(
             "UPDATE calls SET tier = $1, state = $2, outcome = $3, ended_reason = $4, \
              classification = $5, message_left = $6, transcript = $7, \
-             recording_file_id = $8, ringing_at = $9, answered_at = $10, ended_at = $11 \
-             WHERE id = $12 AND workspace_id = $13",
+             recording_file_id = $8, ringing_at = $9, answered_at = $10, ended_at = $11, agent_id = $12, run_id = $13, agent_name = $14, purpose = $15, tools = $16 \
+             WHERE id = $17 AND workspace_id = $18",
         )
         .bind(call.tier.as_str())
         .bind(call.state.as_str())
@@ -140,6 +140,11 @@ impl CallStore for PostgresCallStore {
         .bind(call.ringing_at)
         .bind(call.answered_at)
         .bind(call.ended_at)
+        .bind(call.agent_id.as_str())
+        .bind(call.run_id.as_str())
+        .bind(&call.agent_name)
+        .bind(&call.purpose)
+        .bind(serde_json::to_string(&call.tools).map_err(|error| StoreError::Corrupt(error.to_string()))?)
         .bind(call.id.as_str())
         .bind(call.workspace_id.as_str())
         .execute(&self.pool)

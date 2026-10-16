@@ -71,7 +71,6 @@ function stubApi(
   post: (path: string) => Promise<PostResult> = async () => ({ data: connected() }),
   agents: unknown[] = [],
   grants: unknown[] = [],
-  numbers: unknown[] = [],
 ) {
   return {
     GET: vi.fn(async (path: string): Promise<{ data: unknown }> => ({
@@ -83,9 +82,7 @@ function stubApi(
               ? PROVIDERS
               : path === '/api/v1/agents'
                 ? agents
-                : path === '/api/v1/settings/phone-numbers'
-                  ? numbers
-                  : grants,
+                : grants,
         carrier: null,
       },
     })),
@@ -351,78 +348,7 @@ describe('Connections', () => {
     expect(screen.queryByTestId('carrier-absent-capabilities')).toBeNull()
   })
 
-  // The carrier card lists the workspace's numbers, so a spare
-  // one has a home besides every Agent's page.
-  it("lists the carrier's numbers with their holder and releases a spare one", async () => {
-    const carrier = connected({
-      id: 'conn-2',
-      provider: 'telnyx',
-      alias: 'carrier',
-      display_name: 'Telnyx',
-      account: null,
-      authorized_capabilities: [],
-    })
-    const api = stubApi(
-      [carrier],
-      async () => ({ data: connected() }),
-      [{ id: 'ag1', name: 'Robin', status: 'active' }],
-      [],
-      [
-        { id: 'pn1', e164: '+14155550123', status: 'assigned', agent_id: 'ag1' },
-        { id: 'pn2', e164: '+14155550124', status: 'unassigned', agent_id: null },
-        { id: 'pn3', e164: '+14155550125', status: 'released', agent_id: null },
-      ],
-    )
-    mount(api)
 
-    expect(await screen.findByText('+1 415 555 0123')).toBeTruthy()
-    expect(screen.getByText('Held by Robin')).toBeTruthy()
-    expect(screen.getByText('+1 415 555 0124')).toBeTruthy()
-    expect(screen.getByText('Unassigned')).toBeTruthy()
-    // A released number went back to the carrier and is not listed.
-    expect(screen.queryByText('+1 415 555 0125')).toBeNull()
-    // Only a spare number can be released here; a held one is released
-    // from its Agent's page, which names the Agent that loses the line.
-    expect(screen.queryByLabelText('Release +14155550123')).toBeNull()
-
-    fireEvent.click(screen.getByLabelText('Release +14155550124'))
-    fireEvent.click(await screen.findByText('Release it'))
-
-    await waitFor(() =>
-      expect(api.POST).toHaveBeenCalledWith(
-        '/api/v1/settings/phone-numbers/{phone_number_id}/release',
-        { params: { path: { phone_number_id: 'pn2' } } },
-      ),
-    )
-  })
-
-  it('adopts a number the account already holds from the carrier card', async () => {
-    const api = stubApi([
-      connected({
-        id: 'conn-2',
-        provider: 'telnyx',
-        alias: 'carrier',
-        display_name: 'Telnyx',
-        account: null,
-        authorized_capabilities: [],
-      }),
-    ])
-    mount(api)
-
-    expect(await screen.findByText('No numbers yet.')).toBeTruthy()
-    fireEvent.click(screen.getByText('Add a number you own'))
-    fireEvent.change(screen.getByLabelText('Phone number'), {
-      target: { value: '+14155550199' },
-    })
-    fireEvent.click(screen.getByText('Add number'))
-
-    await waitFor(() =>
-      expect(api.POST).toHaveBeenCalledWith(
-        '/api/v1/settings/phone-numbers/adopt',
-        { body: { e164: '+14155550199', agent_id: undefined } },
-      ),
-    )
-  })
 })
 
 // The Mailbox Provider Connections (ADR-0019): the mail domain is the

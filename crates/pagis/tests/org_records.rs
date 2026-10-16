@@ -270,7 +270,7 @@ async fn a_member_uses_the_org_records(installation: Installation) {
     // The Member's page names the Org's carrier and mail domain, and
     // says that neither is the Member's to change.
     let (status, numbers) = installation
-        .get_as(&member, "/api/v1/settings/phone-numbers")
+        .get_as(&member, "/api/v1/workspace/number")
         .await;
     assert_eq!(status, 200, "{numbers}");
     assert_eq!(numbers["carrier"]["status"], "connected", "{numbers}");
@@ -292,17 +292,17 @@ async fn a_member_uses_the_org_records(installation: Installation) {
         "{connections}"
     );
 
-    // The Member buys a number for their Agent, and the Org's line,
+    // The Member buys a Workspace Number, and the Org's line,
     // registered with the Org's SIP sign-in, carries it.
     let (status, number) = installation
         .post_as(
             &member,
-            "/api/v1/settings/phone-numbers",
-            serde_json::json!({ "e164": OWN, "agent_id": agent_id }),
+            "/api/v1/workspace/number",
+            serde_json::json!({ "e164": OWN }),
         )
         .await;
     assert_eq!(status, 201, "{number}");
-    assert_eq!(number["agent_id"], agent_id);
+    assert_eq!(number["status"], "active");
     tokio::time::timeout(Duration::from_secs(5), async {
         while !installation.line.is_registered("robin") {
             tokio::time::sleep(Duration::from_millis(20)).await;
@@ -312,7 +312,7 @@ async fn a_member_uses_the_org_records(installation: Installation) {
     .expect("the Org's line registers");
 
     // The number's texting is prepared on the Org's carrier, so the
-    // carrier delivers the Agent's texts to it.
+    // carrier delivers texts to the Workspace Number.
     let prepares = installation.texts.prepares();
     assert_eq!(prepares.len(), 1, "{prepares:?}");
     assert_eq!(prepares[0].e164, OWN);
@@ -332,6 +332,23 @@ async fn a_member_uses_the_org_records(installation: Installation) {
         vec!["grace@example.com"]
     );
 
+    // A call to the number reaches the Member's Agent, in the Member's
+    // Workspace.
+    let mut socket = installation.firehose_as(&member).await;
+    installation.line.ring(OWN, REMOTE);
+    let placed = next_frame_of(&mut socket, "call.placed").await;
+    assert_eq!(placed["payload"]["payload"]["direction"], "inbound");
+    assert_eq!(placed["payload"]["agent_id"], agent_id);
+    let ended = next_frame_of(&mut socket, "call.ended").await;
+    assert_eq!(
+        ended["payload"]["payload"]["outcome"], "answered",
+        "{ended}"
+    );
+    let answered = installation.bridge.answered();
+    assert_eq!(answered.len(), 1);
+    assert_eq!(answered[0].brief.direction, CallDirection::Inbound);
+    assert_eq!(answered[0].brief.remote_e164, REMOTE);
+
     // The Member's Agent wakes on the calls it answers and on the mail
     // it gets: both standing rules name the Org's Connections.
     let (status, page) = installation
@@ -350,23 +367,6 @@ async fn a_member_uses_the_org_records(installation: Installation) {
         .collect();
     kinds.sort_unstable();
     assert_eq!(kinds, vec!["call.ended", "mail.message_received"], "{page}");
-
-    // A call to the number reaches the Member's Agent, in the Member's
-    // Workspace.
-    let mut socket = installation.firehose_as(&member).await;
-    installation.line.ring(OWN, REMOTE);
-    let placed = next_frame_of(&mut socket, "call.placed").await;
-    assert_eq!(placed["payload"]["payload"]["direction"], "inbound");
-    assert_eq!(placed["payload"]["agent_id"], agent_id);
-    let ended = next_frame_of(&mut socket, "call.ended").await;
-    assert_eq!(
-        ended["payload"]["payload"]["outcome"], "answered",
-        "{ended}"
-    );
-    let answered = installation.bridge.answered();
-    assert_eq!(answered.len(), 1);
-    assert_eq!(answered[0].brief.direction, CallDirection::Inbound);
-    assert_eq!(answered[0].brief.remote_e164, REMOTE);
 
     // The first Administrator's Workspace holds none of the Org's
     // records.
@@ -423,7 +423,7 @@ async fn the_administrators_workspace_holds_only_their_own_data() {
     assert_eq!(people, vec![daemon.workspace_id.clone()]);
 
     let (status, numbers) = installation
-        .get_as(daemon.cookie(), "/api/v1/settings/phone-numbers")
+        .get_as(daemon.cookie(), "/api/v1/workspace/number")
         .await;
     assert_eq!(status, 200, "{numbers}");
     assert_eq!(numbers["carrier"]["status"], "connected", "{numbers}");

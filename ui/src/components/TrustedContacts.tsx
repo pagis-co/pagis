@@ -37,7 +37,7 @@ import {
   useTrustList,
 } from "../queries";
 import { formatMoment } from "../timeline";
-import { formatE164 } from "./AgentPhoneNumber";
+import { formatE164 } from "../blocks/call";
 
 import "./TrustedContacts.css";
 import "./settings.css";

@@ -720,7 +720,7 @@ pub trait TrustListStore: Send + Sync {
         workspace_id: &WorkspaceId,
         id: &crate::TrustEntryId,
     ) -> Result<bool, StoreError>;
-    /// The tier the list proposes for one subject on one Agent's line:
+    /// The tier the list proposes for one subject on a Call or message:
     /// the highest tier of the rows that match, over the Workspace-wide
     /// list and that Agent's list. `None` is a subject on no list.
     async fn candidate(
@@ -1149,21 +1149,12 @@ pub trait EventLog: Send + Sync {
     ) -> Result<Vec<Event>, StoreError>;
 }
 
-/// The Agent Phone Number records and the purchase intents that make
-/// them (ADR-0018). The schema owns the one-to-one rule: a partial
-/// unique index on `agent_id` refuses a second number for one Agent and
-/// a second Agent for one number, and the refusal arrives here as
-/// [`StoreError::Conflict`].
+/// Workspace Numbers and purchase intents. A unique index permits one active
+/// number per Workspace. Number conflicts return `StoreError::Conflict`.
 #[async_trait]
 pub trait PhoneNumberStore: Send + Sync {
-    /// Record the intent before the carrier is asked. The id is the
-    /// idempotency key, so the record exists before the money moves.
     async fn create_intent(&self, intent: &PurchaseIntent) -> Result<(), StoreError>;
-    /// Every intent that still waits for an answer, over all
-    /// Workspaces: the reconciliation reads this at start-up.
     async fn list_pending_intents(&self) -> Result<Vec<PurchaseIntent>, StoreError>;
-    /// The carrier sold the number: write the record and settle the
-    /// intent together, so a failure leaves neither.
     async fn confirm_purchase(
         &self,
         workspace_id: &WorkspaceId,
@@ -1171,76 +1162,30 @@ pub trait PhoneNumberStore: Send + Sync {
         number: &PhoneNumber,
         at: UnixMillis,
     ) -> Result<(), StoreError>;
-    /// Record a number the account already held. There is no
-    /// intent, because nothing was bought. `Conflict` when the
-    /// Workspace already holds a live record for the number, or the
-    /// Agent already holds a number.
     async fn create(&self, number: &PhoneNumber) -> Result<(), StoreError>;
-    /// The carrier does not hold the number, so nothing was bought.
     async fn abandon_intent(
         &self,
         workspace_id: &WorkspaceId,
         intent_id: &PurchaseIntentId,
         at: UnixMillis,
     ) -> Result<bool, StoreError>;
-
     async fn get(
         &self,
         workspace_id: &WorkspaceId,
         id: &PhoneNumberId,
     ) -> Result<Option<PhoneNumber>, StoreError>;
     async fn list(&self, workspace_id: &WorkspaceId) -> Result<Vec<PhoneNumber>, StoreError>;
-    /// The number one Agent holds, when it holds one.
-    async fn for_agent(
-        &self,
-        workspace_id: &WorkspaceId,
-        agent_id: &AgentId,
-    ) -> Result<Option<PhoneNumber>, StoreError>;
-    /// Every record of one E.164 number that is not released, over all
-    /// Workspaces. The carrier's line reads it to find the Workspace
-    /// and the Agent of an inbound Call by the dialed number (ADR-0020).
     async fn live_for_e164(&self, e164: &str) -> Result<Vec<PhoneNumber>, StoreError>;
-    /// Give the line to an Agent. `false` when no such number is on
-    /// hand, and `Conflict` when the Agent or the number is taken.
-    async fn assign(
-        &self,
-        workspace_id: &WorkspaceId,
-        id: &PhoneNumberId,
-        agent_id: &AgentId,
-        at: UnixMillis,
-    ) -> Result<bool, StoreError>;
-    /// Take the line back. The Workspace keeps the number and keeps
-    /// paying for it.
-    async fn unassign(
-        &self,
-        workspace_id: &WorkspaceId,
-        id: &PhoneNumberId,
-    ) -> Result<bool, StoreError>;
-    /// Take back whatever line an Agent holds, and say which it was.
-    /// Archiving an Agent uses this.
-    async fn unassign_for_agent(
-        &self,
-        workspace_id: &WorkspaceId,
-        agent_id: &AgentId,
-    ) -> Result<Option<PhoneNumber>, StoreError>;
-    /// The number went back to the carrier. The record stays, for the
-    /// Calls that point at it.
     async fn release(
         &self,
         workspace_id: &WorkspaceId,
         id: &PhoneNumberId,
     ) -> Result<bool, StoreError>;
-    /// Whether a number that is not released still points at this
-    /// Connection. Deleting the carrier Connection refuses while one
-    /// does.
     async fn any_live_for_connection(
         &self,
         workspace_id: &WorkspaceId,
         connection_id: &ConnectionId,
     ) -> Result<bool, StoreError>;
-
-    /// Set the most texts a day the number may send (ADR-0020).
-    /// `false` when no such number exists.
     async fn set_outgoing_cap(
         &self,
         workspace_id: &WorkspaceId,
@@ -1248,30 +1193,12 @@ pub trait PhoneNumberStore: Send + Sync {
         cap: u32,
     ) -> Result<bool, StoreError>;
 
-    /// Add counterpart number allow rules and answer the rules the
-    /// record holds after the write (ADR-0020). A rule already there
-    /// is not written twice, and the order the user made them in is
-    /// kept.
-    async fn add_allow_rules(
-        &self,
-        workspace_id: &WorkspaceId,
-        id: &PhoneNumberId,
-        rules: &[String],
-    ) -> Result<Vec<String>, StoreError>;
-
-    /// Count one text against the day's tally and answer the new
-    /// count. The tally starts again when the day changes, so the
-    /// Outgoing Cap is a day's allowance.
     async fn note_text_send(
         &self,
         workspace_id: &WorkspaceId,
         id: &PhoneNumberId,
         at: UnixMillis,
     ) -> Result<u32, StoreError>;
-
-    /// Write what the carrier said about sending (ADR-0020), the time
-    /// of the read, and the error of the read that failed. `error`
-    /// replaces the old one, so a read that succeeds clears it.
     async fn set_messaging_readiness(
         &self,
         workspace_id: &WorkspaceId,
@@ -1280,36 +1207,24 @@ pub trait PhoneNumberStore: Send + Sync {
         at: UnixMillis,
         error: Option<&str>,
     ) -> Result<bool, StoreError>;
-
-    /// Remember where the inbound collector reached (ADR-0020).
     async fn set_text_cursor(
         &self,
         workspace_id: &WorkspaceId,
         id: &PhoneNumberId,
         cursor: &str,
     ) -> Result<bool, StoreError>;
-
-    /// Remember the carrier's messaging object for this number: the
-    /// Telnyx messaging profile, or the Twilio Messaging Service the
-    /// number sits in the sender pool of (ADR-0020).
     async fn set_messaging_object_id(
         &self,
         workspace_id: &WorkspaceId,
         id: &PhoneNumberId,
         object_id: &str,
     ) -> Result<bool, StoreError>;
-
-    /// Write where the Telnyx relay function stands (ADR-0020).
     async fn set_relay_state(
         &self,
         workspace_id: &WorkspaceId,
         id: &PhoneNumberId,
         state: &TelnyxRelayState,
     ) -> Result<bool, StoreError>;
-
-    /// Record that the user let the daemon install the Telnyx CLI and
-    /// ship the relay for this number (ADR-0020). The desk sets it
-    /// before the download starts.
     async fn set_relay_consent(
         &self,
         workspace_id: &WorkspaceId,
@@ -1321,14 +1236,12 @@ pub trait PhoneNumberStore: Send + Sync {
 /// The Text Records (ADR-0020): every text an Agent sent or received.
 ///
 /// There is no conversation table and no sent-texts table. A Text
-/// Conversation is the pair of one Agent Phone Number and one
+/// Conversation is the pair of one Workspace Number and one
 /// counterpart number, and this store derives it by grouping records.
 /// The outbound record's Thread field is the reply lookup that the
 /// mail collector needs a `SentMailStore` for.
 ///
-/// Every read takes the Agent as well as the number, because records
-/// stay with the Agent that made them: a new holder of a number sees
-/// none of the previous holder's conversations.
+/// Each read takes the owning Workspace and its number.
 #[async_trait]
 pub trait TextRecordStore: Send + Sync {
     /// Write one record. The collector writes an inbound record after
@@ -1356,7 +1269,6 @@ pub trait TextRecordStore: Send + Sync {
     async fn list_conversation(
         &self,
         workspace_id: &WorkspaceId,
-        agent_id: &AgentId,
         phone_number_id: &PhoneNumberId,
         counterpart_e164: &str,
         max: u32,
@@ -1368,7 +1280,6 @@ pub trait TextRecordStore: Send + Sync {
     async fn list_conversations(
         &self,
         workspace_id: &WorkspaceId,
-        agent_id: &AgentId,
         phone_number_id: &PhoneNumberId,
         max: u32,
     ) -> Result<Vec<TextConversation>, StoreError>;
@@ -1380,7 +1291,6 @@ pub trait TextRecordStore: Send + Sync {
     async fn landing_thread(
         &self,
         workspace_id: &WorkspaceId,
-        agent_id: &AgentId,
         phone_number_id: &PhoneNumberId,
         counterpart_e164: &str,
         now: UnixMillis,

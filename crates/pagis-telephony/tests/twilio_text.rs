@@ -7,7 +7,7 @@
 use std::time::Duration;
 
 use pagis_core::{
-    AgentId, ConnectionId, PhoneNumber, PhoneNumberId, TextDeliveryStatus, WorkspaceId, now_ms,
+    ConnectionId, PhoneNumber, PhoneNumberId, TextDeliveryStatus, WorkspaceId, now_ms,
 };
 use pagis_telephony::{
     CarrierKey, TWILIO_MESSAGING_SERVICE_KEY, TextError, TextTransport, TwilioTextTransport,
@@ -42,7 +42,6 @@ fn number(messaging_object_id: Option<&str>) -> PhoneNumber {
         ConnectionId::generate(),
         E164.to_string(),
         "PN9".to_string(),
-        Some(AgentId::generate()),
         now_ms(),
     );
     number.messaging_object_id = messaging_object_id.map(str::to_string);

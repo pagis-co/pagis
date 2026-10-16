@@ -56,9 +56,9 @@ and its owner decides access (ADR-0039). Not built: these Workspace kinds and
 Shared Workspace access. The daemon gives each Person one Workspace.
 
 A Workspace holds Agents, memory, conversations, Connections, Grants, Vault,
-Trust List, Software List, Agent Mailboxes, Files and Retention Policies.
-Not built: its Workspace Mailbox, Workspace Number and calendar (ADR-0040,
-ADR-0041, ADR-0042). A **tenant** is a Workspace as the unit of isolation: a
+Trust List, Software List, Agent Mailboxes, a Workspace Number, Files and
+Retention Policies (ADR-0041). Not built: its Workspace Mailbox and calendar
+(ADR-0040, ADR-0042). A **tenant** is a Workspace as the unit of isolation: a
 Tenant Data Key seals its secrets (ADR-0013), a Tenant Network joins its
 containers (ADR-0014), and the broker keeps its manifest registry (ADR-0005).
 
@@ -73,7 +73,7 @@ Workspace and Call.
 The named exceptions are the Workspace store itself; the Org, the Person and
 the Session, which sit above a Workspace; the boot sweeps that cross every
 Workspace; the Address Ledger, installation-wide so an address is never
-reused; and the index of one live assigned phone number for each E.164 number.
+reused; and the index of one active Workspace Number for each E.164 number.
 Not built: access through a record's owning conversation (ADR-0039).
 
 ### The Org's own records live in the Org's Workspace
@@ -105,7 +105,7 @@ alone reads or writes it, on the Administration Port (ADR-0024).
 | --- | --- |
 | The provider keys, one for each model provider | The Model Aliases each Agent thinks on |
 | The Installation OAuth Client | The Person's own Connections, their Google account above all |
-| The Installation Connections: the carrier and the mail domain | Agent Mailboxes; Workspace Mailbox and Workspace Number are not built |
+| The Installation Connections: the carrier and the mail domain | Agent Mailboxes and Workspace Number; Workspace Mailbox is not built |
 | The installed Plugins and their Bindings | Which Agent holds a Grant to a Plugin |
 | The System Settings: the ports, the Docker endpoint, the log level, the data directory | The timezone |
 | The roster and each Org role | The Spend Cap |

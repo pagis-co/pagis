@@ -23,7 +23,6 @@ import {
 } from "../../queries";
 import { agentPresence, usePresence } from "../../state/presence";
 import { AgentMailbox } from "../AgentMailbox";
-import { AgentPhoneNumber } from "../AgentPhoneNumber";
 import { AgentAccess } from "./AgentAccess";
 import { AgentDesk } from "./AgentDesk";
 import { AgentForm } from "./AgentForm";
@@ -245,7 +244,6 @@ export function AgentProfile({
             className="agent-contact"
             aria-label={`${agent.name} contact`}
           >
-            <AgentPhoneNumber api={api} agent={agent} />
             <AgentMailbox api={api} agent={agent} />
           </section>
         )}

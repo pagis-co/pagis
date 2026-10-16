@@ -368,8 +368,9 @@ pub struct TranscriptLineDto {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct CallDto {
     pub id: String,
+    pub run_id: String,
     pub agent_id: String,
-    /// The Agent's external display name, and the line it called from.
+    /// The current Agent's display name, and the Workspace Number.
     pub agent_name: String,
     pub own_e164: String,
     /// `outbound` or `inbound`.
@@ -398,6 +399,7 @@ impl From<Call> for CallDto {
     fn from(call: Call) -> Self {
         CallDto {
             id: call.id.to_string(),
+            run_id: call.run_id.to_string(),
             agent_id: call.agent_id.to_string(),
             agent_name: call.agent_name,
             own_e164: call.own_e164,

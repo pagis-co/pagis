@@ -2600,48 +2600,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/settings/phone-numbers": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["list_phone_numbers"];
-        put?: never;
-        /**
-         * Buy one number. The daemon writes a purchase intent first, so a
-         *     restart in the middle of the purchase reconciles instead of buying
-         *     twice (ADR-0018).
-         */
-        post: operations["buy_phone_number"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/settings/phone-numbers/adopt": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Adopt a number the account already holds. The daemon asks the
-         *     carrier whether the account has it and records it; nothing is
-         *     bought. A number the account does not hold is refused.
-         */
-        post: operations["adopt_phone_number"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/settings/phone-numbers/available": {
         parameters: {
             query?: never;
@@ -2656,63 +2614,6 @@ export interface paths {
         get: operations["search_phone_numbers"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/settings/phone-numbers/{phone_number_id}/assign": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["assign_phone_number"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/settings/phone-numbers/{phone_number_id}/release": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Give the number back to the carrier. The charge stops, the record
-         *     stays for the Calls that point at it, and the number never comes
-         *     back. The confirmation that names the Agent is the UI's work.
-         */
-        post: operations["release_phone_number"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/settings/phone-numbers/{phone_number_id}/unassign": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Take the line back. The Workspace keeps the number and keeps paying
-         *     for it, which is what makes this different from a release.
-         */
-        post: operations["unassign_phone_number"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3230,6 +3131,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspace/number": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_workspace_number"];
+        put?: never;
+        post: operations["buy_workspace_number"];
+        delete: operations["release_workspace_number"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspace/report": {
         parameters: {
             query?: never;
@@ -3342,14 +3259,6 @@ export interface components {
         AdministrationWorkspacesDto: {
             items: components["schemas"]["AdministrationWorkspaceDto"][];
         };
-        /**
-         * @description Adopt a number the carrier account already holds, and give
-         *     it to an Agent when the user added it from that Agent's page.
-         */
-        AdoptNumberRequest: {
-            agent_id?: string | null;
-            e164: string;
-        };
         AgentDto: {
             avatar: components["schemas"]["AvatarAppearance"];
             /**
@@ -3368,8 +3277,8 @@ export interface components {
             name: string;
             personality: string;
             /**
-             * @description The standing brief (ADR-0020): what an inbound call to the
-             *     Agent's desk line is for, or `null` for none.
+             * @description The standing brief (ADR-0020): what a Call the Agent
+             *     answers is for, or `null` for none.
              */
             standing_brief?: string | null;
             status: string;
@@ -3410,9 +3319,6 @@ export interface components {
              */
             enabled: boolean;
         };
-        AssignNumberRequest: {
-            agent_id: string;
-        };
         /** @description The author identity in the Product API. */
         AuthorDto: {
             id?: string | null;
@@ -3445,10 +3351,6 @@ export interface components {
             authorization_url?: string | null;
             connection: components["schemas"]["ConnectionDto"];
         };
-        /**
-         * @description One number the carrier offers now, with today's price. Pagis stores
-         *     no price: this is read at search time and shown, never kept.
-         */
         AvailableNumberDto: {
             currency?: string | null;
             e164: string;
@@ -3485,12 +3387,7 @@ export interface components {
             kind: "value";
             value: unknown;
         };
-        /**
-         * @description Buy one number, and give it to an Agent when the user bought it from
-         *     that Agent's page.
-         */
         BuyNumberRequest: {
-            agent_id?: string | null;
             e164: string;
         };
         /**
@@ -3500,7 +3397,7 @@ export interface components {
          */
         CallDto: {
             agent_id: string;
-            /** @description The Agent's external display name, and the line it called from. */
+            /** @description The current Agent's display name, and the Workspace Number. */
             agent_name: string;
             /** Format: int64 */
             answered_at?: number | null;
@@ -3521,6 +3418,7 @@ export interface components {
             /** @description The stereo WAV of the call, once it settles. */
             recording_file_id?: string | null;
             remote_e164: string;
+            run_id: string;
             /** @description `dialing`, `live` or `ended`. */
             state: string;
             tier: string;
@@ -3576,7 +3474,6 @@ export interface components {
         CarrierDto: {
             connection_id: string;
             display_name: string;
-            /** @description `disconnected`, `connecting`, `connected` or `reauth_required`. */
             status: string;
         };
         /** @description What one connection's resource offers the filter editor. */
@@ -4110,7 +4007,7 @@ export interface components {
             name: string;
             personality?: string;
             /**
-             * @description What an inbound call to the Agent's desk line is for; absent or
+             * @description What a Call the Agent answers is for; absent or
              *     empty declares none.
              */
             standing_brief?: string | null;
@@ -5753,48 +5650,6 @@ export interface components {
          * @enum {string}
          */
         PersonRole: "administrator" | "member";
-        /**
-         * @description One number the Workspace owns. `provider_number_id` is not here and
-         *     never will be: it is the carrier's handle, not the user's.
-         */
-        PhoneNumberDto: {
-            /** @description The Agent that holds the line, when one does. */
-            agent_id?: string | null;
-            /** Format: int64 */
-            assigned_at?: number | null;
-            /** @description The carrier Connection that carries the number. */
-            connection_id: string;
-            /** Format: int64 */
-            created_at: number;
-            /** @description The number itself, in E.164. */
-            e164: string;
-            id: string;
-            /**
-             * @description Where the line of the number's carrier stands with the
-             *     registrar: `unregistered`, `registering`, `registered` or
-             *     `failed`. One line carries every number of the carrier. Absent
-             *     when no Agent holds the number, because a call to it is refused
-             *     whatever the line does. An unregistered line drops inbound calls
-             *     in silence, so the Agent's page shows this.
-             */
-            registration?: string | null;
-            /**
-             * @description Why the registration failed: `no_credential`, `unauthorized`,
-             *     `unreachable` or `refused`.
-             */
-            registration_failure?: string | null;
-            /** @description `assigned`, `unassigned` or `released`. */
-            status: string;
-        };
-        /**
-         * @description The numbers of the Workspace, and the carrier they came from. The
-         *     carrier's status decides whether Settings shows the search or a
-         *     reconnect action in its place.
-         */
-        PhoneNumberPage: {
-            carrier?: null | components["schemas"]["CarrierDto"];
-            items: components["schemas"]["PhoneNumberDto"][];
-        };
         /** @description What one field is bound to. A secret binding carries no value. */
         PluginBindingDto: {
             capabilities: string[];
@@ -7477,6 +7332,20 @@ export interface components {
             report_schedule_id?: string | null;
             /** @description The IANA timezone new wall-clock schedules copy. */
             timezone: string;
+        };
+        WorkspaceNumberDto: {
+            connection_id: string;
+            /** Format: int64 */
+            created_at: number;
+            e164: string;
+            id: string;
+            registration?: string | null;
+            registration_failure?: string | null;
+            status: string;
+        };
+        WorkspaceNumberPage: {
+            carrier?: null | components["schemas"]["CarrierDto"];
+            number?: null | components["schemas"]["WorkspaceNumberDto"];
         };
         /** @description What one Workspace spent over the period, for the Administrator's read. */
         WorkspaceUsageDto: {
@@ -14260,131 +14129,9 @@ export interface operations {
             };
         };
     };
-    list_phone_numbers: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PhoneNumberPage"];
-                };
-            };
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
-    };
-    buy_phone_number: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["BuyNumberRequest"];
-            };
-        };
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PhoneNumberDto"];
-                };
-            };
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
-    };
-    adopt_phone_number: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AdoptNumberRequest"];
-            };
-        };
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PhoneNumberDto"];
-                };
-            };
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
-    };
     search_phone_numbers: {
         parameters: {
             query: {
-                /** @description The two-letter country, e.g. `US`. */
                 country: string;
                 area_code?: string | null;
                 locality?: string | null;
@@ -14420,145 +14167,6 @@ export interface operations {
                 };
             };
             422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
-    };
-    assign_phone_number: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                phone_number_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AssignNumberRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PhoneNumberDto"];
-                };
-            };
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
-    };
-    release_phone_number: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                phone_number_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PhoneNumberDto"];
-                };
-            };
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
-    };
-    unassign_phone_number: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                phone_number_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PhoneNumberDto"];
-                };
-            };
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -15792,6 +15400,81 @@ export interface operations {
                 };
             };
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_workspace_number: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceNumberPage"];
+                };
+            };
+        };
+    };
+    buy_workspace_number: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BuyNumberRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceNumberDto"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    release_workspace_number: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

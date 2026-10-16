@@ -40,7 +40,7 @@ use crate::call_tools::CallTools;
 use crate::hub::{HubEvent, MediaHub};
 use crate::leg::EndedReason;
 use crate::model::{ClientCommand, ModelSession, ModelSessions, ServerEvent, SessionConfig};
-use crate::session::{HANG_UP, SEND_DIGITS, session_tools};
+use crate::session::{HAND_OFF_CALL, HANG_UP, SEND_DIGITS, session_tools};
 use crate::transport::TransportCapabilities;
 
 /// The model socket went away and did not come back after one
@@ -175,11 +175,11 @@ const LAST_WORDS_CAP: Duration = Duration::from_secs(15);
 /// What the hub still holds once the queue is drained: its pacer depth.
 const PACER_DEPTH: Duration = Duration::from_millis(80);
 
-struct Pump<'a> {
+struct Pump {
     deps: CallSessionDeps,
     /// The audit trail. Each transcript line and each response's usage
     /// goes on it while the call runs.
-    log: &'a CallLog,
+    log: CallLog,
     model: Box<dyn ModelSession>,
     control: mpsc::Receiver<Control>,
     hub: Arc<MediaHub>,
@@ -215,14 +215,14 @@ struct Pump<'a> {
     reconnected: bool,
 }
 
-impl<'a> Pump<'a> {
-    fn new(session: CallSession, hub: Arc<MediaHub>, log: &'a CallLog) -> Self {
+impl Pump {
+    fn new(session: CallSession, hub: Arc<MediaHub>, log: &CallLog) -> Self {
         let (downlink, queue) = mpsc::unbounded_channel();
         let writer = pagis_rt::spawn(write_downlink(Arc::clone(&hub), queue));
         let inbound = session.deps.brief.direction == pagis_core::CallDirection::Inbound;
         Self {
             deps: session.deps,
-            log,
+            log: log.clone(),
             model: session.model,
             control: session.control,
             hub,
@@ -431,6 +431,80 @@ impl<'a> Pump<'a> {
                 "the call is ending".to_string()
             }
             SEND_DIGITS => self.send_digits(arguments).await,
+            HAND_OFF_CALL => {
+                if self.deps.brief.tier == TrustTier::Unknown {
+                    "hand-off needs a confirmed Trust Tier".into()
+                } else {
+                    match serde_json::from_str::<Value>(arguments)
+                        .ok()
+                        .and_then(|args| {
+                            args["agent"]
+                                .as_str()
+                                .map(|id| pagis_core::AgentId::from(id.to_string()))
+                        }) {
+                        None => "name the target Agent id".into(),
+                        Some(target) => match self
+                            .deps
+                            .tools
+                            .hand_off(
+                                &self.deps.workspace_id,
+                                self.log.call_id(),
+                                &self.deps.run_id,
+                                &target,
+                            )
+                            .await
+                        {
+                            Err(error) => error,
+                            Ok((run_id, mut brief)) => {
+                                brief.tier = self.deps.brief.tier;
+                                match self.deps.sessions.open(&self.deps.workspace_id).await {
+                                    Err(error) => {
+                                        self.end(MODEL_UNAVAILABLE).await;
+                                        error.to_string()
+                                    }
+                                    Ok(mut model) => {
+                                        let config = SessionConfig::new(
+                                            brief.conversation_instructions(),
+                                            session_tools(
+                                                &brief,
+                                                self.deps.capabilities,
+                                                Some(self.hub.dtmf()),
+                                            ),
+                                            brief.voice.clone(),
+                                        );
+                                        if let Err(_error) =
+                                            model.send(ClientCommand::Configure(config)).await
+                                        {
+                                            self.end(MODEL_UNAVAILABLE).await;
+                                            return;
+                                        }
+                                        let old = std::mem::replace(&mut self.model, model);
+                                        old.close().await;
+                                        self.send(ClientCommand::AddInstructions(
+                                            pagis_core::Untrusted::text(
+                                                "remote_party",
+                                                brief.tier.as_str(),
+                                                &render_transcript(&self.transcript),
+                                            )
+                                            .content,
+                                        ))
+                                        .await;
+                                        self.deps.run_id = run_id.clone();
+                                        self.log.set_holder(brief.agent_id.clone(), run_id);
+                                        self.deps.brief = brief;
+                                        if let Err(error) = self.log.handed_off().await {
+                                            tracing::error!(%error, "the Call hand-off event was not stored");
+                                        }
+                                        let _ = self.downlink.send(Downlink::Clear);
+                                        self.send(ClientCommand::ContinueResponse).await;
+                                        return;
+                                    }
+                                }
+                            }
+                        },
+                    }
+                }
+            }
             _ => {
                 let result = self
                     .deps

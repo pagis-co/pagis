@@ -145,6 +145,7 @@ impl CallEvents for RecordingEvents {
 
 struct World {
     calls: InboundCalls,
+    standing_rule: Arc<pagis_telephony::fake::FakeStandingCallRule>,
     bridge: Arc<FakeCallBridge>,
     live: Arc<LiveCalls>,
     transport: Arc<FakeCallTransport>,
@@ -207,6 +208,10 @@ impl World {
             updated_at: now_ms(),
         };
         agents.create(&agent).await.unwrap();
+        workspaces
+            .set_chief_of_staff(&workspace.id, Some(&agent.id))
+            .await
+            .unwrap();
 
         let channel = Channel {
             id: ChannelId::generate(),
@@ -239,7 +244,10 @@ impl World {
         let messages = Arc::new(SqliteMessageStore::new(pool.clone()));
         let files = Arc::new(SqliteFileStore::new(pool.clone()));
         let call_events = Arc::new(RecordingEvents::default());
+        let standing_rule = Arc::new(pagis_telephony::fake::FakeStandingCallRule::default());
         let calls = InboundCalls::new(InboundCallsDeps {
+            calls: Arc::new(pagis_storage_sqlite::SqliteCallStore::new(pool.clone())),
+            standing_rule: standing_rule.clone(),
             numbers: Arc::clone(&numbers) as _,
             agents: Arc::clone(&agents) as _,
             workspaces: Arc::new(SqliteWorkspaceStore::new(pool.clone())),
@@ -258,6 +266,7 @@ impl World {
         });
         Self {
             calls,
+            standing_rule,
             bridge,
             live,
             transport,
@@ -275,7 +284,7 @@ impl World {
         }
     }
 
-    /// The Agent's own desk line, written the way a purchase writes it.
+    /// The Workspace Number, written as a purchase writes it.
     async fn held_line(&self) -> PhoneNumber {
         let at = now_ms();
         let number = PhoneNumber::new(
@@ -284,7 +293,6 @@ impl World {
             ConnectionId::generate(),
             OWN.to_string(),
             "carrier-14155550123".to_string(),
-            Some(self.agent.id.clone()),
             at,
         );
         let intent = PurchaseIntent {
@@ -292,7 +300,7 @@ impl World {
             workspace_id: self.workspace_id.clone(),
             connection_id: number.connection_id.clone(),
             e164: OWN.to_string(),
-            agent_id: Some(self.agent.id.clone()),
+
             state: PurchaseIntentState::Pending,
             created_at: at,
             settled_at: None,
@@ -350,7 +358,7 @@ impl World {
 }
 
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
-async fn an_answered_call_runs_under_the_agent_that_holds_the_number(pool: SqlitePool) {
+async fn an_answered_call_runs_under_the_workspace_chief(pool: SqlitePool) {
     let world = World::build(
         pool,
         FakeCallBridge::reporting(FakeCallBridge::answered_report("I would like a table.")),
@@ -363,6 +371,10 @@ async fn an_answered_call_runs_under_the_agent_that_holds_the_number(pool: Sqlit
     let (incoming, party, _task) = world.ring(&number).await;
 
     let call_id = world.calls.answer(incoming).await.expect("the call runs");
+    assert_eq!(
+        world.standing_rule.created(),
+        vec![(number.e164.clone(), world.agent.id.clone())]
+    );
 
     // The bridge was handed the call under the standing brief, with
     // the Unknown tier until the challenge proves another.
@@ -453,7 +465,7 @@ async fn an_answered_call_runs_under_the_agent_that_holds_the_number(pool: Sqlit
 }
 
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
-async fn a_number_unassigned_after_the_line_routed_its_call_hangs_the_call_up(pool: SqlitePool) {
+async fn a_number_released_after_the_line_routes_its_call_hangs_up(pool: SqlitePool) {
     let world = World::build(
         pool,
         FakeCallBridge::reporting(FakeCallBridge::answered_report("")),
@@ -461,16 +473,16 @@ async fn a_number_unassigned_after_the_line_routed_its_call_hangs_the_call_up(po
     .await;
     let number = world.held_line().await;
     let (incoming, party, _task) = world.ring(&number).await;
-    // The number was unassigned after the line routed the call to it.
+    // The number was released after the line routed the call to it.
     world
         .numbers
-        .unassign(&world.workspace_id, &number.id)
+        .release(&world.workspace_id, &number.id)
         .await
         .unwrap();
 
     let refused = world.calls.answer(incoming).await.unwrap_err();
 
-    assert!(refused.0.contains("held by no Agent"), "{refused}");
+    assert!(refused.0.contains("active Workspace Number"), "{refused}");
     assert!(world.bridge.answered().is_empty());
     assert!(world.runs.opened.lock().unwrap().is_empty());
     assert!(world.events_of("call.placed").await.is_empty());

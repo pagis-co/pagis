@@ -51,8 +51,8 @@ pub struct NativeState {
     /// The number surfaces and the text tools read it to learn whether
     /// the carrier that carries the number carries a text.
     pub text_transports: Arc<pagis_telephony::TextTransports>,
-    /// The number desk: the one path that buys, assigns,
-    /// unassigns and releases an Agent Phone Number.
+    /// The number desk: the path that buys
+    /// and releases a Workspace Number.
     pub numbers: Arc<pagis_telephony::NumberDesk>,
     /// The tier gate of every call that runs now, so the user can drop
     /// a live call of their own Workspace to Unknown.
@@ -136,28 +136,14 @@ pub(crate) fn product_routes() -> Router<Arc<AppState>> {
         .route("/api/v1/calls/{call_id}/hangup", post(calls::hang_up))
         .route("/api/v1/calls/{call_id}/tier", post(calls::drop_call_tier))
         .route(
-            "/api/v1/settings/phone-numbers",
-            get(phone_numbers::list_phone_numbers).post(phone_numbers::buy_phone_number),
-        )
-        .route(
-            "/api/v1/settings/phone-numbers/adopt",
-            post(phone_numbers::adopt_phone_number),
+            "/api/v1/workspace/number",
+            get(phone_numbers::get_workspace_number)
+                .post(phone_numbers::buy_workspace_number)
+                .delete(phone_numbers::release_workspace_number),
         )
         .route(
             "/api/v1/settings/phone-numbers/available",
             get(phone_numbers::search_phone_numbers),
-        )
-        .route(
-            "/api/v1/settings/phone-numbers/{phone_number_id}/assign",
-            post(phone_numbers::assign_phone_number),
-        )
-        .route(
-            "/api/v1/settings/phone-numbers/{phone_number_id}/unassign",
-            post(phone_numbers::unassign_phone_number),
-        )
-        .route(
-            "/api/v1/settings/phone-numbers/{phone_number_id}/release",
-            post(phone_numbers::release_phone_number),
         )
         .route(
             "/api/v1/widgets/{package}/{version}/{widget}",

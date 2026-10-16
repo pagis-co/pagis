@@ -164,7 +164,6 @@ async fn portable_archive_releases_credentials_sleeps_mailbox_and_reports_no_num
     assert_eq!(dormant.event_type, "agent_mailbox.dormant");
     let archived = events.next().await.unwrap();
     assert_eq!(archived.event_type, "agent.archived");
-    assert_eq!(archived.payload["unassigned_e164"], serde_json::Value::Null);
     assert_eq!(archived.payload["released_credentials"], 1);
     assert_eq!(archived.payload["dormant_mailbox"], mailbox.address);
 }

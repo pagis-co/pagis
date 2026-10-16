@@ -559,8 +559,8 @@ the composer on Home speaks to it. The seed makes Pixie and names it. The
 Person can move the designation to any active Agent. The designation
 grants no power (ADR-0022).
 Not built: a Chief of Staff in a Shared Workspace, the default Grant that
-gives it the Workspace Mailbox and Workspace Number, reading mail first,
-and answering the number (ADR-0039, ADR-0040, ADR-0041).
+gives it the Workspace Mailbox and Workspace Number, and reading mail
+first (ADR-0039, ADR-0040, ADR-0041).
 
 ### Compaction
 The step that summarizes the older part of a conversation into a
@@ -682,8 +682,8 @@ Agent to act in a target Channel and optional Thread (ADR-0006). The
 source is a Connection, which includes the Agent's own mailbox,
 or a Coding Session, as for a Session Rule (ADR-0033). The Person and the
 Agent do not see or manage the rule of a Coding Session.
-Not built: subscriptions for a Workspace Mailbox or Workspace Number
-(ADR-0040, ADR-0041).
+Workspace Number subscriptions handle settled Calls and inbound texts
+(ADR-0041). Not built: Workspace Mailbox subscriptions (ADR-0040).
 
 ### Incoming Event
 An occurrence that may wake an Agent: a provider occurrence received
@@ -691,8 +691,8 @@ through a Connection or an Agent Mailbox, or an
 event of a Coding Session. It is not an audit event (ADR-0006). The events
 of a Coding Session are the end of a turn, a decision that waits, and the
 end of the session (ADR-0033).
-Not built: events from a Workspace Mailbox or Workspace Number
-(ADR-0040, ADR-0041).
+Workspace Number events report settled Calls and inbound texts (ADR-0041).
+Not built: Workspace Mailbox events (ADR-0040).
 
 ### Review Run
 The Run that reflects one claimed batch of due Pending Evidence. It uses
@@ -735,15 +735,14 @@ One time at which a Schedule becomes due. It stays on record when Pagis
 skips or combines it and no Run starts (ADR-0006).
 
 ### Standing Rule
-The Event Subscription the daemon makes with an Agent's own mailbox or
-number, which wakes the Agent in its DM Channel:
-- the **Standing Mail Rule**, on every inbound mail to an Agent Mailbox.
-  The Person pauses, edits or deletes it; the Agent may narrow it and never
-  delete it (ADR-0019).
-- the **Standing Call Rule**, after every Call the Agent answers. Taking
-  the number back archives it (ADR-0020).
-- the **Standing Text Rule**, on every text the number receives. Not built
-  (ADR-0020).
+An Event Subscription that wakes an Agent in its direct Channel:
+- The **Standing Mail Rule** handles inbound mail to its Agent Mailbox.
+- The **Standing Call Rule** handles a settled Call for the Agent that
+  holds it. The Chief of Staff answers the Workspace Number (ADR-0041).
+- The **Standing Text Rule** handles inbound texts to the Workspace Number
+  for its current Chief of Staff. Words stay in the untrusted envelope.
+The Person can edit these rules. The Agent may narrow a Person's rule and
+cannot delete it (ADR-0019, ADR-0020).
 
 ### Trigger
 What starts a Run: a message to the Agent, a Schedule, or an Incoming
@@ -959,8 +958,8 @@ A Connection that the Org owns: the carrier and the mail domain. An
 Administrator sets it up on the Administration Port, it lives in the Org's
 Workspace, and its key, when required, is an installation secret. The
 connection list of every Person shows it, flagged as the installation's.
-Agent Mailboxes on it belong to a Workspace (ADR-0012, ADR-0023).
-Not built: the Workspace Number on the carrier Connection (ADR-0041).
+Agent Mailboxes and Workspace Numbers on it belong to their Workspaces
+(ADR-0012, ADR-0023, ADR-0041).
 _Avoid_: shared connection, global connection, org connection
 
 ### Installation Key
@@ -1367,21 +1366,21 @@ _Avoid_: yolo mode, bypass mode
 ## Telephony
 
 ### Call
-One telephone conversation between an Agent and a Remote Party. The **Call
-Record** holds the direction, the Remote Party, the Trust Tier, the times,
-the outcome, the ended reason, the recording and the transcript. The
-outcome says whether the Call did its job, and the ended reason says why
-the audio stopped (ADR-0020).
-Not built: inbound Calls to a Workspace Number answered by the Chief of
-Staff, Call handoff and outbound Calls under a Grant (ADR-0041).
+One telephone conversation between an Agent and a Remote Party. An inbound
+Call to the Workspace Number reaches the Chief of Staff. It can hand the
+Call to another active Agent of the same Workspace. The Call record names
+the current Agent and its Run, the direction, Remote Party, Trust Tier,
+times, outcome, ended reason, recording and transcript. The Remote Party
+stays connected during hand-off (ADR-0020, ADR-0041).
+Not built: outbound Calls from the Workspace Number under a Grant.
 
 ### Call Brief
-What one Call is for, which the Agent writes, and the tools the Call may
-use. The daemon supplies the Agent name, the Person name, the personality
-and the fixed honesty rule. The first sentence names the Agent and the
-Person. An Agent answers under its **Standing Brief**, a field of the
-Agent; with none, it takes a message (ADR-0020).
-Not built: the Chief of Staff answers the Workspace Number (ADR-0041).
+What one Call is for and the tools it may use. The daemon supplies the
+Agent name, Person name, personality and fixed honesty rule. The first
+sentence names the Agent and the Person. An inbound Call reads the Chief
+of Staff's Standing Brief. A hand-off uses the target Agent's Standing
+Brief and voice. With no Standing Brief, the Agent takes a message
+(ADR-0020, ADR-0041).
 
 ### Keypad Code
 The 6 to 8 digits a caller enters to confirm a Trust Tier above Unknown on
@@ -1418,8 +1417,9 @@ The person or system at the other end of a Call. Its number picks the
 candidate Trust Tier (ADR-0020).
 
 ### Session Tool
-A tool that exists only inside a live Call: hang up, and send keypad
-digits (ADR-0020).
+A tool that exists only inside a live Call: hang up, send keypad digits
+or hand the Call to another active Agent of the same Workspace. Hand-off
+needs a confirmed Trust Tier (ADR-0020, ADR-0041).
 
 ### Trust List
 A Workspace's list of identities for Calls, texts and mail: numbers,
@@ -1442,13 +1442,15 @@ requests. Mail gets its tier after the spam verdict (ADR-0039, ADR-0040,
 ADR-0043).
 
 ### Workspace Number
-The optional telephone number of a Workspace, at most one. The Chief of
-Staff answers it and can hand the Call to another Agent. An Agent with a
-Grant calls out from it. A record of recent outbound Calls routes a
-callback to the Agent that called. Texts belong to this number. The number
-is unique across the installation and never reaches emergency services.
-Not built: Workspace Number. The daemon assigns each number to one Agent
-(ADR-0020, ADR-0041).
+The optional telephone number of a Workspace, at most one active number.
+The Person buys, sees and releases it in Settings. The Chief of Staff
+answers inbound Calls and can hand a Call to another active Agent of the
+same Workspace. Text Conversations and Text Records belong to the number.
+Inbound texts wake the Chief of Staff with the sender's Trust Tier and the
+words inside the untrusted envelope. The number is unique across the
+installation (ADR-0041). The number never reaches emergency services.
+Not built: outbound Calls and outbound texts from the Workspace Number,
+number Grants and routing a callback to the Agent that called.
 
 ## Mail and texting
 
@@ -1485,30 +1487,34 @@ only (ADR-0019).
 Not built: Workspace Mailboxes through this transport (ADR-0040).
 
 ### Messaging Readiness
-Whether the carrier delivers a text from a Workspace Number: `unknown`,
-`not_capable`, `unregistered`, `pending`, `ready` or `rejected`. The type
-exists. Not built: Workspace Number, reading readiness from the carrier,
-showing it, and refusing a send on it (ADR-0020, ADR-0041).
+Whether the carrier delivers an outbound text from a Workspace Number:
+`unknown`, `not_capable`, `unregistered`, `pending`, `ready` or `rejected`.
+The type exists. It does not gate inbound texts.
+Not built: reading readiness from the carrier, showing it and checking it
+before an outbound text (ADR-0020, ADR-0041).
 
 ### Outgoing Cap
 The most messages one Agent Mailbox or one Workspace Number may send in a
-day, whatever the host or carrier allows. The daemon refuses a mail past
-the mailbox's cap. Not built: the Workspace Number and its cap on texts
-(ADR-0019, ADR-0020, ADR-0041).
+day, whatever the host or carrier allows. The daemon refuses mail past the
+mailbox's cap. Not built: outbound texts from the Workspace Number and its
+text cap (ADR-0019, ADR-0041).
 
 ### Text Conversation
 The texts between one Workspace Number and one counterpart number: a
 pair, not a stored thing. The Chief of Staff receives inbound texts.
-Not built: Workspace Number and text delivery (ADR-0020, ADR-0041).
+Not built: outbound texts and the Conversation Inspector (ADR-0041).
 
 ### Text Message
-One SMS between a Workspace Number and a counterpart number. Not built:
-Workspace Number, sending and receiving (ADR-0020, ADR-0041).
+One SMS between a Workspace Number and a counterpart number. Inbound
+messages reach the Chief of Staff. Not built: outbound texts from the
+Workspace Number (ADR-0020, ADR-0041).
 
 ### Text Record
-The one row that holds one Text Message and, for an outbound one, its Run,
-Thread and delivery status. The table exists and nothing writes it
-(ADR-0020).
+The row that holds one Text Message for its Workspace Number. It has no
+Agent field. The collector stores inbound texts with their sender's Trust
+Tier and carrier identity. The Run names the Agent that handles the text.
+The type contains Run, Thread and delivery fields for outbound records.
+Not built: outbound texts from the Workspace Number (ADR-0041).
 
 ### Text Tool
 One of the three core tools to send a text, read one Text Conversation, or

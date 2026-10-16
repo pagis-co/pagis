@@ -9178,156 +9178,6 @@
         }
       }
     },
-    "/api/v1/settings/phone-numbers": {
-      "get": {
-        "tags": [
-          "phone_numbers"
-        ],
-        "operationId": "list_phone_numbers",
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PhoneNumberPage"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "phone_numbers"
-        ],
-        "summary": "Buy one number. The daemon writes a purchase intent first, so a\nrestart in the middle of the purchase reconciles instead of buying\ntwice (ADR-0018).",
-        "operationId": "buy_phone_number",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/BuyNumberRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PhoneNumberDto"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/settings/phone-numbers/adopt": {
-      "post": {
-        "tags": [
-          "phone_numbers"
-        ],
-        "summary": "Adopt a number the account already holds. The daemon asks the\ncarrier whether the account has it and records it; nothing is\nbought. A number the account does not hold is refused.",
-        "operationId": "adopt_phone_number",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AdoptNumberRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PhoneNumberDto"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/settings/phone-numbers/available": {
       "get": {
         "tags": [
@@ -9339,7 +9189,6 @@
           {
             "name": "country",
             "in": "query",
-            "description": "The two-letter country, e.g. `US`.",
             "required": true,
             "schema": {
               "type": "string"
@@ -9400,198 +9249,6 @@
             }
           },
           "422": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/settings/phone-numbers/{phone_number_id}/assign": {
-      "post": {
-        "tags": [
-          "phone_numbers"
-        ],
-        "operationId": "assign_phone_number",
-        "parameters": [
-          {
-            "name": "phone_number_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AssignNumberRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PhoneNumberDto"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/settings/phone-numbers/{phone_number_id}/release": {
-      "post": {
-        "tags": [
-          "phone_numbers"
-        ],
-        "summary": "Give the number back to the carrier. The charge stops, the record\nstays for the Calls that point at it, and the number never comes\nback. The confirmation that names the Agent is the UI's work.",
-        "operationId": "release_phone_number",
-        "parameters": [
-          {
-            "name": "phone_number_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PhoneNumberDto"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/settings/phone-numbers/{phone_number_id}/unassign": {
-      "post": {
-        "tags": [
-          "phone_numbers"
-        ],
-        "summary": "Take the line back. The Workspace keeps the number and keeps paying\nfor it, which is what makes this different from a release.",
-        "operationId": "unassign_phone_number",
-        "parameters": [
-          {
-            "name": "phone_number_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PhoneNumberDto"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "409": {
             "description": "",
             "content": {
               "application/json": {
@@ -11179,6 +10836,85 @@
         }
       }
     },
+    "/api/v1/workspace/number": {
+      "get": {
+        "tags": [
+          "phone_numbers"
+        ],
+        "operationId": "get_workspace_number",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceNumberPage"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "phone_numbers"
+        ],
+        "operationId": "buy_workspace_number",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BuyNumberRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceNumberDto"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "phone_numbers"
+        ],
+        "operationId": "release_workspace_number",
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/workspace/report": {
       "get": {
         "tags": [
@@ -11486,24 +11222,6 @@
           }
         }
       },
-      "AdoptNumberRequest": {
-        "type": "object",
-        "description": "Adopt a number the carrier account already holds, and give\nit to an Agent when the user added it from that Agent's page.",
-        "required": [
-          "e164"
-        ],
-        "properties": {
-          "agent_id": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "e164": {
-            "type": "string"
-          }
-        }
-      },
       "AgentDto": {
         "type": "object",
         "required": [
@@ -11547,7 +11265,7 @@
               "string",
               "null"
             ],
-            "description": "The standing brief (ADR-0020): what an inbound call to the\nAgent's desk line is for, or `null` for none."
+            "description": "The standing brief (ADR-0020): what a Call the Agent\nanswers is for, or `null` for none."
           },
           "status": {
             "type": "string"
@@ -11659,17 +11377,6 @@
           }
         }
       },
-      "AssignNumberRequest": {
-        "type": "object",
-        "required": [
-          "agent_id"
-        ],
-        "properties": {
-          "agent_id": {
-            "type": "string"
-          }
-        }
-      },
       "AuthorDto": {
         "type": "object",
         "description": "The author identity in the Product API.",
@@ -11732,7 +11439,6 @@
       },
       "AvailableNumberDto": {
         "type": "object",
-        "description": "One number the carrier offers now, with today's price. Pagis stores\nno price: this is read at search time and shown, never kept.",
         "required": [
           "e164"
         ],
@@ -11888,27 +11594,22 @@
       },
       "BuyNumberRequest": {
         "type": "object",
-        "description": "Buy one number, and give it to an Agent when the user bought it from\nthat Agent's page.",
         "required": [
           "e164"
         ],
         "properties": {
-          "agent_id": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
           "e164": {
             "type": "string"
           }
-        }
+        },
+        "additionalProperties": false
       },
       "CallDto": {
         "type": "object",
         "description": "The Call record (ADR-0020). It is the one source of truth the\nstrip, the call inspector and the settled block read. `outcome` and\n`ended_reason` stay apart, because they answer two questions.",
         "required": [
           "id",
+          "run_id",
           "agent_id",
           "agent_name",
           "own_e164",
@@ -11928,7 +11629,7 @@
           },
           "agent_name": {
             "type": "string",
-            "description": "The Agent's external display name, and the line it called from."
+            "description": "The current Agent's display name, and the Workspace Number."
           },
           "answered_at": {
             "type": [
@@ -11991,6 +11692,9 @@
             "description": "The stereo WAV of the call, once it settles."
           },
           "remote_e164": {
+            "type": "string"
+          },
+          "run_id": {
             "type": "string"
           },
           "state": {
@@ -12163,8 +11867,7 @@
             "type": "string"
           },
           "status": {
-            "type": "string",
-            "description": "`disconnected`, `connecting`, `connected` or `reauth_required`."
+            "type": "string"
           }
         }
       },
@@ -13602,7 +13305,7 @@
               "string",
               "null"
             ],
-            "description": "What an inbound call to the Agent's desk line is for; absent or\nempty declares none."
+            "description": "What a Call the Agent answers is for; absent or\nempty declares none."
           },
           "voice": {
             "type": [
@@ -17806,91 +17509,6 @@
           "administrator",
           "member"
         ]
-      },
-      "PhoneNumberDto": {
-        "type": "object",
-        "description": "One number the Workspace owns. `provider_number_id` is not here and\nnever will be: it is the carrier's handle, not the user's.",
-        "required": [
-          "id",
-          "e164",
-          "status",
-          "connection_id",
-          "created_at"
-        ],
-        "properties": {
-          "agent_id": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "The Agent that holds the line, when one does."
-          },
-          "assigned_at": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64"
-          },
-          "connection_id": {
-            "type": "string",
-            "description": "The carrier Connection that carries the number."
-          },
-          "created_at": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "e164": {
-            "type": "string",
-            "description": "The number itself, in E.164."
-          },
-          "id": {
-            "type": "string"
-          },
-          "registration": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Where the line of the number's carrier stands with the\nregistrar: `unregistered`, `registering`, `registered` or\n`failed`. One line carries every number of the carrier. Absent\nwhen no Agent holds the number, because a call to it is refused\nwhatever the line does. An unregistered line drops inbound calls\nin silence, so the Agent's page shows this."
-          },
-          "registration_failure": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Why the registration failed: `no_credential`, `unauthorized`,\n`unreachable` or `refused`."
-          },
-          "status": {
-            "type": "string",
-            "description": "`assigned`, `unassigned` or `released`."
-          }
-        }
-      },
-      "PhoneNumberPage": {
-        "type": "object",
-        "description": "The numbers of the Workspace, and the carrier they came from. The\ncarrier's status decides whether Settings shows the search or a\nreconnect action in its place.",
-        "required": [
-          "items"
-        ],
-        "properties": {
-          "carrier": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/CarrierDto"
-              }
-            ]
-          },
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/PhoneNumberDto"
-            }
-          }
-        }
       },
       "PluginBindingDto": {
         "type": "object",
@@ -22539,6 +22157,71 @@
           "timezone": {
             "type": "string",
             "description": "The IANA timezone new wall-clock schedules copy."
+          }
+        }
+      },
+      "WorkspaceNumberDto": {
+        "type": "object",
+        "required": [
+          "id",
+          "e164",
+          "status",
+          "connection_id",
+          "created_at"
+        ],
+        "properties": {
+          "connection_id": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "e164": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "registration": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "registration_failure": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "WorkspaceNumberPage": {
+        "type": "object",
+        "properties": {
+          "carrier": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CarrierDto"
+              }
+            ]
+          },
+          "number": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/WorkspaceNumberDto"
+              }
+            ]
           }
         }
       },

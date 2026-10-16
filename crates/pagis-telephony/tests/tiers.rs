@@ -32,7 +32,7 @@ use serde_json::Value;
 use tokio::sync::mpsc;
 
 const NUMBER: &str = "+14155550123";
-/// The Agent Phone Number of a second Agent of the same Workspace.
+/// Another Call of the same Workspace.
 const OTHER_NUMBER: &str = "+14155550124";
 const CALLER: &str = "+14155550100";
 const CODE: &str = "246813";
@@ -336,7 +336,7 @@ async fn answered_call() -> Answered {
     answered_call_on(NUMBER).await
 }
 
-/// A call to one Agent Phone Number, answered.
+/// A call to one Workspace Number, answered.
 async fn answered_call_on(number: &'static str) -> Answered {
     let transport = Arc::new(FakeCallTransport::new(Arc::new(TokioClock)));
     let (calls, mut incoming) = mpsc::channel::<IncomingHub>(4);
@@ -522,7 +522,7 @@ async fn a_new_call_does_not_reset_the_failed_attempts_of_the_workspace() {
 /// Number. Guesses on all of those lines, at the same time, add to the
 /// one count of the Workspace.
 #[tokio::test(start_paused = true)]
-async fn failures_on_two_agent_phone_numbers_add_to_one_count() {
+async fn failures_on_two_calls_add_to_one_count() {
     let lists = Lists::listing(&WorkspaceId::generate(), CALLER, TrustTier::Owner);
     let guard = Guard::new(Code::set(CODE));
     let first = answered_call_on(NUMBER).await;

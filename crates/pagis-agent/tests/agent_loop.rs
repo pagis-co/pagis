@@ -25,8 +25,8 @@ use pagis_storage_sqlite::{
     SqliteAgentMailboxStore, SqliteAgentStore, SqliteBriefStore, SqliteCapabilitySnapshotStore,
     SqliteChannelStore, SqliteConnectionStore, SqliteEventLog, SqliteFileStore, SqliteForgetStore,
     SqliteGrantStore, SqliteMessageStore, SqliteModelAliasStore, SqliteParticipantStore,
-    SqlitePendingEvidenceStore, SqlitePhoneNumberStore, SqliteRequestStore, SqliteRunStore,
-    SqliteScheduleStore, SqliteTriggerStore, SqliteWorkspaceStore,
+    SqlitePendingEvidenceStore, SqliteRequestStore, SqliteRunStore, SqliteScheduleStore,
+    SqliteTriggerStore, SqliteWorkspaceStore,
 };
 use pagis_testkit::fixture;
 use pagis_testkit::{Script, ScriptedBrain};
@@ -551,7 +551,7 @@ where
         conversation_evidence: Arc::clone(&conversation_evidence) as _,
         bus: Arc::clone(&bus),
         executor: Arc::clone(&source_executor) as _,
-        phone_numbers: Arc::new(SqlitePhoneNumberStore::new(pool.clone())),
+
         mailboxes: Arc::new(SqliteAgentMailboxStore::new(pool.clone())),
         hosts: Arc::new(pagis_storage_sqlite::SqliteHostStore::new(pool.clone())),
         presence: Arc::clone(&host_presence),
@@ -573,6 +573,9 @@ where
         agents: Arc::clone(&agents) as _,
         channels: Arc::clone(&channels) as _,
         messages: Arc::clone(&written),
+        text_records: Arc::new(pagis_storage_sqlite::SqliteTextRecordStore::new(
+            pool.clone(),
+        )),
         runs: Arc::clone(&runs) as _,
         model_aliases,
         usage: Arc::new(pagis_storage_sqlite::SqliteUsageStore::new(pool.clone())),

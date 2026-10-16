@@ -3,11 +3,16 @@ use super::*;
 #[async_trait::async_trait]
 impl PhoneNumberStore for FakePhoneNumberStore {
     async fn create_intent(&self, intent: &PurchaseIntent) -> Result<(), StoreError> {
-        self.0.lock().unwrap().purchase_intents.insert(
-            &intent.workspace_id,
-            intent.id.clone(),
-            intent.clone(),
-        )
+        let mut data = self.0.lock().unwrap();
+        if data
+            .purchase_intents
+            .rows(&intent.workspace_id)
+            .any(|row| row.state == PurchaseIntentState::Pending)
+        {
+            return Err(conflict("this Workspace has a pending number purchase"));
+        }
+        data.purchase_intents
+            .insert(&intent.workspace_id, intent.id.clone(), intent.clone())
     }
     async fn list_pending_intents(&self) -> Result<Vec<PurchaseIntent>, StoreError> {
         Ok(self
@@ -87,22 +92,7 @@ impl PhoneNumberStore for FakePhoneNumberStore {
             .cloned()
             .collect())
     }
-    async fn for_agent(
-        &self,
-        workspace_id: &WorkspaceId,
-        agent_id: &AgentId,
-    ) -> Result<Option<PhoneNumber>, StoreError> {
-        Ok(self
-            .0
-            .lock()
-            .unwrap()
-            .phone_numbers
-            .rows(workspace_id)
-            .find(|r| {
-                r.agent_id.as_ref() == Some(agent_id) && r.status != PhoneNumberStatus::Released
-            })
-            .cloned())
-    }
+
     async fn live_for_e164(&self, e164: &str) -> Result<Vec<PhoneNumber>, StoreError> {
         Ok(self
             .0
@@ -115,72 +105,7 @@ impl PhoneNumberStore for FakePhoneNumberStore {
             .cloned()
             .collect())
     }
-    async fn assign(
-        &self,
-        workspace_id: &WorkspaceId,
-        id: &PhoneNumberId,
-        agent_id: &AgentId,
-        at: UnixMillis,
-    ) -> Result<bool, StoreError> {
-        let mut data = self.0.lock().unwrap();
-        if data
-            .phone_numbers
-            .get(workspace_id, id)
-            .is_none_or(|row| row.status == PhoneNumberStatus::Released)
-        {
-            return Ok(false);
-        }
-        if data.phone_numbers.rows(workspace_id).any(|row| {
-            row.agent_id.as_ref() == Some(agent_id)
-                && &row.id != id
-                && row.status != PhoneNumberStatus::Released
-        }) || data
-            .phone_numbers
-            .get(workspace_id, id)
-            .is_some_and(|row| row.agent_id.as_ref().is_some_and(|held| held != agent_id))
-        {
-            return Err(conflict("Agent Phone Number is assigned"));
-        }
-        let row = data.phone_numbers.get_mut(workspace_id, id).unwrap();
-        row.agent_id = Some(agent_id.clone());
-        row.status = PhoneNumberStatus::Assigned;
-        row.assigned_at = Some(at);
-        Ok(true)
-    }
-    async fn unassign(
-        &self,
-        workspace_id: &WorkspaceId,
-        id: &PhoneNumberId,
-    ) -> Result<bool, StoreError> {
-        let mut data = self.0.lock().unwrap();
-        let Some(row) = data
-            .phone_numbers
-            .get_mut(workspace_id, id)
-            .filter(|row| row.status != PhoneNumberStatus::Released)
-        else {
-            return Ok(false);
-        };
-        row.agent_id = None;
-        row.status = PhoneNumberStatus::Unassigned;
-        row.assigned_at = None;
-        Ok(true)
-    }
-    async fn unassign_for_agent(
-        &self,
-        workspace_id: &WorkspaceId,
-        agent_id: &AgentId,
-    ) -> Result<Option<PhoneNumber>, StoreError> {
-        let mut data = self.0.lock().unwrap();
-        let Some(row) = data.phone_numbers.rows_mut(workspace_id).find(|row| {
-            row.agent_id.as_ref() == Some(agent_id) && row.status != PhoneNumberStatus::Released
-        }) else {
-            return Ok(None);
-        };
-        row.agent_id = None;
-        row.status = PhoneNumberStatus::Unassigned;
-        row.assigned_at = None;
-        Ok(Some(row.clone()))
-    }
+
     async fn release(
         &self,
         workspace_id: &WorkspaceId,
@@ -194,9 +119,7 @@ impl PhoneNumberStore for FakePhoneNumberStore {
         else {
             return Ok(false);
         };
-        row.agent_id = None;
         row.status = PhoneNumberStatus::Released;
-        row.assigned_at = None;
         Ok(true)
     }
     async fn any_live_for_connection(
@@ -227,19 +150,7 @@ impl PhoneNumberStore for FakePhoneNumberStore {
         row.outgoing_cap = cap;
         Ok(true)
     }
-    async fn add_allow_rules(
-        &self,
-        workspace_id: &WorkspaceId,
-        id: &PhoneNumberId,
-        rules: &[String],
-    ) -> Result<Vec<String>, StoreError> {
-        let mut data = self.0.lock().unwrap();
-        let Some(row) = data.phone_numbers.get_mut(workspace_id, id) else {
-            return Ok(vec![]);
-        };
-        add_rules(&mut row.allow_rules, rules);
-        Ok(row.allow_rules.clone())
-    }
+
     async fn note_text_send(
         &self,
         workspace_id: &WorkspaceId,
@@ -671,7 +582,6 @@ impl TextRecordStore for FakeTextRecordStore {
     async fn list_conversation(
         &self,
         workspace_id: &WorkspaceId,
-        agent_id: &AgentId,
         phone_number_id: &PhoneNumberId,
         counterpart_e164: &str,
         max: u32,
@@ -684,9 +594,7 @@ impl TextRecordStore for FakeTextRecordStore {
                 .text_records
                 .rows(workspace_id)
                 .filter(|r| {
-                    &r.agent_id == agent_id
-                        && &r.phone_number_id == phone_number_id
-                        && r.counterpart_e164 == counterpart_e164
+                    &r.phone_number_id == phone_number_id && r.counterpart_e164 == counterpart_e164
                 })
                 .map(|r| (r.id.clone(), r.clone()))
                 .collect(),
@@ -697,7 +605,6 @@ impl TextRecordStore for FakeTextRecordStore {
     async fn list_conversations(
         &self,
         workspace_id: &WorkspaceId,
-        agent_id: &AgentId,
         phone_number_id: &PhoneNumberId,
         max: u32,
     ) -> Result<Vec<TextConversation>, StoreError> {
@@ -706,7 +613,7 @@ impl TextRecordStore for FakeTextRecordStore {
         for row in data
             .text_records
             .rows(workspace_id)
-            .filter(|r| &r.agent_id == agent_id && &r.phone_number_id == phone_number_id)
+            .filter(|r| &r.phone_number_id == phone_number_id)
         {
             let held = latest
                 .entry(row.counterpart_e164.clone())
@@ -728,7 +635,6 @@ impl TextRecordStore for FakeTextRecordStore {
     async fn landing_thread(
         &self,
         workspace_id: &WorkspaceId,
-        agent_id: &AgentId,
         phone_number_id: &PhoneNumberId,
         counterpart_e164: &str,
         now: UnixMillis,
@@ -740,8 +646,7 @@ impl TextRecordStore for FakeTextRecordStore {
             .text_records
             .rows(workspace_id)
             .filter(|r| {
-                &r.agent_id == agent_id
-                    && &r.phone_number_id == phone_number_id
+                &r.phone_number_id == phone_number_id
                     && r.counterpart_e164 == counterpart_e164
                     && r.direction == TextDirection::Outbound
                     && r.occurred_at >= now - TEXT_THREAD_WINDOW_MS
@@ -847,20 +752,17 @@ impl KeypadFailureStore for FakeKeypadFailureStore {
 
 fn create_number(data: &mut Data, number: &PhoneNumber) -> Result<(), StoreError> {
     if number.status != PhoneNumberStatus::Released
-        && data.phone_numbers.rows(&number.workspace_id).any(|row| {
+        && data.phone_numbers.0.values().any(|row| {
             row.status != PhoneNumberStatus::Released
-                && (row.e164 == number.e164
-                    || number
-                        .agent_id
-                        .as_ref()
-                        .is_some_and(|agent| row.agent_id.as_ref() == Some(agent)))
+                && (row.workspace_id == number.workspace_id || row.e164 == number.e164)
         })
     {
-        return Err(conflict("Agent Phone Number exists"));
+        return Err(conflict("Workspace Number exists"));
     }
     data.phone_numbers
         .insert(&number.workspace_id, number.id.clone(), number.clone())
 }
+
 fn add_rules(held: &mut Vec<String>, rules: &[String]) {
     for rule in rules {
         if !held.contains(rule) {

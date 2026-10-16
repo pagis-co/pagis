@@ -731,7 +731,7 @@ async fn seed_a(
         workspace_id: workspace_id.clone(),
         connection_id: connection.id.clone(),
         e164: "+14155550123".to_string(),
-        agent_id: None,
+
         state: pagis_core::PurchaseIntentState::Pending,
         created_at: now,
         settled_at: None,
@@ -746,7 +746,6 @@ async fn seed_a(
         connection.id.clone(),
         intent.e164.clone(),
         "pn-1".to_string(),
-        None,
         now,
     );
     numbers

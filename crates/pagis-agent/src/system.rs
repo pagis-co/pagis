@@ -93,6 +93,8 @@ pub struct AgentDeps {
     pub agents: Arc<dyn AgentStore>,
     pub channels: Arc<dyn ChannelStore>,
     pub messages: Arc<dyn MessageStore>,
+    /// Text Message bodies, read only when their Incoming Events start a Run.
+    pub text_records: Arc<dyn pagis_core::TextRecordStore>,
     pub runs: Arc<dyn RunStore>,
     pub model_aliases: Arc<dyn ModelAliasStore>,
     /// What each model call spent. The loop writes one Usage Record per call.

@@ -141,7 +141,7 @@ impl ActorHost {
             conversation_evidence: self.stores.conversation_evidence.clone(),
             bus: self.bus.clone(),
             executor: self.clone(),
-            phone_numbers: self.stores.phone_numbers.clone(),
+
             mailboxes: self.stores.agent_mailboxes.clone(),
             hosts: self.stores.hosts.clone(),
             presence,
@@ -161,6 +161,7 @@ impl ActorHost {
             agents: self.stores.agents.clone(),
             channels: self.stores.channels.clone(),
             messages: self.stores.messages.clone(),
+            text_records: self.stores.text_records.clone(),
             runs: self.stores.runs.clone(),
             model_aliases: self.stores.model_aliases.clone(),
             usage: self.stores.usage.clone(),

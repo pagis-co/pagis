@@ -9,6 +9,7 @@ import createClient from 'openapi-fetch'
 
 import type { components, paths } from './schema'
 
+export type WorkspaceNumberDto = components['schemas']['WorkspaceNumberDto']
 export type ChannelDto = components['schemas']['ChannelDto']
 export type MessageDto = components['schemas']['MessageDto']
 export type ThreadDto = components['schemas']['ThreadDto']

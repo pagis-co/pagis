@@ -538,3 +538,14 @@ Rules:
 
 Known per-server deviations (Ollama, Mistral, xAI, api.openai.com) are
 listed in `docs/DESIGN.md` → "Provider compatibility notes".
+
+## Workspace Number
+
+Open Settings › Workspace Number to search the carrier's numbers and buy
+one for the Workspace. The Workspace holds at most one active number.
+The Chief of Staff answers inbound Calls and receives inbound texts.
+Change the Chief of Staff to change who answers the next Call. The Call
+Brief in Settings belongs to that Agent. Release the number in Settings to
+return it to the carrier and stop the charge.
+
+Not built: outbound Calls and outbound texts from the Workspace Number.
