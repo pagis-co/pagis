@@ -25,6 +25,9 @@
 CREATE TABLE workspaces (
     id TEXT COLLATE "C" PRIMARY KEY,
     name TEXT COLLATE "C" NOT NULL,
+    -- The monthly Spend Cap the Administrator sets. NULL sets no cap.
+    -- SQLite: REAL.
+    monthly_spend_cap_usd DOUBLE PRECISION,
     created_at BIGINT NOT NULL,
     -- Onboarding completion: set once when the wizard finishes.
     onboarded_at BIGINT,
@@ -1271,10 +1274,7 @@ CREATE TABLE users (
     -- given back, and a disabled account keeps its Workspace.
     disabled_at BIGINT,
     -- When a client last signed in as the Person.
-    last_signed_in_at BIGINT,
-    -- The monthly Spend Cap the Administrator sets. NULL sets no cap.
-    -- SQLite: REAL.
-    monthly_spend_cap_usd DOUBLE PRECISION
+    last_signed_in_at BIGINT
 );
 CREATE UNIQUE INDEX idx_users_email ON users (email);
 CREATE INDEX idx_users_org ON users (org_id);

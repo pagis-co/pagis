@@ -597,7 +597,6 @@ where
         gate: gate.unwrap_or_else(|| {
             Arc::new(pagis_agent::SpendCapGate {
                 workspaces: Arc::clone(&workspaces) as _,
-                users: Arc::new(pagis_storage_sqlite::SqliteUserStore::new(pool.clone())),
                 usage: Arc::new(pagis_storage_sqlite::SqliteUsageStore::new(pool.clone())),
                 models: Arc::clone(&models),
                 clock: Arc::new(pagis_core::SystemClock),
@@ -837,6 +836,7 @@ async fn two_runs_of_one_person_send_one_opaque_id_and_another_person_sends_anot
     let other = pagis_core::User::new(owner.org_id, pagis_core::UserRole::Member, now_ms());
     people.create(&other).await.unwrap();
     let workspace = Workspace {
+        monthly_spend_cap_usd: None,
         user_id: other.id.clone(),
         ..fixture::workspace()
     };
@@ -1987,11 +1987,10 @@ async fn a_pending_review_records_a_successful_no_change_once(pool: SqlitePool) 
 }
 
 async fn set_spend_cap(pool: &SqlitePool, harness: &Loop, cap: f64) {
-    pagis_core::UserStore::set_monthly_spend_cap(
-        &pagis_storage_sqlite::SqliteUserStore::new(pool.clone()),
-        &harness.workspace.user_id,
+    pagis_core::WorkspaceStore::set_monthly_spend_cap(
+        &pagis_storage_sqlite::SqliteWorkspaceStore::new(pool.clone()),
+        &harness.workspace.id,
         Some(cap),
-        now_ms(),
     )
     .await
     .unwrap();
@@ -9356,4 +9355,75 @@ async fn a_recorded_computer_result_restores_the_scale_for_a_later_call(pool: Sq
                 pagis_core::computer_action::InputOp::Move { x, y } if *x == 20.0 && *y == 40.0
             ))
     );
+}
+
+/// The Spend Cap counts the calendar month in the Workspace's timezone.
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn the_spend_cap_uses_the_workspaces_calendar_month(pool: SqlitePool) {
+    struct FixedClock(i64);
+    impl pagis_core::Clock for FixedClock {
+        fn now_ms(&self) -> i64 {
+            self.0
+        }
+    }
+    let workspaces = SqliteWorkspaceStore::new(pool.clone());
+    let usage = pagis_storage_sqlite::SqliteUsageStore::new(pool.clone());
+    let workspace = pagis_core::Workspace {
+        timezone: "America/Los_Angeles".into(),
+        monthly_spend_cap_usd: Some(1.0),
+        ..fixture::seeded_workspace(&pool).await
+    };
+    workspaces.create(&workspace).await.unwrap();
+    let agent = fixture::agent(&workspace.id);
+    SqliteAgentStore::new(pool.clone())
+        .create(&agent)
+        .await
+        .unwrap();
+    let mut run = fixture::queued_run(&workspace.id, &agent.id, &pagis_core::ChannelId::generate());
+    run.channel_id = None;
+    SqliteRunStore::new(pool.clone())
+        .create(&run)
+        .await
+        .unwrap();
+    // The record is in January in both timezones.
+    pagis_core::UsageStore::record(
+        &usage,
+        &pagis_core::UsageRecord {
+            id: pagis_core::UsageId::generate(),
+            workspace_id: workspace.id.clone(),
+            run_id: run.id,
+            provider: None,
+            model: None,
+            input_tokens: 1,
+            output_tokens: 1,
+            cache_read_tokens: 0,
+            cache_write_tokens: 0,
+            cost_usd: Some(1.0),
+            created_at: 1_769_774_400_000,
+        },
+    )
+    .await
+    .unwrap();
+    let models = pagis_agent::ModelCatalog::new(Arc::new(pagis_core::ProviderKeys::with_env(
+        |_| None,
+        Default::default(),
+        Arc::new(pagis_core::MemorySecretStore::default()),
+    )));
+    // February starts in UTC before it starts in Los Angeles.
+    for (now, expected) in [
+        (1_769_904_000_000, Some(pagis_agent::CapStop::Reached)),
+        (1_769_932_800_000, None),
+    ] {
+        let clock = FixedClock(now);
+        let reads = pagis_agent::CapReads {
+            workspaces: &workspaces,
+            usage: &usage,
+            models: &models,
+            clock: &clock,
+        };
+        assert_eq!(
+            pagis_agent::cap_stop(reads, &workspace.id, &[]).await,
+            expected
+        );
+    }
 }

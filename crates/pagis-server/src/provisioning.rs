@@ -137,6 +137,7 @@ impl WorkspaceSeed<'_> {
         now: UnixMillis,
     ) -> Result<Workspace, StoreError> {
         let workspace = Workspace {
+            monthly_spend_cap_usd: None,
             id: workspace_id,
             user_id: user_id.clone(),
             name: name.to_string(),

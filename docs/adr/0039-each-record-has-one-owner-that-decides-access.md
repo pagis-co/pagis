@@ -84,8 +84,8 @@ serves them all. Not built: Shared Workspace routing and role checks.
 Hosts, the Home Exit, personal Connections and the Keypad Code exist only in
 a Private Workspace. Shared accounts connect to a Shared Workspace. The
 Spend Cap belongs to a Workspace. A Run checks the cap of the Workspace it
-runs in. Spend is counted for each Workspace. Not built: Shared Workspace
-resource rules and a Spend Cap independent of a Person.
+runs in. An Administrator sets the cap for each Workspace. Spend is counted
+for each Workspace. Not built: Shared Workspace resource rules.
 
 ### Departure and guests do not open a Private Workspace
 

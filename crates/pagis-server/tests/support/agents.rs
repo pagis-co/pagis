@@ -464,6 +464,7 @@ impl Embedder {
 
     async fn workspace(stores: &Stores, person: &User) -> WorkspaceId {
         let workspace = Workspace {
+            monthly_spend_cap_usd: None,
             id: WorkspaceId::generate(),
             user_id: person.id.clone(),
             name: "Desk".into(),

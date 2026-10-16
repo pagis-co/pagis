@@ -202,6 +202,7 @@ async fn the_user_answer_gives_only_an_administrator_the_offered_sections_and_li
         json!([
             "spend",
             "people",
+            "workspaces",
             "sessions",
             "resources",
             "plugins",

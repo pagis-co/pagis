@@ -140,6 +140,7 @@ pub(crate) async fn member(daemon: &TestDaemon, email: &str, password: &str) -> 
         .stores()
         .workspaces
         .create(&pagis_core::Workspace {
+            monthly_spend_cap_usd: None,
             id: pagis_core::WorkspaceId::generate(),
             user_id: person.id.clone(),
             name: "Grace".to_string(),

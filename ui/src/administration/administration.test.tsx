@@ -24,7 +24,7 @@ const ADMINISTRATOR = {
   administration: { origin: 'http://127.0.0.1:4401', path_prefix: '', loopback: true },
 }
 
-const SECTIONS = ['spend', 'people', 'sessions', 'hosts', 'resources', 'providers', 'settings', 'plugins', 'health', 'restart']
+const SECTIONS = ['spend', 'people', 'workspaces', 'sessions', 'hosts', 'resources', 'providers', 'settings', 'plugins', 'health', 'restart']
 
 const SYSTEM: SystemSettingsDto = {
   port: 4400, listening_port: 4400, port_override: null, supervised: true, started_at: 1,
@@ -45,7 +45,6 @@ function person(id: string, name: string) {
     workspace_id: `w-${id}`,
     disabled: false,
     last_signed_in_at: 1_700_000_000_000,
-    monthly_spend_cap_usd: null,
     created_at: 1_700_000_000_000,
   }
 }
@@ -236,7 +235,7 @@ describe('the administration page', () => {
     const navigation = await screen.findByRole('group', { name: 'Org' })
     expect(within(navigation).queryAllByRole('link')).toEqual([])
     expect(within(navigation).getAllByRole('button').map((button) => button.textContent))
-      .toEqual(['Spend', 'People', 'Sessions', 'Resources', 'Providers', 'Settings', 'Plugins', 'Health'])
+      .toEqual(['Spend', 'People', 'Workspaces', 'Sessions', 'Resources', 'Providers', 'Settings', 'Plugins', 'Health'])
   })
 
   it.each(['providers', 'settings'])('opens the first offered view at a hidden %s address', async (view) => {
@@ -326,7 +325,7 @@ describe('the administration page', () => {
       '/api/v1/administration/usage': {
         from: 0,
         to: 1,
-        items: [{ person: person('u-2', 'Grace'), total: total(2.5), cap_reached: false }],
+        items: [{ workspace: { id: 'ws-grace', name: 'Grace work', person: person('u-2', 'Grace'), monthly_spend_cap_usd: null }, total: total(2.5), cap_reached: false }],
         total: total(2.5),
       },
       '/api/v1/administration/sessions': {
@@ -512,14 +511,14 @@ describe('the administration page', () => {
 })
 
 describe('Spend', () => {
-  it('names each person, their tokens and the cap they reached', async () => {
+  it('names each Workspace, its owner, tokens and Spend Cap', async () => {
     const api = apiOf({
       '/api/v1/administration/usage': {
         from: 0,
         to: 1,
         items: [
-          { person: person('u-2', 'Grace'), total: total(9), cap_reached: true },
-          { person: person('u-3', 'Alan'), total: total(1), cap_reached: false },
+          { workspace: { id: 'ws-grace', name: 'Grace work', person: person('u-2', 'Grace'), total: total(9), monthly_spend_cap_usd: 8 }, total: total(9), cap_reached: true },
+          { workspace: { id: 'ws-alan', name: 'Alan work', person: person('u-3', 'Alan'), total: total(1), monthly_spend_cap_usd: null }, total: total(1), cap_reached: false },
         ],
         total: total(10),
       },
@@ -527,7 +526,9 @@ describe('Spend', () => {
 
     mount(<Spend api={api} />)
 
-    expect(await screen.findByText('Grace')).toBeTruthy()
+    expect(await screen.findByText('Grace work')).toBeTruthy()
+    expect(screen.getByText('Grace')).toBeTruthy()
+    expect(screen.getByText('$8.00 monthly cap')).toBeTruthy()
     expect(screen.getByText('$10.00')).toBeTruthy()
     expect(screen.getByText('$9.00')).toBeTruthy()
     expect(screen.getByText('Cap reached')).toBeTruthy()

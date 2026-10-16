@@ -13,6 +13,8 @@
 CREATE TABLE workspaces (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
+    -- The monthly Spend Cap the Administrator sets. NULL sets no cap.
+    monthly_spend_cap_usd REAL,
     created_at INTEGER NOT NULL,
     -- Onboarding completion: set once when the wizard finishes.
     onboarded_at INTEGER,
@@ -1230,9 +1232,7 @@ CREATE TABLE users (
     -- given back, and a disabled account keeps its Workspace.
     disabled_at INTEGER,
     -- When a client last signed in as the Person.
-    last_signed_in_at INTEGER,
-    -- The monthly Spend Cap the Administrator sets. NULL sets no cap.
-    monthly_spend_cap_usd REAL
+    last_signed_in_at INTEGER
 );
 CREATE UNIQUE INDEX idx_users_email ON users (email);
 CREATE INDEX idx_users_org ON users (org_id);

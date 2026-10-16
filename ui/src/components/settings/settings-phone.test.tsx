@@ -278,12 +278,13 @@ it('shows the offered Org links and tunnel in the phone settings list', async ()
   responses['/api/v1/user'] = {
     ...shellResponse('/api/v1/user').data as object,
     role: 'administrator',
-    administration: { origin: 'http://127.0.0.1:4401', path_prefix: '/admin', loopback: true, sections: ['people', 'spend'], links: [{ label: 'Help', url: 'https://team.example.com/help' }] },
+    administration: { origin: 'http://127.0.0.1:4401', path_prefix: '/admin', loopback: true, sections: ['people', 'workspaces', 'spend'], links: [{ label: 'Help', url: 'https://team.example.com/help' }] },
   }
   mount('/settings')
   const org = within(await screen.findByRole('group', { name: 'Org' }))
   expect(org.getAllByRole('link').map((link) => [link.textContent, link.getAttribute('href')])).toEqual([
     ['People', 'http://127.0.0.1:4401/admin/people'],
+    ['Workspaces', 'http://127.0.0.1:4401/admin/workspaces'],
     ['Spend', 'http://127.0.0.1:4401/admin/spend'],
     ['Help', 'https://team.example.com/help'],
   ])

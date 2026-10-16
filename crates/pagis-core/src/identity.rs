@@ -70,10 +70,7 @@ impl UserRole {
 
 /// One person in the Org. The name lives here: the agents read it out
 /// of the memory file the daemon writes from this record.
-///
-/// The record is not `Eq`: the Spend Cap is an amount of money, and the
-/// cost the router reports is a float, so the two compare as floats.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct User {
     pub id: UserId,
     pub org_id: OrgId,
@@ -94,18 +91,13 @@ pub struct User {
     pub disabled_at: Option<UnixMillis>,
     /// When a client last signed in as this Person, for the roster.
     pub last_signed_in_at: Option<UnixMillis>,
-    /// What the Person may spend on model calls in a calendar month, in
-    /// US dollars. `None` is no cap, which is what a local installation
-    /// and every account an Administrator does not cap holds.
-    pub monthly_spend_cap_usd: Option<f64>,
     pub created_at: UnixMillis,
     pub updated_at: UnixMillis,
 }
 
 impl User {
     /// A new Person of one Org, with nothing an Administrator has set
-    /// yet: no address, no name, no password, live, never signed in and
-    /// under no Spend Cap. A caller fills in what it knows with struct
+    /// yet: no address, no name, no password, live and never signed in. A caller fills in what it knows with struct
     /// update syntax, so a field added later reaches every caller.
     pub fn new(org_id: OrgId, role: UserRole, at: UnixMillis) -> Self {
         Self {
@@ -117,7 +109,6 @@ impl User {
             role,
             disabled_at: None,
             last_signed_in_at: None,
-            monthly_spend_cap_usd: None,
             created_at: at,
             updated_at: at,
         }
@@ -310,14 +301,6 @@ pub trait UserStore: Send + Sync {
         &self,
         id: &UserId,
         role: UserRole,
-        at: UnixMillis,
-    ) -> Result<bool, StoreError>;
-    /// Set or clear the Person's monthly Spend Cap. `false` when the
-    /// Person is missing.
-    async fn set_monthly_spend_cap(
-        &self,
-        id: &UserId,
-        cap_usd: Option<f64>,
         at: UnixMillis,
     ) -> Result<bool, StoreError>;
     /// Remember that a client signed in as this Person.

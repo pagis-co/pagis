@@ -256,6 +256,7 @@ struct World {
 
 async fn workspace(workspaces: &SqliteWorkspaceStore, person: &User, name: &str) -> WorkspaceId {
     let workspace = Workspace {
+        monthly_spend_cap_usd: None,
         user_id: person.id.clone(),
         id: WorkspaceId::generate(),
         name: name.to_string(),

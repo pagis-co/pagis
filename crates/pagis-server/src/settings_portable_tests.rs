@@ -18,6 +18,7 @@ async fn onboarding_status_without_computers_holds_docker_null() {
     let person = seed_org_and_administrator(&pool, "Pagis", 1).await.unwrap();
     let workspaces = Arc::new(SqliteWorkspaceStore::new(pool.clone()));
     let workspace = Workspace {
+        monthly_spend_cap_usd: None,
         id: WorkspaceId::generate(),
         user_id: person.id.clone(),
         name: "Ada".into(),

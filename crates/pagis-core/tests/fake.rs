@@ -789,6 +789,7 @@ async fn software_read_only_the_named_workspace() {
 async fn workspaces_belong_to_the_named_person() {
     let stores = pagis_core::fake::stores();
     let row = Workspace {
+        monthly_spend_cap_usd: None,
         id: owner(),
         user_id: "person".to_string().into(),
         name: "Desk".to_string(),
@@ -1268,7 +1269,6 @@ async fn users_read_only_the_named_person_or_org() {
         role: UserRole::Member,
         disabled_at: None,
         last_signed_in_at: None,
-        monthly_spend_cap_usd: None,
         created_at: 0,
         updated_at: 0,
     };

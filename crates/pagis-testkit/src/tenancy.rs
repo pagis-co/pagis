@@ -232,6 +232,7 @@ impl TwoTenants {
         };
         users.create(&b_user).await.expect("write person B");
         let b_workspace = Workspace {
+            monthly_spend_cap_usd: None,
             id: WorkspaceId::generate(),
             user_id: b_user.id.clone(),
             name: "B's Workspace".to_string(),

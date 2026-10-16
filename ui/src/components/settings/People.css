@@ -1,5 +1,5 @@
 /* The People section: a title line, the new-account form, and
- * one block per person with their spend, their cap and the two writes.
+ * one block for each Person with their spend and account controls.
  * Every value comes from `tokens.css`. */
 
 .people {

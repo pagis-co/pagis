@@ -5,10 +5,10 @@
 //! The router computes the cost of every model call from the serving
 //! model's own price table. [`record`] keeps it, named by the Workspace
 //! that spent it and the Run that asked. The Administrator supplies the
-//! provider keys, and the Usage Records show what each Person spends.
+//! provider keys, and the Usage Records show what each Workspace spends.
 //!
 //! [`cap_stop`] reads the same records back. An Administrator may
-//! give a Person a monthly Spend Cap. A Run checks it before each model
+//! give a Workspace a monthly Spend Cap. A Run checks it before each model
 //! call, in its first Turn and in each later Turn. It stops before the
 //! call that would go over the cap, and the conversation says why.
 //! Replies from earlier Turns stay in the conversation. The Harness
@@ -18,7 +18,7 @@
 //! A model with no known price (neither the Provider Model List nor
 //! `models.json` prices it) costs an unknown amount. Its record keeps
 //! the cost as unknown, never as zero. A cap cannot count an unknown
-//! cost, so a capped Person's Run makes no call on a route that names
+//! cost, so a capped Workspace's Run makes no call on a route that names
 //! such a model: the cap holds, and the note names the model.
 
 use std::sync::Arc;
@@ -26,7 +26,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 
 use pagis_core::{
-    Clock, FailureKind, Run, UsageId, UsagePeriod, UsageRecord, UsageStore, UserStore, WorkspaceId,
+    Clock, FailureKind, Run, UsageId, UsagePeriod, UsageRecord, UsageStore, WorkspaceId,
     WorkspaceStore,
 };
 
@@ -66,12 +66,14 @@ impl CapStop {
 
     fn cause(&self) -> String {
         match self {
-            CapStop::Reached => "you are at your monthly spend cap for model calls. An \
+            CapStop::Reached => {
+                "this Workspace's monthly spend cap is reached for model calls. An \
                  administrator of this installation raises the cap, or it resets at the start \
                  of next month."
-                .to_string(),
+                    .to_string()
+            }
             CapStop::Unpriced(candidate) => format!(
-                "the model {candidate} has no known price, so your monthly spend cap cannot \
+                "the model {candidate} has no known price, so this Workspace's monthly spend cap cannot \
                  count what it costs. An administrator of this installation can remove the \
                  cap, or you can choose a model with a known price in Settings under Models."
             ),
@@ -114,7 +116,6 @@ pub async fn record(deps: &AgentDeps, run: &Run, end: &TurnEnd) {
 #[derive(Clone, Copy)]
 pub struct CapReads<'a> {
     pub workspaces: &'a dyn WorkspaceStore,
-    pub users: &'a dyn UserStore,
     pub usage: &'a dyn UsageStore,
     pub models: &'a ModelCatalog,
     pub clock: &'a dyn Clock,
@@ -123,7 +124,6 @@ pub struct CapReads<'a> {
 /// The daemon's Spend Cap check before each model call of a Run.
 pub struct SpendCapGate {
     pub workspaces: Arc<dyn WorkspaceStore>,
-    pub users: Arc<dyn UserStore>,
     pub usage: Arc<dyn UsageStore>,
     pub models: Arc<ModelCatalog>,
     pub clock: Arc<dyn Clock>,
@@ -134,7 +134,6 @@ impl ModelCallGate for SpendCapGate {
     async fn before_call(&self, run: &Run, bound: &crate::ModelCallBound) -> Result<(), GateStop> {
         let reads = CapReads {
             workspaces: self.workspaces.as_ref(),
-            users: self.users.as_ref(),
             usage: self.usage.as_ref(),
             models: self.models.as_ref(),
             clock: self.clock.as_ref(),
@@ -149,10 +148,10 @@ impl ModelCallGate for SpendCapGate {
     }
 }
 
-/// Whether the Spend Cap of the Person who owns `workspace_id` stops a
+/// Whether the Spend Cap of `workspace_id` stops a
 /// model call on the `provider/model` candidates, and why.
 ///
-/// A Person with no cap is never stopped, and neither is one the daemon
+/// A Workspace with no cap is never stopped, and neither is one the daemon
 /// cannot resolve: a missing record must not stop somebody's work, and
 /// the daemon says so in the log instead.
 pub async fn cap_stop(
@@ -163,15 +162,7 @@ pub async fn cap_stop(
     let Ok(Some(workspace)) = reads.workspaces.get(workspace_id).await else {
         return None;
     };
-    let person = match reads.users.get(&workspace.user_id).await {
-        Ok(Some(person)) => person,
-        Ok(None) => return None,
-        Err(error) => {
-            tracing::error!(%error, %workspace_id, "the spend cap could not be read");
-            return None;
-        }
-    };
-    let cap = person.monthly_spend_cap_usd?;
+    let cap = workspace.monthly_spend_cap_usd?;
     if let Some(unpriced) = candidates.iter().find(|candidate| {
         candidate.split_once('/').is_some_and(|(provider, model)| {
             reads.models.metadata(provider, model).prices.is_none()

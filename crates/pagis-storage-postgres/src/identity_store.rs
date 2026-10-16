@@ -96,7 +96,7 @@ impl PostgresUserStore {
 }
 
 const USER_COLUMNS: &str = "id, org_id, email, name, password_hash, role, disabled_at, \
-     last_signed_in_at, monthly_spend_cap_usd, created_at, updated_at";
+     last_signed_in_at, created_at, updated_at";
 
 fn row_to_user(row: &sqlx::postgres::PgRow) -> Result<User, StoreError> {
     let role: String = row.get("role");
@@ -110,7 +110,6 @@ fn row_to_user(row: &sqlx::postgres::PgRow) -> Result<User, StoreError> {
             .ok_or_else(|| StoreError::Corrupt(format!("unknown user role {role}")))?,
         disabled_at: row.get("disabled_at"),
         last_signed_in_at: row.get("last_signed_in_at"),
-        monthly_spend_cap_usd: row.get("monthly_spend_cap_usd"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
     })
@@ -121,7 +120,7 @@ impl UserStore for PostgresUserStore {
     async fn create(&self, user: &User) -> Result<(), StoreError> {
         sqlx::query(&format!(
             "INSERT INTO users ({USER_COLUMNS}) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"
         ))
         .bind(user.id.as_str())
         .bind(user.org_id.as_str())
@@ -131,7 +130,6 @@ impl UserStore for PostgresUserStore {
         .bind(user.role.as_str())
         .bind(user.disabled_at)
         .bind(user.last_signed_in_at)
-        .bind(user.monthly_spend_cap_usd)
         .bind(user.created_at)
         .bind(user.updated_at)
         .execute(&self.pool)
@@ -343,24 +341,6 @@ impl UserStore for PostgresUserStore {
             .map_err(db_err)?;
         transaction.commit().await.map_err(db_err)?;
         Ok(true)
-    }
-
-    async fn set_monthly_spend_cap(
-        &self,
-        id: &UserId,
-        cap_usd: Option<f64>,
-        at: UnixMillis,
-    ) -> Result<bool, StoreError> {
-        let updated = sqlx::query(
-            "UPDATE users SET monthly_spend_cap_usd = $1, updated_at = $2 WHERE id = $3",
-        )
-        .bind(cap_usd)
-        .bind(at)
-        .bind(id.as_str())
-        .execute(&self.pool)
-        .await
-        .map_err(db_err)?;
-        Ok(updated.rows_affected() > 0)
     }
 
     async fn record_sign_in(&self, id: &UserId, at: UnixMillis) -> Result<(), StoreError> {

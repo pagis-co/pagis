@@ -11,8 +11,10 @@ use crate::id::{
 };
 use crate::time::UnixMillis;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Workspace {
+    /// The monthly Spend Cap in US dollars. `None` means no cap.
+    pub monthly_spend_cap_usd: Option<f64>,
     pub id: WorkspaceId,
     /// The person this Workspace belongs to. One Workspace per
     /// person, and it stays their private scope.
@@ -1011,7 +1013,7 @@ pub enum FailureKind {
     DaemonRestarted,
     ModelFailed,
     TurnLimit,
-    /// The Person is at their monthly Spend Cap. The run says so
+    /// The Workspace is at its monthly Spend Cap. The run says so
     /// in the conversation and ends before it asks a model anything.
     SpendCapReached,
     Unknown,

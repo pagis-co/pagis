@@ -42,7 +42,7 @@ export type RunStepDto = components['schemas']['RunStepDto']
 export type ModelAliasDto = components['schemas']['ModelAliasDto']
 export type RetentionPolicyDto = components['schemas']['RetentionPolicyDto']
 export type PersonDto = components['schemas']['PersonDto']
-export type PersonUsageDto = components['schemas']['PersonUsageDto']
+export type WorkspaceUsageDto = components['schemas']['WorkspaceUsageDto']
 export type InstallationUsageDto = components['schemas']['InstallationUsageDto']
 export type MyUsageDto = components['schemas']['MyUsageDto']
 export type SessionDto = components['schemas']['SessionDto']
@@ -168,3 +168,5 @@ export async function fetchFileBlob(fileId: string): Promise<Blob> {
   if (!response.ok) throw new Error(`download failed (${response.status})`)
   return response.blob()
 }
+
+export type AdministrationWorkspaceDto = components['schemas']['AdministrationWorkspaceDto']

@@ -1,5 +1,5 @@
 // The People section: the roster of the installation, the form
-// that makes an account, and per person an invite, a monthly spend cap,
+// that makes an account, and for each Person an invite,
 // a role control, a password reset and a disable switch.
 //
 // An Administrator creates every account: there is no self-signup. The
@@ -13,7 +13,7 @@ import { useState } from 'react'
 import type {
   ApiClient,
   PersonDto,
-  PersonUsageDto,
+  WorkspaceUsageDto,
   SignInLinkDto,
 } from '../../api/client'
 import { Badge, Button, Dialog, Frame, Input, Row, SectionLabel, Select } from '../../primitives'
@@ -26,7 +26,6 @@ import {
   useResetAccountPassword,
   useSetAccountEnabled,
   useSetSignIn,
-  useSetSpendCap,
   useSetPersonRole,
 } from '../../queries'
 import { SignInLinkCard } from './SignInLinkCard'
@@ -204,7 +203,7 @@ function SetSignIn({ api, person }: { api: ApiClient; person: PersonDto }) {
   )
 }
 
-/** One Person: their role, what they spent this month, their cap, a reset and the
+/** One Person: their role, what their Workspace spent this month, a reset and the
  *  disable switch. */
 function PersonRow({
   api,
@@ -213,22 +212,15 @@ function PersonRow({
 }: {
   api: ApiClient
   person: PersonDto
-  spend: PersonUsageDto | undefined
+  spend: WorkspaceUsageDto | undefined
 }) {
   const setRole = useSetPersonRole(api)
   const setEnabled = useSetAccountEnabled(api)
   const reset = useResetAccountPassword(api)
-  const setCap = useSetSpendCap(api)
   const makeInvite = useMakeInvite(api)
   const [invite, setInvite] = useState<SignInLinkDto | null>(null)
-  const [cap, setCap_] = useState(
-    person.monthly_spend_cap_usd == null ? '' : String(person.monthly_spend_cap_usd),
-  )
   const [password, setPassword] = useState('')
   const label = personLabel(person)
-  const noCap = cap.trim() === ''
-  const parsedCap = Number(cap)
-  const capValid = noCap || (Number.isFinite(parsedCap) && parsedCap > 0)
 
   return (
     <div className="people-row">
@@ -250,7 +242,6 @@ function PersonRow({
           }}
         />
         {person.disabled && <Badge tone="failed">Disabled</Badge>}
-        {spend?.cap_reached && <Badge tone="failed">At their cap</Badge>}
         <span className="people-spend">
           {money(spend?.total.cost_usd ?? 0)} this month
         </span>
@@ -277,27 +268,6 @@ function PersonRow({
       </Row>
       <Row className="people-line people-controls">
         <Input
-          type="number"
-          min={1}
-          step="0.01"
-          className="people-cap"
-          aria-label={`Monthly spend cap for ${label}`}
-          placeholder="No cap"
-          value={cap}
-          onChange={(event) => setCap_(event.target.value)}
-        />
-        <span className="people-unit">per month</span>
-        <Button
-          size="sm"
-          aria-label={`Save the spend cap for ${label}`}
-          disabled={!capValid || setCap.isPending}
-          onClick={() =>
-            setCap.mutate({ userId: person.id, capUsd: noCap ? null : parsedCap })
-          }
-        >
-          Save cap
-        </Button>
-        <Input
           type="password"
           className="people-password"
           aria-label={`New password for ${label}`}
@@ -320,10 +290,10 @@ function PersonRow({
         </Button>
       </Row>
       {person.email === null && <SetSignIn api={api} person={person} />}
-      {(setRole.isError || setEnabled.isError || reset.isError || setCap.isError || makeInvite.isError) && (
+      {(setRole.isError || setEnabled.isError || reset.isError || makeInvite.isError) && (
         <span className="settings-error" role="alert">
           {errorMessage(
-            setRole.error ?? setEnabled.error ?? reset.error ?? setCap.error ?? makeInvite.error,
+            setRole.error ?? setEnabled.error ?? reset.error ?? makeInvite.error,
             'That change could not be saved.',
           )}
         </span>
@@ -339,7 +309,7 @@ export function People({ api }: { api: ApiClient }) {
   const people = usePeople(api)
   const usage = useInstallationUsage(api)
   const spendOf = (userId: string) =>
-    usage.data?.items.find((item) => item.person.id === userId)
+    usage.data?.items.find((item) => item.workspace.person.id === userId)
 
   return (
     <section className="settings-section people">
@@ -352,7 +322,7 @@ export function People({ api }: { api: ApiClient }) {
       <NewAccount api={api} />
       <SectionLabel>Roster</SectionLabel>
       <Frame
-        hint="A disabled account signs in to nothing and keeps everything it owns, so enabling it again gives the same person their sprites and memory back. A person at their cap is told so in their conversation."
+        hint="A disabled account signs in to nothing and keeps everything it owns, so enabling it again gives the same person their sprites and memory back."
       >
         {(people.data ?? []).map((person) => (
           <PersonRow

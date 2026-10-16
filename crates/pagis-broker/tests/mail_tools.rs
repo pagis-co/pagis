@@ -68,6 +68,7 @@ impl World {
                 .await
                 .unwrap();
         let workspace = Workspace {
+            monthly_spend_cap_usd: None,
             user_id: person.id.clone(),
             id: WorkspaceId::generate(),
             name: "Workspace".to_string(),

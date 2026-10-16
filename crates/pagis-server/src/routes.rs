@@ -288,7 +288,13 @@ pub const ADMINISTRATION_ROUTES: &[Route] = &[
         part: None,
     },
     Route {
-        path: "/api/v1/administration/people/{user_id}/spend-cap",
+        path: "/api/v1/administration/workspaces",
+        methods: &["get"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
+        path: "/api/v1/administration/workspaces/{workspace_id}/spend-cap",
         methods: &["put"],
         authenticated: true,
         part: None,

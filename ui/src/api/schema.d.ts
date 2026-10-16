@@ -221,22 +221,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/administration/people/{user_id}/spend-cap": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put: operations["set_spend_cap"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/administration/providers": {
         parameters: {
             query?: never;
@@ -365,11 +349,43 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Spend per person for a period. This is the read that answers
+         * Spend per Workspace for a period. This is the read that answers
          *     the first billing question, and it is the Administrator's alone.
          */
         get: operations["installation_usage"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/administration/workspaces": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_workspaces"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/administration/workspaces/{workspace_id}/spend-cap": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["set_spend_cap"];
         post?: never;
         delete?: never;
         options?: never;
@@ -3314,6 +3330,18 @@ export interface components {
             /** @description The offered sections, in navigation order. Restart has no view. */
             sections: string[];
         };
+        /** @description A Workspace and its owner, with the current month's spend. */
+        AdministrationWorkspaceDto: {
+            id: string;
+            /** Format: double */
+            monthly_spend_cap_usd?: number | null;
+            name: string;
+            person: components["schemas"]["PersonDto"];
+            total: components["schemas"]["UsageTotalDto"];
+        };
+        AdministrationWorkspacesDto: {
+            items: components["schemas"]["AdministrationWorkspaceDto"][];
+        };
         /**
          * @description Adopt a number the carrier account already holds, and give
          *     it to an Agent when the user added it from that Agent's page.
@@ -4690,10 +4718,10 @@ export interface components {
         InstallationUsageDto: {
             /** Format: int64 */
             from: number;
-            items: components["schemas"]["PersonUsageDto"][];
+            items: components["schemas"]["WorkspaceUsageDto"][];
             /** Format: int64 */
             to: number;
-            /** @description Every person's spend added up. */
+            /** @description Every Workspace's spend added up. */
             total: components["schemas"]["UsageTotalDto"];
         };
         JsonRpcError: {
@@ -5415,13 +5443,13 @@ export interface components {
         MySessionsDto: {
             items: components["schemas"]["MySessionDto"][];
         };
-        /** @description What the signed-in person spent, and the cap they are under. */
+        /** @description What the current Workspace spent, and its Spend Cap. */
         MyUsageDto: {
             /** Format: int64 */
             from: number;
             /**
              * Format: double
-             * @description The person's monthly Spend Cap, or `null` where they have none.
+             * @description The current Workspace's monthly Spend Cap, or `null` for no cap.
              */
             monthly_spend_cap_usd?: number | null;
             runs: components["schemas"]["RunSpendDto"][];
@@ -5672,11 +5700,6 @@ export interface components {
              * @description When a client last signed in as this Person.
              */
             last_signed_in_at?: number | null;
-            /**
-             * Format: double
-             * @description The monthly Spend Cap in US dollars, or `null` for no cap.
-             */
-            monthly_spend_cap_usd?: number | null;
             name?: string | null;
             /** @description `administrator` or `member`. */
             role: string;
@@ -5724,16 +5747,6 @@ export interface components {
          * @enum {string}
          */
         PersonRole: "administrator" | "member";
-        /** @description What one Person spent over the period, for the Administrator's read. */
-        PersonUsageDto: {
-            /**
-             * @description True when the period is the current month and the total has
-             *     reached the person's cap, so the roster says who is stopped.
-             */
-            cap_reached: boolean;
-            person: components["schemas"]["PersonDto"];
-            total: components["schemas"]["UsageTotalDto"];
-        };
         /**
          * @description One number the Workspace owns. `provider_number_id` is not here and
          *     never will be: it is the carrier's handle, not the user's.
@@ -7460,6 +7473,16 @@ export interface components {
             /** @description The IANA timezone new wall-clock schedules copy. */
             timezone: string;
         };
+        /** @description What one Workspace spent over the period, for the Administrator's read. */
+        WorkspaceUsageDto: {
+            /**
+             * @description True when the period is the current month and the total has
+             *     reached the Workspace's cap.
+             */
+            cap_reached: boolean;
+            total: components["schemas"]["UsageTotalDto"];
+            workspace: components["schemas"]["AdministrationWorkspaceDto"];
+        };
     };
     responses: never;
     parameters: never;
@@ -8037,64 +8060,6 @@ export interface operations {
             };
         };
     };
-    set_spend_cap: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The person */
-                user_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SetSpendCapRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PersonDto"];
-                };
-            };
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
-    };
     list_provider_setups: {
         parameters: {
             query?: never;
@@ -8444,6 +8409,99 @@ export interface operations {
                 };
             };
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_workspaces: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdministrationWorkspacesDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    set_spend_cap: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The Workspace */
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetSpendCapRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdministrationWorkspaceDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

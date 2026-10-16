@@ -43,6 +43,7 @@ impl ActorHost {
         stores
             .workspaces
             .create(&Workspace {
+                monthly_spend_cap_usd: None,
                 id: agent.workspace_id.clone(),
                 user_id: person.id,
                 name: "Desk".into(),

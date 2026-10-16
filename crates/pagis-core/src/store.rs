@@ -120,6 +120,12 @@ pub enum StoreError {
 /// reaches it.
 #[async_trait]
 pub trait WorkspaceStore: Send + Sync {
+    /// Set or clear the monthly Spend Cap. `false` when the Workspace is missing.
+    async fn set_monthly_spend_cap(
+        &self,
+        id: &WorkspaceId,
+        cap_usd: Option<f64>,
+    ) -> Result<bool, StoreError>;
     async fn create(&self, workspace: &Workspace) -> Result<(), StoreError>;
     async fn get(&self, id: &WorkspaceId) -> Result<Option<Workspace>, StoreError>;
     /// The Workspace one person owns. This is how a request

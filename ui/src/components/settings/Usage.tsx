@@ -3,7 +3,7 @@
 //
 // Every person reads their own, whatever their role: a member who cannot
 // see the installation's keys can still see what their own sprites
-// spent. On a local installation the one person has no cap, so the page
+// spent. On a local installation the Workspace has no cap, so the page
 // reads as an accounting of their own work and nothing else.
 
 import type { ApiClient, RunSpendDto } from '../../api/client'
@@ -79,7 +79,7 @@ export function Usage({ api }: { api: ApiClient }) {
         <span>What your sprites spent on model calls this month.</span>
       </div>
       {phone ? <Frame><Row><div className="usage-phone-summary"><div className="usage-phone-total"><span className="usage-total">{money(total?.cost_usd ?? 0)}</span><span className="usage-cap">{cap === null ? 'No monthly cap' : `of a ${money(cap)} monthly cap`}</span>{atCap && <Badge tone="failed">Cap reached</Badge>}</div>{cap !== null && <progress className="usage-progress" role="img" aria-label={`${percent} percent of the monthly cap`} max={100} value={percent} />}<span className="phone-hint">{compactTokens(total?.input_tokens ?? 0)} tokens in · {compactTokens(total?.output_tokens ?? 0)} tokens out · {tokens(total?.calls ?? 0)} model calls</span></div></Row></Frame> : (
-      <Frame hint="The cost is what the serving model's own price list makes of the tokens it reported. An administrator of this installation sets the cap and can raise it.">
+      <Frame hint="The cost is what the serving model's own price list makes of the tokens it reported. An Administrator sets this Workspace's monthly cap and can raise it.">
         <Row>
           <span className="usage-total">{money(total?.cost_usd ?? 0)}</span>
           {cap === null ? (
@@ -107,7 +107,7 @@ export function Usage({ api }: { api: ApiClient }) {
           (usage.data?.runs ?? []).map((run) => <RunRow key={run.run_id} run={run} />)
         )}
       </Frame>
-      {phone && <p className="phone-hint">An administrator of this installation sets the cap and can raise it.</p>}
+      {phone && <p className="phone-hint">An Administrator sets this Workspace's monthly cap and can raise it.</p>}
     </section>
   )
 }

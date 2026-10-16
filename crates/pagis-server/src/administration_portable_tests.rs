@@ -35,6 +35,7 @@ async fn sections_name_neither_settings_nor_restart() {
         serde_json::json!([
             "spend",
             "people",
+            "workspaces",
             "sessions",
             "resources",
             "providers",

@@ -36,16 +36,16 @@ Administrator, the Person and both roles.
 
 There is no sign-up. An Administrator creates every account in the
 Administration Interface, and also disables and restores an account, resets a
-password, reads the roster with each last sign-in and each Person's spend, and
-sets each Spend Cap. A disabled account signs in to nothing and keeps what it
-owns. Disabling and resetting a password both end every Session of that Person
-at once. A new Person gets a seeded Workspace with the Administrator's
-timezone until their first sign-in (ADR-0006), and opens Onboarding in the
-Product App. The server names the steps: Welcome, Model, Profile, and Computer
-when it has Computers. A Person chooses from the models the installation's
-keys reach, enters their name and timezone, and can rename the Chief of Staff.
-A Person on a Server enters no provider key. Completion marks their Workspace
-as onboarded.
+password, reads the roster with each last sign-in, reads each Workspace's
+spend, and sets each Workspace's Spend Cap. A disabled account signs in to
+nothing and keeps what it owns. Disabling and resetting a password both end
+every Session of that Person at once. A new Person gets a seeded Workspace
+with the Administrator's timezone until their first sign-in (ADR-0006), and
+opens Onboarding in the Product App. The server names the steps: Welcome,
+Model, Profile, and Computer when it has Computers. A Person chooses from the
+models the installation's keys reach, enters their name and timezone, and can
+rename the Chief of Staff. A Person on a Server enters no provider key.
+Completion marks their Workspace as onboarded.
 
 ### Private and Shared Workspaces have different access rules
 
@@ -108,7 +108,7 @@ alone reads or writes it, on the Administration Port (ADR-0024).
 | The Installation Connections: the carrier and the mail domain | Agent Mailboxes; Workspace Mailbox and Workspace Number are not built |
 | The installed Plugins and their Bindings | Which Agent holds a Grant to a Plugin |
 | The System Settings: the ports, the Docker endpoint, the log level, the data directory | The timezone |
-| The roster and each Org role | The Spend Cap; independent Workspace caps are not built |
+| The roster and each Org role | The Spend Cap |
 | | The Agents, the memory, the conversations, the Files, the Vault, the Software List |
 | The Awake Cap on Computers | The Retention windows |
 | The Home Exit System Setting, which turns the Home Exit off for every Person (ADR-0029) | The Home Exit: which Host of the Person their Computers reach the internet through |
@@ -117,9 +117,9 @@ A Person holds and reads no provider key. The Administrator supplies one key
 for each provider, and each Person chooses what to think with.
 
 A Spend Cap belongs to a Workspace. It is the most it may spend on model calls
-in a calendar month of its timezone, in US dollars (ADR-0039). Not built: a
-cap independent of a Person. The daemon sets each Person's cap and counts
-spend for each Workspace. No cap means no stop. A Run checks the Spend Cap
+in a calendar month of its timezone, in US dollars (ADR-0039). An
+Administrator sets it for each Workspace. The daemon counts spend for each
+Workspace. No cap means no stop. A Run checks the Spend Cap
 before each model call, in every Turn. It stops before the call that would go
 over the cap, or use a model with no known price. It ends `failed` with
 `SpendCapReached`. Its earlier replies stay in the conversation, and a note

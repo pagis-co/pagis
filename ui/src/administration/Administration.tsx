@@ -17,6 +17,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { createApiClient, type ApiClient } from '../api/client'
 import { SignIn } from '../SignIn'
 import { Plugins } from '../components/Plugins'
+import { Workspaces } from '../components/settings/Workspaces'
 import { People } from '../components/settings/People'
 import { SystemSection } from '../components/settings/SystemSection'
 import { ReadingColumn } from '../primitives'
@@ -113,6 +114,7 @@ export function AdministrationShell({
         <ReadingColumn>
           {view === 'spend' && <Spend api={api} />}
           {view === 'people' && <People api={api} />}
+          {view === 'workspaces' && <Workspaces api={api} />}
           {view === 'sessions' && <Sessions api={api} hostsAvailable={sections.data.sections.includes('hosts')} />}
           {view === 'resources' && <Resources api={api} />}
           {view === 'providers' && <Providers api={api} />}

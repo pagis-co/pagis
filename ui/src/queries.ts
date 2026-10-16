@@ -3024,7 +3024,7 @@ export interface UsagePeriod {
   to?: number;
 }
 
-/** Spend per person for a period. With no period it is the calendar
+/** Spend per Workspace for a period. With no period it is the calendar
  *  month, which is the period the Spend Cap counts. */
 export function useInstallationUsage(api: ApiClient, period: UsagePeriod = {}) {
   return useQuery({
@@ -3144,8 +3144,7 @@ export function useSetSignIn(api: ApiClient) {
   });
 }
 
-/** What the signed-in person spent this month, and the cap they are
- *  under. Every person reads their own. */
+/** What the current Workspace spent this month, and its Spend Cap. Every person reads their own. */
 export function useMyUsage(api: ApiClient) {
   const workspaceId = useCurrentWorkspaceId();
   return useQuery({
@@ -3231,17 +3230,26 @@ export function useSetPersonRole(api: ApiClient) {
   });
 }
 
+export const workspacesKey = ["administration", "workspaces"] as const;
+
+export function useAdministrationWorkspaces(api: ApiClient) {
+  return useQuery({ queryKey: workspacesKey, queryFn: async () =>
+    (await unwrap(api.GET("/api/v1/administration/workspaces"))).items });
+}
+
 export function useSetSpendCap(api: ApiClient) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ userId, capUsd }: { userId: string; capUsd: number | null }) =>
-      unwrap(
-        api.PUT("/api/v1/administration/people/{user_id}/spend-cap", {
-          params: { path: { user_id: userId } },
-          body: { monthly_spend_cap_usd: capUsd },
-        }),
-      ),
-    onSuccess: () => invalidatePeople(queryClient),
+    mutationFn: ({ workspaceId, capUsd }: { workspaceId: string; capUsd: number | null }) =>
+      unwrap(api.PUT("/api/v1/administration/workspaces/{workspace_id}/spend-cap", {
+        params: { path: { workspace_id: workspaceId } },
+        body: { monthly_spend_cap_usd: capUsd },
+      })),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: workspacesKey });
+      void queryClient.invalidateQueries({ queryKey: ["administration", "usage"] });
+      void queryClient.invalidateQueries({ queryKey: ["workspace"] });
+    },
   });
 }
 

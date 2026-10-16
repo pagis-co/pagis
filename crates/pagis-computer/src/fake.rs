@@ -1472,6 +1472,7 @@ impl FakeWorkspaces {
     /// One Workspace of a Person of its own, in UTC, with no Home Exit.
     pub fn workspace(id: &WorkspaceId, timezone: &str) -> Workspace {
         Workspace {
+            monthly_spend_cap_usd: None,
             id: id.clone(),
             user_id: pagis_core::UserId::generate(),
             name: "test".to_string(),
@@ -1499,6 +1500,14 @@ impl FakeWorkspaces {
 
 #[async_trait]
 impl WorkspaceStore for FakeWorkspaces {
+    async fn set_monthly_spend_cap(
+        &self,
+        id: &WorkspaceId,
+        cap_usd: Option<f64>,
+    ) -> Result<bool, StoreError> {
+        Ok(self.change(id, |workspace| workspace.monthly_spend_cap_usd = cap_usd))
+    }
+
     /// A Workspace with the id of one that is here replaces it.
     async fn create(&self, workspace: &Workspace) -> Result<(), StoreError> {
         let mut workspaces = self.workspaces.lock().expect("fake workspaces");

@@ -24,6 +24,7 @@ fn row_to_workspace(row: &sqlx::sqlite::SqliteRow) -> Workspace {
         user_id: UserId::from(row.get::<String, _>("user_id")),
         name: row.get("name"),
         timezone: row.get("timezone"),
+        monthly_spend_cap_usd: row.get("monthly_spend_cap_usd"),
         created_at: row.get("created_at"),
         onboarded_at: row.get("onboarded_at"),
         chief_of_staff_agent_id: row
@@ -40,13 +41,29 @@ fn row_to_workspace(row: &sqlx::sqlite::SqliteRow) -> Workspace {
 
 /// The columns [`row_to_workspace`] reads, in one place.
 const COLUMNS: &str = "id, user_id, name, timezone, created_at, onboarded_at, \
-     chief_of_staff_agent_id, report_schedule_id, home_exit_host_id";
+     chief_of_staff_agent_id, report_schedule_id, home_exit_host_id, monthly_spend_cap_usd";
 
 #[async_trait]
 impl WorkspaceStore for SqliteWorkspaceStore {
+    async fn set_monthly_spend_cap(
+        &self,
+        id: &WorkspaceId,
+        cap_usd: Option<f64>,
+    ) -> Result<bool, StoreError> {
+        let updated = sqlx::query(
+            "UPDATE workspaces SET monthly_spend_cap_usd = ? WHERE id = ? AND user_id IS NOT NULL",
+        )
+        .bind(cap_usd)
+        .bind(id.as_str())
+        .execute(&self.pool)
+        .await
+        .map_err(db_err)?;
+        Ok(updated.rows_affected() == 1)
+    }
+
     async fn create(&self, workspace: &Workspace) -> Result<(), StoreError> {
         sqlx::query(&format!(
-            "INSERT INTO workspaces ({COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            "INSERT INTO workspaces ({COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         ))
         .bind(workspace.id.as_str())
         .bind(workspace.user_id.as_str())
@@ -67,6 +84,7 @@ impl WorkspaceStore for SqliteWorkspaceStore {
                 .map(ScheduleId::as_str),
         )
         .bind(workspace.home_exit_host_id.as_ref().map(HostId::as_str))
+        .bind(workspace.monthly_spend_cap_usd)
         .execute(&self.pool)
         .await
         .map_err(db_err)?;

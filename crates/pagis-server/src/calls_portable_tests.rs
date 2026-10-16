@@ -36,6 +36,7 @@ async fn portable_archive_releases_credentials_sleeps_mailbox_and_reports_no_num
     stores
         .workspaces
         .create(&Workspace {
+            monthly_spend_cap_usd: None,
             id: workspace_id.clone(),
             user_id: user_id.clone(),
             name: "Workspace".into(),

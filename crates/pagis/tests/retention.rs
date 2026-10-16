@@ -21,6 +21,7 @@ async fn fixture(pool: SqlitePool) -> Fixture {
             .await
             .unwrap();
     let workspace = Workspace {
+        monthly_spend_cap_usd: None,
         user_id: person.id.clone(),
         id: WorkspaceId::generate(),
         name: "ws".to_string(),

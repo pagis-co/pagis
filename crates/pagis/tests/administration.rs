@@ -499,27 +499,16 @@ async fn a_password_reset_ends_the_old_sessions_and_the_new_password_works() {
 }
 
 /// The roster names every person with their role, their last sign-in
-/// and their cap.
+/// and their role.
 #[tokio::test]
-async fn the_roster_names_every_person_with_the_last_sign_in_and_the_cap() {
+async fn the_roster_names_every_person_with_the_last_sign_in() {
     let daemon = TestDaemon::start().await;
     let person = create_account(&daemon, "grace@example.com").await;
-    let id = person["id"].as_str().unwrap().to_string();
     assert!(person["last_signed_in_at"].is_null(), "{person}");
 
     sign_in(&daemon, "grace@example.com", PASSWORD)
         .await
         .expect("sign in");
-    client()
-        .put(format!(
-            "{}/api/v1/administration/people/{id}/spend-cap",
-            daemon.administration_base_url
-        ))
-        .header("cookie", daemon.cookie())
-        .json(&serde_json::json!({ "monthly_spend_cap_usd": 25.0 }))
-        .send()
-        .await
-        .unwrap();
 
     let items = roster(&daemon).await;
     assert_eq!(items.len(), 2);
@@ -528,7 +517,6 @@ async fn the_roster_names_every_person_with_the_last_sign_in_and_the_cap() {
         .find(|item| item["email"] == "grace@example.com")
         .expect("the new person is on the roster");
     assert_eq!(grace["role"], "member");
-    assert_eq!(grace["monthly_spend_cap_usd"], 25.0);
     assert!(!grace["last_signed_in_at"].is_null(), "{grace}");
     let administrator = items
         .iter()
@@ -537,17 +525,17 @@ async fn the_roster_names_every_person_with_the_last_sign_in_and_the_cap() {
     assert_eq!(administrator["role"], "administrator");
 }
 
-/// A cap is a positive number of dollars or nothing at all.
+/// A cap is a non-negative number of dollars or nothing at all.
 #[tokio::test]
-async fn a_spend_cap_is_a_positive_amount_or_none() {
+async fn a_spend_cap_is_a_non_negative_amount_or_none() {
     let daemon = TestDaemon::start().await;
     let person = create_account(&daemon, "grace@example.com").await;
-    let id = person["id"].as_str().unwrap().to_string();
+    let id = person["workspace_id"].as_str().unwrap().to_string();
 
-    for bad in [serde_json::json!(0.0), serde_json::json!(-5.0)] {
+    for bad in [serde_json::json!(-5.0)] {
         let response = client()
             .put(format!(
-                "{}/api/v1/administration/people/{id}/spend-cap",
+                "{}/api/v1/administration/workspaces/{id}/spend-cap",
                 daemon.administration_base_url
             ))
             .header("cookie", daemon.cookie())
@@ -560,7 +548,7 @@ async fn a_spend_cap_is_a_positive_amount_or_none() {
 
     let cleared: serde_json::Value = client()
         .put(format!(
-            "{}/api/v1/administration/people/{id}/spend-cap",
+            "{}/api/v1/administration/workspaces/{id}/spend-cap",
             daemon.administration_base_url
         ))
         .header("cookie", daemon.cookie())
@@ -975,4 +963,74 @@ async fn resetting_a_password_ends_the_takeover_of_the_person() {
 #[tokio::test]
 async fn setting_a_way_in_ends_the_takeover_of_the_person() {
     the_takeover_of_the_person_ends(EverySessionEnds::SetWayIn).await;
+}
+
+/// An Administrator reads each Workspace and changes only its Spend Cap.
+#[tokio::test]
+async fn an_administrator_lists_workspaces_and_sets_their_caps() {
+    let daemon = TestDaemon::start().await;
+    let person = create_account(&daemon, "grace@example.com").await;
+    let workspace_id = person["workspace_id"].as_str().unwrap();
+    let response = client()
+        .get(format!(
+            "{}/api/v1/administration/workspaces",
+            daemon.administration_base_url
+        ))
+        .header("cookie", daemon.cookie())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let listed: serde_json::Value = response.json().await.unwrap();
+    let items = listed["items"].as_array().unwrap();
+    assert_eq!(items.len(), 2);
+    let workspace = items
+        .iter()
+        .find(|item| item["id"] == workspace_id)
+        .unwrap();
+    assert_eq!(workspace["person"]["id"], person["id"]);
+    assert_eq!(workspace["person"]["email"], "grace@example.com");
+    assert!(!workspace["name"].as_str().unwrap().is_empty());
+    assert_eq!(workspace["total"]["cost_usd"], 0.0);
+    for cap in [
+        serde_json::json!(25.0),
+        serde_json::json!(0.0),
+        serde_json::Value::Null,
+    ] {
+        let response = client()
+            .put(format!(
+                "{}/api/v1/administration/workspaces/{workspace_id}/spend-cap",
+                daemon.administration_base_url
+            ))
+            .header("cookie", daemon.cookie())
+            .json(&serde_json::json!({ "monthly_spend_cap_usd": cap }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let saved: serde_json::Value = response.json().await.unwrap();
+        assert_eq!(saved["monthly_spend_cap_usd"], cap);
+    }
+    let cookie = sign_in(&daemon, "grace@example.com", PASSWORD)
+        .await
+        .unwrap();
+    for (method, path) in [
+        (
+            reqwest::Method::GET,
+            "/api/v1/administration/workspaces".to_string(),
+        ),
+        (
+            reqwest::Method::PUT,
+            format!("/api/v1/administration/workspaces/{workspace_id}/spend-cap"),
+        ),
+    ] {
+        let response = client()
+            .request(method, format!("{}{path}", daemon.administration_base_url))
+            .header("cookie", &cookie)
+            .json(&serde_json::json!({ "monthly_spend_cap_usd": 1.0 }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
 }

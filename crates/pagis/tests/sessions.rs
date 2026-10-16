@@ -72,6 +72,7 @@ async fn second_person(pool: &SqlitePool, email: &str, password: &str) -> (User,
         .await
         .expect("create the person");
     let workspace = Workspace {
+        monthly_spend_cap_usd: None,
         id: WorkspaceId::generate(),
         user_id: person.id.clone(),
         name: "Grace".to_string(),
