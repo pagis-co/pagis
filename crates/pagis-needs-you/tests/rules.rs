@@ -169,7 +169,11 @@ fn a_failed_read_does_not_change_the_last_item_ids() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 fn a_notification_goes_at_once_without_activity() {
     let activity = Arc::new(PersonActivity::new());
-    let mut rule = NotificationRule::new(workspace("a"), activity);
+    let mut rule = NotificationRule::new(
+        workspace("a"),
+        pagis_core::UserId::from("a".to_string()),
+        activity,
+    );
     assert_eq!(rule.on_event(&added("a"), 0), vec![Action::Send(queued())]);
 }
 
@@ -177,8 +181,12 @@ fn a_notification_goes_at_once_without_activity() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 fn a_hold_ends_120_seconds_after_the_last_activity() {
     let activity = Arc::new(PersonActivity::new());
-    activity.record(&workspace("a"), 0);
-    let mut rule = NotificationRule::new(workspace("a"), activity);
+    activity.record(&pagis_core::UserId::from("a".to_string()), 0);
+    let mut rule = NotificationRule::new(
+        workspace("a"),
+        pagis_core::UserId::from("a".to_string()),
+        activity,
+    );
     assert_eq!(
         rule.on_event(&added("a"), 1),
         vec![Action::Hold {
@@ -202,10 +210,14 @@ fn a_hold_ends_120_seconds_after_the_last_activity() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 fn a_hold_that_ends_while_the_person_is_active_waits_again() {
     let activity = Arc::new(PersonActivity::new());
-    activity.record(&workspace("a"), 0);
-    let mut rule = NotificationRule::new(workspace("a"), activity.clone());
+    activity.record(&pagis_core::UserId::from("a".to_string()), 0);
+    let mut rule = NotificationRule::new(
+        workspace("a"),
+        pagis_core::UserId::from("a".to_string()),
+        activity.clone(),
+    );
     rule.on_event(&added("a"), 0);
-    activity.record(&workspace("a"), 100_000);
+    activity.record(&pagis_core::UserId::from("a".to_string()), 100_000);
     assert_eq!(
         rule.on_hold_end(held(Some(queued())), 120_000),
         vec![Action::Hold {
@@ -228,8 +240,12 @@ fn a_hold_that_ends_while_the_person_is_active_waits_again() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 fn an_item_that_leaves_ends_its_hold_at_once() {
     let activity = Arc::new(PersonActivity::new());
-    activity.record(&workspace("a"), 0);
-    let mut rule = NotificationRule::new(workspace("a"), activity);
+    activity.record(&pagis_core::UserId::from("a".to_string()), 0);
+    let mut rule = NotificationRule::new(
+        workspace("a"),
+        pagis_core::UserId::from("a".to_string()),
+        activity,
+    );
     rule.on_event(&added("a"), 0);
     assert_eq!(
         rule.on_event(
@@ -251,11 +267,15 @@ fn an_item_that_leaves_ends_its_hold_at_once() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 fn another_workspace_cannot_start_or_end_a_hold() {
     let activity = Arc::new(PersonActivity::new());
-    activity.record(&workspace("b"), 0);
-    let mut rule = NotificationRule::new(workspace("a"), activity.clone());
+    activity.record(&pagis_core::UserId::from("b".to_string()), 0);
+    let mut rule = NotificationRule::new(
+        workspace("a"),
+        pagis_core::UserId::from("a".to_string()),
+        activity.clone(),
+    );
     assert!(rule.on_event(&added("b"), 0).is_empty());
     assert_eq!(rule.on_event(&added("a"), 0), vec![Action::Send(queued())]);
-    activity.record(&workspace("a"), 0);
+    activity.record(&pagis_core::UserId::from("a".to_string()), 0);
     rule.on_event(&added("a"), 0);
     assert!(
         rule.on_event(
@@ -271,7 +291,11 @@ fn another_workspace_cannot_start_or_end_a_hold() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 fn malformed_and_unrelated_events_change_nothing() {
     let activity = Arc::new(PersonActivity::new());
-    let mut rule = NotificationRule::new(workspace("a"), activity);
+    let mut rule = NotificationRule::new(
+        workspace("a"),
+        pagis_core::UserId::from("a".to_string()),
+        activity,
+    );
     assert!(
         rule.on_event(&event("a", "needs_you.added", json!({})), 0)
             .is_empty()
@@ -290,8 +314,12 @@ fn malformed_and_unrelated_events_change_nothing() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 fn an_item_that_leaves_without_an_event_ends_its_hold_without_a_send() {
     let activity = Arc::new(PersonActivity::new());
-    activity.record(&workspace("a"), 0);
-    let mut rule = NotificationRule::new(workspace("a"), activity);
+    activity.record(&pagis_core::UserId::from("a".to_string()), 0);
+    let mut rule = NotificationRule::new(
+        workspace("a"),
+        pagis_core::UserId::from("a".to_string()),
+        activity,
+    );
     rule.on_event(&added("a"), 0);
     assert_eq!(
         rule.on_hold_end(held(None), 120_000),
@@ -305,8 +333,12 @@ fn an_item_that_leaves_without_an_event_ends_its_hold_without_a_send() {
 #[cfg_attr(not(target_arch = "wasm32"), test)]
 fn a_released_item_uses_the_current_item_and_count() {
     let activity = Arc::new(PersonActivity::new());
-    activity.record(&workspace("a"), 0);
-    let mut rule = NotificationRule::new(workspace("a"), activity);
+    activity.record(&pagis_core::UserId::from("a".to_string()), 0);
+    let mut rule = NotificationRule::new(
+        workspace("a"),
+        pagis_core::UserId::from("a".to_string()),
+        activity,
+    );
     rule.on_event(&added("a"), 0);
     let current = QueuedItem {
         item: item(),
@@ -320,5 +352,23 @@ fn a_released_item_uses_the_current_item_and_count() {
             },
             Action::Send(current)
         ]
+    );
+}
+
+#[test]
+fn one_shared_workspace_members_activity_does_not_hold_another_members_notification() {
+    let activity = Arc::new(PersonActivity::new());
+    let alice = pagis_core::UserId::from("alice".to_string());
+    let bob = pagis_core::UserId::from("bob".to_string());
+    activity.record(&alice, 0);
+    let mut alice_rule = NotificationRule::new(workspace("team"), alice, activity.clone());
+    let mut bob_rule = NotificationRule::new(workspace("team"), bob, activity);
+    assert!(matches!(
+        alice_rule.on_event(&added("team"), 1).as_slice(),
+        [Action::Hold { .. }]
+    ));
+    assert_eq!(
+        bob_rule.on_event(&added("team"), 1),
+        vec![Action::Send(queued())]
     );
 }

@@ -9,7 +9,7 @@
 
 CREATE TABLE push_subscriptions (
     id TEXT PRIMARY KEY,
-    workspace_id TEXT NOT NULL REFERENCES workspaces (id),
+    user_id TEXT NOT NULL REFERENCES users (id),
     session_id TEXT NOT NULL REFERENCES sessions (id) ON DELETE CASCADE,
     endpoint TEXT NOT NULL UNIQUE,
     p256dh TEXT NOT NULL,
@@ -17,5 +17,5 @@ CREATE TABLE push_subscriptions (
     created_at INTEGER NOT NULL,
     last_sent_at INTEGER
 );
-CREATE INDEX idx_push_subscriptions_workspace ON push_subscriptions (workspace_id);
+CREATE INDEX idx_push_subscriptions_person ON push_subscriptions (user_id);
 CREATE INDEX idx_push_subscriptions_session ON push_subscriptions (session_id);

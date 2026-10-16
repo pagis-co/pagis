@@ -3,14 +3,13 @@
 use async_trait::async_trait;
 use pagis_core::{
     PushSubscription, PushSubscriptionId, PushSubscriptionStore, SessionId, StoreError, UnixMillis,
-    WorkspaceId,
+    UserId,
 };
 use sqlx::{Row, SqlitePool};
 
 use crate::db_err;
 
-const COLUMNS: &str =
-    "id, workspace_id, session_id, endpoint, p256dh, auth, created_at, last_sent_at";
+const COLUMNS: &str = "id, user_id, session_id, endpoint, p256dh, auth, created_at, last_sent_at";
 
 #[derive(Clone)]
 pub struct SqlitePushSubscriptionStore {
@@ -26,7 +25,7 @@ impl SqlitePushSubscriptionStore {
 fn row_to_subscription(row: &sqlx::sqlite::SqliteRow) -> PushSubscription {
     PushSubscription {
         id: PushSubscriptionId::from(row.get::<String, _>("id")),
-        workspace_id: WorkspaceId::from(row.get::<String, _>("workspace_id")),
+        user_id: UserId::from(row.get::<String, _>("user_id")),
         session_id: SessionId::from(row.get::<String, _>("session_id")),
         endpoint: row.get("endpoint"),
         p256dh: row.get("p256dh"),
@@ -49,7 +48,7 @@ impl PushSubscriptionStore for SqlitePushSubscriptionStore {
         let row = sqlx::query(&format!(
             "INSERT INTO push_subscriptions ({COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?) \
              ON CONFLICT (endpoint) DO UPDATE SET \
-             workspace_id = excluded.workspace_id, session_id = excluded.session_id, \
+             user_id = excluded.user_id, session_id = excluded.session_id, \
              p256dh = excluded.p256dh, auth = excluded.auth, \
              created_at = CASE WHEN push_subscriptions.session_id = excluded.session_id \
              THEN push_subscriptions.created_at ELSE excluded.created_at END, \
@@ -58,7 +57,7 @@ impl PushSubscriptionStore for SqlitePushSubscriptionStore {
              RETURNING {COLUMNS}"
         ))
         .bind(subscription.id.as_str())
-        .bind(subscription.workspace_id.as_str())
+        .bind(subscription.user_id.as_str())
         .bind(subscription.session_id.as_str())
         .bind(&subscription.endpoint)
         .bind(&subscription.p256dh)
@@ -71,41 +70,36 @@ impl PushSubscriptionStore for SqlitePushSubscriptionStore {
         Ok(row_to_subscription(&row))
     }
 
-    async fn list(&self, workspace_id: &WorkspaceId) -> Result<Vec<PushSubscription>, StoreError> {
+    async fn list(&self, user_id: &UserId) -> Result<Vec<PushSubscription>, StoreError> {
         let rows = sqlx::query(&format!(
-            "SELECT {COLUMNS} FROM push_subscriptions WHERE workspace_id = ? ORDER BY id"
+            "SELECT {COLUMNS} FROM push_subscriptions WHERE user_id = ? ORDER BY id"
         ))
-        .bind(workspace_id.as_str())
+        .bind(user_id.as_str())
         .fetch_all(&self.pool)
         .await
         .map_err(db_err)?;
         Ok(rows.iter().map(row_to_subscription).collect())
     }
 
-    async fn delete(
-        &self,
-        workspace_id: &WorkspaceId,
-        id: &PushSubscriptionId,
-    ) -> Result<bool, StoreError> {
-        let deleted =
-            sqlx::query("DELETE FROM push_subscriptions WHERE id = ? AND workspace_id = ?")
-                .bind(id.as_str())
-                .bind(workspace_id.as_str())
-                .execute(&self.pool)
-                .await
-                .map_err(db_err)?;
+    async fn delete(&self, user_id: &UserId, id: &PushSubscriptionId) -> Result<bool, StoreError> {
+        let deleted = sqlx::query("DELETE FROM push_subscriptions WHERE id = ? AND user_id = ?")
+            .bind(id.as_str())
+            .bind(user_id.as_str())
+            .execute(&self.pool)
+            .await
+            .map_err(db_err)?;
         Ok(deleted.rows_affected() == 1)
     }
 
     async fn delete_by_endpoint(
         &self,
-        workspace_id: &WorkspaceId,
+        user_id: &UserId,
         endpoint: &str,
     ) -> Result<bool, StoreError> {
         let deleted =
-            sqlx::query("DELETE FROM push_subscriptions WHERE endpoint = ? AND workspace_id = ?")
+            sqlx::query("DELETE FROM push_subscriptions WHERE endpoint = ? AND user_id = ?")
                 .bind(endpoint)
-                .bind(workspace_id.as_str())
+                .bind(user_id.as_str())
                 .execute(&self.pool)
                 .await
                 .map_err(db_err)?;
@@ -114,17 +108,17 @@ impl PushSubscriptionStore for SqlitePushSubscriptionStore {
 
     async fn mark_sent(
         &self,
-        workspace_id: &WorkspaceId,
+        user_id: &UserId,
         id: &PushSubscriptionId,
         at: UnixMillis,
     ) -> Result<bool, StoreError> {
         let updated = sqlx::query(
             "UPDATE push_subscriptions SET last_sent_at = ? \
-             WHERE id = ? AND workspace_id = ?",
+             WHERE id = ? AND user_id = ?",
         )
         .bind(at)
         .bind(id.as_str())
-        .bind(workspace_id.as_str())
+        .bind(user_id.as_str())
         .execute(&self.pool)
         .await
         .map_err(db_err)?;

@@ -977,6 +977,11 @@ Not built: the account-creation record and its events (ADR-0018).
 
 ### Connection
 A Workspace's link to one account at an external provider, such as Google.
+A Google Connection in a Private Workspace is the Person's personal account.
+A Manager explicitly connects a team account in a Shared Workspace. That
+Connection belongs to the Shared Workspace, never to the Manager. A Shared
+Workspace refuses personal Google Connections. Agents use either account
+through Connection Grants.
 The Person connects once, and Agents use it through Grants and name it by
 its alias. The Person connects Google by signing in at Google against
 the Installation OAuth Client, and types no client and no account. A
@@ -1202,6 +1207,7 @@ that the proxy holds (ADR-0029).
 _Avoid_: egress proxy, outbound proxy
 
 ### Home Exit
+The Home Exit belongs only to a Private Workspace. A Shared Workspace has none.
 The one Host of a Person through which that Person's Computers on a Server
 reach the internet, so that sites see the Person's own connection and not
 a data-center address. The Person chooses it in Settings, knowing its
@@ -1217,6 +1223,7 @@ exit in use: `exit: <Host name>` while the Home Exit is present, and
 _Avoid_: residential proxy, exit node
 
 ### Host
+Hosts belong only to a Private Workspace. A Shared Workspace refuses Host registration.
 One machine of one Person that their Agents can act on: the Client App
 running there, with its name, platform, capabilities and last-seen time. A
 host action runs there as the Person's own OS user, never in the daemon.
@@ -1431,8 +1438,7 @@ failed attempts across the Workspace, the code is refused for a delay
 that starts at 1 minute and doubles with each further failure, up to 24
 hours. A correct code or the Person in
 Settings clears the count (ADR-0021).
-Not built: the rule that a Shared Workspace
-has no Keypad Code (ADR-0039).
+A Shared Workspace has no Keypad Code (ADR-0039).
 
 ### Listen-Live
 The Person hearing a Call while it happens, with no way to speak or act on
@@ -1665,7 +1671,9 @@ ADR-0030).
 ### Notification
 A Web Push to each Push Subscription of the Person when an item enters the
 Needs-You Queue. It waits while the Person is active in a client: a
-visible client had input in the last 120 s (ADR-0030).
+visible client had input in the last 120 s. Activity is kept for each Person
+across all Workspaces. One member's activity holds none of another member's
+Notifications (ADR-0030).
 _Avoid_: alert, push message
 
 ### Person Notice
@@ -1684,7 +1692,7 @@ The daemon's derived line for one Run: what it does now, from the Run
 state and the tool call in flight (ADR-0004).
 
 ### Push Subscription
-The push endpoint and the keys of one client. It belongs to one Session
+The push endpoint and the keys of one client, keyed by Person. It belongs to one Session
 and ends with it (ADR-0030). The device keeps the Public Origin and server
 record id with its subscription state. A browser keeps this state in the
 storage of its origin; the Mobile App keeps it in native storage. At a

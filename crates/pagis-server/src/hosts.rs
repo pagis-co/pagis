@@ -135,6 +135,9 @@ pub async fn list_my_hosts(
     }
     #[cfg(feature = "native")]
     {
+        if !tenant.is_private() {
+            return Ok(Json(HostsDto { items: Vec::new() }));
+        }
         let mut items = Vec::new();
         for host in state.hosts.list(&tenant.workspace_id).await? {
             items.push(host_dto(&state, host).await);

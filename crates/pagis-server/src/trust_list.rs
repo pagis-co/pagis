@@ -113,6 +113,13 @@ fn keypad<'a>(state: &'a AppState, tenant: &Tenant) -> KeypadCode<'a> {
 
 /// The Keypad Code card of the signed-in person's Workspace.
 async fn keypad_card(state: &AppState, tenant: &Tenant) -> Result<KeypadCodeDto, ApiError> {
+    if !tenant.is_private() {
+        return Ok(KeypadCodeDto {
+            configured: false,
+            failed_attempts: 0,
+            suspended_until: None,
+        });
+    }
     let configured = keypad(state, tenant)
         .is_set()
         .map_err(|_| ApiError::internal())?;
@@ -217,6 +224,7 @@ pub async fn delete_trust_entry(
 #[utoipa::path(put, path = "/api/v1/settings/keypad-code",
     request_body = SetKeypadCodeRequest, responses(
         (status = 200, body = KeypadCodeDto),
+        (status = 409, body = crate::error::ErrorBody),
         (status = 401, body = crate::error::ErrorBody),
         (status = 422, body = crate::error::ErrorBody),
     )
@@ -226,6 +234,7 @@ pub async fn set_keypad_code(
     tenant: Tenant,
     Json(request): Json<SetKeypadCodeRequest>,
 ) -> Result<Json<KeypadCodeDto>, ApiError> {
+    tenant.require_private("Keypad Code")?;
     keypad(&state, &tenant)
         .set(request.code.trim())
         .map_err(|error| ApiError::validation(error.to_string()))?;
@@ -234,12 +243,14 @@ pub async fn set_keypad_code(
 
 #[utoipa::path(delete, path = "/api/v1/settings/keypad-code", responses(
     (status = 204),
-    (status = 401, body = crate::error::ErrorBody),
+    (status = 409, body = crate::error::ErrorBody),
+        (status = 401, body = crate::error::ErrorBody),
 ))]
 pub async fn delete_keypad_code(
     State(state): State<Arc<AppState>>,
     tenant: Tenant,
 ) -> Result<StatusCode, ApiError> {
+    tenant.require_private("Keypad Code")?;
     keypad(&state, &tenant)
         .clear()
         .map_err(|_| ApiError::internal())?;
@@ -253,12 +264,14 @@ pub async fn delete_keypad_code(
 /// `keypad.cleared`, so the keypad item leaves the Needs-You Queue.
 #[utoipa::path(delete, path = "/api/v1/settings/keypad-code/failures", responses(
     (status = 204),
-    (status = 401, body = crate::error::ErrorBody),
+    (status = 409, body = crate::error::ErrorBody),
+        (status = 401, body = crate::error::ErrorBody),
 ))]
 pub async fn clear_keypad_failures(
     State(state): State<Arc<AppState>>,
     tenant: Tenant,
 ) -> Result<StatusCode, ApiError> {
+    tenant.require_private("Keypad Code")?;
     state.keypad_failures.clear(&tenant.workspace_id).await?;
     state
         .bus

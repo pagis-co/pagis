@@ -44,6 +44,7 @@ pub async fn check_host(
     tenant: &Tenant,
     host_id: &HostId,
 ) -> Result<Host, ApiError> {
+    tenant.require_private("Hosts")?;
     let workspace_id = &tenant.workspace_id;
     // The read names the Workspace, so the Host of another Person is
     // absent here.

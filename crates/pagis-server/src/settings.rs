@@ -319,6 +319,10 @@ pub struct ConnectionPage {
 #[cfg(feature = "native")]
 #[derive(Deserialize, ToSchema)]
 pub struct CreateConnectionRequest {
+    /// Confirms that the account belongs to the Shared Workspace.
+    /// Personal Google sign-in leaves this false.
+    #[serde(default)]
+    pub shared_account: bool,
     /// The `id` of a catalog entry.
     pub provider: String,
     /// The name a tool call uses to pick this account. It is unique per

@@ -4511,6 +4511,11 @@ export interface components {
             };
             /** @description The `id` of a catalog entry. */
             provider: string;
+            /**
+             * @description Confirms that the account belongs to the Shared Workspace.
+             *     Personal Google sign-in leaves this false.
+             */
+            shared_account?: boolean;
         };
         CreateModelAliasRequest: {
             alias: string;
@@ -14113,6 +14118,14 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -14249,6 +14262,14 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
         };
     };
     set_home_exit: {
@@ -14374,6 +14395,14 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -14407,6 +14436,14 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
         };
     };
     clear_keypad_failures: {
@@ -14425,6 +14462,14 @@ export interface operations {
                 content?: never;
             };
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

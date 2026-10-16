@@ -21,7 +21,7 @@ import { NavBar } from './TopBar'
 import { useSound } from '../../state/sound'
 
 export function SettingsPhone({ api }: { api: ApiClient }) {
-  const { canManageMembers } = useWorkspaceAccess()
+  const { canManageMembers, isPrivate } = useWorkspaceAccess()
   const navigate = useNavigate()
   const user = useUser(api)
   const connections = useConnections(api)
@@ -55,7 +55,8 @@ export function SettingsPhone({ api }: { api: ApiClient }) {
           <section className="phone-section" key={group.label}>
             <SectionLabel>{group.label}</SectionLabel>
             <Frame>
-              {(group.label === 'System' ? [...group.sections].reverse() : group.sections).filter((item) => item.value !== 'members' || canManageMembers).map(
+              {(group.label === 'System' ? [...group.sections].reverse() : group.sections).filter((item) => (item.value !== 'members' || canManageMembers)
+            && (item.value !== 'hosts' || isPrivate)).map(
                 (section) => (
                   <Row
                     key={section.value}

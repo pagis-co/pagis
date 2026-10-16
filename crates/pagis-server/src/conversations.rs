@@ -65,7 +65,7 @@ fn person_dto(
 ) -> ColleagueDto {
     let active = state
         .person_activity
-        .hold_until(workspace_id, state.clock.now_ms())
+        .hold_until(&person.id, state.clock.now_ms())
         .is_some();
     ColleagueDto {
         person_id: person.id.to_string(),

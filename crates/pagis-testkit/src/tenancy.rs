@@ -604,7 +604,7 @@ async fn seed_a(
         .push_subscriptions
         .upsert(&pagis_core::PushSubscription {
             id: pagis_core::PushSubscriptionId::generate(),
-            workspace_id: workspace_id.clone(),
+            user_id: session.user_id.clone(),
             session_id: session.id.clone(),
             endpoint: "https://push.example.com/send/a".to_string(),
             p256dh: "the public key of A's phone".to_string(),

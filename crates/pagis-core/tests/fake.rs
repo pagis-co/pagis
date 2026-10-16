@@ -1184,11 +1184,11 @@ async fn participants_read_only_the_named_workspace() {
 }
 
 #[tokio::test]
-async fn push_subscriptions_read_only_the_named_workspace() {
+async fn push_subscriptions_read_only_the_named_person() {
     let stores = pagis_core::fake::stores();
     let row = PushSubscription {
         id: "push".to_string().into(),
-        workspace_id: owner(),
+        user_id: UserId::from("owner".to_string()),
         session_id: "session".to_string().into(),
         endpoint: "endpoint".into(),
         p256dh: "key".into(),
@@ -1200,7 +1200,7 @@ async fn push_subscriptions_read_only_the_named_workspace() {
     assert!(
         stores
             .push_subscriptions
-            .list(&other())
+            .list(&UserId::from("other".to_string()))
             .await
             .unwrap()
             .is_empty()
@@ -1208,7 +1208,7 @@ async fn push_subscriptions_read_only_the_named_workspace() {
     assert_eq!(
         stores
             .push_subscriptions
-            .list(&owner())
+            .list(&UserId::from("owner".to_string()))
             .await
             .unwrap()
             .len(),

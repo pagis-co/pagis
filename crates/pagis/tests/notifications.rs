@@ -80,7 +80,7 @@ impl PushService {
         &self,
         daemon: &TestDaemon,
         user_id: &UserId,
-        workspace_id: &WorkspaceId,
+        _workspace_id: &WorkspaceId,
     ) -> PushSubscription {
         let stores = daemon.stores();
         let now = now_ms();
@@ -103,7 +103,7 @@ impl PushService {
             .push_subscriptions
             .upsert(&PushSubscription {
                 id: PushSubscriptionId::generate(),
-                workspace_id: workspace_id.clone(),
+                user_id: user_id.clone(),
                 session_id: session.id,
                 endpoint: format!("{}/push/{}", self.server.uri(), SessionId::generate()),
                 p256dh: URL_SAFE_NO_PAD
@@ -278,7 +278,18 @@ async fn subscriptions(daemon: &TestDaemon, workspace_id: &WorkspaceId) -> Vec<P
     daemon
         .stores()
         .push_subscriptions
-        .list(workspace_id)
+        .list(
+            daemon
+                .stores()
+                .workspaces
+                .get(workspace_id)
+                .await
+                .unwrap()
+                .unwrap()
+                .user_id
+                .as_ref()
+                .unwrap(),
+        )
         .await
         .expect("list the Push Subscriptions")
 }

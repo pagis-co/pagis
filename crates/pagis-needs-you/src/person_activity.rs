@@ -1,5 +1,5 @@
 //! The activity of the Person in a client (ADR-0030): the time of the
-//! last `activity` frame of each Workspace.
+//! last `activity` frame of each Person.
 //!
 //! A visible client sends an `activity` frame on the event socket after
 //! input. A new Needs-You item waits while the Person used a client in
@@ -13,7 +13,7 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use pagis_core::{UnixMillis, WorkspaceId};
+use pagis_core::{UnixMillis, UserId};
 
 /// How long a new item waits after the last activity of the Person.
 pub const HOLD: UnixMillis = 120_000;
@@ -26,10 +26,10 @@ pub fn hold_until(last_active_at: UnixMillis, now: UnixMillis) -> Option<UnixMil
     (now < until).then_some(until)
 }
 
-/// The time of the last activity of each Workspace, in memory.
+/// The time of the last activity of each Person, in memory.
 #[derive(Default)]
 pub struct PersonActivity {
-    last: Mutex<HashMap<WorkspaceId, UnixMillis>>,
+    last: Mutex<HashMap<UserId, UnixMillis>>,
 }
 
 impl PersonActivity {
@@ -37,23 +37,23 @@ impl PersonActivity {
         Self::default()
     }
 
-    /// The Person used a client of `workspace_id` at `at`. A time before
+    /// The Person used a client for `user_id` at `at`. A time before
     /// the one that is kept changes nothing.
-    pub fn record(&self, workspace_id: &WorkspaceId, at: UnixMillis) {
+    pub fn record(&self, user_id: &UserId, at: UnixMillis) {
         let mut last = self.last.lock().expect("person activity lock");
-        let kept = last.entry(workspace_id.clone()).or_insert(at);
+        let kept = last.entry(user_id.clone()).or_insert(at);
         *kept = (*kept).max(at);
     }
 
-    /// Until when a new item of `workspace_id` waits at `now`, by the
-    /// rule of [`hold_until`]. A Workspace with no activity holds
+    /// Until when a new item for `user_id` waits at `now`, by the
+    /// rule of [`hold_until`]. A Person with no activity holds
     /// nothing.
-    pub fn hold_until(&self, workspace_id: &WorkspaceId, now: UnixMillis) -> Option<UnixMillis> {
+    pub fn hold_until(&self, user_id: &UserId, now: UnixMillis) -> Option<UnixMillis> {
         let last_active_at = *self
             .last
             .lock()
             .expect("person activity lock")
-            .get(workspace_id)?;
+            .get(user_id)?;
         hold_until(last_active_at, now)
     }
 }
@@ -66,8 +66,8 @@ mod tests {
     const NOW: UnixMillis = 1_790_337_600_000;
     const SECOND: UnixMillis = 1_000;
 
-    fn workspace(id: &str) -> WorkspaceId {
-        WorkspaceId::from(id.to_string())
+    fn person(id: &str) -> UserId {
+        UserId::from(id.to_string())
     }
 
     #[test]
@@ -84,29 +84,29 @@ mod tests {
     }
 
     #[test]
-    fn a_workspace_with_no_activity_holds_nothing() {
+    fn a_person_with_no_activity_holds_nothing() {
         let activity = PersonActivity::new();
 
-        assert_eq!(activity.hold_until(&workspace("w-1"), NOW), None);
+        assert_eq!(activity.hold_until(&person("w-1"), NOW), None);
     }
 
     #[test]
-    fn the_activity_of_one_workspace_holds_nothing_of_another() {
+    fn the_activity_of_one_person_holds_nothing_of_another() {
         let activity = PersonActivity::new();
 
-        activity.record(&workspace("w-1"), NOW);
+        activity.record(&person("w-1"), NOW);
 
         assert_eq!(
-            activity.hold_until(&workspace("w-1"), NOW + SECOND),
+            activity.hold_until(&person("w-1"), NOW + SECOND),
             Some(NOW + HOLD)
         );
-        assert_eq!(activity.hold_until(&workspace("w-2"), NOW + SECOND), None);
+        assert_eq!(activity.hold_until(&person("w-2"), NOW + SECOND), None);
     }
 
     #[test]
     fn a_later_activity_moves_the_hold_and_an_earlier_one_does_not() {
         let activity = PersonActivity::new();
-        let w = workspace("w-1");
+        let w = person("w-1");
 
         activity.record(&w, NOW);
         activity.record(&w, NOW + 30 * SECOND);

@@ -20,6 +20,10 @@ that the platform's sync and memory hooks use.
 
 ### A Plugin is its own record
 
+A Manager connects a team account to a Shared Workspace. Its Agents use
+that Connection through the same Connection Grants. A Plugin never uses a
+member's personal Connection from another Workspace.
+
 A Plugin is not a Connection. It consumes Connections and secrets through
 Plugin Bindings and exposes no Connection or credential path of its own.
 

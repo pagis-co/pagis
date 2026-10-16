@@ -149,7 +149,7 @@ pub async fn subscribe(
         .push_subscriptions
         .upsert(&PushSubscription {
             id: PushSubscriptionId::generate(),
-            workspace_id: tenant.workspace_id.clone(),
+            user_id: tenant.user_id.clone(),
             session_id: session.id.clone(),
             endpoint,
             p256dh,
@@ -187,7 +187,7 @@ pub async fn list_push_subscriptions(
     // to no live client, so the list leaves it out.
     let items = state
         .push_subscriptions
-        .list(&tenant.workspace_id)
+        .list(&tenant.user_id)
         .await?
         .into_iter()
         .filter_map(|row| {
@@ -218,7 +218,7 @@ pub async fn remove_push_subscription(
     match state
         .push_subscriptions
         .delete(
-            &tenant.workspace_id,
+            &tenant.user_id,
             &PushSubscriptionId::from(push_subscription_id),
         )
         .await?
@@ -284,7 +284,7 @@ pub async fn send_test_notification(
 ) -> Result<Json<PushOutcomeDto>, ApiError> {
     let row = state
         .push_subscriptions
-        .list(&tenant.workspace_id)
+        .list(&tenant.user_id)
         .await?
         .into_iter()
         .find(|row| row.id.as_str() == push_subscription_id)

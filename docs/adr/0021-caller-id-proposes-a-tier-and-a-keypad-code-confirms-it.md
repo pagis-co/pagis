@@ -40,9 +40,10 @@ number reaches an Agent that binds no tools.
 
 The Workspace Number routes an inbound Call to the Chief of Staff and can
 hand it to another active Agent of the Workspace (ADR-0041). Routing does
-not change the Trust Tier. Not built: Private and Shared Workspace kinds
-(ADR-0039). A Shared Workspace has no Keypad Code.
-Each Workspace holds one code of 6 to 8 digits, ended by a hash key or by its
+not change the Trust Tier. A Shared Workspace has no Keypad Code
+(ADR-0039). Its Keypad Code routes answer 409 with the Private Workspace
+rule. Settings shows no code control there.
+Each Private Workspace holds one code of 6 to 8 digits, ended by a hash key or by its
 length. The secret store (ADR-0013) keeps only its Argon2 hash, under a name
 that carries the Workspace, so one person's code confirms nothing on another
 person's line. The person sets and clears it through the daemon. Only the tier

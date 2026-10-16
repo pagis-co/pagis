@@ -48,7 +48,7 @@ async fn live_session(backend: &Backend, workspace: &Workspace) -> Session {
 
 /// A Push Subscription of `session` in `workspace`, not yet written.
 fn subscription(
-    workspace: &Workspace,
+    _workspace: &Workspace,
     session: &Session,
     endpoint: &str,
     keys: (&str, &str),
@@ -56,7 +56,7 @@ fn subscription(
 ) -> PushSubscription {
     PushSubscription {
         id: PushSubscriptionId::generate(),
-        workspace_id: workspace.id.clone(),
+        user_id: session.user_id.clone(),
         session_id: session.id.clone(),
         endpoint: endpoint.to_string(),
         p256dh: keys.0.to_string(),
@@ -69,7 +69,18 @@ fn subscription(
 /// A second Workspace of the same Org, for the reads that must not cross
 /// one.
 async fn second_workspace(backend: &Backend, first: &Workspace) -> Workspace {
+    let mut user = backend
+        .stores()
+        .users
+        .get(first.user_id.as_ref().unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    user.id = UserId::generate();
+    user.email = Some(format!("{}@example.com", user.id));
+    backend.stores().users.create(&user).await.unwrap();
     let second = Workspace {
+        user_id: Some(user.id),
         monthly_spend_cap_usd: None,
         id: WorkspaceId::generate(),
         ..first.clone()
@@ -92,7 +103,13 @@ pub async fn a_push_subscription_reads_back_with_its_keys(backend: &Backend) {
     let kept = store.upsert(&written).await.unwrap();
 
     assert_eq!(kept, written);
-    assert_eq!(store.list(&workspace.id).await.unwrap(), vec![written]);
+    assert_eq!(
+        store
+            .list(workspace.user_id.as_ref().unwrap())
+            .await
+            .unwrap(),
+        vec![written]
+    );
 }
 
 /// A client that subscribes again sends the same endpoint. The same
@@ -113,7 +130,7 @@ pub async fn the_same_session_subscribes_again_onto_its_row(backend: &Backend) {
         .unwrap();
     assert!(
         store
-            .mark_sent(&workspace.id, &first.id, 1_500)
+            .mark_sent(workspace.user_id.as_ref().unwrap(), &first.id, 1_500)
             .await
             .unwrap()
     );
@@ -136,7 +153,13 @@ pub async fn the_same_session_subscribes_again_onto_its_row(backend: &Backend) {
     );
     assert_eq!(again.created_at, 1_000);
     assert_eq!(again.last_sent_at, Some(1_500));
-    assert_eq!(store.list(&workspace.id).await.unwrap(), vec![again]);
+    assert_eq!(
+        store
+            .list(workspace.user_id.as_ref().unwrap())
+            .await
+            .unwrap(),
+        vec![again]
+    );
 }
 
 /// The browser is the authority for its endpoint. A known endpoint that
@@ -160,7 +183,7 @@ pub async fn a_known_endpoint_moves_to_the_session_that_sends_it(backend: &Backe
         .unwrap();
     assert!(
         store
-            .mark_sent(&workspace.id, &first.id, 1_500)
+            .mark_sent(workspace.user_id.as_ref().unwrap(), &first.id, 1_500)
             .await
             .unwrap()
     );
@@ -177,7 +200,7 @@ pub async fn a_known_endpoint_moves_to_the_session_that_sends_it(backend: &Backe
         .unwrap();
 
     assert_eq!(moved.id, first.id, "the endpoint keeps its one row");
-    assert_eq!(moved.workspace_id, other.id);
+    assert_eq!(&moved.user_id, other.user_id.as_ref().unwrap());
     assert_eq!(moved.session_id, second_session.id);
     assert_eq!(
         (moved.p256dh.as_str(), moved.auth.as_str()),
@@ -188,8 +211,17 @@ pub async fn a_known_endpoint_moves_to_the_session_that_sends_it(backend: &Backe
         moved.last_sent_at, None,
         "the new Session learns nothing of the pushes of the old one"
     );
-    assert!(store.list(&workspace.id).await.unwrap().is_empty());
-    assert_eq!(store.list(&other.id).await.unwrap(), vec![moved]);
+    assert!(
+        store
+            .list(workspace.user_id.as_ref().unwrap())
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        store.list(other.user_id.as_ref().unwrap()).await.unwrap(),
+        vec![moved]
+    );
 }
 
 /// The list holds the rows of one Workspace, oldest first, and none of
@@ -233,17 +265,17 @@ pub async fn the_list_holds_one_workspace_only(backend: &Backend) {
         .unwrap();
 
     assert_eq!(
-        store.list(&workspace.id).await.unwrap(),
+        store
+            .list(workspace.user_id.as_ref().unwrap())
+            .await
+            .unwrap(),
         vec![first, second]
     );
-    assert_eq!(store.list(&other.id).await.unwrap(), vec![other_row]);
-    assert!(
-        store
-            .list(&WorkspaceId::generate())
-            .await
-            .unwrap()
-            .is_empty()
+    assert_eq!(
+        store.list(other.user_id.as_ref().unwrap()).await.unwrap(),
+        vec![other_row]
     );
+    assert!(store.list(&UserId::generate()).await.unwrap().is_empty());
 }
 
 pub async fn mark_sent_records_the_time_of_the_last_push(backend: &Backend) {
@@ -263,22 +295,29 @@ pub async fn mark_sent_records_the_time_of_the_last_push(backend: &Backend) {
 
     assert!(
         store
-            .mark_sent(&workspace.id, &row.id, 5_000)
+            .mark_sent(workspace.user_id.as_ref().unwrap(), &row.id, 5_000)
             .await
             .unwrap()
     );
     assert!(
         store
-            .mark_sent(&workspace.id, &row.id, 7_000)
+            .mark_sent(workspace.user_id.as_ref().unwrap(), &row.id, 7_000)
             .await
             .unwrap()
     );
 
-    let read = store.list(&workspace.id).await.unwrap();
+    let read = store
+        .list(workspace.user_id.as_ref().unwrap())
+        .await
+        .unwrap();
     assert_eq!(read[0].last_sent_at, Some(7_000));
     assert!(
         !store
-            .mark_sent(&workspace.id, &PushSubscriptionId::generate(), 8_000)
+            .mark_sent(
+                workspace.user_id.as_ref().unwrap(),
+                &PushSubscriptionId::generate(),
+                8_000
+            )
             .await
             .unwrap(),
         "a missing row refuses"
@@ -314,18 +353,24 @@ pub async fn delete_by_endpoint_removes_the_row_of_that_endpoint(backend: &Backe
 
     assert!(
         store
-            .delete_by_endpoint(&workspace.id, ENDPOINT)
+            .delete_by_endpoint(workspace.user_id.as_ref().unwrap(), ENDPOINT)
             .await
             .unwrap()
     );
     assert!(
         !store
-            .delete_by_endpoint(&workspace.id, ENDPOINT)
+            .delete_by_endpoint(workspace.user_id.as_ref().unwrap(), ENDPOINT)
             .await
             .unwrap(),
         "a gone endpoint refuses a second time"
     );
-    assert_eq!(store.list(&workspace.id).await.unwrap(), vec![kept]);
+    assert_eq!(
+        store
+            .list(workspace.user_id.as_ref().unwrap())
+            .await
+            .unwrap(),
+        vec![kept]
+    );
 }
 
 pub async fn delete_removes_one_row(backend: &Backend) {
@@ -343,9 +388,25 @@ pub async fn delete_removes_one_row(backend: &Backend) {
         .await
         .unwrap();
 
-    assert!(store.delete(&workspace.id, &row.id).await.unwrap());
-    assert!(!store.delete(&workspace.id, &row.id).await.unwrap());
-    assert!(store.list(&workspace.id).await.unwrap().is_empty());
+    assert!(
+        store
+            .delete(workspace.user_id.as_ref().unwrap(), &row.id)
+            .await
+            .unwrap()
+    );
+    assert!(
+        !store
+            .delete(workspace.user_id.as_ref().unwrap(), &row.id)
+            .await
+            .unwrap()
+    );
+    assert!(
+        store
+            .list(workspace.user_id.as_ref().unwrap())
+            .await
+            .unwrap()
+            .is_empty()
+    );
 }
 
 /// One Person never removes or marks another Person's row: each write
@@ -366,10 +427,31 @@ pub async fn one_workspace_never_writes_another_workspace_subscription(backend: 
         .await
         .unwrap();
 
-    assert!(!store.delete(&other.id, &mine.id).await.unwrap());
-    assert!(!store.delete_by_endpoint(&other.id, ENDPOINT).await.unwrap());
-    assert!(!store.mark_sent(&other.id, &mine.id, 5_000).await.unwrap());
-    assert_eq!(store.list(&workspace.id).await.unwrap(), vec![mine]);
+    assert!(
+        !store
+            .delete(other.user_id.as_ref().unwrap(), &mine.id)
+            .await
+            .unwrap()
+    );
+    assert!(
+        !store
+            .delete_by_endpoint(other.user_id.as_ref().unwrap(), ENDPOINT)
+            .await
+            .unwrap()
+    );
+    assert!(
+        !store
+            .mark_sent(other.user_id.as_ref().unwrap(), &mine.id, 5_000)
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        store
+            .list(workspace.user_id.as_ref().unwrap())
+            .await
+            .unwrap(),
+        vec![mine]
+    );
 }
 
 /// A Push Subscription ends with its Session. Each way a Session row
@@ -403,7 +485,10 @@ pub async fn the_end_of_a_session_removes_its_push_subscriptions(backend: &Backe
     assert!(sessions.delete(&signed_out.id).await.unwrap());
     assert_eq!(sessions.delete_expired(6_000).await.unwrap(), 1);
 
-    let left = store.list(&workspace.id).await.unwrap();
+    let left = store
+        .list(workspace.user_id.as_ref().unwrap())
+        .await
+        .unwrap();
     assert_eq!(
         left.iter()
             .map(|row| row.session_id.clone())
@@ -415,7 +500,13 @@ pub async fn the_end_of_a_session_removes_its_push_subscriptions(backend: &Backe
         .delete_for_user(workspace.user_id.as_ref().unwrap())
         .await
         .unwrap();
-    assert!(store.list(&workspace.id).await.unwrap().is_empty());
+    assert!(
+        store
+            .list(workspace.user_id.as_ref().unwrap())
+            .await
+            .unwrap()
+            .is_empty()
+    );
 }
 
 /// Every body of this module. [`crate::store_suite!`] turns each one

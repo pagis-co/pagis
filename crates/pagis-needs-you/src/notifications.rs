@@ -226,6 +226,7 @@ pub struct Notifications {
     public_origin: String,
     push_subscriptions: Arc<dyn PushSubscriptionStore>,
     agents: Arc<dyn AgentStore>,
+    members: Arc<dyn pagis_core::WorkspaceMemberStore>,
     /// The Needs-You Queue, which a held item reads again before it goes.
     needs_you: Arc<NeedsYou>,
     pub(crate) clock: Arc<dyn Clock>,
@@ -238,6 +239,7 @@ impl Notifications {
         public_origin: String,
         push_subscriptions: Arc<dyn PushSubscriptionStore>,
         agents: Arc<dyn AgentStore>,
+        members: Arc<dyn pagis_core::WorkspaceMemberStore>,
         needs_you: Arc<NeedsYou>,
         clock: Arc<dyn Clock>,
     ) -> Self {
@@ -246,6 +248,7 @@ impl Notifications {
             public_origin,
             push_subscriptions,
             agents,
+            members,
             needs_you,
             clock,
         }
@@ -304,7 +307,7 @@ impl Notifications {
                 let now = self.clock.now_ms();
                 if let Err(error) = self
                     .push_subscriptions
-                    .mark_sent(&row.workspace_id, id, now)
+                    .mark_sent(&row.user_id, id, now)
                     .await
                 {
                     tracing::error!(%error, push_subscription_id = %id, "the send time was not kept");
@@ -314,7 +317,7 @@ impl Notifications {
                 tracing::info!(push_subscription_id = %id, "the push service ended the Push Subscription");
                 if let Err(error) = self
                     .push_subscriptions
-                    .delete_by_endpoint(&row.workspace_id, &row.endpoint)
+                    .delete_by_endpoint(&row.user_id, &row.endpoint)
                     .await
                 {
                     tracing::error!(%error, push_subscription_id = %id, "the gone Push Subscription was not deleted");
@@ -357,6 +360,11 @@ pub struct QueuedItem {
 /// Queue holds it now, and the send. [`Notifications`] is the one of the
 /// daemon.
 pub(crate) trait Notifier: Send + Sync + 'static {
+    fn recipients(
+        &self,
+        workspace_id: &WorkspaceId,
+    ) -> impl Future<Output = Vec<pagis_core::UserId>> + Send;
+
     /// The item `item_id` in the Needs-You Queue of `workspace_id` now,
     /// or `None` when the item left the queue.
     fn queued(
@@ -366,11 +374,12 @@ pub(crate) trait Notifier: Send + Sync + 'static {
     ) -> impl Future<Output = Option<QueuedItem>> + Send;
 
     /// Send the Notification of `item` to each Push Subscription of
-    /// `workspace_id`. `count` is the count of the queue, and `cancel`
+    /// `user_id`. `count` is the count of the queue, and `cancel`
     /// stops each send.
     fn notify(
         self: &Arc<Self>,
         workspace_id: &WorkspaceId,
+        user_id: &pagis_core::UserId,
         item: &NeedsYouItem,
         count: usize,
         cancel: &CancellationToken,
@@ -378,6 +387,22 @@ pub(crate) trait Notifier: Send + Sync + 'static {
 }
 
 impl Notifier for Notifications {
+    async fn recipients(&self, workspace_id: &WorkspaceId) -> Vec<pagis_core::UserId> {
+        match self.needs_you.workspaces.get(workspace_id).await {
+            Ok(Some(workspace)) => match workspace.user_id {
+                Some(user_id) => vec![user_id],
+                None => match self.members.list(workspace_id).await {
+                    Ok(members) => members.into_iter().map(|member| member.person_id).collect(),
+                    Err(error) => {
+                        tracing::error!(%error, "Notification recipients were not read");
+                        Vec::new()
+                    }
+                },
+            },
+            _ => Vec::new(),
+        }
+    }
+
     async fn queued(&self, workspace_id: &WorkspaceId, item_id: &str) -> Option<QueuedItem> {
         Notifications::queued(self, workspace_id, item_id).await
     }
@@ -387,16 +412,26 @@ impl Notifier for Notifications {
     async fn notify(
         self: &Arc<Self>,
         workspace_id: &WorkspaceId,
+        user_id: &pagis_core::UserId,
         item: &NeedsYouItem,
         count: usize,
         cancel: &CancellationToken,
     ) {
         let notifications = Arc::clone(self);
         let workspace_id = workspace_id.clone();
+        let user_id = user_id.clone();
         let item = item.clone();
         let cancel = cancel.clone();
         pagis_rt::spawn(async move {
-            Notifications::notify(&notifications, &workspace_id, &item, count, &cancel).await;
+            Notifications::notify(
+                &notifications,
+                &workspace_id,
+                &user_id,
+                &item,
+                count,
+                &cancel,
+            )
+            .await;
         });
     }
 }
@@ -428,7 +463,7 @@ impl Notifications {
     }
 
     /// Send the Notification of `item` to each Push Subscription of
-    /// `workspace_id`. `count` is the current count of the Needs-You Queue.
+    /// `user_id`. `count` is the current count of the Needs-You Queue.
     /// The sends run together, and the method returns when each send and
     /// its retry end, so an Embedder whose process can stop keeps it open
     /// until then. A delivery keeps the send time, a gone endpoint is
@@ -438,11 +473,15 @@ impl Notifications {
     pub async fn notify(
         &self,
         workspace_id: &WorkspaceId,
+        user_id: &pagis_core::UserId,
         item: &NeedsYouItem,
         count: usize,
         cancel: &CancellationToken,
     ) {
-        let rows = match self.push_subscriptions.list(workspace_id).await {
+        if !self.recipients(workspace_id).await.contains(user_id) {
+            return;
+        }
+        let rows = match self.push_subscriptions.list(user_id).await {
             Ok(rows) => rows,
             Err(error) => {
                 tracing::error!(%error, %workspace_id, "the Push Subscriptions were not read");
@@ -829,6 +868,10 @@ mod tests {
         }
 
         impl Notifier for FakeNotifier {
+            async fn recipients(&self, _: &WorkspaceId) -> Vec<pagis_core::UserId> {
+                vec![pagis_core::UserId::from("person".to_string())]
+            }
+
             async fn queued(&self, _: &WorkspaceId, item_id: &str) -> Option<QueuedItem> {
                 *self.queue_reads.lock().expect("lock") += 1;
                 let queue = self.queue.lock().expect("lock");
@@ -844,6 +887,7 @@ mod tests {
             async fn notify(
                 self: &Arc<Self>,
                 _: &WorkspaceId,
+                _: &pagis_core::UserId,
                 item: &NeedsYouItem,
                 count: usize,
                 _: &CancellationToken,
@@ -889,7 +933,10 @@ mod tests {
 
             /// The Person uses a client now.
             fn active(&self) {
-                self.activity.record(&workspace(), self.clock.now_ms());
+                self.activity.record(
+                    &pagis_core::UserId::from("person".to_string()),
+                    self.clock.now_ms(),
+                );
             }
 
             /// `item` enters the queue, and the task reads its event.

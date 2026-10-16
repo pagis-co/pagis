@@ -582,7 +582,7 @@ impl<S: MessageSocket> Connection<S> {
             FrameAction::Activity => self
                 .state
                 .person_activity
-                .record(&self.tenant.workspace_id, self.state.clock.now_ms()),
+                .record(&self.tenant.user_id, self.state.clock.now_ms()),
             FrameAction::Reply(reply) => self.socket.send(reply.to_ws()).await?,
             FrameAction::Subscribe(channel_id) => {
                 // The membership check runs before the insert, so an
@@ -603,15 +603,11 @@ impl<S: MessageSocket> Connection<S> {
                 platform,
                 capabilities,
             } => {
-                if self
-                    .tenant
-                    .workspace_role
-                    .is_some_and(|role| role < pagis_core::WorkspaceRole::Manager)
-                {
+                if let Err(error) = self.tenant.require_private("Hosts") {
                     self.socket
-                        .send(ServerFrame::error("forbidden", "a Manager registers a Host").to_ws())
+                        .send(ServerFrame::error(error.code, &error.message).to_ws())
                         .await?;
-                    return Ok(true);
+                    return Ok(false);
                 }
                 match register_host(&self.state, &self.tenant, &name, &platform, &capabilities)
                     .await
@@ -848,7 +844,7 @@ enum FrameAction {
         exit: SessionExit,
     },
     /// An activity frame. The caller keeps the time as the last
-    /// activity of the tenant's Workspace.
+    /// activity of the Person.
     Activity,
 }
 

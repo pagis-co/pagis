@@ -68,6 +68,18 @@ owner for the yearly revalidation.
 
 ### A broker gives each OAuth Connection its credential
 
+A Google Connection in a Private Workspace is the Person's personal account.
+A Shared Workspace refuses this kind with 409. A Manager explicitly chooses
+a shared Google account to connect a team account. The Connection records
+this choice and belongs to the Shared Workspace, never to the Manager.
+Agents use it through Connection Grants.
+
+The authorize route uses the Shared Workspace prefix. The start and callback
+routes stay on the Public Origin without that prefix. OAuth state binds the
+Workspace, Connection, Person and Session. The broker checks the Manager
+role before authorization, at the start route and before the callback stores tokens.
+Installation carrier and mail-domain Connections keep their Org scope.
+
 A Connection of an OAuth provider holds a credential that a broker gave it. The
 broker registered the OAuth client, and the person gave their own consent
 against it. Every person consents against the same client, each with their own

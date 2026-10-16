@@ -53,6 +53,22 @@ pub struct Tenant {
     pub session_expires_at: UnixMillis,
 }
 
+impl Tenant {
+    pub fn is_private(&self) -> bool {
+        self.workspace_role.is_none()
+    }
+
+    pub fn require_private(&self, resource: &str) -> Result<(), ApiError> {
+        if self.is_private() {
+            Ok(())
+        } else {
+            Err(ApiError::conflict(format!(
+                "a Shared Workspace has no {resource}; use a Private Workspace"
+            )))
+        }
+    }
+}
+
 impl<S: Send + Sync> FromRequestParts<S> for Tenant {
     type Rejection = ApiError;
 

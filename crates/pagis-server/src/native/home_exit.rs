@@ -186,6 +186,7 @@ async fn change(
     path = "/api/v1/settings/home-exit",
     responses(
         (status = 200, body = HomeExitDto),
+        (status = 409, body = crate::error::ErrorBody),
         (status = 401, body = crate::error::ErrorBody),
     )
 )]
@@ -194,6 +195,7 @@ pub async fn get_home_exit(
     State(state): State<Arc<AppState>>,
     tenant: Tenant,
 ) -> Result<Json<HomeExitDto>, ApiError> {
+    tenant.require_private("Home Exit")?;
     Ok(Json(read(&state, &tenant).await?))
 }
 
@@ -216,6 +218,7 @@ pub async fn set_home_exit(
     tenant: Tenant,
     Json(request): Json<SetHomeExitRequest>,
 ) -> Result<Json<SwitchedHomeExitDto>, ApiError> {
+    tenant.require_private("Home Exit")?;
     if is_local(&state) {
         return Err(ApiError::conflict(NO_HOME_EXIT_HERE));
     }
@@ -257,6 +260,7 @@ pub async fn clear_home_exit(
     State(state): State<Arc<AppState>>,
     tenant: Tenant,
 ) -> Result<Json<SwitchedHomeExitDto>, ApiError> {
+    tenant.require_private("Home Exit")?;
     if is_local(&state) {
         return Err(ApiError::conflict(NO_HOME_EXIT_HERE));
     }

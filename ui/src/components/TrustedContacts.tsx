@@ -1,3 +1,4 @@
+import { useWorkspaceAccess } from '../workspace'
 // Trusted contacts (ADR-0021, ADR-0022, ADR-0019). The section
 // follows the settings grammar: a title line with a one-sentence lead,
 // the keypad code first, then phone numbers and email senders as framed
@@ -235,6 +236,8 @@ export function KeypadCodeRow({
   const remove = useDeleteKeypadCode(api);
   const clearFailures = useClearKeypadFailures(api);
   const [code, setCode] = useState("");
+  const { isPrivate } = useWorkspaceAccess()
+  if (!isPrivate) return <p>The Keypad Code belongs to a Private Workspace.</p>
   const configured = keypad.configured;
   const failures = failuresText(keypad, Date.now());
   return (
@@ -312,6 +315,7 @@ const TIER_EXPLAINER = (
 
 export function TrustedContacts({ api }: { api: ApiClient }) {
   const phone = useIsMobile()
+  const { isPrivate } = useWorkspaceAccess()
   const list = useTrustList(api);
   const rows = list.data?.items ?? [];
   const ownAddresses = list.data?.own_addresses ?? [];
@@ -326,13 +330,17 @@ export function TrustedContacts({ api }: { api: ApiClient }) {
         </span>
       </div>
 
-      <SectionLabel data-testid="section-label">Keypad code</SectionLabel>
-      <Frame>
-        <KeypadCodeRow
-          api={api}
-          keypad={list.data?.keypad_code ?? NO_KEYPAD_CODE}
-        />
-      </Frame>
+      {isPrivate && (
+        <>
+          <SectionLabel data-testid="section-label">Keypad code</SectionLabel>
+          <Frame>
+            <KeypadCodeRow
+              api={api}
+              keypad={list.data?.keypad_code ?? NO_KEYPAD_CODE}
+            />
+          </Frame>
+        </>
+      )}
 
       {TABLES.map((table, index) => {
         const inTable = rows.filter((row) =>

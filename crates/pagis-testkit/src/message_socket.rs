@@ -95,21 +95,38 @@ impl crate::TestDaemon {
             .body(())
             .unwrap()
             .into_parts();
-        let tenant = pagis_server::resolve_session(&self.state, &parts.headers)
+        let mut tenant = pagis_server::resolve_session(&self.state, &parts.headers)
             .await
             .map_err(|error| error.status.as_u16())?
             .ok_or(401u16)?;
+        let segments: Vec<_> = path.trim_start_matches('/').split('/').collect();
+        let segments = match segments.as_slice() {
+            ["api", "v1", "workspaces", id, rest @ ..] => {
+                let workspace_id = pagis_core::WorkspaceId::from(id.to_string());
+                let member = self
+                    .state
+                    .workspace_members
+                    .get(&workspace_id, &tenant.user_id)
+                    .await
+                    .map_err(|_| 500u16)?
+                    .ok_or(404u16)?;
+                tenant.workspace_id = workspace_id;
+                tenant.workspace_role = Some(member.role);
+                rest
+            }
+            ["api", "v1", rest @ ..] => rest,
+            _ => return Err(404),
+        };
         parts.extensions.insert(tenant);
         let live = pagis_server::LiveTenant::from_request_parts(&mut parts, &self.state)
             .await
             .map_err(|error| error.status.as_u16())?;
-        let segments: Vec<_> = path.trim_start_matches('/').split('/').collect();
-        let (protocol, id) = match segments.as_slice() {
-            ["api", "v1", "ws"] => ("events", ""),
-            ["api", "v1", "channels", id, "dictate"] => ("dictation", *id),
-            ["api", "v1", "calls", id, "listen"] => ("listen", *id),
-            ["api", "v1", "hosts", id, "sessions"] => ("sessions", *id),
-            ["api", "v1", "hosts", id, "exit"] => ("exit", *id),
+        let (protocol, id) = match segments {
+            ["ws"] => ("events", ""),
+            ["channels", id, "dictate"] => ("dictation", *id),
+            ["calls", id, "listen"] => ("listen", *id),
+            ["hosts", id, "sessions"] => ("sessions", *id),
+            ["hosts", id, "exit"] => ("exit", *id),
             _ => return Err(404),
         };
         let host = match protocol {

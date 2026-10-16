@@ -100,7 +100,20 @@ a Private Workspace. Shared accounts connect to a Shared Workspace. The
 Spend Cap belongs to a Workspace. A Run checks the cap of the Workspace it
 runs in. An Administrator sets the cap for each Workspace. Spend is counted
 for each Workspace.
-Not built: Shared Workspace resource rules.
+A request for a personal resource in a Shared Workspace answers 409 with
+the Private Workspace rule. Host registration answers the same conflict on
+the socket. The Hosts list is empty in a Shared Workspace.
+
+Google sign-in in a Private Workspace connects the Person's personal account.
+A Manager explicitly selects a shared Google account for a Shared Workspace.
+The Connection records that choice and belongs to the Shared Workspace,
+never to the Manager. Personal Google Connections are refused there. OAuth
+state names the Workspace; authorization, the start route and the callback
+check the Manager role. Agents use the team account through Connection Grants.
+
+Push Subscriptions and client activity are keyed by Person. Each member's
+Notification has its own hold. A member's activity holds no other member's
+Notification.
 
 ### Departure and guests do not open a Private Workspace
 

@@ -1,3 +1,4 @@
+import { useWorkspaceAccess } from '../workspace'
 import { Members } from './settings/Members'
 import { WorkspaceNumber } from './settings/WorkspaceNumber'
 import { useState, type ReactNode } from 'react'
@@ -86,6 +87,7 @@ export function SettingsPanel({
 }) {
   const phone = useIsMobile()
   const administration = useUser(api).data?.administration
+  const { isPrivate } = useWorkspaceAccess()
   return (
     <SettingsShell
       section={section}
@@ -96,12 +98,19 @@ export function SettingsPanel({
       {section === 'members' && <Members api={api} />}
       {section === 'mailbox' && <WorkspaceMailbox api={api} />}
       {section === 'connections' && (
-        phone ? <ConnectionsPhone api={api} onOpen={onOpenConnection} /> : <section className="settings-section">
-          <h3>Connections</h3>
-          <Connections api={api} onOpen={onOpenConnection} />
-        </section>
+        phone && isPrivate ? (
+          <ConnectionsPhone api={api} onOpen={onOpenConnection} />
+        ) : (
+          <section className="settings-section">
+            <h3>Connections</h3>
+            <Connections api={api} onOpen={onOpenConnection} />
+          </section>
+        )
       )}
-      {section === 'hosts' && (
+      {section === 'hosts' && !isPrivate && (
+        <p>Hosts and the Home Exit belong to a Private Workspace.</p>
+      )}
+      {section === 'hosts' && isPrivate && (
         <>
           <Hosts api={api} />
           <HomeExit api={api} />

@@ -1,3 +1,4 @@
+import { useWorkspaceAccess } from '../workspace'
 // The Connection list and the connect flow (ADR-0022).
 //
 // The Google flow is provider, names, disclosure, Google and done.
@@ -432,6 +433,7 @@ export function ConnectGoogle({
   entry: ProviderEntryDto
   onDone: () => void
 }) {
+  const { isPrivate } = useWorkspaceAccess()
   const create = useCreateConnection(api)
   const authorize = useAuthorizeConnection(api)
   const remove = useDeleteConnection(api)
@@ -471,6 +473,7 @@ export function ConnectGoogle({
     try {
       created = await create.mutateAsync({
         provider: 'google',
+        ...(!isPrivate ? { shared_account: true } : {}),
         alias: alias.trim(),
         display_name: displayName.trim(),
         fields: {},
@@ -503,7 +506,7 @@ export function ConnectGoogle({
     return (
       <div className="connect-flow" aria-label="Connect Google">
         <section>
-          <h4>Connect Google</h4>
+          <h4>{isPrivate ? 'Connect Google' : 'Connect a shared Google account'}</h4>
           <AdministratorSetsUp api={api}>
             Google sign-in is not set up on this installation.
           </AdministratorSetsUp>
@@ -519,7 +522,7 @@ export function ConnectGoogle({
     <div className="connect-flow" aria-label="Connect Google">
       {step === 'names' && (
         <section>
-          <h4>Connect Google</h4>
+          <h4>{isPrivate ? 'Connect Google' : 'Connect a shared Google account'}</h4>
           <p className="settings-hint">{entry.blurb}</p>
           <Input
             aria-label="Connection name"
@@ -668,6 +671,7 @@ export function Connections({
   /** The connection page one card opens. */
   onOpen: (connectionId: string) => void
 }) {
+  const { canManage } = useWorkspaceAccess()
   const connections = useConnections(api)
   const providers = useConnectionProviders(api)
   const remove = useDeleteConnection(api)
@@ -702,7 +706,7 @@ export function Connections({
               }
               onOpen={() => onOpen(connection.id)}
               onDelete={
-                connection.installation
+                connection.installation || !canManage
                   ? undefined
                   : () => remove.mutate(connection.id)
               }
@@ -751,7 +755,7 @@ export function Connections({
         ) : (
           <ConnectFields api={api} entry={adding.entry} onDone={close} />
         ))}
-      {adding === null && (
+      {adding === null && canManage && (
         <div className="settings-row-actions">
           <Button variant="primary" onClick={() => setAdding({ step: 'pick' })}>
             Add a connection

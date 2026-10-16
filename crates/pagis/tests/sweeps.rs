@@ -218,16 +218,19 @@ impl World {
             Arc::new(Gog),
             home.path(),
             Arc::new(pagis_connect::GoogleBroker::new(
-                connections.clone(),
-                Arc::new(pagis_connect::OrgWebClient::new(
-                    stores.orgs.clone(),
-                    secrets.clone(),
-                )),
-                Arc::new(pagis_google::GoogleOAuth::new()),
-                keys.clone(),
-                stores.sessions.clone(),
-                clock.clone(),
-                "http://localhost",
+                pagis_connect::GoogleBrokerDeps {
+                    connections: connections.clone(),
+                    client: Arc::new(pagis_connect::OrgWebClient::new(
+                        stores.orgs.clone(),
+                        secrets.clone(),
+                    )),
+                    oauth: Arc::new(pagis_google::GoogleOAuth::new()),
+                    keys: keys.clone(),
+                    sessions: stores.sessions.clone(),
+                    members: stores.workspace_members.clone(),
+                    clock: clock.clone(),
+                    public_origin: "http://localhost".to_string(),
+                },
             )),
         ));
         let trigger = Arc::new(pagis_trigger::Trigger::new(pagis_trigger::TriggerDeps {

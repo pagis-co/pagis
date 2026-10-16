@@ -46,6 +46,8 @@ export function CurrentWorkspaceProvider({ api, children }: { api: ApiClient; ch
 export function useWorkspaceAccess() {
   const { current } = useContext(WorkspaceSelectionContext)
   return {
+    isPrivate: current?.kind !== 'shared',
+    canManage: current?.kind !== 'shared' || current.role === 'manager',
     canRespond: current?.role !== 'reader',
     canManageMembers: current?.kind === 'shared' && current.role === 'manager',
   }

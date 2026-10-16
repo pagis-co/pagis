@@ -49,8 +49,8 @@ pub use catalog::{
     is_installation_provider, person_catalog,
 };
 pub use google::{
-    AUTHORIZE_WINDOW_MS, GoogleBroker, Initiator, Opener, OrgWebClient, PendingAuthorizations,
-    StartRefusal,
+    AUTHORIZE_WINDOW_MS, GoogleBroker, GoogleBrokerDeps, Initiator, Opener, OrgWebClient,
+    PendingAuthorizations, StartRefusal,
 };
 pub use pagis_google::ProviderErrorCode;
 
@@ -72,6 +72,9 @@ pub enum NewCredentials {
     /// A Google account. It carries nothing: the account comes from the
     /// consent, and the client is the installation's (ADR-0012).
     Google,
+    /// A team account that a Manager connects for a Shared Workspace.
+    /// The Workspace owns its authorization, not the Manager.
+    SharedGoogle,
     /// A carrier account: the provider, the account id
     /// that is not secret and the secret that is. The secret goes to
     /// the secret store, never to the database. Telnyx has no account
@@ -104,7 +107,7 @@ impl NewCredentials {
     /// declares the fields this shape was read from.
     pub fn provider(&self) -> &str {
         match self {
-            NewCredentials::Google => pagis_google::GOOGLE_PROVIDER,
+            NewCredentials::Google | NewCredentials::SharedGoogle => pagis_google::GOOGLE_PROVIDER,
             NewCredentials::Carrier { provider, .. } => provider,
             NewCredentials::Migadu { .. } => MIGADU_PROVIDER,
             NewCredentials::Manual { .. } => MANUAL_PROVIDER,
@@ -232,8 +235,9 @@ impl Connector {
         let provider = new.credentials.provider().to_string();
         self.enforce_max_instances(&new.workspace_id, &provider)
             .await?;
+        let shared_account = matches!(new.credentials, NewCredentials::SharedGoogle);
         match new.credentials {
-            NewCredentials::Google => {
+            NewCredentials::Google | NewCredentials::SharedGoogle => {
                 // The installation's own Web client is the one client
                 // every person consents against (ADR-0012). Without it
                 // no row is written, so the alias stays free.
@@ -251,7 +255,7 @@ impl Connector {
                     status: Connection::DISCONNECTED.to_string(),
                     authorized_capabilities: Vec::new(),
                     // The account lands with the first consent.
-                    config: serde_json::json!({ "client": new.alias }),
+                    config: serde_json::json!({ "client": new.alias, "shared_account": shared_account }),
                     created_at: now_ms(),
                 };
                 self.connections
