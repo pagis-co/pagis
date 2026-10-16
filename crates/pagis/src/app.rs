@@ -997,7 +997,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
             std::fs::create_dir_all(&recordings)?;
             let bridge = Arc::new(pagis_telephony::RealtimeBridge::new(
                 pagis_telephony::RealtimeBridgeDeps {
-                    endpoints: Arc::clone(&endpoints),
+                    endpoints: endpoints.clone(),
                     sessions: options.model_sessions.unwrap_or_else(|| {
                         Arc::new(pagis_telephony::KeyedModelSessions::new(
                             Arc::clone(&keys),

@@ -104,12 +104,29 @@ unregistered line drops inbound calls silently.
 - The RTP uplink has a reorder window of about 40 ms and no playout buffer.
   A frame leg passes inbound audio frames in order with no reorder window
   or RTP state. It carries G.711 µ-law, G.711 A-law, or signed little-endian
-  PCM16 at 8 kHz, and declares keypad digits absent in both directions.
+  PCM16 at 8 kHz. `FrameLeg::pair` gives an Embedder bounded channels
+  for inbound events and answer frames. This leg accepts typed inbound
+  keypad events and declares outbound digits absent. A frame leg without
+  typed keypad events declares digits absent in both directions.
   The SIP endpoint uses a packet leg. No carrier media stream adapter is
   built.
 - Both legs use a 20 ms downlink pacer and stay 60 ms deep or less. Audio
   converts at the model and recorder boundaries when their codecs differ.
   Tasks and timers come from `pagis-rt`.
+
+The call core of `pagis-telephony` builds on
+`wasm32-unknown-unknown` with its default features. Audio conversion, DTMF,
+the Media Hub, the Keypad Code check, the Realtime Bridge, Call sessions,
+Call tools and hand-off use the same code on both targets. `CallEndpoints`
+supplies the bridge's carrier operations. A native installation supplies
+its SIP endpoints. An Embedder supplies its own carrier operations and
+model transport.
+
+SIP signaling, SIP media, the endpoint manager, the socket listener, the
+carrier REST clients and disk recording stay native. The frame and packet
+Media Leg types contain no native runtime calls. An Embedder can subscribe
+to the Media Hub's recording stream without a disk recorder. The Call
+routes of `pagis-server` still need its `native` feature.
 
 Where the provider emits a speech-start event, it is the only voice activity
 detection: the bridge clears the pending downlink and truncates the model's

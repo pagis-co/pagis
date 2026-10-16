@@ -7,52 +7,60 @@
 //! answered when the endpoint task hands the hub over, so it skips the
 //! classify phase and starts in the conversation.
 //!
-//! The call is recorded from the moment the hub exists. Both
+//! On native targets, recording starts when the hub exists. Both
 //! directions append raw to disk while the call runs, and the two legs
 //! mux to one stereo WAV when the record settles. A call the daemon was
 //! killed in the middle of settles the same way at the next start, from
-//! [`RealtimeBridge::recover`].
+//! `RealtimeBridge::recover`.
 
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+#[cfg(not(target_arch = "wasm32"))]
 use object_store::{ObjectStore, ObjectStoreExt as _};
-use pagis_core::{
-    Call, CallOutcome, CallState, CallStore, File, FileId, FileKind, FileOutcome, FileStore,
-    TrustListStore, now_ms,
-};
+use pagis_core::{Call, CallOutcome, CallState, CallStore, TrustListStore, now_ms};
 use tokio_util::sync::CancellationToken;
 
+#[cfg(not(target_arch = "wasm32"))]
+use crate::DAEMON_RESTART;
 use crate::bridge::{BridgeError, CallBridge, CallLog, CallReport, PlacedCall};
-use crate::call_session::{CallSession, CallSessionDeps, DAEMON_RESTART, MODEL_UNAVAILABLE};
+use crate::call_session::{CallSession, CallSessionDeps, MODEL_UNAVAILABLE};
 use crate::call_tools::CallTools;
-use crate::endpoint::{Endpoints, IncomingHub};
 use crate::hub::MediaHub;
 use crate::keypad::Keypad;
 use crate::live::LiveCalls;
 use crate::model::ModelSessions;
+#[cfg(not(target_arch = "wasm32"))]
 use crate::recording::{self, CallRecorder, RECORDING_FILENAME, RECORDING_MIME};
 use crate::tiers::{self, LiveTiers, TierGate};
+use crate::{CallEndpoints, IncomingHub};
+#[cfg(not(target_arch = "wasm32"))]
+use pagis_core::{File, FileId, FileKind, FileOutcome, FileStore};
 
 /// How long the mux waits for the recorder to write what it still
 /// holds. The queue is five seconds deep at most.
+#[cfg(not(target_arch = "wasm32"))]
 const RECORDER_DRAIN: std::time::Duration = std::time::Duration::from_secs(5);
 /// Why an inbound call ended when its tier could not be read from the
 /// Trust List before the session opened.
 const TIER_UNSETTLED: &str = "tier_unsettled";
 
 pub struct RealtimeBridgeDeps {
-    pub endpoints: Arc<Endpoints>,
+    pub endpoints: Arc<dyn CallEndpoints>,
     pub sessions: Arc<dyn ModelSessions>,
     pub tools: Arc<dyn CallTools>,
     pub calls: Arc<dyn CallStore>,
     /// The File rows and the blob store the muxed recording lands
     /// in. The recording is an ordinary File (ADR-0020).
+    #[cfg(not(target_arch = "wasm32"))]
     pub files: Arc<dyn FileStore>,
+    #[cfg(not(target_arch = "wasm32"))]
     pub blobs: Arc<dyn ObjectStore>,
     /// Where the raw G.711 legs are appended while a call runs. They
     /// outlive the process, so a killed daemon still has a recording.
+    #[cfg(not(target_arch = "wasm32"))]
     pub recordings: PathBuf,
     /// Where a live call is found by id, so a listener in the Thread
     /// hears it from the moment the hub exists.
@@ -104,39 +112,46 @@ impl RealtimeBridge {
         hub: Arc<MediaHub>,
         call: PlacedCall,
         log: &CallLog,
-        recorder: Option<tokio::task::JoinHandle<()>>,
+        #[cfg(not(target_arch = "wasm32"))] recorder: Option<crate::task::JoinHandle<()>>,
     ) -> CallReport {
         self.deps
             .live
             .attach_hub(&call.workspace_id, &call.id, Arc::clone(&hub));
-        let mut report = session.run(hub, log).await;
+        let report = session.run(hub, log).await;
+        #[cfg(not(target_arch = "wasm32"))]
+        let mut report = report;
         self.deps.live.detach_hub(&call.workspace_id, &call.id);
         // The recorder's writer task drains its queue when the hub
         // ends, so the mux waits for it and the tail is not lost.
+        #[cfg(not(target_arch = "wasm32"))]
         if let Some(recorder) = recorder
             && let Err(error) = pagis_rt::timeout(RECORDER_DRAIN, recorder).await
         {
             tracing::warn!(%error, "the recorder did not finish; the tail may be short");
         }
-        report.recording_file_id = self
-            .store_recording(
-                &call.id,
-                &call.workspace_id,
-                Some(&call.brief.agent_id),
-                Some(&call.run_id),
-            )
-            .await;
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            report.recording_file_id = self
+                .store_recording(
+                    &call.id,
+                    &call.workspace_id,
+                    Some(&call.brief.agent_id),
+                    Some(&call.run_id),
+                )
+                .await;
+        }
         self.settle(&call, &report).await;
         report
     }
 
     /// Record both directions from now on. A recorder that does not
     /// open loses the recording and not the call.
+    #[cfg(not(target_arch = "wasm32"))]
     async fn start_recording(
         &self,
         call: &PlacedCall,
         hub: &MediaHub,
-    ) -> Option<tokio::task::JoinHandle<()>> {
+    ) -> Option<crate::task::JoinHandle<()>> {
         match CallRecorder::create(&self.deps.recordings, &call.id, hub.codec()).await {
             Ok(recorder) => Some(hub.record(Box::new(recorder))),
             Err(error) => {
@@ -149,6 +164,7 @@ impl RealtimeBridge {
     /// Mux the two raw legs into one stereo WAV and store it as an
     /// File. `None` when the call recorded nothing, or when the
     /// mux or the store failed: the Call record settles either way.
+    #[cfg(not(target_arch = "wasm32"))]
     async fn store_recording(
         &self,
         call_id: &pagis_core::CallId,
@@ -205,6 +221,7 @@ impl RealtimeBridge {
     /// does not survive a restart, so each unsettled record ends with
     /// `daemon_restart` and its recording muxes from the files on disk.
     /// It answers how many records it settled.
+    #[cfg(not(target_arch = "wasm32"))]
     pub async fn recover(&self) -> Result<usize, pagis_core::StoreError> {
         let unsettled = self.deps.calls.list_unsettled().await?;
         let mut settled = 0;
@@ -347,10 +364,19 @@ impl CallBridge for RealtimeBridge {
                 &call.brief.phone_number_id,
                 &call.brief.remote_e164,
             )
-            .await
-            .map_err(|error| BridgeError(error.as_str().to_string()))?;
+            .await?;
+        #[cfg(not(target_arch = "wasm32"))]
         let recorder = self.start_recording(&call, &hub).await;
-        Ok(self.pump(session, hub, call, log, recorder).await)
+        Ok(self
+            .pump(
+                session,
+                hub,
+                call,
+                log,
+                #[cfg(not(target_arch = "wasm32"))]
+                recorder,
+            )
+            .await)
     }
 
     /// Run a call the endpoint task answered. The Agent, the Run and
@@ -371,6 +397,7 @@ impl CallBridge for RealtimeBridge {
         // the moment it is minted, and a call that fails before its
         // session opens still settles with a reason (ADR-0020).
         self.record(&call, CallState::Live, Some(now_ms())).await;
+        #[cfg(not(target_arch = "wasm32"))]
         let recorder = self.start_recording(&call, &incoming.hub).await;
         // The tier settles before the model session exists
         // (ADR-0021): the challenge runs on the answered call, and the
@@ -417,7 +444,14 @@ impl CallBridge for RealtimeBridge {
             tracing::error!(%error, "the answered event did not reach the audit log");
         }
         let report = self
-            .pump(session, incoming.hub, call.clone(), log, recorder)
+            .pump(
+                session,
+                incoming.hub,
+                call.clone(),
+                log,
+                #[cfg(not(target_arch = "wasm32"))]
+                recorder,
+            )
             .await;
         self.deps.live_tiers.release(&call.workspace_id, &call.id);
         Ok(report)

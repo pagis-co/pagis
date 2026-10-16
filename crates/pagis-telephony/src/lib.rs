@@ -3,40 +3,54 @@
 pub mod audio;
 mod bridge;
 mod brief;
+mod call_endpoint;
 mod call_session;
 mod call_tools;
 mod calls;
 mod catalog;
 pub mod dtmf;
 pub mod emergency;
+#[cfg(not(target_arch = "wasm32"))]
 mod endpoint;
 pub mod events;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod fake;
 pub mod hub;
 mod inbound;
 pub mod keypad;
 pub mod leg;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod listen;
 mod live;
 pub mod model;
 pub mod model_fake;
 mod model_router;
 mod no_text;
+#[cfg(not(target_arch = "wasm32"))]
 mod numbers;
 mod phone_tool;
+#[cfg(not(target_arch = "wasm32"))]
 mod plivo;
 mod realtime_bridge;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod recording;
 mod reorder;
 pub mod session;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod sip_media;
+#[cfg(not(target_arch = "wasm32"))]
 mod sip_transport;
+mod task;
+#[cfg(not(target_arch = "wasm32"))]
 mod telnyx;
+#[cfg(not(target_arch = "wasm32"))]
 mod telnyx_text;
 pub mod text;
 pub mod tiers;
 mod transport;
+#[cfg(not(target_arch = "wasm32"))]
 mod twilio;
+#[cfg(not(target_arch = "wasm32"))]
 mod twilio_text;
 
 // The Call vocabulary is the record's, so it lives in `pagis-core` and
@@ -49,6 +63,7 @@ pub use brief::{
     IVR_MODE_PROMPT, REMOTE_PARTY_SOURCE, REPORT_ANSWER, TAKE_A_MESSAGE, VoicemailPolicy,
     WRAP_UP_LEAD, report_answer_tool, tier_line, wrap_up_prompt,
 };
+pub use call_endpoint::{CallEndpoints, IncomingHub};
 pub use call_session::{
     AGENT_HANGUP, CallHandle, CallSession, CallSessionDeps, DAEMON_RESTART, DURATION_CAP,
     MODEL_UNAVAILABLE,
@@ -60,8 +75,9 @@ pub use catalog::{
     NumberSearch, PurchasedNumber,
 };
 pub use emergency::EmergencyRefused;
+#[cfg(not(target_arch = "wasm32"))]
 pub use endpoint::{
-    CallError, EndpointTask, Endpoints, EndpointsDeps, INITIAL_BACKOFF, IncomingHub, MAX_BACKOFF,
+    CallError, EndpointTask, Endpoints, EndpointsDeps, INITIAL_BACKOFF, MAX_BACKOFF,
     NumberDirectory, REQUESTED_EXPIRY, RegistrationFailure, RegistrationState, SIP_DOMAIN_KEY,
     SIP_USERNAME_KEY, sip_identity,
 };
@@ -79,12 +95,17 @@ pub use model_router::{
     PhoneModelSetting, REALTIME_MODEL, RouterModelSessions,
 };
 pub use no_text::NoTextTransport;
+#[cfg(not(target_arch = "wasm32"))]
 pub use numbers::{NumberDesk, NumberDeskDeps, NumberError, normalize_e164};
 pub use phone_tool::{PhoneToolDeps, PhoneToolRuntime, RunTools};
+#[cfg(not(target_arch = "wasm32"))]
 pub use plivo::PlivoNumberCatalog;
 pub use realtime_bridge::{RealtimeBridge, RealtimeBridgeDeps};
+#[cfg(not(target_arch = "wasm32"))]
 pub use sip_transport::{SipCallTransport, dialed_e164, register_contact};
+#[cfg(not(target_arch = "wasm32"))]
 pub use telnyx::TelnyxNumberCatalog;
+#[cfg(not(target_arch = "wasm32"))]
 pub use telnyx_text::{
     TELNYX_KV_NAMESPACE_KEY, TELNYX_MESSAGING_PROFILE_KEY, TELNYX_RELAY_URL_KEY,
     TelnyxTextTransport,
@@ -97,7 +118,9 @@ pub use transport::{
     Answer, CallTransport, IncomingCall, Line, Opened, Refusal, SipCredential,
     TransportCapabilities, TransportError, TransportErrorCode,
 };
+#[cfg(not(target_arch = "wasm32"))]
 pub use twilio::TwilioNumberCatalog;
+#[cfg(not(target_arch = "wasm32"))]
 pub use twilio_text::{TWILIO_MESSAGING_SERVICE_KEY, TwilioTextTransport};
 
 /// The carrier providers Pagis connects (ADR-0020). A Workspace

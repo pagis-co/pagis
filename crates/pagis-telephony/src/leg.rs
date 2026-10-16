@@ -69,6 +69,8 @@ pub struct RtpPacket {
 pub enum LegEvent {
     Rtp(RtpPacket),
     Frame(Frame),
+    /// One typed press from a frame carrier. It contains no audio.
+    Dtmf(char),
     /// The far side rings (outbound only).
     Ringing,
     /// Media may flow in both directions.
@@ -108,6 +110,8 @@ pub enum LegSink {
         dtmf_payload_type: Option<u8>,
     },
     Frame(Arc<dyn FrameSink>),
+    /// A frame carrier that supplies typed inbound keypad events.
+    TypedFrame(Arc<dyn FrameSink>),
 }
 
 impl LegSink {
@@ -116,14 +120,14 @@ impl LegSink {
             Self::Packet {
                 dtmf_payload_type, ..
             } => *dtmf_payload_type,
-            Self::Frame(_) => None,
+            Self::Frame(_) | Self::TypedFrame(_) => None,
         }
     }
 
     pub async fn hangup(&self) {
         match self {
             Self::Packet { sink, .. } => sink.hangup().await,
-            Self::Frame(sink) => sink.hangup().await,
+            Self::Frame(sink) | Self::TypedFrame(sink) => sink.hangup().await,
         }
     }
 }
@@ -134,4 +138,71 @@ pub struct MediaLeg {
     pub codec: Codec,
     pub inbound: mpsc::Receiver<LegEvent>,
     pub sink: LegSink,
+}
+
+/// The carrier side of a Call with frames and typed inbound keypad events.
+/// Dropping `inbound` ends the Call with `TransportLost`.
+pub struct FrameLeg {
+    pub inbound: mpsc::Sender<LegEvent>,
+    pub outbound: mpsc::Receiver<Frame>,
+}
+
+impl FrameLeg {
+    /// Create media for the hub and bounded channels for the carrier.
+    /// The carrier sends `Answered` before it sends audio or keypad events.
+    pub fn pair(codec: Codec, capacity: usize) -> (MediaLeg, Self) {
+        let (inbound, events) = mpsc::channel(capacity);
+        let (answer, outbound) = mpsc::channel(capacity);
+        let (hangup, mut hung_up) = tokio::sync::oneshot::channel();
+        let (feed, mut frames) = mpsc::channel(capacity);
+        // Keep no inbound sender in the sink, so a lost carrier closes
+        // the stream. A separate signal ends a local hang-up.
+        pagis_rt::spawn(async move {
+            loop {
+                tokio::select! {
+                    event = frames.recv() => {
+                        let Some(event) = event else { return };
+                        if inbound.send(event).await.is_err() { return; }
+                    }
+                    _ = &mut hung_up => {
+                        let _ = inbound.send(LegEvent::Ended(EndedReason::LocalHangup)).await;
+                        return;
+                    }
+                }
+            }
+        });
+        (
+            MediaLeg {
+                codec,
+                inbound: events,
+                sink: LegSink::TypedFrame(Arc::new(ChannelFrames {
+                    answer,
+                    hangup: std::sync::Mutex::new(Some(hangup)),
+                })),
+            },
+            Self {
+                inbound: feed,
+                outbound,
+            },
+        )
+    }
+}
+
+struct ChannelFrames {
+    answer: mpsc::Sender<Frame>,
+    hangup: std::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+}
+
+#[async_trait]
+impl FrameSink for ChannelFrames {
+    async fn send(&self, frame: Frame) {
+        // A slow carrier drops a frame instead of stopping the pacer.
+        let _ = self.answer.try_send(frame);
+    }
+
+    async fn hangup(&self) {
+        if let Some(hangup) = self.hangup.lock().expect("lock").take() {
+            let _ = hangup.send(());
+        }
+    }
 }

@@ -394,7 +394,7 @@ impl World {
         let blobs = Arc::new(object_store::memory::InMemory::new());
         let sessions = Arc::new(FakeModelSessions::new());
         let realtime = Arc::new(RealtimeBridge::new(RealtimeBridgeDeps {
-            endpoints: Arc::clone(&endpoints),
+            endpoints: endpoints.clone(),
             sessions: Arc::clone(&sessions) as _,
             tools: Arc::new(NoTools),
             calls: Arc::clone(&calls) as _,

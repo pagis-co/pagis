@@ -135,17 +135,7 @@ impl CallError {
     }
 }
 
-/// A call the line answered, ready for whoever runs it. The carrier
-/// names only the dialed number, so the line says whose number it is:
-/// the stored record of the number names the Workspace that holds it.
-pub struct IncomingHub {
-    pub workspace_id: WorkspaceId,
-    pub phone_number_id: PhoneNumberId,
-    /// The number the Remote Party dialed.
-    pub e164: String,
-    pub from_e164: String,
-    pub hub: Arc<MediaHub>,
-}
+use crate::IncomingHub;
 
 /// Where a line reads the stored Workspace Numbers of a dialed
 /// number. The daemon reads its store over every Workspace; a test

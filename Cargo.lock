@@ -5046,6 +5046,7 @@ dependencies = [
  "rsipstack",
  "rustls",
  "rustrtc",
+ "send_wrapper",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -5055,6 +5056,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+ "wasm-bindgen-test",
  "webpki-roots 1.0.9",
  "wiremock",
 ]

@@ -16,8 +16,10 @@
 //! keep one timestamp, the duration grows, and three end packets
 //! repeat the final duration. Two presses of one [`MediaHub::send_digits`]
 //! have a gap between them. A leg that negotiated no telephone-event
-//! payload type, or a frame leg, declares the digits absent in both directions
-//! (ADR-0005): Pagis sends no in-band tone and detects none.
+//! payload type, or a frame leg without typed keypad events, declares
+//! digits absent
+//! (ADR-0005). `FrameLeg::pair` accepts typed inbound keypad events.
+//! Pagis sends no in-band tone and detects none.
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -63,7 +65,7 @@ pub enum HubEvent {
     Ended(EndedReason),
 }
 
-/// What the negotiated leg does with keypad digits. A leg that
+/// What the negotiated leg does with keypad digits. A packet leg that
 /// negotiated no telephone-event payload type declares both directions
 /// absent, as ADR-0005 asks. Pagis never emulates a digit with an
 /// in-band tone, and it detects no in-band tone.
@@ -73,7 +75,7 @@ pub struct DtmfPresence {
     pub receive_dtmf: bool,
 }
 
-/// The leg negotiated no telephone events, so no digit can go out.
+/// The leg cannot send telephone events, so no digit can go out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[error("the negotiated leg has no telephone-event payload type")]
 pub struct DtmfAbsent;
@@ -162,8 +164,8 @@ impl Shared {
 
 pub struct MediaHub {
     shared: Arc<Shared>,
-    uplink: tokio::task::JoinHandle<()>,
-    downlink: tokio::task::JoinHandle<()>,
+    uplink: crate::task::JoinHandle<()>,
+    downlink: crate::task::JoinHandle<()>,
 }
 
 impl MediaHub {
@@ -186,8 +188,8 @@ impl MediaHub {
             downlink_sent: AtomicU64::new(0),
             ended,
         });
-        let uplink = pagis_rt::spawn(run_uplink(Arc::clone(&shared), leg.inbound));
-        let downlink = pagis_rt::spawn(run_downlink(Arc::clone(&shared)));
+        let uplink = crate::task::spawn(run_uplink(Arc::clone(&shared), leg.inbound));
+        let downlink = crate::task::spawn(run_downlink(Arc::clone(&shared)));
         Arc::new(Self {
             shared,
             uplink,
@@ -213,10 +215,10 @@ impl MediaHub {
 
     /// Start a recorder. Frames of both directions queue for its writer
     /// task; when the queue is full, frames are dropped and counted.
-    pub fn record(&self, sink: Box<dyn RecordingSink>) -> tokio::task::JoinHandle<()> {
+    pub fn record(&self, sink: Box<dyn RecordingSink>) -> crate::task::JoinHandle<()> {
         let (tx, mut rx) = mpsc::channel(RECORDER_DEPTH);
         self.shared.recorders.lock().expect("lock").push(tx);
-        pagis_rt::spawn(async move {
+        crate::task::spawn(async move {
             while let Some(recorded) = rx.recv().await {
                 sink.write(recorded).await;
             }
@@ -271,7 +273,7 @@ impl MediaHub {
         let negotiated = self.shared.sink.dtmf_payload_type().is_some();
         DtmfPresence {
             send_dtmf: negotiated,
-            receive_dtmf: negotiated,
+            receive_dtmf: negotiated || matches!(self.shared.sink, LegSink::TypedFrame(_)),
         }
     }
 
@@ -352,7 +354,7 @@ async fn run_uplink(shared: Arc<Shared>, mut inbound: mpsc::Receiver<LegEvent>) 
             reorder: Reorder::new(REORDER_WINDOW),
             dtmf: DtmfReader::default(),
         }),
-        LegSink::Frame(_) => None,
+        LegSink::Frame(_) | LegSink::TypedFrame(_) => None,
     };
     let mut answered = false;
     let mut last_media = Instant::now();
@@ -380,6 +382,13 @@ async fn run_uplink(shared: Arc<Shared>, mut inbound: mpsc::Receiver<LegEvent>) 
                         rtp.flush(&shared);
                     }
                     match other {
+                        LegEvent::Dtmf(digit) => {
+                            if matches!(shared.sink, LegSink::TypedFrame(_))
+                                && dtmf::digit_to_code(digit).is_some()
+                            {
+                                shared.publish(HubEvent::Dtmf(digit));
+                            }
+                        }
                         LegEvent::Ringing => shared.publish(HubEvent::Ringing),
                         LegEvent::Answered => {
                             answered = true;
@@ -482,7 +491,7 @@ async fn run_downlink(shared: Arc<Shared>) {
     let mut ended = shared.ended.subscribe();
     let mut rtp = match &shared.sink {
         LegSink::Packet { .. } => Some(RtpDownlink::new()),
-        LegSink::Frame(_) => None,
+        LegSink::Frame(_) | LegSink::TypedFrame(_) => None,
     };
     loop {
         tokio::select! {
@@ -500,7 +509,9 @@ async fn run_downlink(shared: Arc<Shared>) {
                     .next(&shared, *ssrc);
                 sink.send(packet).await;
             }
-            LegSink::Frame(sink) => sink.send(downlink_frame(&shared)).await,
+            LegSink::Frame(sink) | LegSink::TypedFrame(sink) => {
+                sink.send(downlink_frame(&shared)).await
+            }
         }
     }
 }

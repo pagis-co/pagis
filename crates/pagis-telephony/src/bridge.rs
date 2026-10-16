@@ -14,8 +14,8 @@ use pagis_core::{
     RunId, StoreError, TranscriptLine, TrustTier, UnixMillis, WorkspaceId,
 };
 
+use crate::IncomingHub;
 use crate::brief::CallBrief;
-use crate::endpoint::IncomingHub;
 
 /// One call handed to the bridge: the brief, and the tools the
 /// realtime session binds.

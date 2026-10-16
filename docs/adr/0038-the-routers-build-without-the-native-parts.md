@@ -128,3 +128,10 @@ native targets.
 `pagis-testkit` uses this pair. The live event tests send the first
 `auth` frame, subscribe to a Channel, read its events and check that
 Session sign-out closes the socket.
+
+The call core of `pagis-telephony` also builds on
+`wasm32-unknown-unknown`. An Embedder supplies carrier frames and typed
+keypad events through `FrameLeg::pair` and takes answer frames from the
+same seam. SIP, the endpoint manager, the socket listener, carrier REST
+clients and disk recording stay native (ADR-0020). The Call routes still
+need the server's `native` feature.
