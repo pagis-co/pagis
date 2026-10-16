@@ -130,6 +130,7 @@ pub async fn start_sign_in(
     Path((host_id, harness_id)): Path<(String, String)>,
     Json(request): Json<StartSignInRequest>,
 ) -> Result<(StatusCode, Json<SignInStartedDto>), ApiError> {
+    tenant.require_private("Hosts")?;
     #[cfg(not(feature = "native"))]
     {
         Err(ApiError::not_available("Hosts"))
@@ -178,6 +179,7 @@ pub async fn check_sign_in(
     tenant: Tenant,
     Path((host_id, harness_id)): Path<(String, String)>,
 ) -> Result<StatusCode, ApiError> {
+    tenant.require_private("Hosts")?;
     #[cfg(not(feature = "native"))]
     {
         Err(ApiError::not_available("Hosts"))

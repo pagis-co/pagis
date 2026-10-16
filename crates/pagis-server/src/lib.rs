@@ -285,8 +285,8 @@ pub struct AppState {
     /// The Notification sender of the installation (ADR-0030): one Web
     /// Push sender with the VAPID Key.
     pub notifications: Arc<Notifications>,
-    /// The time of the last activity of the Person in a client, for each
-    /// Workspace (ADR-0030). A new item waits while it is recent.
+    /// The last client activity of each Person (ADR-0030). A new item
+    /// waits while it is recent.
     pub person_activity: Arc<PersonActivity>,
     /// The signal of each Session that holds a live connection. A
     /// sign-out and an Administrator who ends every Session of a Person

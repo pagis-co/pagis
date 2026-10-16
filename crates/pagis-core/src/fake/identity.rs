@@ -422,7 +422,7 @@ impl SessionStore for FakeSessionStore {
     async fn delete(&self, id: &SessionId) -> Result<bool, StoreError> {
         let mut data = self.0.lock().unwrap();
         let removed = data.sessions.remove(id).is_some();
-        data.push_subscriptions.0.retain(|_, s| &s.session_id != id);
+        data.push_subscriptions.retain(|_, s| &s.session_id != id);
         Ok(removed)
     }
     async fn delete_for_user(&self, user_id: &UserId) -> Result<u64, StoreError> {
@@ -435,7 +435,6 @@ impl SessionStore for FakeSessionStore {
             .collect();
         data.sessions.retain(|id, _| !ids.contains(id));
         data.push_subscriptions
-            .0
             .retain(|_, s| !ids.contains(&s.session_id));
         Ok(ids.len() as u64)
     }
@@ -449,7 +448,6 @@ impl SessionStore for FakeSessionStore {
             .collect();
         data.sessions.retain(|id, _| !ids.contains(id));
         data.push_subscriptions
-            .0
             .retain(|_, s| !ids.contains(&s.session_id));
         Ok(ids.len() as u64)
     }
@@ -555,61 +553,67 @@ impl PushSubscriptionStore for FakePushSubscriptionStore {
         let mut row = subscription.clone();
         if let Some(held) = data
             .push_subscriptions
-            .rows(&row.workspace_id)
+            .values()
             .find(|s| s.endpoint == row.endpoint)
         {
             row.id = held.id.clone();
-            row.created_at = held.created_at;
-            row.last_sent_at = held.last_sent_at;
+            if held.session_id == row.session_id {
+                row.created_at = held.created_at;
+                row.last_sent_at = held.last_sent_at;
+            }
         }
-        data.push_subscriptions
-            .put(&row.workspace_id, row.id.clone(), row.clone());
+        data.push_subscriptions.insert(row.id.clone(), row.clone());
         Ok(row)
     }
-    async fn list(&self, workspace_id: &WorkspaceId) -> Result<Vec<PushSubscription>, StoreError> {
+    async fn list(&self, user_id: &UserId) -> Result<Vec<PushSubscription>, StoreError> {
         Ok(self
             .0
             .lock()
             .unwrap()
             .push_subscriptions
-            .rows(workspace_id)
+            .values()
+            .filter(|row| &row.user_id == user_id)
             .cloned()
             .collect())
     }
-    async fn delete(
-        &self,
-        workspace_id: &WorkspaceId,
-        id: &PushSubscriptionId,
-    ) -> Result<bool, StoreError> {
-        Ok(self
-            .0
-            .lock()
-            .unwrap()
+    async fn delete(&self, user_id: &UserId, id: &PushSubscriptionId) -> Result<bool, StoreError> {
+        let mut data = self.0.lock().unwrap();
+        if data
             .push_subscriptions
-            .remove(workspace_id, id)
-            .is_some())
+            .get(id)
+            .is_some_and(|row| &row.user_id == user_id)
+        {
+            data.push_subscriptions.remove(id);
+            Ok(true)
+        } else {
+            Ok(false)
+        }
     }
     async fn delete_by_endpoint(
         &self,
-        workspace_id: &WorkspaceId,
+        user_id: &UserId,
         endpoint: &str,
     ) -> Result<bool, StoreError> {
         let mut data = self.0.lock().unwrap();
         let id = data
             .push_subscriptions
-            .rows(workspace_id)
-            .find(|s| s.endpoint == endpoint)
-            .map(|s| s.id.clone());
-        Ok(id.is_some_and(|id| data.push_subscriptions.remove(workspace_id, &id).is_some()))
+            .values()
+            .find(|row| &row.user_id == user_id && row.endpoint == endpoint)
+            .map(|row| row.id.clone());
+        Ok(id.is_some_and(|id| data.push_subscriptions.remove(&id).is_some()))
     }
     async fn mark_sent(
         &self,
-        workspace_id: &WorkspaceId,
+        user_id: &UserId,
         id: &PushSubscriptionId,
         at: UnixMillis,
     ) -> Result<bool, StoreError> {
         let mut data = self.0.lock().unwrap();
-        let Some(row) = data.push_subscriptions.get_mut(workspace_id, id) else {
+        let Some(row) = data
+            .push_subscriptions
+            .get_mut(id)
+            .filter(|row| &row.user_id == user_id)
+        else {
             return Ok(false);
         };
         row.last_sent_at = Some(at);

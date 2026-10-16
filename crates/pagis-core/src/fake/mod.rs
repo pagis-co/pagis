@@ -331,7 +331,7 @@ struct Data {
     schedules: Table<ScheduleId, Schedule>,
     subscriptions: Table<EventSubscriptionId, EventSubscription>,
     calendar: Table<CalendarEventId, CalendarEvent>,
-    push_subscriptions: Table<PushSubscriptionId, PushSubscription>,
+    push_subscriptions: BTreeMap<PushSubscriptionId, PushSubscription>,
 
     workspaces: BTreeMap<WorkspaceId, Workspace>,
     workspace_members: BTreeMap<(WorkspaceId, UserId), crate::WorkspaceMember>,

@@ -25,6 +25,10 @@ Computer's traffic, with no port open at home.
 
 ## Decision
 
+The Home Exit belongs only to a Private Workspace. Every Home Exit route
+and the Host exit socket refuse a Shared Workspace with 409 and the Private
+Workspace rule. The Product App shows no Home Exit control there.
+
 ### Every Computer sends its connections to the Exit Proxy inside it
 
 The **Exit Proxy** is an HTTP proxy on loopback inside every Computer,

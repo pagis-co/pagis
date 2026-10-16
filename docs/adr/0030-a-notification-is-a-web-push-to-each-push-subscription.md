@@ -47,7 +47,7 @@ the queue stays a view, never a second source of truth (ADR-0022).
 
 The daemon derives the queue on each read from the records, and stores no
 copy of it. `GET /api/v1/needs-you` answers `{items, count}` for the
-Workspace of the Session. Each item is tagged by its `kind` and has a
+Workspace of the request. Each item is tagged by its `kind` and has a
 stable `id` that names the kind and the record (`request:<id>`,
 `run:<id>`, `call:<id>` or `keypad`), its `line`, the `url` of the place
 in the Product App that answers it, and the time `at` that orders it
@@ -323,10 +323,17 @@ daemon's queue.
 
 ### Hold while active
 
+Push Subscription rows carry the Person id and the Session id. Reads and
+writes name the Person. A Shared Workspace item goes to each current member.
+Each Person has a separate hold, keyed by Person, Workspace and item. Activity
+in any Workspace counts for that Person alone. One member's activity holds
+none of another member's Notifications. The sender checks membership again
+before delivery, so a former member receives no held Notification.
+
 A new item waits while the Person used any client in the last 120 s. A
 client that is visible sends an `activity` frame on the event socket after
 input, at most once every 30 s. The daemon keeps the time of the last
-`activity` frame for each Workspace in memory, as it keeps the Presence of
+`activity` frame for each Person in memory, as it keeps the Presence of
 a Host (ADR-0015). A `ping` or a query does not count, because a hidden
 tab sends them too. The `last_used_at` of a Session cannot tell this,
 because the daemon moves it at most once an hour.

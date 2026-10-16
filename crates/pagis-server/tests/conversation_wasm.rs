@@ -619,7 +619,7 @@ async fn workspace_conversations_share_one_history_and_check_participation() {
     assert_eq!(colleagues["items"][0]["presence"], "away");
     state
         .person_activity
-        .record(&e.other_workspace, state.clock.now_ms());
+        .record(b.user_id.as_ref().unwrap(), state.clock.now_ms());
     assert_eq!(
         read(&e, "/api/v1/colleagues").await["items"][0]["presence"],
         "active"

@@ -502,6 +502,7 @@ pub async fn set_session_approval_mode(
     Path((agent_id, host_id)): Path<(String, String)>,
     Json(request): Json<SetSessionApprovalModeRequest>,
 ) -> Result<(StatusCode, Json<GrantDto>), ApiError> {
+    tenant.require_private("Hosts")?;
     #[cfg(not(feature = "native"))]
     {
         Err(ApiError::not_available("Hosts"))
@@ -542,6 +543,7 @@ pub async fn set_unattended_modes(
     Path((agent_id, host_id)): Path<(String, String)>,
     Json(request): Json<SetUnattendedModesRequest>,
 ) -> Result<(StatusCode, Json<GrantDto>), ApiError> {
+    tenant.require_private("Hosts")?;
     #[cfg(not(feature = "native"))]
     {
         Err(ApiError::not_available("Hosts"))

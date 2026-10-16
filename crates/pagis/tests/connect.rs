@@ -1848,4 +1848,196 @@ mod installation_client {
             );
         }
     }
+    async fn shared_google(h: &Harness) -> (WorkspaceId, String, String) {
+        let response = h
+            .daemon
+            .client()
+            .post(format!(
+                "{}/api/v1/administration/workspaces",
+                h.daemon.administration_base_url,
+            ))
+            .header("cookie", h.daemon.cookie())
+            .json(&serde_json::json!({
+                "name":"Support", "manager_id":h.daemon.user_id,
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 201);
+        let shared: serde_json::Value = response.json().await.unwrap();
+        let workspace_id = WorkspaceId::from(shared["id"].as_str().unwrap().to_string());
+        let prefix = format!("/api/v1/workspaces/{workspace_id}");
+        let response = browser().post(format!("{}{prefix}/settings/connections", h.daemon.base_url))
+            .header("cookie", h.daemon.cookie()).json(&serde_json::json!({
+                "provider":"google", "alias":"team", "display_name":"Support", "shared_account":true,
+            })).send().await.unwrap();
+        assert_eq!(response.status(), 201);
+        let connection: serde_json::Value = response.json().await.unwrap();
+        let id = connection["id"].as_str().unwrap().to_string();
+        (workspace_id, prefix, id)
+    }
+
+    async fn shared_authorization(h: &Harness, prefix: &str, id: &str) -> String {
+        let response = browser()
+            .post(format!(
+                "{}{prefix}/settings/connections/{id}/authorize",
+                h.daemon.base_url,
+            ))
+            .header("cookie", h.daemon.cookie())
+            .json(&serde_json::json!({
+                "capabilities":["gmail_read"],
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        response.json::<serde_json::Value>().await.unwrap()["authorization_url"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    }
+
+    #[tokio::test]
+    async fn shared_google_oauth_state_keeps_the_account_in_its_workspace() {
+        let h = installation_in_remote_access().await;
+        let (workspace_id, prefix, id) = shared_google(&h).await;
+        let url = shared_authorization(&h, &prefix, &id).await;
+        let started = h.open_start(&url, Some(h.daemon.cookie())).await;
+        assert_eq!(started.status(), 303);
+        let state = state_of(&location(&started));
+        let cookie = cookie_pair(&set_cookie(&started, h.cookie_name).unwrap());
+        let landed = h.callback(&state, "alices-code", Some(&cookie)).await;
+        assert!(
+            landed.page.contains("Google is connected"),
+            "{}",
+            landed.page
+        );
+        let stores = h.daemon.stores();
+        let connection_id = ConnectionId::from(id.clone());
+        let connection = stores
+            .connections
+            .get(&workspace_id, &connection_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(connection.workspace_id, workspace_id);
+        assert_eq!(connection.config["shared_account"], true);
+        assert_eq!(connection.status, "connected");
+        assert!(
+            stores
+                .connections
+                .get(&h.daemon.workspace_id, &connection_id)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            stores
+                .connections
+                .refresh_token(&workspace_id, &connection_id)
+                .await
+                .unwrap()
+                .is_some()
+        );
+        let workspace = stores.workspaces.get(&workspace_id).await.unwrap().unwrap();
+        let agent_id = workspace.chief_of_staff_agent_id.unwrap();
+        let response = browser()
+            .post(format!("{}{prefix}/grants", h.daemon.base_url))
+            .header("cookie", h.daemon.cookie())
+            .json(&serde_json::json!({
+                "agent_id":agent_id, "connection_id":id, "capabilities":["gmail_read"],
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 201, "{}", response.text().await.unwrap());
+        let channel = stores
+            .channels
+            .list_by_workspace(&workspace_id)
+            .await
+            .unwrap()
+            .remove(0);
+        let run = pagis_testkit::fixture::queued_run(&workspace_id, &agent_id, &channel.id);
+        stores.runs.create(&run).await.unwrap();
+        let snapshot = h
+            .daemon
+            .state
+            .broker
+            .prepare_run(&workspace_id, &agent_id, &run.id)
+            .await
+            .unwrap();
+        assert!(
+            snapshot
+                .tools
+                .iter()
+                .any(|tool| tool.name == pagis_broker::MAIL_SEARCH)
+        );
+        let outcome = h
+            .daemon
+            .state
+            .broker
+            .invoke(
+                &workspace_id,
+                &run.id,
+                &snapshot.id,
+                pagis_broker::ToolCall::new(
+                    pagis_broker::MAIL_SEARCH,
+                    serde_json::json!({"mailbox":"team", "query":"is:unread"}).to_string(),
+                ),
+            )
+            .await
+            .unwrap();
+        assert!(matches!(outcome, pagis_broker::InvokeOutcome::Completed(_)));
+        assert!(h.gog.calls().iter().any(|call| call.has_access_token));
+    }
+
+    #[tokio::test]
+    async fn shared_google_start_and_callback_recheck_the_manager_role() {
+        let h = installation_in_remote_access().await;
+        let (workspace_id, prefix, id) = shared_google(&h).await;
+        let url = shared_authorization(&h, &prefix, &id).await;
+        let started = h.open_start(&url, Some(h.daemon.cookie())).await;
+        assert_eq!(started.status(), 303);
+        let state = state_of(&location(&started));
+        let cookie = cookie_pair(&set_cookie(&started, h.cookie_name).unwrap());
+        let stores = h.daemon.stores();
+        let mut successor = stores.users.get(&h.daemon.user_id).await.unwrap().unwrap();
+        successor.id = pagis_core::UserId::generate();
+        successor.email = Some("successor@example.com".into());
+        stores.users.create(&successor).await.unwrap();
+        stores
+            .workspace_members
+            .add(&pagis_core::WorkspaceMember {
+                workspace_id: workspace_id.clone(),
+                person_id: successor.id,
+                role: pagis_core::WorkspaceRole::Manager,
+                author: pagis_core::Author::Person(h.daemon.user_id.clone()),
+            })
+            .await
+            .unwrap();
+        stores
+            .workspace_members
+            .change(&pagis_core::WorkspaceMember {
+                workspace_id: workspace_id.clone(),
+                person_id: h.daemon.user_id.clone(),
+                role: pagis_core::WorkspaceRole::Responder,
+                author: pagis_core::Author::Person(h.daemon.user_id.clone()),
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            h.open_start(&url, Some(h.daemon.cookie())).await.status(),
+            403
+        );
+        let landed = h.callback(&state, "alices-code", Some(&cookie)).await;
+        assert!(!landed.page.contains("Google is connected"));
+        assert!(
+            stores
+                .connections
+                .refresh_token(&workspace_id, &ConnectionId::from(id))
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
 }

@@ -236,7 +236,7 @@ async fn a_sign_out_removes_the_push_subscription_of_that_session() {
         daemon
             .stores()
             .push_subscriptions
-            .list(&daemon.workspace_id)
+            .list(&daemon.user_id)
             .await
             .unwrap()
             .iter()

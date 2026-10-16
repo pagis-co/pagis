@@ -273,3 +273,193 @@ async fn shared_workspaces_check_roles_and_keep_private_routes() {
     .await;
     assert_eq!(response.status(), 409);
 }
+
+#[tokio::test]
+async fn shared_workspaces_refuse_personal_resources_and_own_connections() {
+    let daemon = TestDaemon::start_in_memory().await;
+    let shared: Value = call(
+        &daemon,
+        daemon.cookie(),
+        Method::POST,
+        "/api/v1/administration/workspaces",
+        json!({"name":"Support", "manager_id":daemon.user_id}),
+    )
+    .await
+    .json()
+    .await
+    .unwrap();
+    let prefix = format!("/api/v1/workspaces/{}", shared["id"].as_str().unwrap());
+    for (method, path, body) in [
+        (Method::GET, "settings/home-exit", Value::Null),
+        (
+            Method::PUT,
+            "settings/home-exit",
+            json!({"host_id":"absent"}),
+        ),
+        (Method::DELETE, "settings/home-exit", Value::Null),
+        (
+            Method::PUT,
+            "settings/keypad-code",
+            json!({"code":"123456"}),
+        ),
+        (Method::DELETE, "settings/keypad-code", Value::Null),
+        (Method::DELETE, "settings/keypad-code/failures", Value::Null),
+        (
+            Method::POST,
+            "settings/connections",
+            json!({"provider":"google", "alias":"personal", "display_name":"Personal", "fields":{}}),
+        ),
+    ] {
+        let response = call(
+            &daemon,
+            daemon.cookie(),
+            method,
+            &format!("{prefix}/{path}"),
+            body,
+        )
+        .await;
+        assert_eq!(
+            response.status(),
+            409,
+            "{path}: {}",
+            response.text().await.unwrap()
+        );
+        let body: Value = response.json().await.unwrap();
+        assert!(
+            body["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("Private Workspace")
+        );
+    }
+    use futures::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message;
+    for route in ["hosts/absent/sessions", "hosts/absent/exit"] {
+        assert!(matches!(
+            daemon
+                .open_socket(&format!("{prefix}/{route}"), daemon.cookie())
+                .await,
+            Err(409)
+        ));
+    }
+    let mut socket = daemon
+        .open_socket(&format!("{prefix}/ws"), daemon.cookie())
+        .await
+        .unwrap();
+    socket
+        .send(Message::text(json!({"type":"auth"}).to_string()))
+        .await
+        .unwrap();
+    socket.next().await.unwrap().unwrap();
+    socket.send(Message::text(json!({"type":"register_host", "name":"Air", "platform":"macos", "capabilities":["shell"]}).to_string())).await.unwrap();
+    let frame: Value =
+        serde_json::from_str(socket.next().await.unwrap().unwrap().to_text().unwrap()).unwrap();
+    assert_eq!(frame["type"], "error");
+    assert_eq!(frame["payload"]["code"], "conflict");
+    assert!(
+        frame["payload"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("Private Workspace")
+    );
+    let (status, setup) = daemon
+        .set_up_provider(
+            "google",
+            "oauth-client",
+            json!({
+                "client_id":"test-client", "client_secret":"test-secret",
+            }),
+        )
+        .await;
+    assert_eq!(status, 200, "{setup}");
+    let response = call(
+        &daemon, daemon.cookie(), Method::POST,
+        &format!("{prefix}/settings/connections"),
+        json!({"provider":"google", "alias":"support", "display_name":"Support", "shared_account":true}),
+    ).await;
+    assert_eq!(response.status(), 201, "{}", response.text().await.unwrap());
+    let connection: Value = response.json().await.unwrap();
+    let workspace_id = pagis_core::WorkspaceId::from(shared["id"].as_str().unwrap().to_string());
+    let workspace = daemon
+        .stores()
+        .workspaces
+        .get(&workspace_id)
+        .await
+        .unwrap()
+        .unwrap();
+    let connection_id =
+        pagis_core::ConnectionId::from(connection["id"].as_str().unwrap().to_string());
+    let authorization = call(
+        &daemon,
+        daemon.cookie(),
+        Method::POST,
+        &format!("{prefix}/settings/connections/{connection_id}/authorize"),
+        json!({"capabilities":["gmail_read"]}),
+    )
+    .await;
+    assert_eq!(
+        authorization.status(),
+        200,
+        "{}",
+        authorization.text().await.unwrap()
+    );
+    let authorization: Value = authorization.json().await.unwrap();
+    assert!(
+        authorization["authorization_url"]
+            .as_str()
+            .unwrap()
+            .contains("/connections/google/start?state=")
+    );
+    let stored = daemon
+        .stores()
+        .connections
+        .get(&workspace_id, &connection_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored.config["shared_account"], true);
+    assert_eq!(stored.workspace_id, workspace_id);
+    assert_eq!(connection["installation"], false);
+    // Provider consent is tested by the OAuth suite. This test starts from its result.
+    daemon
+        .stores()
+        .connections
+        .set_authorization(&workspace_id, &connection_id, &["gmail_read".to_string()])
+        .await
+        .unwrap();
+    let response = call(&daemon, daemon.cookie(), Method::POST, &format!("{prefix}/grants"),
+        json!({"agent_id":workspace.chief_of_staff_agent_id.clone().unwrap(), "connection_id":connection["id"], "capabilities":["gmail_read"]}),
+    ).await;
+    assert_eq!(response.status(), 201, "{}", response.text().await.unwrap());
+    let agent_id = workspace.chief_of_staff_agent_id.unwrap();
+    let channel = daemon
+        .stores()
+        .channels
+        .list_by_workspace(&workspace_id)
+        .await
+        .unwrap()
+        .remove(0);
+    let run = pagis_testkit::fixture::queued_run(&workspace_id, &agent_id, &channel.id);
+    daemon.stores().runs.create(&run).await.unwrap();
+    let snapshot = daemon
+        .state
+        .broker
+        .prepare_run(&workspace_id, &agent_id, &run.id)
+        .await
+        .unwrap();
+    assert!(
+        snapshot
+            .tools
+            .iter()
+            .any(|tool| tool.name == "mail__search")
+    );
+    assert!(
+        daemon
+            .stores()
+            .connections
+            .list(&daemon.workspace_id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}

@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use pagis_core::{Event, UnixMillis, WorkspaceId};
+use pagis_core::{Event, UnixMillis, UserId, WorkspaceId};
 use serde::Deserialize;
 
 use crate::{NEEDS_YOU_ADDED, NEEDS_YOU_REMOVED, PersonActivity, QueuedItem};
@@ -31,14 +31,16 @@ struct Removed {
 /// The held items of one Workspace. This rule reads no clock and starts no task.
 pub struct NotificationRule {
     workspace_id: WorkspaceId,
+    user_id: UserId,
     activity: Arc<PersonActivity>,
     held: HashSet<String>,
 }
 
 impl NotificationRule {
-    pub fn new(workspace_id: WorkspaceId, activity: Arc<PersonActivity>) -> Self {
+    pub fn new(workspace_id: WorkspaceId, user_id: UserId, activity: Arc<PersonActivity>) -> Self {
         Self {
             workspace_id,
+            user_id,
             activity,
             held: HashSet::new(),
         }
@@ -59,7 +61,7 @@ impl NotificationRule {
                     }
                 };
                 let item_id = added.item.id().to_string();
-                match self.activity.hold_until(&self.workspace_id, now) {
+                match self.activity.hold_until(&self.user_id, now) {
                     Some(until) => {
                         self.held.insert(item_id.clone());
                         vec![Action::Hold { item_id, until }]
@@ -88,7 +90,7 @@ impl NotificationRule {
         if !self.held.contains(item_id) {
             return Vec::new();
         }
-        if let Some(until) = self.activity.hold_until(&self.workspace_id, now) {
+        if let Some(until) = self.activity.hold_until(&self.user_id, now) {
             return vec![Action::Hold {
                 item_id: item_id.to_string(),
                 until,

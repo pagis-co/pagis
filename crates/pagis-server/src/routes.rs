@@ -1351,7 +1351,7 @@ pub const ROUTES: &[Route] = &[
         part: None,
     },
     Route {
-        shared: false,
+        shared: true,
         path: "/api/v1/settings/connections/providers",
         methods: &["get"],
         authenticated: true,

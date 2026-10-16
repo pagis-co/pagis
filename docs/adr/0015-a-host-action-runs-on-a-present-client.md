@@ -20,6 +20,11 @@ daemon dispatches, and the client is the machine.
 
 ### A Host is a record of one person
 
+A Host belongs only to a Private Workspace. A Shared Workspace refuses
+registration with a conflict that names this rule. Its Hosts list is empty.
+Host session sockets, exit sockets and Harness Sign-In also refuse a Shared
+Workspace. The Product App hides Hosts and the Home Exit in its Settings.
+
 A **Host** is one machine of one person: an id, the owner's Workspace, the
 name the machine calls itself, its platform, the capabilities its client
 declared, and its last-seen time. Every read names the Workspace (ADR-0023),

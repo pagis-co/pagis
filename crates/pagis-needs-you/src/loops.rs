@@ -5,14 +5,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::{StreamExt, channel::mpsc};
-use pagis_core::{Clock, EventBus, EventScope, EventStream, StoreError, WorkspaceId};
+use pagis_core::{Clock, EventBus, EventScope, EventStream, StoreError, UserId, WorkspaceId};
 use tokio_util::sync::CancellationToken;
 
 use crate::needs_you::QUEUE_EVENTS;
 use crate::notifications::Notifier;
 use crate::{
-    Action, HeldItem, NeedsYou, NeedsYouQueue, NotificationRule, Notifications, PersonActivity,
-    QueueChanges, QueueReader,
+    Action, HeldItem, NEEDS_YOU_ADDED, NEEDS_YOU_REMOVED, NeedsYou, NeedsYouQueue,
+    NotificationRule, Notifications, PersonActivity, QueueChanges, QueueReader,
 };
 
 struct CurrentQueue {
@@ -88,7 +88,7 @@ pub async fn run_notifications(
     pagis_rt::spawn(serve(notifications, activity, clock, events, cancel));
 }
 
-type ItemKey = (WorkspaceId, String);
+type ItemKey = (WorkspaceId, UserId, String);
 
 pub(crate) async fn serve<N: Notifier>(
     notifier: Arc<N>,
@@ -99,61 +99,72 @@ pub(crate) async fn serve<N: Notifier>(
 ) {
     let cancel = cancel.child_token();
     let _ended = cancel.clone().drop_guard();
-    let mut rules: HashMap<WorkspaceId, NotificationRule> = HashMap::new();
+    let mut rules: HashMap<(WorkspaceId, UserId), NotificationRule> = HashMap::new();
     let mut holds: HashMap<ItemKey, CancellationToken> = HashMap::new();
     let (ended, mut hold_ends) = mpsc::unbounded::<(ItemKey, CancellationToken)>();
     loop {
-        let (workspace_id, actions) = tokio::select! {
+        let batches = tokio::select! {
             () = cancel.cancelled() => return,
             event = events.next() => {
                 let Some(event) = event else { return; };
+                if !matches!(event.event_type.as_str(), NEEDS_YOU_ADDED | NEEDS_YOU_REMOVED) {
+                    continue;
+                }
                 let workspace_id = event.workspace_id.clone();
-                let rule = rules.entry(workspace_id.clone()).or_insert_with(|| {
-                    NotificationRule::new(workspace_id.clone(), activity.clone())
-                });
-                let actions = rule.on_event(&event, clock.now_ms());
-                (workspace_id, actions)
+                let mut batches = Vec::new();
+                for user_id in notifier.recipients(&workspace_id).await {
+                    let rule = rules.entry((workspace_id.clone(), user_id.clone())).or_insert_with(|| {
+                        NotificationRule::new(workspace_id.clone(), user_id.clone(), activity.clone())
+                    });
+                    batches.push((workspace_id.clone(), user_id, rule.on_event(&event, clock.now_ms())));
+                }
+                batches
             },
             end = hold_ends.next() => {
-                let Some(((workspace_id, item_id), hold)) = end else { return; };
+                let Some(((workspace_id, user_id, item_id), hold)) = end else { return; };
                 // A replaced or removed hold can already have sent its completion.
                 if hold.is_cancelled() { continue; }
                 let queued = notifier.queued(&workspace_id, &item_id).await;
-                let rule = rules.get_mut(&workspace_id).expect("a hold has a Workspace rule");
+                let rule = rules.get_mut(&(workspace_id.clone(), user_id.clone())).expect("a hold has a Workspace rule");
                 let actions = rule.on_hold_end(HeldItem { item_id, queued }, clock.now_ms());
-                (workspace_id, actions)
+                vec![(workspace_id, user_id, actions)]
             },
         };
-        for action in actions {
-            match action {
-                Action::Send(queued) => {
-                    notifier
-                        .notify(&workspace_id, &queued.item, queued.count, &cancel)
-                        .await;
-                }
-                Action::EndHold { item_id } => {
-                    if let Some(hold) = holds.remove(&(workspace_id.clone(), item_id)) {
-                        hold.cancel();
+        for (workspace_id, user_id, actions) in batches {
+            for action in actions {
+                match action {
+                    Action::Send(queued) => {
+                        notifier
+                            .notify(&workspace_id, &user_id, &queued.item, queued.count, &cancel)
+                            .await;
                     }
-                }
-                Action::Hold { item_id, until } => {
-                    let key = (workspace_id.clone(), item_id);
-                    let hold = cancel.child_token();
-                    if let Some(old) = holds.insert(key.clone(), hold.clone()) {
-                        old.cancel();
-                    }
-                    let ended = ended.clone();
-                    let wait =
-                        Duration::from_millis(u64::try_from(until - clock.now_ms()).unwrap_or(0));
-                    pagis_rt::spawn(async move {
-                        if hold
-                            .run_until_cancelled(pagis_rt::sleep(wait))
-                            .await
-                            .is_some()
+                    Action::EndHold { item_id } => {
+                        if let Some(hold) =
+                            holds.remove(&(workspace_id.clone(), user_id.clone(), item_id))
                         {
-                            let _ = ended.unbounded_send((key, hold));
+                            hold.cancel();
                         }
-                    });
+                    }
+                    Action::Hold { item_id, until } => {
+                        let key = (workspace_id.clone(), user_id.clone(), item_id);
+                        let hold = cancel.child_token();
+                        if let Some(old) = holds.insert(key.clone(), hold.clone()) {
+                            old.cancel();
+                        }
+                        let ended = ended.clone();
+                        let wait = Duration::from_millis(
+                            u64::try_from(until - clock.now_ms()).unwrap_or(0),
+                        );
+                        pagis_rt::spawn(async move {
+                            if hold
+                                .run_until_cancelled(pagis_rt::sleep(wait))
+                                .await
+                                .is_some()
+                            {
+                                let _ = ended.unbounded_send((key, hold));
+                            }
+                        });
+                    }
                 }
             }
         }

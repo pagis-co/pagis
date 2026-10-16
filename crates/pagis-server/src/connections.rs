@@ -139,10 +139,16 @@ pub async fn create_connection(
     tenant: Tenant,
     Json(request): Json<CreateConnectionRequest>,
 ) -> Result<(StatusCode, Json<ConnectionDto>), ApiError> {
+    if request.provider == "google" && !request.shared_account {
+        tenant.require_private("personal Google Connections")?;
+    }
     refuse_installation_provider(&request.provider)?;
-    let credentials =
+    let mut credentials =
         pagis_connect::NewCredentials::from_fields(&request.provider, &request.fields)
             .map_err(connect_error)?;
+    if !tenant.is_private() && request.provider == "google" {
+        credentials = pagis_connect::NewCredentials::SharedGoogle;
+    }
     let connection = state
         .native
         .connector
@@ -180,6 +186,7 @@ pub async fn create_connection(
     params(("connection_id" = String, Path)),
     request_body = AuthorizeConnectionRequest, responses(
         (status = 200, body = AuthorizeConnectionResponse),
+        (status = 409, body = crate::error::ErrorBody),
         (status = 401, body = crate::error::ErrorBody),
         (status = 403, body = crate::error::ErrorBody),
         (status = 404, body = crate::error::ErrorBody),
@@ -195,6 +202,14 @@ pub async fn authorize_connection(
     let request = body.map(|Json(request)| request).unwrap_or_default();
     let id = pagis_core::ConnectionId::from(connection_id);
     refuse_installation_connection(&state, &id).await?;
+    let connection = state
+        .connections
+        .get(&tenant.workspace_id, &id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("connection"))?;
+    if connection.provider == "google" && connection.config["shared_account"] != true {
+        tenant.require_private("personal Google Connections")?;
+    }
     let answer = state
         .native
         .connector
@@ -360,7 +375,13 @@ pub async fn google_start(
         Some(tenant) => pagis_connect::Opener::SignedIn(&tenant.user_id),
         None => pagis_connect::Opener::ThisMachine,
     };
-    let answer = match state.native.connector.google().start(&query.state, opener) {
+    let answer = match state
+        .native
+        .connector
+        .google()
+        .start(&query.state, opener)
+        .await
+    {
         Ok(google) => (
             StatusCode::SEE_OTHER,
             [
@@ -378,6 +399,11 @@ pub async fn google_start(
                 "This Google sign-in belongs to another person. Sign in to Pagis as the \
                  person who started it.",
             ),
+        )
+            .into_response(),
+        Err(pagis_connect::StartRefusal::NotManager) => (
+            StatusCode::FORBIDDEN,
+            google_page("A Manager authorizes a Shared Workspace account. Go back to Pagis."),
         )
             .into_response(),
         Err(pagis_connect::StartRefusal::NotWaiting) => (

@@ -1617,7 +1617,9 @@ pub struct ModelAlias {
 /// model-visible, so it carries no ID and no secret.
 ///
 /// `config` is the trusted binding the provider needs — for Google, the
-/// account that consented and the `gog` client name. Nothing an agent
+/// account that consented, the `gog` client name and `shared_account` for
+/// an explicit team account. A team account belongs to `workspace_id`,
+/// never to the Manager who completes OAuth. Nothing an agent
 /// wrote ever reaches it, and it holds no token.
 ///
 /// The kind of the provider's catalog entry says what the Connection

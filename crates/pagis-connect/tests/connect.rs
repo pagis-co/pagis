@@ -380,18 +380,19 @@ fn google_broker(
     sessions: Arc<MemorySessions>,
     token_endpoint: &str,
 ) -> Arc<GoogleBroker> {
-    Arc::new(GoogleBroker::new(
-        connections as _,
-        Arc::new(OrgWebClient::new(orgs as _, secrets as _)),
-        Arc::new(pagis_google::GoogleOAuth::with_endpoints(
+    Arc::new(GoogleBroker::new(pagis_connect::GoogleBrokerDeps {
+        connections: connections as _,
+        client: Arc::new(OrgWebClient::new(orgs as _, secrets as _)),
+        oauth: Arc::new(pagis_google::GoogleOAuth::with_endpoints(
             "https://accounts.example.test/authorize",
             token_endpoint,
         )),
-        Arc::new(TenantKeys::new(Arc::new(MemorySecretStore::default()))),
-        sessions as _,
-        Arc::new(pagis_core::SystemClock),
-        "https://pagis.example.net",
-    ))
+        keys: Arc::new(TenantKeys::new(Arc::new(MemorySecretStore::default()))),
+        sessions: sessions as _,
+        members: pagis_core::fake::stores().workspace_members,
+        clock: Arc::new(pagis_core::SystemClock),
+        public_origin: "https://pagis.example.net".to_string(),
+    }))
 }
 
 fn connector() -> (Connector, Arc<MemoryConnections>) {
@@ -1378,7 +1379,10 @@ mod installation_client {
             .expect("create");
 
         assert_eq!(created.status, Connection::DISCONNECTED);
-        assert_eq!(created.config, serde_json::json!({ "client": "google" }));
+        assert_eq!(
+            created.config,
+            serde_json::json!({ "client": "google", "shared_account": false })
+        );
     }
 
     /// The alias is how a tool call picks the account, so a Workspace
@@ -1477,6 +1481,7 @@ mod installation_client {
         let google = installation
             .broker
             .start(&state, Opener::SignedIn(&initiator().user_id))
+            .await
             .expect("the initiating Person goes to Google");
 
         assert!(
@@ -1499,28 +1504,33 @@ mod installation_client {
             "{google}"
         );
         assert_eq!(
-            installation.broker.start(
-                &state,
-                Opener::SignedIn(&UserId::from("person-2".to_string()))
-            ),
+            installation
+                .broker
+                .start(
+                    &state,
+                    Opener::SignedIn(&UserId::from("person-2".to_string()))
+                )
+                .await,
             Err(StartRefusal::AnotherPerson)
         );
         assert_eq!(
             installation
                 .broker
-                .start("not-a-state", Opener::SignedIn(&initiator().user_id)),
+                .start("not-a-state", Opener::SignedIn(&initiator().user_id))
+                .await,
             Err(StartRefusal::NotWaiting)
         );
         // An installation with one Person asks the browser for no
         // Session, and a `state` that waits for nobody still goes nowhere.
         assert_eq!(
-            installation.broker.start(&state, Opener::ThisMachine),
+            installation.broker.start(&state, Opener::ThisMachine).await,
             Ok(google.clone())
         );
         assert_eq!(
             installation
                 .broker
-                .start("not-a-state", Opener::ThisMachine),
+                .start("not-a-state", Opener::ThisMachine)
+                .await,
             Err(StartRefusal::NotWaiting)
         );
         assert_eq!(installation.broker.pending().len(), 1);
@@ -1589,6 +1599,7 @@ mod installation_client {
         let google = installation
             .broker
             .start(&again, Opener::SignedIn(&initiator().user_id))
+            .await
             .unwrap();
         assert!(google.contains("login_hint=bob%40example.com"), "{google}");
         assert!(google.contains("prompt=consent&"), "{google}");

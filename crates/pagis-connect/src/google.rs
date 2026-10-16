@@ -195,6 +195,8 @@ pub enum StartRefusal {
     /// The Session belongs to a Person other than the one who started
     /// the authorization.
     AnotherPerson,
+    /// The Person no longer manages the Shared Workspace account.
+    NotManager,
 }
 
 /// One authorization the daemon started and the person has not finished.
@@ -300,6 +302,7 @@ pub struct GoogleBroker {
     oauth: Arc<GoogleOAuth>,
     keys: Arc<TenantKeys>,
     sessions: Arc<dyn SessionStore>,
+    members: Arc<dyn pagis_core::WorkspaceMemberStore>,
     /// The clock of the daemon. The window of an authorization and the
     /// expiry of a Session both read it.
     clock: Arc<dyn Clock>,
@@ -310,26 +313,50 @@ pub struct GoogleBroker {
     public_origin: String,
 }
 
+pub struct GoogleBrokerDeps {
+    pub connections: Arc<dyn ConnectionStore>,
+    pub client: Arc<OrgWebClient>,
+    pub oauth: Arc<GoogleOAuth>,
+    pub keys: Arc<TenantKeys>,
+    pub sessions: Arc<dyn SessionStore>,
+    pub members: Arc<dyn pagis_core::WorkspaceMemberStore>,
+    pub clock: Arc<dyn Clock>,
+    pub public_origin: String,
+}
+
 impl GoogleBroker {
-    pub fn new(
-        connections: Arc<dyn ConnectionStore>,
-        client: Arc<OrgWebClient>,
-        oauth: Arc<GoogleOAuth>,
-        keys: Arc<TenantKeys>,
-        sessions: Arc<dyn SessionStore>,
-        clock: Arc<dyn Clock>,
-        public_origin: impl Into<String>,
-    ) -> Self {
+    pub fn new(deps: GoogleBrokerDeps) -> Self {
         Self {
-            connections,
-            client,
-            oauth,
-            keys,
-            sessions,
-            clock,
+            connections: deps.connections,
+            client: deps.client,
+            oauth: deps.oauth,
+            keys: deps.keys,
+            sessions: deps.sessions,
+            members: deps.members,
+            clock: deps.clock,
             pending: PendingAuthorizations::default(),
-            public_origin: public_origin.into(),
+            public_origin: deps.public_origin,
         }
+    }
+
+    async fn check_account_access(
+        &self,
+        connection: &Connection,
+        initiator: &Initiator,
+    ) -> Result<(), ConnectError> {
+        if connection.config["shared_account"] == true {
+            let manager = self
+                .members
+                .get(&connection.workspace_id, &initiator.user_id)
+                .await?
+                .is_some_and(|member| member.role == pagis_core::WorkspaceRole::Manager);
+            if !manager {
+                return Err(ConnectError::Validation(
+                    "a Manager authorizes a Shared Workspace account".to_string(),
+                ));
+            }
+        }
+        Ok(())
     }
 
     /// The installation's Web client, when it holds one.
@@ -371,6 +398,7 @@ impl GoogleBroker {
         capabilities: &[GoogleCapability],
         initiator: &Initiator,
     ) -> Result<String, ConnectError> {
+        self.check_account_access(connection, initiator).await?;
         let client = self.web_client().await?.ok_or_else(|| {
             ConnectError::Validation(
                 "this installation has no Google client; an administrator registers one in \
@@ -413,8 +441,33 @@ impl GoogleBroker {
     /// browser `opener`. The start route sets the transaction cookie and
     /// sends the browser there. It spends nothing, so the Person who
     /// started the authorization can open the start route again.
-    pub fn start(&self, state: &str, opener: Opener<'_>) -> Result<String, StartRefusal> {
-        self.pending.google_url(state, opener, self.clock.now_ms())
+    pub async fn start(&self, state: &str, opener: Opener<'_>) -> Result<String, StartRefusal> {
+        let google_url = self
+            .pending
+            .google_url(state, opener, self.clock.now_ms())?;
+        let (workspace_id, connection_id, initiator) = {
+            let entries = self
+                .pending
+                .entries
+                .lock()
+                .expect("pending authorization lock");
+            let pending = entries.get(state).ok_or(StartRefusal::NotWaiting)?;
+            (
+                pending.workspace_id.clone(),
+                pending.connection_id.clone(),
+                pending.initiator.clone(),
+            )
+        };
+        let connection = self
+            .connections
+            .get(&workspace_id, &connection_id)
+            .await
+            .map_err(|_| StartRefusal::NotWaiting)?
+            .ok_or(StartRefusal::NotWaiting)?;
+        self.check_account_access(&connection, &initiator)
+            .await
+            .map_err(|_| StartRefusal::NotManager)?;
+        Ok(google_url)
     }
 
     /// Spend one `state` and connect nothing. The callback does this for
@@ -486,6 +539,7 @@ impl GoogleBroker {
             .get(&pending.workspace_id, &pending.connection_id)
             .await?
             .ok_or(ConnectError::NotFound)?;
+        self.check_account_access(&connection, initiator).await?;
         let client = self.web_client().await?.ok_or_else(|| {
             ConnectError::Validation("this installation has no Google client".to_string())
         })?;

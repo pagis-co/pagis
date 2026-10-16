@@ -310,6 +310,7 @@ impl Embedder {
             origin.clone(),
             stores.push_subscriptions.clone(),
             stores.agents.clone(),
+            stores.workspace_members.clone(),
             needs_you.clone(),
             deps.clock.clone(),
         ));

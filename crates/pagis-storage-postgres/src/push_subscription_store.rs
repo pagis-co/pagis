@@ -3,14 +3,13 @@
 use async_trait::async_trait;
 use pagis_core::{
     PushSubscription, PushSubscriptionId, PushSubscriptionStore, SessionId, StoreError, UnixMillis,
-    WorkspaceId,
+    UserId,
 };
 use sqlx::{PgPool, Row};
 
 use crate::db_err;
 
-const COLUMNS: &str =
-    "id, workspace_id, session_id, endpoint, p256dh, auth, created_at, last_sent_at";
+const COLUMNS: &str = "id, user_id, session_id, endpoint, p256dh, auth, created_at, last_sent_at";
 
 #[derive(Clone)]
 pub struct PostgresPushSubscriptionStore {
@@ -26,7 +25,7 @@ impl PostgresPushSubscriptionStore {
 fn row_to_subscription(row: &sqlx::postgres::PgRow) -> PushSubscription {
     PushSubscription {
         id: PushSubscriptionId::from(row.get::<String, _>("id")),
-        workspace_id: WorkspaceId::from(row.get::<String, _>("workspace_id")),
+        user_id: UserId::from(row.get::<String, _>("user_id")),
         session_id: SessionId::from(row.get::<String, _>("session_id")),
         endpoint: row.get("endpoint"),
         p256dh: row.get("p256dh"),
@@ -49,7 +48,7 @@ impl PushSubscriptionStore for PostgresPushSubscriptionStore {
         let row = sqlx::query(&format!(
             "INSERT INTO push_subscriptions ({COLUMNS}) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) \
              ON CONFLICT (endpoint) DO UPDATE SET \
-             workspace_id = excluded.workspace_id, session_id = excluded.session_id, \
+             user_id = excluded.user_id, session_id = excluded.session_id, \
              p256dh = excluded.p256dh, auth = excluded.auth, \
              created_at = CASE WHEN push_subscriptions.session_id = excluded.session_id \
              THEN push_subscriptions.created_at ELSE excluded.created_at END, \
@@ -58,7 +57,7 @@ impl PushSubscriptionStore for PostgresPushSubscriptionStore {
              RETURNING {COLUMNS}"
         ))
         .bind(subscription.id.as_str())
-        .bind(subscription.workspace_id.as_str())
+        .bind(subscription.user_id.as_str())
         .bind(subscription.session_id.as_str())
         .bind(&subscription.endpoint)
         .bind(&subscription.p256dh)
@@ -71,41 +70,36 @@ impl PushSubscriptionStore for PostgresPushSubscriptionStore {
         Ok(row_to_subscription(&row))
     }
 
-    async fn list(&self, workspace_id: &WorkspaceId) -> Result<Vec<PushSubscription>, StoreError> {
+    async fn list(&self, user_id: &UserId) -> Result<Vec<PushSubscription>, StoreError> {
         let rows = sqlx::query(&format!(
-            "SELECT {COLUMNS} FROM push_subscriptions WHERE workspace_id = $1 ORDER BY id"
+            "SELECT {COLUMNS} FROM push_subscriptions WHERE user_id = $1 ORDER BY id"
         ))
-        .bind(workspace_id.as_str())
+        .bind(user_id.as_str())
         .fetch_all(&self.pool)
         .await
         .map_err(db_err)?;
         Ok(rows.iter().map(row_to_subscription).collect())
     }
 
-    async fn delete(
-        &self,
-        workspace_id: &WorkspaceId,
-        id: &PushSubscriptionId,
-    ) -> Result<bool, StoreError> {
-        let deleted =
-            sqlx::query("DELETE FROM push_subscriptions WHERE id = $1 AND workspace_id = $2")
-                .bind(id.as_str())
-                .bind(workspace_id.as_str())
-                .execute(&self.pool)
-                .await
-                .map_err(db_err)?;
+    async fn delete(&self, user_id: &UserId, id: &PushSubscriptionId) -> Result<bool, StoreError> {
+        let deleted = sqlx::query("DELETE FROM push_subscriptions WHERE id = $1 AND user_id = $2")
+            .bind(id.as_str())
+            .bind(user_id.as_str())
+            .execute(&self.pool)
+            .await
+            .map_err(db_err)?;
         Ok(deleted.rows_affected() == 1)
     }
 
     async fn delete_by_endpoint(
         &self,
-        workspace_id: &WorkspaceId,
+        user_id: &UserId,
         endpoint: &str,
     ) -> Result<bool, StoreError> {
         let deleted =
-            sqlx::query("DELETE FROM push_subscriptions WHERE endpoint = $1 AND workspace_id = $2")
+            sqlx::query("DELETE FROM push_subscriptions WHERE endpoint = $1 AND user_id = $2")
                 .bind(endpoint)
-                .bind(workspace_id.as_str())
+                .bind(user_id.as_str())
                 .execute(&self.pool)
                 .await
                 .map_err(db_err)?;
@@ -114,17 +108,17 @@ impl PushSubscriptionStore for PostgresPushSubscriptionStore {
 
     async fn mark_sent(
         &self,
-        workspace_id: &WorkspaceId,
+        user_id: &UserId,
         id: &PushSubscriptionId,
         at: UnixMillis,
     ) -> Result<bool, StoreError> {
         let updated = sqlx::query(
             "UPDATE push_subscriptions SET last_sent_at = $1 \
-             WHERE id = $2 AND workspace_id = $3",
+             WHERE id = $2 AND user_id = $3",
         )
         .bind(at)
         .bind(id.as_str())
-        .bind(workspace_id.as_str())
+        .bind(user_id.as_str())
         .execute(&self.pool)
         .await
         .map_err(db_err)?;

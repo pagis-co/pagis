@@ -1,3 +1,4 @@
+import { useWorkspaceAccess } from '../../workspace'
 import { useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { PhoneHeaderAction } from './TopBar'
@@ -69,6 +70,7 @@ function Contact({ api, row }: { api: ApiClient; row: components['schemas']['Tru
 
 export function TrustedContactsPhone({ api }: { api: ApiClient }) {
   const navigate = useNavigate()
+  const { isPrivate } = useWorkspaceAccess()
   const list = useTrustList(api)
   const add = useAddTrustEntry(api)
   const [open, setOpen] = useState(false)
@@ -89,15 +91,17 @@ export function TrustedContactsPhone({ api }: { api: ApiClient }) {
       <p className="phone-hint">
         What the words of a caller or a sender are worth. Never whether Pagis answers.
       </p>
-      <Frame>
-        <Row
-          chevron
-          onClick={() => void navigate({ to: '/settings/trusted-contacts/keypad' })}
-          hint={list.data?.keypad_code.configured ? 'A code is set.' : 'No code is set.'}
-        >
-          Keypad code
-        </Row>
-      </Frame>
+      {isPrivate && (
+        <Frame>
+          <Row
+            chevron
+            onClick={() => void navigate({ to: '/settings/trusted-contacts/keypad' })}
+            hint={list.data?.keypad_code.configured ? 'A code is set.' : 'No code is set.'}
+          >
+            Keypad code
+          </Row>
+        </Frame>
+      )}
       {[
         { title: 'Phone numbers', subjects: ['number'] },
         { title: 'Email senders', subjects: ['address', 'domain'] },

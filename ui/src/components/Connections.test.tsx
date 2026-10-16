@@ -1,3 +1,4 @@
+import { WorkspaceSelectionContext } from '../workspace'
 // The Connection list and the connect flow (ADR-0022): the steps, the
 // waiting state that says where the browser went, what a refused
 // exchange leaves on screen, and reauthorizing by capability.
@@ -93,13 +94,25 @@ function stubApi(
 
 // Every stub here is cast to the client, so the shape is the test's
 // own business.
-function mount(api: unknown, onOpen: (connectionId: string) => void = () => {}) {
+function mount(
+  api: unknown,
+  onOpen: (connectionId: string) => void = () => {},
+  shared = false,
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
   render(
     <QueryClientProvider client={queryClient}>
-      <Connections api={api as unknown as ApiClient} onOpen={onOpen} />
+      <WorkspaceSelectionContext value={{
+        items: [],
+        current: shared
+          ? { id: 'team', name: 'Support', kind: 'shared', role: 'manager' }
+          : undefined,
+        select: () => {},
+      }}>
+        <Connections api={api as unknown as ApiClient} onOpen={onOpen} />
+      </WorkspaceSelectionContext>
     </QueryClientProvider>,
   )
 }
@@ -589,6 +602,24 @@ describe('Connections Google sign-in', () => {
       target: { value: 'work' },
     })
   }
+
+  it('explicitly connects a shared Google account for a Manager', async () => {
+    vi.stubGlobal('open', vi.fn())
+    const api = googleApi([])
+    mount(api, () => {}, true)
+    await openGoogle()
+    expect(screen.getByText('Connect a shared Google account')).toBeTruthy()
+    nameTheConnection()
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue to Google' }))
+    await waitFor(() => expect(api.POST).toHaveBeenCalledWith(
+      '/api/v1/settings/connections',
+      { body: {
+        provider: 'google', shared_account: true, alias: 'work',
+        display_name: 'Work Google', fields: {},
+      } },
+    ))
+  })
 
   it('asks for nothing of Google and opens the start route in a new tab', async () => {
     const open = vi.fn()

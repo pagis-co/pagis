@@ -8500,7 +8500,8 @@
               }
             }
           }
-        }
+        },
+        "x-workspace-role": "reader"
       }
     },
     "/api/v1/settings/connections/{connection_id}": {
@@ -8617,6 +8618,16 @@
             }
           },
           "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
             "description": "",
             "content": {
               "application/json": {
@@ -8792,6 +8803,16 @@
                 }
               }
             }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
           }
         },
         "x-workspace-role": "reader"
@@ -8944,6 +8965,16 @@
               }
             }
           },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
           "422": {
             "description": "",
             "content": {
@@ -8975,6 +9006,16 @@
                 }
               }
             }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
           }
         },
         "x-workspace-role": "manager"
@@ -8992,6 +9033,16 @@
             "description": ""
           },
           "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
             "description": "",
             "content": {
               "application/json": {
@@ -15674,6 +15725,10 @@
           "provider": {
             "type": "string",
             "description": "The `id` of a catalog entry."
+          },
+          "shared_account": {
+            "type": "boolean",
+            "description": "Confirms that the account belongs to the Shared Workspace.\nPersonal Google sign-in leaves this false."
           }
         }
       },

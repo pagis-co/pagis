@@ -18,7 +18,7 @@ export function workspacePath(path: string, id = sharedWorkspaceId, method = 'GE
   const relative = path.slice('/api/v1/'.length).split('?')[0]
   const resource = relative.split('/')[0]
   if (!workspaceResources.has(resource)) return path
-  if (/^settings\/(onboarding|system|sessions|sign-in-links|models|mailbox-offers|phone-numbers|connections\/providers)(\/|$)/.test(relative)) return path
+  if (/^settings\/(onboarding|system|sessions|sign-in-links|models|mailbox-offers|phone-numbers)(\/|$)/.test(relative)) return path
   if (resource === 'plugins') {
     if (relative === 'plugins') return path
     if (/^plugins\/[^/]+$/.test(relative) && method.toLowerCase() !== 'get') return path

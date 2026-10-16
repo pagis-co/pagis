@@ -7,12 +7,12 @@
 //! the Sessions list and the expiry sweep therefore need no step of
 //! their own.
 //!
-//! Every read and write names the Workspace, as every other record of a
+//! Every read and write names the Person, as every other record of a
 //! Person does, so one Person never reaches another Person's endpoint.
 
 use async_trait::async_trait;
 
-use crate::id::{PushSubscriptionId, SessionId, WorkspaceId};
+use crate::id::{PushSubscriptionId, SessionId, UserId};
 use crate::store::StoreError;
 use crate::time::UnixMillis;
 
@@ -20,8 +20,8 @@ use crate::time::UnixMillis;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PushSubscription {
     pub id: PushSubscriptionId,
-    /// The Workspace of the Person whose Session holds the endpoint.
-    pub workspace_id: WorkspaceId,
+    /// The Person whose Session holds the endpoint.
+    pub user_id: UserId,
     /// The Session of the client. The Push Subscription ends with it.
     pub session_id: SessionId,
     /// The `https` URL of the push service that takes each Web Push. It
@@ -43,36 +43,32 @@ pub trait PushSubscriptionStore: Send + Sync {
     /// Write the Push Subscription and answer the row that the store
     /// keeps. The endpoint is the identity: a client that subscribes
     /// again lands on its own row. A known endpoint moves to the
-    /// Workspace and the Session of `subscription` and takes its keys.
+    /// Person and the Session of `subscription` and takes its keys.
     /// When the Session changes, the row is a new subscription of that
     /// Session, so it takes the new `created_at` and forgets
     /// `last_sent_at`; the same Session keeps both. The id of the row
     /// stays.
     async fn upsert(&self, subscription: &PushSubscription)
     -> Result<PushSubscription, StoreError>;
-    /// The Push Subscriptions of one Workspace, oldest first.
-    async fn list(&self, workspace_id: &WorkspaceId) -> Result<Vec<PushSubscription>, StoreError>;
-    /// Remove one Push Subscription of one Workspace. `false` when the
-    /// Workspace holds no such row, so a row of another Workspace reads
+    /// The Push Subscriptions of one Person, oldest first.
+    async fn list(&self, user_id: &UserId) -> Result<Vec<PushSubscription>, StoreError>;
+    /// Remove one Push Subscription of one Person. `false` when the
+    /// Person holds no such row, so a row of another Person reads
     /// as absent.
-    async fn delete(
-        &self,
-        workspace_id: &WorkspaceId,
-        id: &PushSubscriptionId,
-    ) -> Result<bool, StoreError>;
-    /// Remove the Push Subscription of one endpoint in one Workspace: the
+    async fn delete(&self, user_id: &UserId, id: &PushSubscriptionId) -> Result<bool, StoreError>;
+    /// Remove the Push Subscription of one endpoint in one Person: the
     /// push service answered that the endpoint is gone. `false` when the
-    /// Workspace holds no row of that endpoint.
+    /// Person holds no row of that endpoint.
     async fn delete_by_endpoint(
         &self,
-        workspace_id: &WorkspaceId,
+        user_id: &UserId,
         endpoint: &str,
     ) -> Result<bool, StoreError>;
     /// Remember that a Web Push went to the endpoint at `at`. `false`
-    /// when the Workspace holds no such row.
+    /// when the Person holds no such row.
     async fn mark_sent(
         &self,
-        workspace_id: &WorkspaceId,
+        user_id: &UserId,
         id: &PushSubscriptionId,
         at: UnixMillis,
     ) -> Result<bool, StoreError>;

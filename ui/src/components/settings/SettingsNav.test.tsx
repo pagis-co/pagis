@@ -1,3 +1,4 @@
+import { WorkspaceSelectionContext } from '../../workspace'
 // The settings nav: the three groups on the 220 px shell, the
 // open section marked as the page, and a click that opens another.
 
@@ -106,4 +107,18 @@ describe('SettingsNav', () => {
     render(<SettingsNav section="vault" onSelectSection={() => {}} isAdministrator administration={address} />)
     expect(screen.queryByText(/ssh -L/)).toBeNull()
   })
+})
+
+it('hides Hosts in a Shared Workspace and keeps Connections', () => {
+  render(
+    <WorkspaceSelectionContext value={{
+      items: [],
+      current: { id: 'team', name: 'Support', kind: 'shared', role: 'manager' },
+      select: () => {},
+    }}>
+      <SettingsNav section="connections" isAdministrator={false} />
+    </WorkspaceSelectionContext>,
+  )
+  expect(screen.queryByRole('button', { name: 'Hosts' })).toBeNull()
+  expect(screen.getByRole('button', { name: 'Connections' })).toBeTruthy()
 })

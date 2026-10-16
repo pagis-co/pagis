@@ -676,18 +676,21 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     // is the key that `secrets.enc` holds.
     let tenant_keys = Arc::new(pagis_core::TenantKeys::new(Arc::clone(&options.secrets)));
     let google_broker = Arc::new(pagis_connect::GoogleBroker::new(
-        Arc::clone(&connections) as _,
-        Arc::new(pagis_connect::OrgWebClient::new(
-            stores.orgs.clone() as _,
-            Arc::clone(&options.secrets),
-        )),
-        options
-            .google_oauth
-            .unwrap_or_else(|| Arc::new(pagis_google::GoogleOAuth::new())),
-        Arc::clone(&tenant_keys),
-        stores.sessions.clone(),
-        Arc::clone(&options.clock),
-        options.public_origin.clone(),
+        pagis_connect::GoogleBrokerDeps {
+            connections: Arc::clone(&connections) as _,
+            client: Arc::new(pagis_connect::OrgWebClient::new(
+                stores.orgs.clone() as _,
+                Arc::clone(&options.secrets),
+            )),
+            oauth: options
+                .google_oauth
+                .unwrap_or_else(|| Arc::new(pagis_google::GoogleOAuth::new())),
+            keys: Arc::clone(&tenant_keys),
+            sessions: stores.sessions.clone(),
+            members: stores.workspace_members.clone(),
+            clock: Arc::clone(&options.clock),
+            public_origin: options.public_origin.clone(),
+        },
     ));
     // One binder serves the tool dispatch, the collectors and the
     // knowledge worker, so every path reaches Google under the calling
@@ -1346,6 +1349,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         options.public_origin.clone(),
         stores.push_subscriptions.clone(),
         stores.agents.clone(),
+        stores.workspace_members.clone(),
         Arc::clone(&needs_you),
         Arc::clone(&options.clock),
     ));

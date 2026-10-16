@@ -83,11 +83,12 @@ async fn host_frames_are_logged_once_per_connection_and_channel_events_still_arr
             person_activity: activity.clone(),
             clock: Arc::new(pagis_core::SystemClock),
         };
+        let user_id = pagis_core::UserId::generate();
         let live = LiveTenant {
             tenant: Tenant {
                 workspace_role: None,
                 workspace_id: workspace_id.clone(),
-                user_id: pagis_core::UserId::generate(),
+                user_id: user_id.clone(),
                 role: UserRole::Administrator,
                 session_id: pagis_core::SessionId::generate(),
                 session_expires_at: i64::MAX,
@@ -121,7 +122,7 @@ async fn host_frames_are_logged_once_per_connection_and_channel_events_still_arr
         assert_eq!(receive(&mut client).await["type"], "pong");
         assert!(
             activity
-                .hold_until(&workspace_id, pagis_core::now_ms())
+                .hold_until(&user_id, pagis_core::now_ms())
                 .is_some()
         );
         let event = bus

@@ -34,7 +34,7 @@ export function SettingsNav({
   onSelectView,
 }: SettingsNavProps) {
 
-  const { canManageMembers } = useWorkspaceAccess()
+  const { canManageMembers, isPrivate } = useWorkspaceAccess()
   return (
     <Shell>
       <div className="settings-nav-header">
@@ -48,7 +48,8 @@ export function SettingsNav({
           aria-label={group.label}
         >
           <SectionLabel>{group.label}</SectionLabel>
-          {group.sections.filter((item) => item.value !== 'members' || canManageMembers).map((item) => (
+          {group.sections.filter((item) => (item.value !== 'members' || canManageMembers)
+            && (item.value !== 'hosts' || isPrivate)).map((item) => (
             publicOrigin ? <ButtonLink key={item.value} variant="ghost" shape="nav" className="settings-nav-item"
               href={`${publicOrigin}/settings/${item.value}`}>{item.label}</ButtonLink> : <Button
               key={item.value}
