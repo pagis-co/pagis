@@ -35,6 +35,7 @@ async fn world(pool: SqlitePool) -> World {
         .await
         .unwrap();
     let workspace = Workspace {
+        delegate_everything: false,
         kind: pagis_core::WorkspaceKind::Private,
         legal_hold: None,
         monthly_spend_cap_usd: None,

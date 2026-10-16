@@ -11,6 +11,7 @@ mod computer_action;
 mod computer_use;
 pub use computer_action::{DISPLAY_HEIGHT, DISPLAY_WIDTH};
 mod context_budget;
+mod conversations;
 mod hub;
 mod image_tokens;
 mod memory;

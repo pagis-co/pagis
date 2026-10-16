@@ -98,6 +98,8 @@ impl AgentDm {
         let blocks = vec![Block::markdown(text)];
         let now = self.clock.now_ms();
         let message = Message {
+            for_person_only: false,
+            author_workspace_id: None,
             id: MessageId::generate(),
             workspace_id: workspace_id.clone(),
             channel_id: channel.id.clone(),

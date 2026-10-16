@@ -666,14 +666,14 @@ export function useSendConversationMessage(
   const queryClient = useQueryClient();
   const pending = usePendingSends();
   return useMutation({
-    mutationFn: ({ pendingId, text }: { pendingId: string; text: string }) =>
+    mutationFn: ({ pendingId, text, forPersonOnly = false }: { pendingId: string; text: string; forPersonOnly?: boolean }) =>
       unwrap(
         api.POST("/api/v1/conversations/{conversation_id}/messages", {
           params: { path: { conversation_id: conversationId } },
-          body: { text, pending_id: pendingId },
+          body: { text, pending_id: pendingId, for_person_only: forPersonOnly },
         }),
       ),
-    onMutate: ({ pendingId, text }) => {
+    onMutate: ({ pendingId, text, forPersonOnly = false }) => {
       const existing = usePendingSends
         .getState()
         .byScope[conversationId]?.some((send) => send.pending_id === pendingId);
@@ -681,6 +681,7 @@ export function useSendConversationMessage(
         pending.markPending(conversationId, pendingId);
       } else {
         pending.add(conversationId, {
+          for_person_only: forPersonOnly,
           pending_id: pendingId,
           text,
           created_at: Date.now(),
@@ -3844,5 +3845,14 @@ export function useOrganizeWorkspaceMail(api: ApiClient, id: string) {
     },
     onSuccess: () =>
       client.invalidateQueries({ queryKey: workspaceMailKey(workspaceId) }),
+  })
+}
+
+export function useSetDelegateEverything(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (enabled: boolean) => unwrap(api.PUT('/api/v1/workspace/delegate-everything', { body: { enabled } })),
+    onSuccess: saved => queryClient.setQueryData(['workspace', workspaceId, 'details'], saved),
   })
 }

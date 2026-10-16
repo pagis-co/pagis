@@ -570,6 +570,7 @@ where
         pagis_testkit::test_provider_keys(Vec::new()),
     ));
     let deps = AgentDeps {
+        person_activity: Arc::new(pagis_needs_you::PersonActivity::new()),
         run_journal: Arc::new(pagis_storage_sqlite::SqliteRunJournal::new(pool.clone())),
         forget: Arc::new(pagis_storage_sqlite::SqliteForgetStore::new(pool.clone())),
         workspaces: Arc::new(SqliteWorkspaceStore::new(pool.clone())),

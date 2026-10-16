@@ -300,7 +300,9 @@ impl Embedder {
             HashMap::from([(Provider::OpenAi, "test-key".into())]),
             secrets.clone(),
         ));
+        let person_activity = Arc::new(pagis_needs_you::PersonActivity::new());
         let deps = AgentDeps {
+            person_activity: person_activity.clone(),
             run_journal: stores.run_journal.clone(),
             forget: stores.forget.clone(),
             workspaces: stores.workspaces.clone(),
@@ -516,7 +518,7 @@ impl Embedder {
             org_workspace_id,
             capture: deps.capture.clone(),
             notifications,
-            person_activity: Arc::new(pagis_needs_you::PersonActivity::new()),
+            person_activity,
             live_connections: pagis_server::LiveConnections::new(deps.clock.clone()),
             sign_in_limits: Arc::new(pagis_server::SignInLimits::default()),
             password_verifier: Arc::new(pagis_server::PasswordVerifier::argon2()),
@@ -564,6 +566,7 @@ impl Embedder {
 
     async fn workspace(stores: &Stores, person: &User) -> WorkspaceId {
         let workspace = Workspace {
+            delegate_everything: false,
             kind: pagis_core::WorkspaceKind::Private,
             legal_hold: None,
             monthly_spend_cap_usd: None,

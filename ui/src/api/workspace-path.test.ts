@@ -19,7 +19,7 @@ describe('Workspace request paths', () => {
   it('uses the prefix only for Shared Workspace content', () => {
     expect(workspacePath('/api/v1/channels?before=1', 'team')).toBe('/api/v1/workspaces/team/channels?before=1')
     expect(workspacePath('/api/v1/workspace', null)).toBe('/api/v1/workspace')
-    for (const path of ['/api/v1/settings/sessions', '/api/v1/settings/sign-in-links', '/api/v1/push/key', '/api/v1/user', '/api/v1/sessions', '/api/v1/conversations', '/api/v1/colleagues', '/api/v1/workspaces']) {
+    for (const path of ['/api/v1/workspace/delegate-everything', '/api/v1/settings/sessions', '/api/v1/settings/sign-in-links', '/api/v1/push/key', '/api/v1/user', '/api/v1/sessions', '/api/v1/conversations', '/api/v1/colleagues', '/api/v1/workspaces']) {
       expect(workspacePath(path, 'team')).toBe(path)
     }
   })

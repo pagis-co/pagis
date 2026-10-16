@@ -2,6 +2,17 @@ use super::*;
 
 #[async_trait::async_trait]
 impl WorkspaceStore for FakeWorkspaceStore {
+    async fn set_delegate_everything(
+        &self,
+        id: &WorkspaceId,
+        enabled: bool,
+    ) -> Result<(), StoreError> {
+        if let Some(workspace) = self.0.lock().unwrap().workspaces.get_mut(id) {
+            workspace.delegate_everything = enabled;
+        }
+        Ok(())
+    }
+
     async fn start_legal_hold(&self, entry: &AuditEntry) -> Result<(), StoreError> {
         let _hold = LegalHold::lock(&entry.subject_workspace_id).await;
         super::audit::change_hold(&mut self.0.lock().unwrap(), entry, true)

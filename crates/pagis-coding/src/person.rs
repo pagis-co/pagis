@@ -191,6 +191,8 @@ impl PersonAsks {
     ) -> Result<(), pagis_core::StoreError> {
         let now = now_ms();
         let message = Message {
+            for_person_only: false,
+            author_workspace_id: None,
             id: MessageId::generate(),
             workspace_id: session.workspace_id.clone(),
             channel_id: session.channel_id.clone(),

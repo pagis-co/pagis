@@ -86,6 +86,7 @@ impl Default for AgentLoopConfig {
 /// Everything the loop reads and writes, behind the storage seams.
 #[derive(Clone)]
 pub struct AgentDeps {
+    pub person_activity: Arc<pagis_needs_you::PersonActivity>,
     pub run_journal: Arc<dyn pagis_core::RunJournal>,
     pub forget: Arc<dyn pagis_core::ForgetStore>,
     pub workspaces: Arc<dyn WorkspaceStore>,
@@ -171,7 +172,7 @@ type ActorMap = Arc<Mutex<HashMap<AgentId, mpsc::UnboundedSender<ActorMsg>>>>;
 /// The trigger router. Holds the resident actors and routes triggers
 /// and cancels to them.
 pub struct AgentSystem {
-    deps: Arc<AgentDeps>,
+    pub(crate) deps: Arc<AgentDeps>,
     actors: ActorMap,
 }
 
@@ -287,6 +288,12 @@ impl AgentSystem {
     /// daemon was down do not trigger.
     async fn dispatch(self: Arc<Self>, mut events: pagis_core::EventStream) {
         while let Some(event) = events.next().await {
+            if event.event_type == "conversation.message" {
+                if let Err(error) = self.deliver_conversation(&event).await {
+                    tracing::error!(%error, "conversation delivery failed");
+                }
+                continue;
+            }
             if event.event_type != "message.completed" {
                 continue;
             }
@@ -479,14 +486,24 @@ fn addressed_to_the_user(message: &Message) -> bool {
 /// takes the sending run's own channel and thread — the conversation
 /// the sender left to ask elsewhere, and the one its answer must
 /// reach.
-async fn chain_of(deps: &AgentDeps, message: &Message) -> (u32, Option<RunOrigin>) {
+pub(crate) async fn chain_of(deps: &AgentDeps, message: &Message) -> (u32, Option<RunOrigin>) {
     if message.author.agent_id().is_none() {
         return (0, None);
     }
     let Some(run_id) = &message.run_id else {
         return (1, None);
     };
-    let sender = match deps.runs.get(&message.workspace_id, run_id).await {
+    let sender = match deps
+        .runs
+        .get(
+            message
+                .author_workspace_id
+                .as_ref()
+                .unwrap_or(&message.workspace_id),
+            run_id,
+        )
+        .await
+    {
         Ok(Some(sender)) => sender,
         Ok(None) => return (1, None),
         Err(err) => {

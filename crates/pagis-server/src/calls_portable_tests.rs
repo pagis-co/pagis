@@ -36,6 +36,7 @@ async fn portable_archive_releases_credentials_sleeps_mailbox_and_reports_no_num
     stores
         .workspaces
         .create(&Workspace {
+            delegate_everything: false,
             kind: pagis_core::WorkspaceKind::Private,
             legal_hold: None,
             monthly_spend_cap_usd: None,

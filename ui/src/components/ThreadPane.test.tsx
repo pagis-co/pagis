@@ -14,6 +14,7 @@ import { ThreadPane } from './ThreadPane'
 
 function message(overrides: Partial<MessageDto>): MessageDto {
   const merged = {
+    for_person_only: false,
     id: 'msg-1',
     channel_id: 'ch-1',
     author: { kind: 'person', id: 'person-1', name: 'Ajay' },

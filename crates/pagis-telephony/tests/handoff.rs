@@ -59,6 +59,7 @@ pub(super) async fn setup() -> (Stores, CallHandoffs, Call, Agent) {
     let person = User::new(OrgId::generate(), UserRole::Member, now_ms());
     stores.users.create(&person).await.unwrap();
     let ws = Workspace {
+        delegate_everything: false,
         kind: pagis_core::WorkspaceKind::Private,
         id: WorkspaceId::generate(),
         user_id: Some(person.id),

@@ -52,7 +52,7 @@ CREATE TABLE runs (
     agent_id TEXT NOT NULL REFERENCES agents (id),
     channel_id TEXT REFERENCES channels (id),
     root_message_id TEXT REFERENCES messages (id),
-    trigger_kind TEXT NOT NULL CHECK (trigger_kind IN ('message', 'schedule', 'event', 'arrival', 'review')),
+    trigger_kind TEXT NOT NULL CHECK (trigger_kind IN ('message', 'conversation', 'schedule', 'event', 'arrival', 'review')),
     trigger_ref TEXT,
     state TEXT NOT NULL CHECK (state IN (
         'queued', 'running', 'reflecting', 'waiting_for_user', 'waiting_for_approval',

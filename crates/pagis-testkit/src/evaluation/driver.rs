@@ -1821,6 +1821,8 @@ mod tests {
     /// it. `None` is help the daemon published on its own.
     fn message(id: &str, author: pagis_core::Author, run: Option<&str>, text: &str) -> Message {
         Message {
+            for_person_only: false,
+            author_workspace_id: None,
             id: MessageId::from(id.to_string()),
             workspace_id: WorkspaceId::from("workspace".to_string()),
             channel_id: ChannelId::from("channel".to_string()),
