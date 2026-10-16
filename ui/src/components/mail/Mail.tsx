@@ -20,7 +20,15 @@ import { NavBar } from '../phone/TopBar'
 
 import './mail.css'
 
-export function Mail({ api }: { api: ApiClient }) {
+export function Mail({
+  api,
+  messageId: searched,
+  onCloseMessage,
+}: {
+  api: ApiClient
+  messageId?: string
+  onCloseMessage?: () => void
+}) {
   const phone = useIsMobile()
   const navigate = useNavigate()
   const mailbox = useWorkspaceMailbox(api)
@@ -28,6 +36,8 @@ export function Mail({ api }: { api: ApiClient }) {
   const [composing, setComposing] = useState(false)
   const [view, setView] = useState<'needs-you' | 'all'>('needs-you')
   const reading = phone && messageId !== null && view === 'all'
+
+  if (searched) return <MailThread api={api} messageId={searched} onBack={() => onCloseMessage?.()} />
 
   return (
     <section className={`mail-place${phone ? ' mail-phone' : ''}`}>

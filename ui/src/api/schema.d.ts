@@ -2243,6 +2243,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["search"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sessions": {
         parameters: {
             query?: never;
@@ -5127,6 +5143,11 @@ export interface components {
             items: components["schemas"]["IncomingEventDto"][];
             next_cursor?: string | null;
         };
+        IncompleteWorkspace: {
+            reason: string;
+            workspace_id: string;
+            workspace_name: string;
+        };
         InstallPluginRequest: {
             bindings?: components["schemas"]["BindingRequest"][];
             source: components["schemas"]["PluginSourceRequest"];
@@ -6973,6 +6994,24 @@ export interface components {
          */
         SdpBody: {
             sdp: string;
+        };
+        SearchItem: {
+            /** Format: int64 */
+            at: number;
+            kind: string;
+            snippet: string;
+            title: string;
+            url: string;
+            workspace: components["schemas"]["SearchWorkspace"];
+        };
+        SearchResponse: {
+            incomplete: components["schemas"]["IncompleteWorkspace"][];
+            items: components["schemas"]["SearchItem"][];
+        };
+        SearchWorkspace: {
+            id: string;
+            kind: components["schemas"]["WorkspaceKind"];
+            name: string;
         };
         SendMailRequest: {
             bcc?: string[];
@@ -13996,6 +14035,44 @@ export interface operations {
                 };
             };
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    search: {
+        parameters: {
+            query: {
+                q: string;
+                limit?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchResponse"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

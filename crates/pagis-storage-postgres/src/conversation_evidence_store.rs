@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 use pagis_core::{
-    ConversationEvidenceHit, ConversationEvidenceMessage, ConversationEvidenceStore,
+    ChannelId, ConversationEvidenceHit, ConversationEvidenceMessage, ConversationEvidenceStore,
     ConversationScope, ConversationToolEvidence, EvidenceFileRef, MessageId, RetainedToolEvidence,
-    StoreError,
+    StoreError, WorkspaceId, WorkspaceMessageHit,
 };
 use sqlx::{PgPool, Row};
 
@@ -77,6 +77,49 @@ const HEADLINE: &str = "StartSel=[, StopSel=], MaxWords=18, MinWords=9, ShortWor
 
 #[async_trait]
 impl ConversationEvidenceStore for PostgresConversationEvidenceStore {
+    async fn search_workspace_messages(
+        &self,
+        workspace_id: &WorkspaceId,
+        participant: Option<&WorkspaceId>,
+        query: &str,
+        limit: u32,
+    ) -> Result<Vec<WorkspaceMessageHit>, StoreError> {
+        let query = fts_query(query);
+        if query.is_empty() || limit == 0 {
+            return Ok(Vec::new());
+        }
+        let sql = format!(
+            "SELECT m.id, m.channel_id, COALESCE(m.parent_message_id, m.id) AS root_message_id, m.created_at, \
+             ts_headline('english', s.text_content, to_tsquery('english', $1), '{HEADLINE}') AS snippet \
+             FROM conversation_message_search s JOIN messages m ON m.id = s.message_id \
+             WHERE s.document @@ to_tsquery('english', $1) AND s.workspace_id = $2 \
+             AND m.workspace_id = $2 AND {} \
+             AND ($3::text IS NULL OR EXISTS (SELECT 1 FROM channel_participants p \
+                 WHERE p.workspace_id = m.workspace_id AND p.channel_id = m.channel_id \
+                 AND p.participant_kind = 'workspace' AND p.participant_workspace_id = $3)) \
+             ORDER BY m.created_at DESC, m.id DESC LIMIT $4",
+            live_source_predicate()
+        );
+        let rows = sqlx::query(&sql)
+            .bind(query)
+            .bind(workspace_id.as_str())
+            .bind(participant.map(WorkspaceId::as_str))
+            .bind(i64::from(limit))
+            .fetch_all(&self.pool)
+            .await
+            .map_err(db_err)?;
+        Ok(rows
+            .into_iter()
+            .map(|row| WorkspaceMessageHit {
+                message_id: MessageId::from(row.get::<String, _>("id")),
+                channel_id: ChannelId::from(row.get::<String, _>("channel_id")),
+                root_message_id: MessageId::from(row.get::<String, _>("root_message_id")),
+                snippet: row.get("snippet"),
+                created_at: row.get("created_at"),
+            })
+            .collect())
+    }
+
     async fn search(
         &self,
         scope: &ConversationScope,

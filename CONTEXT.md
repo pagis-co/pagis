@@ -458,6 +458,18 @@ Requests. A Responder does not manage its
 People, roles or Agents (ADR-0039).
 Not built: Shared Workspace visibility levels.
 
+### Search
+The Product App query across every Workspace the Person can read and each
+conversation whose participants include their Private Workspace. Search
+sends the query to each Workspace. Each Workspace checks access to its
+Channel messages, memory files, Calendar Events and Workspace Mailbox mail.
+Memory Search applies its read and Forget rules. Conversations use their
+participation check. Results merge newest first and name their Workspace.
+A Workspace that fails or exceeds the three-second time limit appears in
+the incomplete list. Search has no central index and stores no copy of
+results (ADR-0045).
+_Avoid_: global index, unified index
+
 ### Session
 What a client holds after a Person signs in: an HTTP-only, host-only,
 `SameSite=Strict` cookie that names the Person and the kind of client. A

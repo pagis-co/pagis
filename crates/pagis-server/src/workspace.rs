@@ -341,17 +341,18 @@ pub async fn list_accessible_workspaces(
     State(state): State<Arc<AppState>>,
     tenant: Tenant,
 ) -> Result<Json<WorkspacesDto>, ApiError> {
+    Ok(Json(WorkspacesDto {
+        items: accessible_workspaces(&state, &tenant).await?,
+    }))
+}
+
+pub(crate) async fn accessible_workspaces(
+    state: &AppState,
+    tenant: &Tenant,
+) -> Result<Vec<AccessibleWorkspaceDto>, ApiError> {
     let mut items = Vec::new();
     for workspace in state.workspaces.list().await? {
-        let role = if workspace.user_id.as_ref() == Some(&tenant.user_id) {
-            pagis_core::WorkspaceRole::Manager
-        } else if let Some(member) = state
-            .workspace_members
-            .get(&workspace.id, &tenant.user_id)
-            .await?
-        {
-            member.role
-        } else {
+        let Some(role) = read_role(state, tenant, &workspace).await? else {
             continue;
         };
         items.push(AccessibleWorkspaceDto {
@@ -361,5 +362,24 @@ pub async fn list_accessible_workspaces(
             role,
         });
     }
-    Ok(Json(WorkspacesDto { items }))
+    Ok(items)
+}
+
+/// The same read rule serves the Workspace list and each search source.
+pub(crate) async fn read_role(
+    state: &AppState,
+    tenant: &Tenant,
+    workspace: &Workspace,
+) -> Result<Option<pagis_core::WorkspaceRole>, ApiError> {
+    use pagis_core::{WorkspaceKind, WorkspaceRole};
+    Ok(match workspace.kind {
+        WorkspaceKind::Private => {
+            (workspace.user_id.as_ref() == Some(&tenant.user_id)).then_some(WorkspaceRole::Manager)
+        }
+        WorkspaceKind::Shared => state
+            .workspace_members
+            .get(&workspace.id, &tenant.user_id)
+            .await?
+            .map(|m| m.role),
+    })
 }

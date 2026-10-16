@@ -844,7 +844,9 @@ async fn search_follows_a_commit_a_delete_and_a_restamp() {
     let h = harness();
     h.commit(&write("shared/note.md", "# Note\n\nfirstword\n"), "first")
         .await;
-    assert_eq!(h.search(&access(&h.agent_id), "firstword").await.len(), 1);
+    let hits = h.search(&access(&h.agent_id), "firstword").await;
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].changed_at, h.shared_changes(&h.store).await[0].2);
 
     h.commit(&write("shared/note.md", "# Note\n\nsecondword\n"), "change")
         .await;

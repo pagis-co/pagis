@@ -15,8 +15,13 @@ export const WorkspaceSelectionContext = createContext<{
   select: (id: string) => void
 }>({ items: [], current: undefined, select: () => {} })
 
-export function CurrentWorkspaceProvider({ api, children }: { api: ApiClient; children: ReactNode }) {
-  const [selected, setSelected] = useState<string | null>(null)
+export function CurrentWorkspaceProvider({ api, children, requestedWorkspaceId }: { api: ApiClient; children: ReactNode; requestedWorkspaceId?: string }) {
+  const [selected, setSelected] = useState<string | null>(requestedWorkspaceId ?? null)
+  const [previousRequested, setPreviousRequested] = useState(requestedWorkspaceId)
+  if (previousRequested !== requestedWorkspaceId) {
+    setPreviousRequested(requestedWorkspaceId)
+    if (requestedWorkspaceId !== undefined) setSelected(requestedWorkspaceId)
+  }
   const choices = useQuery({
     queryKey: ['workspaces'],
     refetchInterval: 30_000,

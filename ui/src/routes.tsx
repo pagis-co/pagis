@@ -14,10 +14,11 @@ import {
   useRouteContext,
   type RouterHistory,
 } from '@tanstack/react-router'
-import { useEffect } from 'react'
+import { useContext, useEffect } from 'react'
 
 import type { ApiClient } from './api/client'
-import { CurrentWorkspaceProvider } from './workspace'
+import { WorkspaceSelectionContext, CurrentWorkspaceProvider } from './workspace'
+import { SearchResults } from './components/Search'
 import { AppShell } from './AppShell'
 import { ConversationsPhone } from './components/phone/ConversationsPhone'
 import { You } from './components/phone/You'
@@ -83,6 +84,7 @@ export interface RouterContext {
 export type Panel = 'desk'
 
 export interface PanelSearch {
+  workspace?: string
   panel?: Panel
   request?: string
   from?: string
@@ -95,12 +97,13 @@ const rootRoute = createRootRouteWithContext<RouterContext>()({
   // the result over the raw search, so `from` is always set: a value
   // that is not a place of this app reads as no value.
   validateSearch: (search: Record<string, unknown>): PanelSearch =>
-    ({ ...(search.panel === 'desk' ? { panel: 'desk' as const } : {}), ...(typeof search.request === 'string' ? { request: search.request } : {}), from: appPath(search.from) }),
+    ({ ...(typeof search.workspace === 'string' ? { workspace: search.workspace } : {}), ...(search.panel === 'desk' ? { panel: 'desk' as const } : {}), ...(typeof search.request === 'string' ? { request: search.request } : {}), from: appPath(search.from) }),
 })
 
 function WorkspaceShell() {
   const api = useApi()
-  return <CurrentWorkspaceProvider api={api}><AppShell /></CurrentWorkspaceProvider>
+  const { workspace } = rootRoute.useSearch()
+  return <CurrentWorkspaceProvider api={api} requestedWorkspaceId={workspace}><AppShell /></CurrentWorkspaceProvider>
 }
 
 function useApi(): ApiClient {
@@ -582,10 +585,11 @@ function CalendarView() {
   const phone = useIsMobile()
   const navigate = useNavigate()
   const api = useApi()
+  const { date, event } = calendarRoute.useSearch()
   return (
     <>
       {phone && <NavBar back={{ label: 'You', onBack: () => void navigate({ to: '/you' }) }} />}
-      <Calendar api={api} />
+      <Calendar key={`${date}:${event}`} api={api} initialDate={date} eventId={event} />
     </>
   )
 }
@@ -594,6 +598,7 @@ const calendarRoute = createRoute({
   staticData: { phone: 'pushed' },
   getParentRoute: () => rootRoute,
   path: '/calendar',
+  validateSearch: (search: Record<string, unknown>): { date?: string; event?: string } => ({ ...(typeof search.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(search.date) ? { date: search.date } : {}), ...(typeof search.event === 'string' ? { event: search.event } : {}) }),
   component: CalendarView,
 })
 
@@ -601,7 +606,8 @@ const mailRoute = createRoute({
   staticData: { phone: 'pushed' },
   getParentRoute: () => rootRoute,
   path: '/mail',
-  component: () => <Mail api={useApi()} />,
+  validateSearch: (search: Record<string, unknown>): { message?: string } => typeof search.message === 'string' ? { message: search.message } : {},
+  component: function MailPlace() { const { message } = mailRoute.useSearch(); const navigate = useNavigate(); return <Mail key={message} api={useApi()} messageId={message} onCloseMessage={() => void navigate({ to: '/mail' })} /> },
 })
 
 const automationsRoute = createRoute({
@@ -791,6 +797,23 @@ const googleStartRoute = createRoute({
     typeof search.state === 'string' && search.state !== '' ? { state: search.state } : {},
 })
 
+const searchRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/search',
+  staticData: { phone: 'pushed' },
+  validateSearch: (search: Record<string, unknown>): { q: string } => ({ q: typeof search.q === 'string' ? search.q : '' }),
+  component: function SearchPlace() {
+    const { q } = searchRoute.useSearch()
+    const { select } = useContext(WorkspaceSelectionContext)
+    const navigate = useNavigate()
+    return <SearchResults api={useApi()} query={q} onOpen={item => {
+      select(item.workspace.id)
+      const url = new URL(item.url, window.location.origin)
+      void navigate({ to: url.pathname as never, search: Object.fromEntries(url.searchParams) as never })
+    }} />
+  },
+})
+
 const peopleRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/people',
@@ -802,9 +825,11 @@ const peopleRoute = createRoute({
 const workspaceConversationRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/conversations/$conversationId',
+  validateSearch: (search: Record<string, unknown>): { message?: string } => typeof search.message === 'string' ? { message: search.message } : {},
   component: function ConversationPage() {
     const { conversationId } = workspaceConversationRoute.useParams()
-    return <WorkspaceConversation key={conversationId} api={useApi()} conversationId={conversationId} />
+    const { message } = workspaceConversationRoute.useSearch()
+    return <WorkspaceConversation key={conversationId} api={useApi()} conversationId={conversationId} targetMessageId={message} />
   },
 })
 
@@ -828,6 +853,7 @@ const routeTree = rootRoute.addChildren([
   agentAccessResourceRoute,
   agentMemoryRoute,
   agentWorkRoute,
+  searchRoute,
   memoryRoute,
   mailRoute,
   calendarRoute,

@@ -387,6 +387,7 @@ pub struct PageSearchHit {
 /// One memory page that a caller can read and that matches a search.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct MemorySearchHit {
+    pub changed_at: i64,
     pub path: String,
     pub title: String,
     pub kind: Option<String>,

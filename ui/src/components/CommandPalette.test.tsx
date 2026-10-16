@@ -110,9 +110,9 @@ describe('the command palette', () => {
 
     const list = screen.getByRole('listbox', { name: 'Results' })
     await waitFor(() =>
-      expect(within(list).getAllByRole('option')).toHaveLength(1),
+      expect(within(list).getAllByRole('option')).toHaveLength(2),
     )
-    expect(within(list).getByRole('option').textContent).toContain(
+    expect(within(list).getByRole('option', { name: /Launch planning/ }).textContent).toContain(
       'Launch planning',
     )
 
@@ -219,7 +219,7 @@ describe('the command palette', () => {
         within(screen.getByRole('listbox', { name: 'Results' })).getAllByRole(
           'option',
         ),
-      ).toHaveLength(1),
+      ).toHaveLength(2),
     )
     fireEvent.keyDown(search(), { key: 'Enter' })
 
@@ -358,6 +358,16 @@ it('does not offer the removed Administration settings section', async () => {
   await screen.findByRole('heading', { name: 'Sage' })
   const results = await openPalette()
   fireEvent.change(search(), { target: { value: 'Administration' } })
-  expect(await within(results).findByText('No match')).toBeTruthy()
-  expect(within(results).queryByRole('option', { name: /Administration/ })).toBeNull()
+  expect(within(results).queryByRole('option', { name: /^Administration/ })).toBeNull()
+  expect(within(results).getByRole('option', { name: /Search everywhere for/ })).toBeTruthy()
+})
+
+it('opens Search with the palette query', async () => {
+  const history = mount()
+  await screen.findByRole('heading', { name: 'Sage' })
+  await openPalette()
+  fireEvent.change(search(), { target: { value: 'launch plan' } })
+  fireEvent.click(await screen.findByRole('option', { name: /Search everywhere for/ }))
+  await waitFor(() => expect(history.location.pathname).toBe('/search'))
+  expect(history.location.search).toContain('q=launch')
 })

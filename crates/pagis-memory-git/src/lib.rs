@@ -1243,6 +1243,7 @@ impl MemoryStore for GitMemoryStore {
                 };
                 let (snippet, rank) = details.get(&page.path).cloned().unwrap_or_default();
                 MemorySearchHit {
+                    changed_at: page.changed_at,
                     snippet,
                     rank,
                     path,

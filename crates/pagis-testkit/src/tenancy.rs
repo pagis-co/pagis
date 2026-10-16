@@ -135,6 +135,10 @@ const OPAQUE: &[(&str, &str)] = &[
 /// how each route keeps.
 const ORG_OWNED: &[(&str, &str)] = &[
     (
+        "/api/v1/search",
+        "Search sends the query to each readable Workspace. Each Workspace checks access for its own results; conversations check participation.",
+    ),
+    (
         "/api/v1/free-busy",
         "Free/Busy is readable in the Org by design. The answer holds merged busy intervals and no Event details.",
     ),
@@ -161,10 +165,13 @@ pub const A_PLUGIN_STDERR: &str = "the stderr of person A's Plugin server";
 /// The query string one route needs before its handler runs. Without
 /// it `axum` refuses the request at the extractor, and the answer would
 /// say nothing about the tenant.
-const QUERIES: &[(&str, &str)] = &[(
-    "/api/v1/channels/{channel_id}/messages/{message_id}/speech",
-    "block=0",
-)];
+const QUERIES: &[(&str, &str)] = &[
+    ("/api/v1/search", "q=work"),
+    (
+        "/api/v1/channels/{channel_id}/messages/{message_id}/speech",
+        "block=0",
+    ),
+];
 
 /// The routes that answer only a WebSocket handshake. `axum` refuses a
 /// plain request at the upgrade extractor, before the handler reads

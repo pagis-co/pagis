@@ -35,6 +35,7 @@ use crate::requests;
 use crate::run_steps;
 use crate::runs;
 use crate::schedules;
+use crate::search;
 use crate::sessions;
 use crate::settings;
 use crate::setup;
@@ -116,6 +117,7 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         mailboxes::provision_mailbox,
         mailboxes::reset_mailbox_password,
         mailboxes::delete_mailbox,
+        search::search,
         conversations::list_colleagues,
         conversations::list_conversations,
         conversations::start_conversation,

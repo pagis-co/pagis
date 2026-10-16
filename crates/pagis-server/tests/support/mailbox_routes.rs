@@ -238,6 +238,18 @@ async fn workspace_mailbox_reads_through_the_product_api_and_isolates_workspaces
     );
     let transport = &embedder.mail_transport;
     transport.deliver("sender@example.test", "Invoice", "invoice first");
+    let (status, found) = response(&embedder, "GET", "/api/v1/search?q=invoice", Value::Null).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(found["items"].as_array().unwrap().len(), 1, "{found}");
+    assert_eq!(found["items"][0]["kind"], "mail");
+    assert_eq!(found["items"][0]["title"], "Invoice");
+    assert!(
+        found["items"][0]["url"]
+            .as_str()
+            .unwrap()
+            .starts_with("/mail?message=")
+    );
+
     let thread = transport.summaries("INBOX")[0].thread_id.clone();
     transport.deliver_reply(
         &thread,

@@ -122,3 +122,12 @@ it('shows the server refusal when an Event is under Legal Hold', async () => {
   await waitFor(() => expect(screen.getAllByRole('alert').map(alert => alert.textContent)).toContain(message))
   expect(close).not.toHaveBeenCalled()
 })
+
+it('opens a Calendar Event from a Search result', async () => {
+  const GET = vi.fn(async (path: string) => ({ data: path.endsWith("{event_id}") ? event : [] }))
+  render(<QueryClientProvider client={new QueryClient()}><CurrentWorkspaceContext value="workspace-1">
+    <Calendar api={{ GET } as unknown as ApiClient} initialDate="2026-03-09" eventId="event-1" />
+  </CurrentWorkspaceContext></QueryClientProvider>)
+  expect(await screen.findByRole('dialog')).toBeTruthy()
+  expect(GET).toHaveBeenCalledWith('/api/v1/calendar/events/{event_id}', { params: { path: { event_id: 'event-1' } } })
+})
