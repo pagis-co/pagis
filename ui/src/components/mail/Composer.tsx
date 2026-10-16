@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import { type ApiClient, uploadFile } from '../../api/client'
-import { Button, Input, Textarea } from '../../primitives'
+import { Button, Input, Textarea, Sheet } from '../../primitives'
 import {
   type MailSource,
   useSendWorkspaceMail,
   useWorkspaceMailComposer,
 } from '../../queries'
 import type { components } from '../../api/schema'
+import { useIsMobile } from '../../primitives/useMediaQuery'
 
 type Draft = components['schemas']['MailComposerDto']
 
@@ -19,17 +20,28 @@ export function Composer({
   source?: MailSource
   onClose: () => void
 }) {
+  const phone = useIsMobile()
   const prepared = useWorkspaceMailComposer(api, source)
-  if (source && prepared.isError) return <p role="alert">Could not prepare mail.</p>
-  if (source && !prepared.data) return <p>Loading composer…</p>
-  return (
-    <ComposerForm
-      api={api}
-      source={source}
-      initial={prepared.data}
-      onClose={onClose}
-    />
+  const title = source
+    ? { reply: 'Reply', 'reply-all': 'Reply all', forward: 'Forward' }[source.action]
+    : 'Compose'
+  const content = source && prepared.isError ? (
+    <p role="alert">Could not prepare mail.</p>
+  ) : source && !prepared.data ? (
+    <p>Loading composer…</p>
+  ) : (
+    <ComposerForm api={api} source={source} initial={prepared.data} onClose={onClose} />
   )
+  return phone ? (
+    <Sheet
+      open
+      onOpenChange={(open) => { if (!open) onClose() }}
+      title={title}
+      showHeader={false}
+    >
+      <div className="mail-phone mail-compose-sheet">{content}</div>
+    </Sheet>
+  ) : content
 }
 
 function ComposerForm({

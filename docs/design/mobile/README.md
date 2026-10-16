@@ -97,3 +97,15 @@ The phone shows no Administration section and no sign-in link.
 | Sound | [settings-sound.png](settings-sound.png) |
 | Timezone | [settings-timezone.png](settings-timezone.png) |
 | Retention | [settings-retention.png](settings-retention.png) |
+
+## Mail
+
+Mail opens from You. All mail shows search, folders and messages. A message
+opens its thread. Compose, Reply, Reply all and Forward open a sheet.
+The Mobile App opens an attachment with the system viewer.
+
+| Screen | Image |
+| --- | --- |
+| All mail | [mail.png](mail.png) |
+| A message with an attachment | [mail-message.png](mail-message.png) |
+| The compose sheet | [mail-compose.png](mail-compose.png) |

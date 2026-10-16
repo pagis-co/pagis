@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { ApiClient } from '../../api/client'
+import { useIsMobile } from '../../primitives/useMediaQuery'
 import { Button, Input } from '../../primitives'
 import { errorMessage, useMailFolderMutation } from '../../queries'
 
@@ -10,11 +11,13 @@ export function FolderManager({
   api: ApiClient
   folders: string[]
 }) {
+  const phone = useIsMobile()
+  const Container = phone ? 'div' : 'details'
   const [name, setName] = useState('')
   const mutation = useMailFolderMutation(api)
   return (
-    <details>
-      <summary>Manage folders</summary>
+    <Container>
+      {!phone && <summary>Manage folders</summary>}
       <form
         onSubmit={(event) => {
           event.preventDefault()
@@ -41,7 +44,7 @@ export function FolderManager({
         ))}
       </ul>
       {mutation.isError && <p role="alert">Could not create the folder.</p>}
-    </details>
+    </Container>
   )
 }
 

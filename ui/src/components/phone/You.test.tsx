@@ -185,3 +185,9 @@ describe('the Person Notice', () => {
     expect(within(note).queryByRole('link')).toBeNull()
   })
 })
+
+it('opens Mail from You', async () => {
+  const history = mount(stubApi())
+  fireEvent.click(await screen.findByRole('button', { name: /^Mail/ }))
+  await waitFor(() => expect(history.location.pathname).toBe('/mail'))
+})

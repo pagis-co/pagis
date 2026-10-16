@@ -28,7 +28,7 @@ has no off-canvas sidebar, drawer controls or inspector panel.
 
 Home, Conversations, Sprites and You are the tab roots. Home shows the
 count of the Needs-You Queue. You holds the Person, server, Memory,
-Automations, Software, Settings and the settings of this phone. A Desk
+Mail, Automations, Software, Settings and the settings of this phone. A Desk
 belongs to its sprite. A Run opens from Home, Work or a queue item.
 
 ### A screen is a tab root, a pushed screen or a sheet

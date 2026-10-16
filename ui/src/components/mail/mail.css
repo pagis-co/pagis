@@ -89,12 +89,6 @@
   font: inherit;
 }
 
-@media (max-width: 760px) {
-  .mail-panes-open {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
 .mail-composer {
   display: grid;
   gap: var(--space-3);
@@ -103,4 +97,95 @@
 .mail-composer label {
   display: grid;
   gap: var(--space-1);
+}
+
+.mail-phone {
+  font-size: var(--text-md);
+}
+.mail-place.mail-phone {
+  overflow: visible;
+  padding: 0 0 var(--safe-bottom);
+}
+.mail-place.mail-phone > :not(.nav-bar) {
+  margin-inline: var(--space-4);
+}
+.mail-place.mail-phone > :last-child {
+  margin-bottom: var(--space-5);
+}
+.mail-phone .mail-views {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-1);
+  padding: var(--space-1);
+  background: var(--sunken);
+  border-radius: var(--radius-md);
+}
+.mail-phone .mail-controls {
+  align-items: stretch;
+}
+.mail-phone .mail-controls > label {
+  flex-basis: 100%;
+  min-width: 0;
+}
+.mail-phone .mail-controls > .ui-select-trigger {
+  width: 100%;
+}
+.mail-phone .mail-panes-open {
+  grid-template-columns: minmax(0, 1fr);
+}
+.mail-phone .ui-button,
+.mail-phone .ui-input,
+.mail-phone .ui-select-trigger,
+.mail-phone summary,
+.mail-phone .mail-message a {
+  min-height: 44px;
+  font-size: var(--text-md);
+}
+.mail-phone .mail-message a,
+.mail-phone summary {
+  display: flex;
+  align-items: center;
+  overflow-wrap: anywhere;
+}
+.mail-phone .mail-message-sender {
+  overflow-wrap: anywhere;
+}
+.mail-folders form,
+.mail-folders label,
+.mail-folders li {
+  display: grid;
+  gap: var(--space-3);
+}
+.mail-compose-sheet .mail-composer {
+  min-width: 0;
+}
+
+.mail-phone .mail-views [aria-pressed='true'] {
+  background: var(--panel);
+  color: var(--accent-ink);
+}
+.ui-sheet:has(.mail-compose-sheet) {
+  top: var(--safe-top);
+}
+
+.mail-phone .ui-button {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.mail-phone .mail-attachments {
+  list-style: none;
+  padding: 0;
+}
+.mail-phone .mail-attachments a {
+  color: var(--accent);
+  text-decoration: none;
+}
+.mail-compose-sheet .mail-composer > .mail-controls:last-child {
+  position: sticky;
+  bottom: calc(-1 * (var(--space-5) + var(--safe-bottom)));
+  margin-inline: calc(-1 * var(--space-4));
+  padding: var(--space-3) var(--space-4) calc(var(--space-3) + var(--safe-bottom));
+  border-top: 1px solid var(--border);
+  background: var(--panel);
 }

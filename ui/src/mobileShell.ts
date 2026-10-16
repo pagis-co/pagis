@@ -81,7 +81,7 @@ export function phoneParent(path: string, from?: string): { label: string; path:
   if (path.startsWith('/settings/connections/')) return { label: 'Connections', path: '/settings/connections' }
   if (path === '/settings/trusted-contacts/keypad') return { label: 'Trusted contacts', path: '/settings/trusted-contacts' }
   if (path.startsWith('/settings/')) return { label: 'Settings', path: '/settings' }
-  if (['/settings', '/memory', '/automations', '/software'].includes(path)) return { label: 'You', path: '/you' }
+  if (['/settings', '/memory', '/automations', '/software', '/mail'].includes(path)) return { label: 'You', path: '/you' }
   return { label: 'Home', path: '/' }
 }
 
