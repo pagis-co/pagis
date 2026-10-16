@@ -618,6 +618,30 @@ impl FakeMailSession {
 
 #[async_trait]
 impl MailSession for FakeMailSession {
+    async fn trash_folder(&mut self) -> Result<Option<String>, TransportError> {
+        self.refuse()?;
+        Ok(self
+            .shared
+            .inbox
+            .lock()
+            .unwrap()
+            .folders
+            .keys()
+            .find(|name| name.eq_ignore_ascii_case("Trash"))
+            .cloned())
+    }
+    async fn expunge_message(&mut self, id: &MessageId) -> Result<(), TransportError> {
+        self.refuse()?;
+        let mut inbox = self.shared.inbox.lock().unwrap();
+        let folder = inbox.folder(&id.as_str().parse::<ImapMessageId>()?.folder);
+        let at = folder
+            .messages
+            .iter()
+            .position(|stored| stored.message.summary.id == *id)
+            .ok_or(TransportError(TransportErrorCode::StaleId))?;
+        folder.messages.remove(at);
+        Ok(())
+    }
     async fn junk_folders(&mut self) -> Result<Vec<String>, TransportError> {
         self.refuse()?;
         Ok(self

@@ -21,6 +21,7 @@ mod connections_portable_tests;
 mod conversations;
 mod cors;
 mod cross_origin;
+mod disclosure;
 pub mod error;
 pub mod fake;
 mod files;
@@ -156,6 +157,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// behind the storage seams. The bus must already be ring-wrapped
 /// (`RingedBus`) so every published event is resumable over `last_seq`.
 pub struct AppState {
+    pub disclosure: Arc<dyn pagis_core::DisclosureStore>,
     pub governance: Arc<dyn pagis_core::WorkspaceGovernanceStore>,
     pub audit: Arc<dyn pagis_core::AuditLog>,
     #[cfg(feature = "native")]
@@ -546,7 +548,8 @@ fn product_router(state: Arc<AppState>) -> Router {
         )
         .route(
             "/api/v1/workspace/mail/messages/{message_id}",
-            get(workspace_mail::get_workspace_mail_message),
+            get(workspace_mail::get_workspace_mail_message)
+                .delete(workspace_mail::delete_workspace_mail_message),
         )
         .route(
             "/api/v1/workspace/mail/threads/{thread_id}",
@@ -743,6 +746,12 @@ fn product_router(state: Arc<AppState>) -> Router {
             put(workspace::set_chief_of_staff),
         )
         .route("/api/v1/workspace/timezone", put(workspace::put_timezone))
+        .route("/api/v1/disclosure", get(disclosure::get_disclosure))
+        .route("/api/v1/disclosure/profile", put(disclosure::set_profile))
+        .route(
+            "/api/v1/disclosure/rules",
+            post(disclosure::add_rule).delete(disclosure::remove_rule),
+        )
         .route(
             "/api/v1/workspace/delegate-everything",
             put(workspace::put_delegate_everything),

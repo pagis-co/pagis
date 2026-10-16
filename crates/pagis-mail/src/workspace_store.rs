@@ -40,6 +40,8 @@ pub trait WorkspaceMailWriter: Send {
     async fn create_folder(&mut self, name: &str) -> Result<(), TransportError>;
     async fn rename_folder(&mut self, name: &str, new_name: &str) -> Result<(), TransportError>;
     async fn delete_folder(&mut self, name: &str) -> Result<(), TransportError>;
+    /// Move mail to Trash, or remove it for good when it is in Trash.
+    async fn delete_message(&mut self, id: &MessageId) -> Result<(), TransportError>;
     async fn move_message(&mut self, id: &MessageId, folder: &str) -> Result<(), TransportError>;
     async fn set_label(
         &mut self,
@@ -140,19 +142,16 @@ impl ImapWorkspaceMailStore {
             .any(|f| f.eq_ignore_ascii_case(&folder));
         self.intake.assess(summary, in_junk).await
     }
+    async fn ensure_trash(&mut self) -> Result<String, TransportError> {
+        if let Some(folder) = self.session().await?.trash_folder().await? {
+            return Ok(folder);
+        }
+        self.session().await?.create_folder("Trash").await?;
+        Ok("Trash".into())
+    }
     async fn mutable_folder(&mut self, name: &str) -> Result<(), TransportError> {
         valid_folder(name)?;
-        if [
-            "INBOX",
-            "Sent",
-            "Sent Messages",
-            "Sent Items",
-            "Drafts",
-            "Junk",
-            "Trash",
-        ]
-        .iter()
-        .any(|s| name.eq_ignore_ascii_case(s))
+        if is_system_folder(name)
             || self
                 .session()
                 .await?
@@ -201,7 +200,56 @@ impl WorkspaceMailWriter for ImapWorkspaceMailStore {
     }
     async fn delete_folder(&mut self, name: &str) -> Result<(), TransportError> {
         self.mutable_folder(name).await?;
+        // Check every message before the first move. Product reads omit quarantine.
+        let mut before_uid = None;
+        loop {
+            self.session().await?.select(name).await?;
+            let messages = self
+                .session()
+                .await?
+                .search(&MailQuery {
+                    limit: 100,
+                    before_uid,
+                    ..Default::default()
+                })
+                .await?;
+            if messages.is_empty() {
+                break;
+            }
+            before_uid = messages.iter().map(|message| uid(&message.id)).min();
+            for message in messages {
+                self.message(&message.id).await?;
+            }
+        }
+        let trash = self.ensure_trash().await?;
+        loop {
+            self.session().await?.select(name).await?;
+            let messages = self
+                .session()
+                .await?
+                .search(&MailQuery {
+                    limit: 100,
+                    ..Default::default()
+                })
+                .await?;
+            if messages.is_empty() {
+                break;
+            }
+            for message in messages {
+                self.move_message(&message.id, &trash).await?;
+            }
+        }
         self.session().await?.delete_folder(name).await
+    }
+    async fn delete_message(&mut self, id: &MessageId) -> Result<(), TransportError> {
+        self.message(id).await?;
+        let folder = id.as_str().parse::<ImapMessageId>()?.folder;
+        let trash = self.ensure_trash().await?;
+        if folder.eq_ignore_ascii_case(&trash) {
+            self.session().await?.expunge_message(id).await
+        } else {
+            self.move_message(id, &trash).await
+        }
     }
     async fn move_message(&mut self, id: &MessageId, folder: &str) -> Result<(), TransportError> {
         valid_folder(folder)?;
@@ -429,6 +477,20 @@ fn uid(id: &MessageId) -> u32 {
         .parse::<ImapMessageId>()
         .map(|id| id.uid)
         .unwrap_or(0)
+}
+
+pub(crate) fn is_system_folder(name: &str) -> bool {
+    [
+        "INBOX",
+        "Sent",
+        "Sent Messages",
+        "Sent Items",
+        "Drafts",
+        "Junk",
+        "Trash",
+    ]
+    .iter()
+    .any(|system| name.eq_ignore_ascii_case(system))
 }
 
 pub(crate) fn valid_folder(name: &str) -> Result<(), TransportError> {

@@ -254,7 +254,12 @@ impl Embedder {
         let presence = Arc::new(HostPresence::default());
         let skills = Arc::new(NoSkills);
         let clock = Arc::new(TestClock(std::sync::atomic::AtomicI64::new(i64::MIN)));
+        let blobs: Arc<dyn object_store::ObjectStore> =
+            Arc::new(object_store::memory::InMemory::new());
         let runtime = Arc::new(CoreToolRuntime::new(ToolRuntimeDeps {
+            files: stores.files.clone(),
+            blobs: blobs.clone(),
+            calendar: stores.calendar.clone(),
             workspaces: stores.workspaces.clone(),
             agents: stores.agents.clone(),
             channels: stores.channels.clone(),
@@ -278,6 +283,10 @@ impl Embedder {
             plugins: OnceLock::new(),
         });
         let broker = Arc::new(Broker::new(BrokerDeps {
+            messages: stores.messages.clone(),
+            workspaces: stores.workspaces.clone(),
+            disclosure: stores.disclosure.clone(),
+            participants: stores.participants.clone(),
             numbers: stores.phone_numbers.clone(),
             run_journal: stores.run_journal.clone(),
             forget: stores.forget.clone(),
@@ -304,6 +313,7 @@ impl Embedder {
         ));
         let person_activity = Arc::new(pagis_needs_you::PersonActivity::new());
         let deps = AgentDeps {
+            disclosure: stores.disclosure.clone(),
             person_activity: person_activity.clone(),
             run_journal: stores.run_journal.clone(),
             forget: stores.forget.clone(),
@@ -324,7 +334,7 @@ impl Embedder {
             grants: stores.grants.clone(),
             connections: stores.connections.clone(),
             files: stores.files.clone(),
-            blobs: Arc::new(object_store::memory::InMemory::new()),
+            blobs: blobs.clone(),
             memory: memory.clone(),
             pending_evidence: stores.pending_evidence.clone(),
             continuations: stores.continuations.clone(),
@@ -455,6 +465,7 @@ impl Embedder {
             bus: bus.clone(),
         }));
         let state = AppState {
+            disclosure: stores.disclosure.clone(),
             governance: stores.governance.clone(),
             audit: stores.audit.clone(),
             conversation_evidence: stores.conversation_evidence.clone(),

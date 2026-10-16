@@ -652,6 +652,9 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         Arc::clone(&grants) as _,
     ));
     let tool_runtime = Arc::new(CoreToolRuntime::new(ToolRuntimeDeps {
+        files: stores.files.clone(),
+        blobs: blobs.clone(),
+        calendar: stores.calendar.clone(),
         workspaces: stores.workspaces.clone(),
         presence: Arc::clone(&host_presence),
         agents: Arc::clone(&agent_store) as _,
@@ -969,6 +972,10 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         blocks: Arc::clone(&mail_blocks),
     }));
     let broker = Arc::new(pagis_broker::Broker::new(pagis_broker::BrokerDeps {
+        messages: stores.messages.clone(),
+        workspaces: stores.workspaces.clone(),
+        disclosure: stores.disclosure.clone(),
+        participants: stores.participants.clone(),
         numbers: phone_numbers.clone(),
         run_journal: stores.run_journal.clone(),
         forget: stores.forget.clone(),
@@ -1318,6 +1325,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     )));
     let person_activity = Arc::new(pagis_needs_you::PersonActivity::new());
     let agents = AgentSystem::start(AgentDeps {
+        disclosure: stores.disclosure.clone(),
         person_activity: person_activity.clone(),
         run_journal: stores.run_journal.clone(),
         forget: stores.forget.clone(),
@@ -1535,6 +1543,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     };
 
     let state = AppState {
+        disclosure: stores.disclosure.clone(),
         governance: stores.governance.clone(),
         audit: stores.audit.clone(),
         conversation_evidence: stores.conversation_evidence.clone(),

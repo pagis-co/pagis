@@ -374,7 +374,17 @@ transaction (ADR-0044).
 A rule that says what a Chief of Staff may reveal to whom. Defaults share
 free/busy, the Person's profile and Files or Artifacts already shared with
 the asker. Anything else needs an Approval. An approved disclosure can
-become a standing rule. Not built: Disclosure Rules (ADR-0043).
+become a standing rule. The Person writes the profile and manages rules in
+Settings. A rule permits memory, mail, calendar details or other private data
+for one Workspace or every Workspace of the Org. The daemon checks each
+private tool read in a colleague Run. Private indexes and the Brief do not
+enter that Run automatically. Always on the Approval stores the matching
+rules for every asker who needs permission. Every other participant
+Workspace is an asker. Files attached to messages in that shared Channel
+pass through `file_read` by default. `conversation_read` and
+`conversation_search` read that Channel by default. Private Subject Pages
+need Memory permission. The request API hides internal resume arguments.
+Collaborative Artifacts are not built (ADR-0043).
 
 ### Exposure Stamp
 The record of which Grants the author of a message or a memory file held
@@ -632,7 +642,7 @@ to each participant Workspace. In a conversation between two Workspaces,
 the Chief of Staff answers when the recipient is away or Delegate everything
 is on. For the person only keeps the Agent's context note private. An Agent
 reply shows `<Agent>, for <Person>` (ADR-0039, ADR-0043).
-Not built: away Notifications, Disclosure Rules, Agents that start messages
+Not built: away Notifications, Agents that start messages
 for their Person and group answer rules.
 
 ### Chief of Staff
@@ -1761,30 +1771,36 @@ list recent ones. Not built (ADR-0020).
 
 ### Workspace Mailbox
 The mailbox of a Workspace on the Org's mail domain, at most one per
-Workspace. The Org Address Rule creates it for a new Person, or the Person
-creates it in Settings. The Person reads it in the Mail
-place: All mail, folders, messages, threads and search. Opening a message
-marks it as seen. The Person composes, replies, replies to all and
-forwards mail with Files as attachments. A Person's send needs no
-Approval. Sent mail appears in the host's Sent folder. The Person creates,
-renames and deletes folders, moves mail and applies or removes labels.
-System folders cannot be renamed or deleted. The mail host holds bodies,
-labels and flags. The store uses the mail transport. Its conformance suite
+Workspace. The Org Address Rule creates it for a new Person, or the
+Person creates it in Settings. The Person reads it in the Mail place:
+All mail, folders, messages, threads and search. Opening a message marks
+it as seen. The Person composes, replies, replies to all and forwards
+mail with Files as attachments. A Person's send needs no Approval. Sent
+mail appears in the host's Sent folder. The Person creates, renames and
+deletes folders, moves mail and applies or removes labels. System
+folders cannot be renamed or deleted. The mail host holds bodies, labels
+and flags. The store uses the mail transport. Its conformance suite
 checks the operations (ADR-0040). The store records a Spam Verdict and
 Trust Tier before each read. The Mail place shows the score, action and
 reasons. Score-only mode moves nothing. The Chief of Staff holds its
-default Workspace Mailbox Grant. Other Agents need a Grant from the owner
-or a Manager. An Agent send as the Workspace Mailbox needs an Approval for
-each message unless its Grant's recipient-domain Allow Rules cover every
-recipient. An Agent replies from its own Agent Mailbox with the Workspace
-Mailbox in Cc by default and keeps the original thread. In a Private
-Workspace that address is the Person's mailbox; in a Shared Workspace it
-is the team mailbox. A Shared Workspace Mailbox uses Mail Visibility. A
-Responder or Manager sends as it, and the send records its Person author
-in the Org Audit Log. An Agent with a live Grant marks a message as Needs
-you through its escalation tool. The escalation keeps the Agent author and
-the message identity across folder moves. Not built: automatic Agent
-triage, assignments and saved drafts.
+default Workspace Mailbox Grant. Other Agents need a Grant from the
+owner or a Manager. An Agent send as the Workspace Mailbox needs an
+Approval for each message unless its Grant's recipient-domain Allow
+Rules cover every recipient. An Agent replies from its own Agent Mailbox
+with the Workspace Mailbox in Cc by default and keeps the original
+thread. In a Private Workspace that address is the Person's mailbox; in
+a Shared Workspace it is the team mailbox. A Shared Workspace Mailbox
+uses Mail Visibility. A Responder or Manager sends as it, and the send
+records its Person author in the Org Audit Log. An Agent with a live
+Grant marks a message as Needs you through its escalation tool. The
+escalation keeps the Agent author and the message identity across folder
+moves. Deleting a folder first moves its mail to Trash with its flags
+and labels. Deleting a message moves it to Trash. Deleting a message
+from Trash removes it for good. The store uses the host's special-use
+Trash folder, or the folder named Trash. It creates Trash when neither
+exists. Folder deletion refuses a folder that contains quarantined mail
+before it moves any message. Not built: automatic Agent triage,
+assignments and saved drafts.
 
 ### Workspace Mailbox calendar intake cursor
 The UIDVALIDITY and highest UID already read for one Workspace Mailbox
@@ -1820,7 +1836,7 @@ Run queued or running in a Channel. A Run that reflects turns no ring
 The kind of Request that asks permission to act: a tool action, a
 credential action, or a Harness Permission that asks the Person. The
 approval card is a view of it. Only an Approval takes a scope, which is how
-"Always allow" writes an Allow Rule (ADR-0004, ADR-0033).
+"Always allow" writes an Allow Rule or a Disclosure Rule (ADR-0004, ADR-0033, ADR-0043).
 
 ### Artifact
 A collaborative document, sheet, slide deck or site. It belongs to one

@@ -27,6 +27,8 @@ const TABLES: &[&str] = &[
     "conversation_tool_evidence",
     "conversation_tool_search",
     "credentials",
+    "disclosure_profiles",
+    "disclosure_rules",
     "event_subscriptions",
     "events",
     "file_retention_policies",

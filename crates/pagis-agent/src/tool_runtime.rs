@@ -19,6 +19,9 @@ use crate::memory::MemoryOverlay;
 use crate::ui::BlockBuffer;
 
 pub struct ToolRuntimeDeps {
+    pub files: Arc<dyn pagis_core::FileStore>,
+    pub blobs: Arc<dyn object_store::ObjectStore>,
+    pub calendar: Arc<dyn pagis_core::CalendarStore>,
     pub workspaces: Arc<dyn pagis_core::WorkspaceStore>,
     pub agents: Arc<dyn AgentStore>,
     pub channels: Arc<dyn ChannelStore>,
@@ -169,6 +172,9 @@ impl CoreToolRuntime {
 
     async fn execute_core(&self, call: AuthorizedCall, tool: CoreTool) -> ToolResult {
         match tool {
+            CoreTool::FileRead => self.execute_file_read(&call).await,
+            CoreTool::CalendarFreeBusy => self.execute_calendar_free_busy(&call).await,
+            CoreTool::CalendarRead => self.execute_calendar_read(&call).await,
             CoreTool::HostShell => self.execute_host(&call).await,
             CoreTool::ComputerShell => self.execute_computer_shell(&call).await,
             CoreTool::SendMessage => self.execute_send(&call).await,
@@ -217,6 +223,135 @@ impl CoreToolRuntime {
         }
     }
 
+    async fn execute_calendar_free_busy(&self, call: &AuthorizedCall) -> ToolResult {
+        let (Some(from), Some(to)) = (
+            call.arguments["from"].as_str(),
+            call.arguments["to"].as_str(),
+        ) else {
+            return ToolResult::error("invalid_request", "from and to are required");
+        };
+        let range = match pagis_core::CalendarRange::parse(from, to) {
+            Ok(range) => range,
+            Err(error) => return ToolResult::error("invalid_request", error.to_string()),
+        };
+        match self
+            .deps
+            .calendar
+            .free_busy(&call.workspace_id, range.from(), range.to())
+            .await
+        {
+            Ok(intervals) => ToolResult::success(
+                serde_json::Value::Array(
+                    intervals
+                        .into_iter()
+                        .map(|interval| {
+                            let (start, end) = interval.rfc3339();
+                            serde_json::json!({"start": start, "end": end})
+                        })
+                        .collect(),
+                )
+                .to_string(),
+            ),
+            Err(error) => ToolResult::error("temporarily_unavailable", error.to_string()),
+        }
+    }
+
+    async fn execute_calendar_read(&self, call: &AuthorizedCall) -> ToolResult {
+        let Some(id) = call.arguments["event_id"].as_str() else {
+            return ToolResult::error("invalid_request", "event_id is required");
+        };
+        match self
+            .deps
+            .calendar
+            .get(
+                &call.workspace_id,
+                &pagis_core::CalendarEventId::from(id.to_owned()),
+            )
+            .await
+        {
+            Ok(Some(event)) => ToolResult::success(pagis_core::wrap_untrusted(
+                "calendar",
+                &serde_json::to_string(&event).expect("Event serializes"),
+            )),
+            Ok(None) => ToolResult::error("not_found", "Event not found"),
+            Err(error) => ToolResult::error("temporarily_unavailable", error.to_string()),
+        }
+    }
+
+    async fn execute_file_read(&self, call: &AuthorizedCall) -> ToolResult {
+        use object_store::ObjectStoreExt;
+        let Some(id) = call.arguments["file_id"].as_str() else {
+            return ToolResult::error("invalid_request", "file_id is required");
+        };
+        let result = async {
+            let run = self
+                .deps
+                .runs
+                .get(&call.workspace_id, &call.run_id)
+                .await?
+                .ok_or_else(|| pagis_core::StoreError::Corrupt("File Run is absent".into()))?;
+            if run.agent_id != call.agent_id {
+                return Err(pagis_core::StoreError::Corrupt(
+                    "File Run belongs to another Agent".into(),
+                ));
+            }
+            let id_value = pagis_core::FileId::from(id.to_owned());
+            if let Some(file) = self.deps.files.get(&call.workspace_id, &id_value).await? {
+                return Ok(Some(file));
+            }
+            if let Some(source) = pagis_core::disclosure::DisclosureConversation::of(&run)? {
+                source
+                    .askers(self.deps.participants.as_ref(), &call.workspace_id)
+                    .await?;
+                if source
+                    .file_is_attached(self.deps.messages.as_ref(), self.deps.grants.as_ref(), id)
+                    .await?
+                {
+                    return self.deps.files.get(&source.workspace_id, &id_value).await;
+                }
+            }
+            Ok(None)
+        }
+        .await;
+        let file = match result {
+            Ok(Some(file)) => file,
+            Ok(None) => return ToolResult::error("not_found", "File is absent"),
+            Err(error) => return ToolResult::error("permission_denied", error.to_string()),
+        };
+        const MAX_BYTES: usize = 256 * 1024;
+        if file.size_bytes < 0 || file.size_bytes > MAX_BYTES as i64 {
+            return ToolResult::error("too_large", "File exceeds the read limit");
+        }
+        let object = match self
+            .deps
+            .blobs
+            .get(&object_store::path::Path::from(file.storage_key))
+            .await
+        {
+            Ok(object) if object.meta.size <= MAX_BYTES as u64 => object,
+            Ok(_) => return ToolResult::error("too_large", "File exceeds the read limit"),
+            Err(error) => return ToolResult::error("temporarily_unavailable", error.to_string()),
+        };
+        let bytes = match object.bytes().await {
+            Ok(bytes) if bytes.len() <= MAX_BYTES => bytes,
+            Ok(_) => return ToolResult::error("too_large", "File exceeds the read limit"),
+            Err(error) => return ToolResult::error("temporarily_unavailable", error.to_string()),
+        };
+        let (encoding, content) = match std::str::from_utf8(&bytes) {
+            Ok(text) => ("utf8", text.to_owned()),
+            Err(_) => {
+                use base64::Engine;
+                (
+                    "base64",
+                    base64::engine::general_purpose::STANDARD.encode(&bytes),
+                )
+            }
+        };
+        ToolResult::success(pagis_core::wrap_untrusted("file", &serde_json::json!({
+            "file_id": id, "filename": file.filename, "mime": file.mime, "encoding": encoding, "content": content
+        }).to_string()))
+    }
+
     async fn conversation_scope(
         &self,
         call: &AuthorizedCall,
@@ -238,6 +373,36 @@ impl CoreToolRuntime {
             return Err(ToolResult::error(
                 "unsupported_scope",
                 "pending review can span source conversations; retrieve evidence in a source conversation",
+            ));
+        }
+        if let Some(source) = pagis_core::disclosure::DisclosureConversation::of(&run)
+            .map_err(|error| ToolResult::error("permission_denied", error.to_string()))?
+        {
+            source
+                .askers(self.deps.participants.as_ref(), &call.workspace_id)
+                .await
+                .map_err(|error| ToolResult::error("permission_denied", error.to_string()))?;
+            if call.arguments["channel_id"]
+                .as_str()
+                .is_none_or(|id| id == source.channel_id.as_str())
+            {
+                return Ok(pagis_core::ConversationScope {
+                    workspace_id: source.workspace_id,
+                    agent_id: call.agent_id.clone(),
+                    channel_id: source.channel_id,
+                    root_message_id: None,
+                });
+            }
+        }
+        if let Some(id) = call.arguments["channel_id"].as_str()
+            && run
+                .channel_id
+                .as_ref()
+                .is_none_or(|channel| channel.as_str() != id)
+        {
+            return Err(ToolResult::error(
+                "unsupported_scope",
+                "Channel is outside this Run",
             ));
         }
         let channel_id = run.channel_id.ok_or_else(|| {

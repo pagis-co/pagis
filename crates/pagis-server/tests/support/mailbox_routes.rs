@@ -1176,7 +1176,7 @@ async fn workspace_mail_routes_use_the_supplied_store_without_imap() {
         StatusCode::NO_CONTENT
     );
     let (_, folders) = response(&embedder, "GET", &format!("{root}/folders"), Value::Null).await;
-    assert_eq!(folders["items"], json!(["INBOX", "Junk"]));
+    assert_eq!(folders["items"], json!(["INBOX", "Junk", "Trash"]));
     let agent = embedder.agent(&embedder.workspace, "Reader").await;
     let desk = &embedder.routers.state.mailbox_desk;
     assert!(
@@ -1216,6 +1216,24 @@ async fn workspace_mail_routes_use_the_supplied_store_without_imap() {
             .await
             .is_err()
     );
+    for _ in 0..2 {
+        assert_eq!(
+            response(&embedder, "DELETE", &message, Value::Null).await.0,
+            StatusCode::NO_CONTENT
+        );
+    }
+    assert_eq!(
+        response(&embedder, "GET", &message, Value::Null).await.0,
+        StatusCode::NOT_FOUND
+    );
+    let (_, trash) = response(
+        &embedder,
+        "GET",
+        &format!("{root}/messages?folder=Trash"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(trash["items"], json!([]));
     assert!(embedder.mail_transport.logins().is_empty());
     assert!(embedder.mailbox_host.addresses().is_empty());
 }
@@ -1852,4 +1870,100 @@ async fn calendar_cursor_works_through_the_supplied_memory_store() {
             .unwrap()
             .is_some()
     );
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+async fn quarantine_blocks_message_and_folder_deletes_in_the_supplied_store() {
+    use pagis_mail::WorkspaceMailReader;
+    let host = std::sync::Arc::new(pagis_mail::fake::MemoryWorkspaceMailHost::default());
+    let embedder = Embedder::with_workspace_mail(host.clone()).await;
+    let connection = provider(&embedder).await;
+    let (status, mailbox) = response(
+        &embedder,
+        "POST",
+        "/api/v1/workspace/mailbox",
+        json!({"connection_id": connection, "local_part":"person"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let mut mail = host.store(&embedder.workspace).unwrap();
+    let id = mail.deliver("sender@test", "Unsafe", "Unsafe");
+    let safe_id = mail.deliver("sender@test", "Safe", "Safe");
+    let root = "/api/v1/workspace/mail";
+    assert_eq!(
+        response(
+            &embedder,
+            "POST",
+            &format!("{root}/folders"),
+            json!({"name":"Records"})
+        )
+        .await
+        .0,
+        StatusCode::NO_CONTENT
+    );
+    for id in [&id, &safe_id] {
+        assert_eq!(
+            response(
+                &embedder,
+                "POST",
+                &format!("{root}/messages/{id}/move"),
+                json!({"name":"Records"})
+            )
+            .await
+            .0,
+            StatusCode::NO_CONTENT
+        );
+    }
+    let summary = mail.message(&id).await.unwrap().message.summary;
+    embedder
+        .stores
+        .junk
+        .observe(&pagis_core::JunkMessage {
+            workspace_id: embedder.workspace.clone(),
+            mailbox: mailbox["address"].as_str().unwrap().into(),
+            message_key: summary.assessment_key().into(),
+            host_id: id.to_string(),
+            from: summary.from,
+            subject: summary.subject,
+            reasons: vec!["CLAM_VIRUS".into()],
+            person_mark: None,
+            quarantined: true,
+            released: false,
+        })
+        .await
+        .unwrap();
+    for (method, suffix, body) in [
+        ("DELETE", format!("messages/{id}"), Value::Null),
+        (
+            "POST",
+            format!("messages/{id}/move"),
+            json!({"name":"INBOX"}),
+        ),
+        ("DELETE", "folders/Records".into(), Value::Null),
+    ] {
+        assert_eq!(
+            response(&embedder, method, &format!("{root}/{suffix}"), body)
+                .await
+                .0,
+            StatusCode::NOT_FOUND
+        );
+    }
+    let (_, page) = response(
+        &embedder,
+        "GET",
+        &format!("{root}/messages?folder=Records"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(page["items"].as_array().unwrap().len(), 1);
+    assert_eq!(page["items"][0]["id"], safe_id.as_str());
+    let (_, page) = response(
+        &embedder,
+        "GET",
+        &format!("{root}/messages?folder=Trash"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(page["items"], json!([]));
 }

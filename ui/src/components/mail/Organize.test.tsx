@@ -160,6 +160,49 @@ it('shows the server refusal for a held mail folder and keeps the folder', async
   expect(screen.getByRole('button', { name: 'Delete Records' })).toBeTruthy()
 })
 
+it('deletes a message and closes it after success', async () => {
+  const DELETE = vi.fn(async () => ({}))
+  const GET = vi.fn(async () => ({ data: { items: ['INBOX', 'Trash'] } }))
+  const closed = vi.fn()
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <MessageControls
+        api={{ DELETE, GET } as unknown as ApiClient}
+        id="opaque-id"
+        labels={[]}
+        onMove={closed}
+      />
+    </QueryClientProvider>,
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+  await waitFor(() =>
+    expect(DELETE).toHaveBeenCalledWith(
+      '/api/v1/workspace/mail/messages/{message_id}',
+      { params: { path: { message_id: 'opaque-id' } } },
+    ),
+  )
+  await waitFor(() => expect(closed).toHaveBeenCalledOnce())
+})
+
+it('keeps the message open when deletion fails', async () => {
+  const DELETE = vi.fn(async () => ({ error: { error: { message: 'Cannot delete mail.' } } }))
+  const GET = vi.fn(async () => ({ data: { items: [] } }))
+  const closed = vi.fn()
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <MessageControls
+        api={{ DELETE, GET } as unknown as ApiClient}
+        id="opaque-id"
+        labels={[]}
+        onMove={closed}
+      />
+    </QueryClientProvider>,
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'Delete' }))
+  expect(await screen.findByRole('alert')).toBeTruthy()
+  expect(closed).not.toHaveBeenCalled()
+})
+
 it.each(['Spam', 'Not spam'])('sends a %s correction through the verdict route', async (label) => {
   const POST = vi.fn(async () => ({}))
   const GET = vi.fn(async () => ({ data: { items: ['INBOX', 'Junk'] } }))

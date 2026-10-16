@@ -35,6 +35,7 @@ pub const RESPONDER_WRITES: &[(&str, &str)] = &[
     ("/api/v1/requests/{request_id}/decision", "post"),
     ("/api/v1/files", "post"),
     ("/api/v1/workspace/mail/messages", "post"),
+    ("/api/v1/workspace/mail/messages/{message_id}", "delete"),
     ("/api/v1/workspace/mail/messages/{message_id}/reply", "post"),
     (
         "/api/v1/workspace/mail/messages/{message_id}/reply-all",
@@ -610,6 +611,27 @@ pub const ADMINISTRATION_ROUTES: &[Route] = &[
 /// Every route the daemon serves.
 pub const ROUTES: &[Route] = &[
     Route {
+        shared: false,
+        path: "/api/v1/disclosure",
+        methods: &["get"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
+        shared: false,
+        path: "/api/v1/disclosure/profile",
+        methods: &["put"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
+        shared: false,
+        path: "/api/v1/disclosure/rules",
+        methods: &["post", "delete"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
         shared: true,
         path: "/api/v1/workspace/mail/messages/{message_id}/response",
         methods: &["post"],
@@ -773,7 +795,7 @@ pub const ROUTES: &[Route] = &[
     Route {
         shared: true,
         path: "/api/v1/workspace/mail/messages/{message_id}",
-        methods: &["get"],
+        methods: &["get", "delete"],
         authenticated: true,
         part: None,
     },

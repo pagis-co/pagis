@@ -1286,6 +1286,94 @@ async fn mail_invitation_response_checks_message_visibility() {
 }
 
 #[tokio::test]
+async fn workspace_mailbox_deleted_folder_keeps_mail_in_trash_until_message_delete() {
+    let app = MailboxApp::with_mailbox().await;
+    let id = app
+        .transport
+        .deliver("sender@example.com", "Records", "Keep this mail");
+    app.get(&format!("/api/v1/workspace/mail/messages/{id}"))
+        .await;
+    app.mail_request(
+        reqwest::Method::POST,
+        "/folders",
+        json!({"name":"Records"}),
+        204,
+    )
+    .await;
+    app.mail_request(
+        reqwest::Method::POST,
+        &format!("/messages/{id}/labels"),
+        json!({"name":"finance"}),
+        204,
+    )
+    .await;
+    app.mail_request(
+        reqwest::Method::POST,
+        &format!("/messages/{id}/move"),
+        json!({"name":"Records"}),
+        204,
+    )
+    .await;
+    app.mail_request(reqwest::Method::DELETE, "/folders/Records", json!({}), 204)
+        .await;
+    let page = app
+        .get("/api/v1/workspace/mail/messages?folder=Trash")
+        .await;
+    assert_eq!(page["items"].as_array().unwrap().len(), 1);
+    assert_eq!(page["items"][0]["labels"], json!(["finance"]));
+    assert_eq!(page["items"][0]["seen"], true);
+    let folders = app.get("/api/v1/workspace/mail/folders").await;
+    assert!(
+        !folders["items"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("Records"))
+    );
+    let id = page["items"][0]["id"].as_str().unwrap();
+    app.mail_request(
+        reqwest::Method::DELETE,
+        &format!("/messages/{id}"),
+        json!({}),
+        204,
+    )
+    .await;
+    assert!(
+        app.get("/api/v1/workspace/mail/messages?folder=Trash")
+            .await["items"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    let id = app
+        .transport
+        .deliver("sender@example.com", "Another", "Move to Trash");
+    app.mail_request(
+        reqwest::Method::DELETE,
+        &format!("/messages/{id}"),
+        json!({}),
+        204,
+    )
+    .await;
+    assert_eq!(
+        app.get("/api/v1/workspace/mail/messages?folder=Trash")
+            .await["items"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    for folder in ["INBOX", "Trash"] {
+        app.mail_request(
+            reqwest::Method::DELETE,
+            &format!("/folders/{folder}"),
+            json!({}),
+            422,
+        )
+        .await;
+    }
+}
+
+#[tokio::test]
 async fn junk_corrections_survive_host_headers_and_folder_moves() {
     let app = MailboxApp::with_mailbox().await;
     app.transport
@@ -1436,6 +1524,23 @@ async fn quarantine_blocks_every_product_read_and_release_is_audited() {
     let app = MailboxApp::with_mailbox().await;
     let id = app.transport.deliver_raw(b"From: sender@example.com\r\nMessage-ID: <malware@example.com>\r\nSubject: Unsafe\r\nX-Spamd-Result: default: False [20 / 15]; CLAM_VIRUS(20)[]\r\n\r\nUnsafe content");
     let thread = app.transport.summaries("INBOX")[0].thread_id.clone();
+    for (method, suffix, body) in [
+        (reqwest::Method::DELETE, format!("messages/{id}"), json!({})),
+        (
+            reqwest::Method::POST,
+            format!("messages/{id}/move"),
+            json!({"name":"INBOX"}),
+        ),
+    ] {
+        let (status, _) = app
+            .request(
+                method,
+                &format!("/api/v1/workspace/mail/{suffix}"),
+                Some(body),
+            )
+            .await;
+        assert_eq!(status, 404);
+    }
     assert!(
         app.get("/api/v1/workspace/mail/messages").await["items"]
             .as_array()

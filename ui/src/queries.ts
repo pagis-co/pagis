@@ -825,9 +825,8 @@ export function useRequest(api: ApiClient, requestId: string) {
   });
 }
 
-/** Decide a Request. `scope: 'always'` also writes the proposed
- *  allow rules into the agent's host grant, and is meaningful
- *  for a `tool_action` only. A form or a choice submits `values`. Any
+/** Decide a Request. `scope: 'always'` also stores the proposed Allow
+ *  Rule or Disclosure Rule. A form or a choice submits `values`. Any
  *  failure (409 on a lost race, 422 on values the row's schema
  *  refuses) refetches the row so the card shows the real state. */
 export function useDecideRequest(api: ApiClient, requestId: string) {
@@ -3824,9 +3823,17 @@ export function useOrganizeWorkspaceMail(api: ApiClient, id: string) {
     }: {
       action: 'move' | 'label' | 'unlabel'
       name: string
+    } | {
+      action: 'delete'
+      name?: never
     }) => {
       let result
-      if (action === 'unlabel') {
+      if (action === 'delete') {
+        result = await api.DELETE(
+          '/api/v1/workspace/mail/messages/{message_id}',
+          { params: { path: { message_id: id } } },
+        )
+      } else if (action === 'unlabel') {
         result = await api.DELETE(
           '/api/v1/workspace/mail/messages/{message_id}/labels/{label}',
           { params: { path: { message_id: id, label: name } } },

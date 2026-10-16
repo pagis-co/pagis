@@ -86,6 +86,7 @@ impl Default for AgentLoopConfig {
 /// Everything the loop reads and writes, behind the storage seams.
 #[derive(Clone)]
 pub struct AgentDeps {
+    pub disclosure: Arc<dyn pagis_core::DisclosureStore>,
     pub person_activity: Arc<pagis_needs_you::PersonActivity>,
     pub run_journal: Arc<dyn pagis_core::RunJournal>,
     pub forget: Arc<dyn pagis_core::ForgetStore>,

@@ -3,6 +3,7 @@
 mod call;
 mod coding_session;
 pub mod credentials;
+mod disclosure;
 pub mod workspace_mail;
 pub use workspace_mail::WorkspaceMailTool;
 pub mod fake;
@@ -231,6 +232,9 @@ pub struct ApprovalPresentation {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CoreTool {
+    FileRead,
+    CalendarFreeBusy,
+    CalendarRead,
     HostShell,
     /// One command in the agent's own Computer. It needs no
     /// grant: the container is the sandbox (ADR-0014).
@@ -960,6 +964,10 @@ impl SessionStarts for NoSessionStarts {
 }
 
 pub struct BrokerDeps {
+    pub messages: Arc<dyn pagis_core::MessageStore>,
+    pub workspaces: Arc<dyn pagis_core::WorkspaceStore>,
+    pub disclosure: Arc<dyn pagis_core::DisclosureStore>,
+    pub participants: Arc<dyn pagis_core::ParticipantStore>,
     pub numbers: Arc<dyn pagis_core::PhoneNumberStore>,
     pub run_journal: Arc<dyn pagis_core::RunJournal>,
     pub forget: Arc<dyn pagis_core::ForgetStore>,
@@ -1302,6 +1310,7 @@ enum MailTarget {
 
 #[derive(Clone, Serialize, Deserialize)]
 struct CallContext {
+    disclosure: Vec<pagis_core::DisclosureRule>,
     turn: usize,
     workspace_id: WorkspaceId,
     agent_id: AgentId,
@@ -1334,6 +1343,35 @@ struct CallContext {
     /// The Coding Session start this call makes, checked once its
     /// machine is settled, so the card reads what the checks read.
     session_start: Option<SessionStartAction>,
+}
+
+impl CallContext {
+    fn resume_payload(&self) -> Result<serde_json::Value, BrokerError> {
+        let mut value =
+            serde_json::to_value(self).map_err(|e| BrokerError::CorruptSnapshot(e.to_string()))?;
+        let fields = value.as_object_mut().expect("call context is an object");
+        for field in [
+            "entry",
+            "selected_grant",
+            "workspace_id",
+            "agent_id",
+            "run_id",
+            "disclosure",
+            "request_id",
+        ] {
+            fields.remove(field);
+        }
+        fields.insert(
+            "tool_name".into(),
+            serde_json::json!(self.entry.manifest.definition.name),
+        );
+        fields.insert(
+            "selected_grant_id".into(),
+            serde_json::json!(self.selected_grant.as_ref().map(|grant| &grant.id)),
+        );
+        fields.retain(|_, value| !value.is_null());
+        Ok(value)
+    }
 }
 
 pub struct Broker {
@@ -1943,6 +1981,7 @@ impl Broker {
             .and_then(|entry| entry.checkpoint)
             .map_or(0, |checkpoint| checkpoint.turn);
         let mut context = CallContext {
+            disclosure: Vec::new(),
             turn,
             workspace_id: run.workspace_id,
             agent_id: run.agent_id,
@@ -1971,6 +2010,22 @@ impl Broker {
         if live_binding.is_some() {
             context.selected_grant = live_binding;
         }
+        context.disclosure = self.disclosure_needed(run_id, &context).await?;
+        if !context.disclosure.is_empty() {
+            let request = self.create_disclosure_request(&context).await?;
+            self.pending
+                .lock()
+                .expect("pending call lock")
+                .insert(request.request.id.clone(), PendingCall { context });
+            return Ok(InvokeOutcome::Waiting(Box::new(request)));
+        }
+        self.prepare_and_gate(context).await
+    }
+
+    async fn prepare_and_gate(
+        &self,
+        mut context: CallContext,
+    ) -> Result<InvokeOutcome, BrokerError> {
         context.arguments = match self
             .deps
             .executor
@@ -2020,8 +2075,7 @@ impl Broker {
                     return Ok(InvokeOutcome::Rejected(result));
                 }
             };
-            question.request.payload["call_context"] = serde_json::to_value(&context)
-                .map_err(|error| BrokerError::CorruptSnapshot(error.to_string()))?;
+            question.request.payload["resume"] = context.resume_payload()?;
             self.deps.requests.create(&question.request).await?;
             self.pending
                 .lock()
@@ -2163,23 +2217,89 @@ impl Broker {
                     .into_iter()
                     .filter(|request| {
                         request.run_id.as_ref() == Some(run)
-                            && request.payload["call_context"]["turn"].as_u64() == Some(turn as u64)
-                            && request.payload["call_context"]["tool_call_id"].as_str()
-                                == Some(call_id)
+                            && request.payload["resume"]["turn"].as_u64() == Some(turn as u64)
+                            && request.payload["resume"]["tool_call_id"].as_str() == Some(call_id)
                     }),
             );
         }
         found.sort_by(|left, right| right.id.as_str().cmp(left.id.as_str()));
-        found
-            .first()
-            .map(|request| self.restore_request(request))
-            .transpose()
+        match found.first() {
+            Some(request) => self.restore_request(request).await.map(Some),
+            None => Ok(None),
+        }
     }
 
     /// Bind a durable Request to its original call after a restart.
-    fn restore_request(&self, request: &Request) -> Result<PendingRequest, BrokerError> {
-        let context: CallContext = serde_json::from_value(request.payload["call_context"].clone())
-            .map_err(|error| BrokerError::CorruptSnapshot(error.to_string()))?;
+    async fn restore_request(&self, request: &Request) -> Result<PendingRequest, BrokerError> {
+        let mut resume = request.payload["resume"].clone();
+        let run_id = request
+            .run_id
+            .as_ref()
+            .ok_or_else(|| BrokerError::CorruptSnapshot("Request Run is absent".into()))?;
+        let record = self
+            .deps
+            .snapshots
+            .for_run(&request.workspace_id, run_id)
+            .await?
+            .ok_or_else(|| BrokerError::SnapshotNotFound(run_id.to_string()))?;
+        if resume["snapshot_hash"].as_str() != Some(record.hash.as_str()) {
+            return Err(BrokerError::CorruptSnapshot(
+                "Request snapshot does not match its Run".into(),
+            ));
+        }
+        let content: SnapshotContent = serde_json::from_value(record.content)
+            .map_err(|e| BrokerError::CorruptSnapshot(e.to_string()))?;
+        let mut entry = content
+            .entries
+            .into_iter()
+            .find(|entry| {
+                Some(entry.manifest.definition.name.as_str()) == resume["tool_name"].as_str()
+            })
+            .ok_or_else(|| {
+                BrokerError::CorruptSnapshot("Request tool is absent from its snapshot".into())
+            })?;
+        let binding = match resume["selected_grant_id"].as_str() {
+            Some(id) => Some(
+                entry
+                    .grants
+                    .iter()
+                    .find(|g| g.id.as_str() == id)
+                    .cloned()
+                    .ok_or_else(|| {
+                        BrokerError::CorruptSnapshot(
+                            "Request Grant is absent from its snapshot".into(),
+                        )
+                    })?,
+            ),
+            None => None,
+        };
+        if let ToolRoute::Mailbox { tool } = entry.manifest.route
+            && let Some(value) = resume.get("mail_target")
+            && matches!(
+                serde_json::from_value::<MailTarget>(value.clone())
+                    .map_err(|e| BrokerError::CorruptSnapshot(e.to_string()))?,
+                MailTarget::Connection { .. }
+            )
+        {
+            entry.manifest.route = ToolRoute::Connection {
+                provider: mail::MAIL_PROVIDER.into(),
+            };
+            entry.manifest.capability = Some(mail::connection_capability(tool).into());
+        }
+        resume["entry"] =
+            serde_json::to_value(entry).map_err(|e| BrokerError::CorruptSnapshot(e.to_string()))?;
+        resume["selected_grant"] = serde_json::to_value(binding)
+            .map_err(|e| BrokerError::CorruptSnapshot(e.to_string()))?;
+        resume["workspace_id"] = serde_json::json!(request.workspace_id);
+        resume["agent_id"] = serde_json::json!(request.agent_id);
+        resume["run_id"] = serde_json::json!(run_id);
+        resume["disclosure"] = request
+            .payload
+            .get("disclosure_rules")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!([]));
+        let context: CallContext = serde_json::from_value(resume)
+            .map_err(|e| BrokerError::CorruptSnapshot(e.to_string()))?;
         self.pending
             .lock()
             .expect("pending call lock")
@@ -2254,6 +2374,9 @@ impl Broker {
                 self.audit(&context, "revoked", "rejected", &result).await?;
                 return Ok(InvokeOutcome::Rejected(result));
             }
+        }
+        if !std::mem::take(&mut context.disclosure).is_empty() {
+            return self.prepare_and_gate(context).await;
         }
         self.execute(context, "approved_once").await
     }
@@ -2477,8 +2600,7 @@ impl Broker {
             decided_at: None,
             created_at: now_ms(),
         };
-        request.payload["call_context"] = serde_json::to_value(context)
-            .map_err(|error| BrokerError::CorruptSnapshot(error.to_string()))?;
+        request.payload["resume"] = context.resume_payload()?;
         self.deps.requests.create(&request).await?;
         Ok(PendingRequest {
             request,
@@ -3004,8 +3126,7 @@ impl Broker {
                 decided_at: None,
                 created_at: now_ms(),
             };
-            request.payload["call_context"] = serde_json::to_value(context)
-                .map_err(|error| BrokerError::CorruptSnapshot(error.to_string()))?;
+            request.payload["resume"] = context.resume_payload()?;
             self.deps.requests.create(&request).await?;
             return Ok(PendingRequest {
                 request,
@@ -3112,8 +3233,7 @@ impl Broker {
             decided_at: None,
             created_at: now_ms(),
         };
-        request.payload["call_context"] = serde_json::to_value(context)
-            .map_err(|error| BrokerError::CorruptSnapshot(error.to_string()))?;
+        request.payload["resume"] = context.resume_payload()?;
         self.deps.requests.create(&request).await?;
         Ok(PendingRequest {
             request,
@@ -3451,8 +3571,7 @@ impl Broker {
         block["request_id"] = serde_json::Value::String(request.id.to_string());
         view.request_id = Some(request.id.clone());
         self.mount(view);
-        request.payload["call_context"] = serde_json::to_value(&context)
-            .map_err(|error| BrokerError::CorruptSnapshot(error.to_string()))?;
+        request.payload["resume"] = context.resume_payload()?;
         self.deps.requests.create(&request).await?;
         let title = format!("{package}/{}", spec.name);
         self.pending
@@ -4041,6 +4160,9 @@ fn validate_core_arguments(
             .is_some_and(|value| !value.trim().is_empty())
     };
     let valid = match tool {
+        CoreTool::FileRead => required_text("file_id"),
+        CoreTool::CalendarFreeBusy => required_text("from") && required_text("to"),
+        CoreTool::CalendarRead => required_text("event_id"),
         CoreTool::HostShell | CoreTool::ComputerShell => required_text("command"),
         CoreTool::SendMessage => required_text("to") && required_text("text"),
         CoreTool::MemoryRead | CoreTool::MemoryWrite | CoreTool::MemoryDelete => true,
@@ -4778,8 +4900,32 @@ fn core_manifest() -> CapabilityManifest {
                 None,
             ),
             core(
+                "file_read",
+                "Read a File up to 256 KiB as UTF-8 or base64. A File attached to this conversation is already shared; other Files need disclosure permission for colleagues.",
+                serde_json::json!({"type":"object","properties":{"file_id":{"type":"string"}},"required":["file_id"]}),
+                CoreTool::FileRead,
+                EffectClass::Free,
+                None,
+            ),
+            core(
+                "calendar_free_busy",
+                "Read your Workspace's free and busy times. Returns intervals only, with no Event details.",
+                serde_json::json!({"type":"object", "properties":{"from":{"type":"string"},"to":{"type":"string"}},"required":["from","to"]}),
+                CoreTool::CalendarFreeBusy,
+                EffectClass::Free,
+                None,
+            ),
+            core(
+                "calendar_read",
+                "Read one Event of your Workspace Calendar. A colleague request needs disclosure permission.",
+                serde_json::json!({"type":"object", "properties":{"event_id":{"type":"string"}},"required":["event_id"]}),
+                CoreTool::CalendarRead,
+                EffectClass::Free,
+                None,
+            ),
+            core(
                 MEMORY_READ,
-                "Read one memory file. The MEMORY.md indexes are already in your context; use this for the fact files they link.",
+                "Read one memory file, including a MEMORY.md index or a fact file it links.",
                 serde_json::json!({"type": "object", "properties": {"path": path_parameter.clone()}, "required": ["path"]}),
                 CoreTool::MemoryRead,
                 EffectClass::Free,
@@ -4871,6 +5017,7 @@ fn core_manifest() -> CapabilityManifest {
                 serde_json::json!({
                     "type": "object",
                     "properties": {
+                        "channel_id": {"type":"string", "description":"Omit for the shared Channel of a colleague Run. Only that Channel or the Run's private Channel is supported. Private Channel reads need Memory permission."},
                         "query": {"type": "string", "description": "The words to find."},
                         "after": {"type": "string", "description": "The exclusive cursor returned with the prior page."},
                         "limit": {"type": "integer", "minimum": 1, "maximum": 25, "default": 10}
@@ -4888,6 +5035,7 @@ fn core_manifest() -> CapabilityManifest {
                 serde_json::json!({
                     "type": "object",
                     "properties": {
+                        "channel_id": {"type":"string", "description":"Omit for the shared Channel of a colleague Run. Only that Channel or the Run's private Channel is supported. Private Channel reads need Memory permission."},
                         "after_message_id": {"type": "string", "description": "The exclusive lower bound. Omit it to start at the first message."},
                         "through_message_id": {"type": "string", "description": "The inclusive upper bound from a conversation_search reference."},
                         "reference": {"type": "string", "description": "A stable message or retained-tool reference from conversation_search. Use this instead of a message range."},

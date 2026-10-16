@@ -4997,6 +4997,154 @@
         }
       }
     },
+    "/api/v1/disclosure": {
+      "get": {
+        "tags": [
+          "crate::disclosure"
+        ],
+        "operationId": "get_disclosure",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DisclosureDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/disclosure/profile": {
+      "put": {
+        "tags": [
+          "crate::disclosure"
+        ],
+        "operationId": "set_profile",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfileBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DisclosureDto"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/disclosure/rules": {
+      "post": {
+        "tags": [
+          "crate::disclosure"
+        ],
+        "operationId": "add_rule",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DisclosureRule"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DisclosureDto"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "crate::disclosure"
+        ],
+        "operationId": "remove_rule",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DisclosureRule"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DisclosureDto"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/event-subscriptions": {
       "get": {
         "tags": [
@@ -12976,6 +13124,68 @@
           }
         },
         "x-workspace-role": "reader"
+      },
+      "delete": {
+        "tags": [
+          "workspace_mail"
+        ],
+        "operationId": "delete_workspace_mail_message",
+        "parameters": [
+          {
+            "name": "message_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "x-workspace-role": "responder"
       }
     },
     "/api/v1/workspace/mail/messages/{message_id}/attachments/{index}": {
@@ -17332,7 +17542,7 @@
               "string",
               "null"
             ],
-            "description": "`once` (the default), or `always` to also write the request's\nproposed allow rules, or its proposed session allow rule, into\nthe agent's grant. Meaningful for a `tool_action` and a\n`harness_permission` only."
+            "description": "`once` (the default), or `always` to store the proposed Allow\nRule or Disclosure Rule. An Allow Rule belongs to the Agent's\nGrant or Mailbox. A Disclosure Rule belongs to the Person's\nPrivate Workspace. Only an Approval takes this scope."
           },
           "values": {
             "description": "What a `form` or a `choice` submits, validated against the\nfield schema on the row."
@@ -17541,6 +17751,51 @@
           }
         ],
         "description": "Frames the daemon sends on the dictation socket. `ready` says whether\ntext arrives live; the socket ends after `transcript.final` or\n`error`."
+      },
+      "DisclosureCategory": {
+        "type": "string",
+        "enum": [
+          "memory",
+          "mail",
+          "calendar_details",
+          "other_private_data"
+        ]
+      },
+      "DisclosureDto": {
+        "type": "object",
+        "required": [
+          "profile",
+          "rules"
+        ],
+        "properties": {
+          "profile": {
+            "type": "string"
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DisclosureRule"
+            }
+          }
+        }
+      },
+      "DisclosureRule": {
+        "type": "object",
+        "required": [
+          "category"
+        ],
+        "properties": {
+          "asker_workspace_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "None permits every Workspace of the Org."
+          },
+          "category": {
+            "$ref": "#/components/schemas/DisclosureCategory"
+          }
+        }
       },
       "DockerCandidateDto": {
         "type": "object",
@@ -22178,6 +22433,17 @@
         },
         "additionalProperties": false
       },
+      "ProfileBody": {
+        "type": "object",
+        "required": [
+          "profile"
+        ],
+        "properties": {
+          "profile": {
+            "type": "string"
+          }
+        }
+      },
       "ProgressFrame": {
         "type": "object",
         "description": "One `progress.state` WS payload: the whole current text, never a\ndelta. A client applies a frame only when `seq` is newer than the\none it holds, so a catch-up never loses to a stale live frame.",
@@ -22837,7 +23103,7 @@
             "description": "`tool_action`, `credential_action`, `form`, `choice`, `widget`\nor `harness_permission`."
           },
           "payload": {
-            "description": "The trusted content the daemon minted the row with: tool name\nand arguments for an action, the field schema for a form, the\noptions for a choice."
+            "description": "The content the Person can review: action details, form fields\nor choice options. Internal resume data is excluded. A disclosure\nApproval names its tool, category and askers, with no private arguments."
           },
           "run_id": {
             "type": [

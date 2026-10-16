@@ -88,7 +88,7 @@ function FolderItem({ api, name }: { api: ApiClient; name: string }) {
           </Button>
           {confirmDelete && (
             <div role="group" aria-label={`Delete ${name}`}>
-              <p>Delete {name} and all mail in this folder?</p>
+              <p>Move all mail in {name} to Trash and delete the folder?</p>
               <Button
                 disabled={mutation.isPending}
                 onClick={() => mutation.mutate({ action: 'delete', name })}

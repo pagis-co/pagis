@@ -16,6 +16,7 @@ mod audit;
 mod automation;
 mod calendar;
 mod conversation;
+mod disclosure;
 mod events;
 mod evidence;
 mod forget;
@@ -46,6 +47,8 @@ pub struct FakeWorkspaceGovernanceStore(Shared);
 /// The in-memory Calendar store.
 #[derive(Clone, Default)]
 pub struct FakeCalendarStore(Shared);
+#[derive(Clone, Default)]
+pub struct FakeDisclosureStore(Shared);
 
 /// Build every repository over one in-memory database.
 pub fn stores() -> Stores {
@@ -293,6 +296,7 @@ impl FakeDatabase {
             phone_numbers: Arc::new(FakePhoneNumberStore(self.0.clone())),
             plugin_tools: Arc::new(FakePluginToolStore(self.0.clone())),
             plugins: Arc::new(FakePluginStore(self.0.clone())),
+            disclosure: Arc::new(FakeDisclosureStore(self.0.clone())),
             calendar: Arc::new(FakeCalendarStore(self.0.clone())),
             push_subscriptions: Arc::new(FakePushSubscriptionStore(self.0.clone())),
             requests: Arc::new(FakeRequestStore(self.0.clone())),
@@ -352,6 +356,8 @@ struct Data {
     trust_list: Table<TrustEntryId, TrustEntry>,
     schedules: Table<ScheduleId, Schedule>,
     subscriptions: Table<EventSubscriptionId, EventSubscription>,
+    disclosure_profiles: std::collections::HashMap<WorkspaceId, String>,
+    disclosure_rules: std::collections::HashMap<WorkspaceId, Vec<crate::DisclosureRule>>,
     calendar: Table<CalendarEventId, CalendarEvent>,
     push_subscriptions: BTreeMap<PushSubscriptionId, PushSubscription>,
 

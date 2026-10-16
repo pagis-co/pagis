@@ -312,6 +312,33 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> StandardSession<S> {
 
 #[async_trait]
 impl<S: AsyncRead + AsyncWrite + Unpin + Send> MailSession for StandardSession<S> {
+    async fn trash_folder(&mut self) -> Result<Option<String>, TransportError> {
+        let folders = self.folder_roles().await?;
+        Ok(folders
+            .iter()
+            .find(|(_, roles)| {
+                roles
+                    .iter()
+                    .any(|role| role.eq_ignore_ascii_case("\\Trash"))
+            })
+            .or_else(|| {
+                folders
+                    .iter()
+                    .find(|(name, _)| name.eq_ignore_ascii_case("Trash"))
+            })
+            .map(|(name, _)| name.clone()))
+    }
+    async fn expunge_message(&mut self, id: &MessageId) -> Result<(), TransportError> {
+        let id = id.as_str().parse::<ImapMessageId>()?;
+        self.ensure_selected(&id.folder).await?;
+        self.imap
+            .command_text(&format!("UID STORE {} +FLAGS (\\Deleted)", id.uid))
+            .await?;
+        self.imap
+            .command_text(&format!("UID EXPUNGE {}", id.uid))
+            .await?;
+        Ok(())
+    }
     async fn junk_folders(&mut self) -> Result<Vec<String>, TransportError> {
         Ok(self
             .folder_roles()
@@ -1237,6 +1264,52 @@ mod tests {
             ["Sent Mail", "Spam"]
         );
         server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn scripted_trash_prefers_special_use_and_expunge_targets_one_uid() {
+        let mut turns = login_turns(false);
+        turns.extend([
+            (
+                "A3 LIST \"\" \"*\"\r\n".into(),
+                "* LIST () \"/\" Trash\r\n* LIST (\\Trash) \"/\" Bin\r\nA3 OK list\r\n".into(),
+            ),
+            select_turn("A4"),
+            (
+                "A5 UID STORE 9 +FLAGS (\\Deleted)\r\n".into(),
+                "A5 OK stored\r\n".into(),
+            ),
+            ("A6 UID EXPUNGE 9\r\n".into(), "A6 OK removed\r\n".into()),
+        ]);
+        let (stream, server) = script(turns);
+        let mut session = StandardSession::login(stream, &credential()).await.unwrap();
+        assert_eq!(
+            session.trash_folder().await.unwrap().as_deref(),
+            Some("Bin")
+        );
+        session
+            .expunge_message(&MessageId::new("INBOX:9"))
+            .await
+            .unwrap();
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn scripted_trash_uses_the_name_or_reports_no_trash() {
+        for (listing, expected) in [
+            ("* LIST () \"/\" tRaSh\r\n", Some("tRaSh")),
+            ("* LIST (\\Sent) \"/\" Sent\r\n", None),
+        ] {
+            let mut turns = login_turns(false);
+            turns.push((
+                "A3 LIST \"\" \"*\"\r\n".into(),
+                format!("{listing}A3 OK list\r\n"),
+            ));
+            let (stream, server) = script(turns);
+            let mut session = StandardSession::login(stream, &credential()).await.unwrap();
+            assert_eq!(session.trash_folder().await.unwrap().as_deref(), expected);
+            server.await.unwrap();
+        }
     }
 
     #[tokio::test]

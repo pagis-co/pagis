@@ -87,6 +87,9 @@ impl WorkspaceMailWriter for CalendarMailStore {
     async fn delete_folder(&mut self, name: &str) -> Result<(), TransportError> {
         self.inner.delete_folder(name).await
     }
+    async fn delete_message(&mut self, id: &MessageId) -> Result<(), TransportError> {
+        self.inner.delete_message(id).await
+    }
     async fn move_message(&mut self, id: &MessageId, folder: &str) -> Result<(), TransportError> {
         self.inner.move_message(id, folder).await
     }

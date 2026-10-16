@@ -115,7 +115,12 @@ impl ActorHost {
         let presence = Arc::new(HostPresence::default());
         let skills = Arc::new(NoSkills);
         let clock = Arc::new(SystemClock);
+        let blobs: Arc<dyn object_store::ObjectStore> =
+            Arc::new(object_store::memory::InMemory::new());
         let runtime = Arc::new(CoreToolRuntime::new(ToolRuntimeDeps {
+            files: self.stores.files.clone(),
+            blobs: blobs.clone(),
+            calendar: self.stores.calendar.clone(),
             workspaces: self.stores.workspaces.clone(),
             agents: self.stores.agents.clone(),
             channels: self.stores.channels.clone(),
@@ -134,6 +139,10 @@ impl ActorHost {
             presence: presence.clone(),
         }));
         let broker = Arc::new(Broker::new(BrokerDeps {
+            messages: self.stores.messages.clone(),
+            workspaces: self.stores.workspaces.clone(),
+            disclosure: self.stores.disclosure.clone(),
+            participants: self.stores.participants.clone(),
             numbers: self.stores.phone_numbers.clone(),
             run_journal: self.stores.run_journal.clone(),
             forget: self.stores.forget.clone(),
@@ -159,6 +168,7 @@ impl ActorHost {
             Arc::new(MemorySecretStore::default()),
         ));
         AgentDeps {
+            disclosure: self.stores.disclosure.clone(),
             person_activity: Arc::new(pagis_needs_you::PersonActivity::new()),
             run_journal: self.stores.run_journal.clone(),
             forget: self.stores.forget.clone(),
@@ -179,7 +189,7 @@ impl ActorHost {
             grants: self.stores.grants.clone(),
             connections: self.stores.connections.clone(),
             files: self.stores.files.clone(),
-            blobs: Arc::new(object_store::memory::InMemory::new()),
+            blobs: blobs.clone(),
             memory: self.memory.clone(),
             pending_evidence: self.stores.pending_evidence.clone(),
             continuations: self.stores.continuations.clone(),

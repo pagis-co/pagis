@@ -240,6 +240,16 @@ async fn harness_with(
     let behind = behind.unwrap_or_else(|| Arc::clone(&executor) as _);
     let starts = Arc::new(ScriptedStarts::default());
     let broker = Broker::new(BrokerDeps {
+        messages: Arc::new(pagis_storage_sqlite::SqliteMessageStore::new(pool.clone())),
+        workspaces: Arc::new(pagis_storage_sqlite::SqliteWorkspaceStore::new(
+            pool.clone(),
+        )),
+        disclosure: Arc::new(pagis_storage_sqlite::SqliteDisclosureStore::new(
+            pool.clone(),
+        )),
+        participants: Arc::new(pagis_storage_sqlite::SqliteParticipantStore::new(
+            pool.clone(),
+        )),
         numbers: Arc::new(pagis_storage_sqlite::SqlitePhoneNumberStore::new(
             pool.clone(),
         )),
@@ -396,6 +406,9 @@ async fn snapshots_are_stable_frozen_and_sorted(pool: SqlitePool) {
             "host_shell",
             "computer_shell",
             "send_message",
+            "file_read",
+            "calendar_free_busy",
+            "calendar_read",
             "memory_read",
             "memory_search",
             "memory_write",
@@ -440,7 +453,7 @@ async fn snapshots_are_stable_frozen_and_sorted(pool: SqlitePool) {
         .await
         .unwrap();
 
-    assert_eq!(before.tools.len(), 27, "the first snapshot stays frozen");
+    assert_eq!(before.tools.len(), 30, "the first snapshot stays frozen");
     assert_eq!(after.tools.last().unwrap().name, "google__calendar_events");
 
     let third_channel = channel(&harness.workspace.id);
@@ -510,7 +523,7 @@ async fn core_tool_definitions_keep_their_contract(pool: SqlitePool) {
         },
         ToolDef {
             name: "memory_read".to_string(),
-            description: "Read one memory file. The MEMORY.md indexes are already in your context; use this for the fact files they link.".to_string(),
+            description: "Read one memory file, including a MEMORY.md index or a fact file it links.".to_string(),
             parameters: serde_json::json!({"type": "object", "properties": {"path": path.clone()}, "required": ["path"]}),
         },
         ToolDef {
@@ -2508,4 +2521,250 @@ async fn phone_call_rechecks_workspace_number_grant_after_approval(pool: SqliteP
     };
     assert_eq!(result.code.as_deref(), Some("permission_revoked"));
     assert!(harness.executor.calls.lock().unwrap().is_empty());
+}
+
+async fn disclosure_conversation(harness: &Harness, askers: &[WorkspaceId]) -> Run {
+    let mut ids = vec![harness.workspace.id.clone()];
+    ids.extend_from_slice(askers);
+    let channel = SqliteChannelStore::new(harness.pool.clone())
+        .get_or_create_conversation(&harness.workspace.id, &ids)
+        .await
+        .unwrap();
+    let run = Run {
+        id: RunId::generate(), trigger_kind: TriggerKind::Conversation,
+        trigger_ref: Some(serde_json::json!({"workspace_id":harness.workspace.id,"channel_id":channel.id,"message_id":MessageId::generate(),"for_person_only":false}).to_string()),
+        ..harness.run.clone()
+    };
+    SqliteRunStore::new(harness.pool.clone())
+        .create(&run)
+        .await
+        .unwrap();
+    run
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn disclosure_group_requires_rules_for_every_asker(pool: SqlitePool) {
+    use pagis_core::{DisclosureCategory, DisclosureRule, DisclosureStore};
+    let h = harness(pool).await;
+    let covered = second_workspace(&h).await;
+    let uncovered = second_workspace(&h).await;
+    let rules = pagis_storage_sqlite::SqliteDisclosureStore::new(h.pool.clone());
+    rules
+        .add(
+            &h.workspace.id,
+            &DisclosureRule {
+                asker_workspace_id: Some(covered.id.clone()),
+                category: DisclosureCategory::Memory,
+            },
+        )
+        .await
+        .unwrap();
+    let run = disclosure_conversation(&h, &[covered.id, uncovered.id.clone()]).await;
+    let snapshot = h
+        .broker
+        .prepare_run(&h.workspace.id, &h.agent.id, &run.id)
+        .await
+        .unwrap();
+    let outcome = h
+        .broker
+        .invoke(
+            &h.workspace.id,
+            &run.id,
+            &snapshot.id,
+            pagis_broker::ToolCall::new("memory_read", r#"{"path":"shared/private.md"}"#),
+        )
+        .await;
+    let pagis_broker::InvokeOutcome::Waiting(pending) =
+        outcome.expect("a group can request a disclosure")
+    else {
+        panic!("the uncovered asker needs an Approval")
+    };
+    assert_eq!(
+        pending.request.payload["disclosure_rules"],
+        serde_json::json!([{"asker_workspace_id":uncovered.id,"category":"memory"}])
+    );
+    assert!(h.executor.calls.lock().unwrap().is_empty());
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn disclosure_shared_file_read_passes_and_private_file_read_waits(pool: SqlitePool) {
+    use pagis_core::{Block, MessageStore};
+    let h = harness(pool).await;
+    let asker = second_workspace(&h).await;
+    let run = disclosure_conversation(&h, &[asker.id]).await;
+    let source: serde_json::Value =
+        serde_json::from_str(run.trigger_ref.as_ref().unwrap()).unwrap();
+    let mut message = pagis_testkit::fixture::person_message(
+        &h.workspace.id,
+        h.workspace.user_id.as_ref().unwrap(),
+        &ChannelId::from(source["channel_id"].as_str().unwrap().to_owned()),
+        "Shared File",
+    );
+    message.blocks = vec![Block::file(
+        "shared-file",
+        "Notes",
+        Some("text/plain".into()),
+        None,
+    )];
+    pagis_storage_sqlite::SqliteMessageStore::new(h.pool.clone())
+        .insert(&message)
+        .await
+        .unwrap();
+    let snapshot = h
+        .broker
+        .prepare_run(&h.workspace.id, &h.agent.id, &run.id)
+        .await
+        .unwrap();
+    let shared = h
+        .broker
+        .invoke(
+            &h.workspace.id,
+            &run.id,
+            &snapshot.id,
+            pagis_broker::ToolCall::new("file_read", r#"{"file_id":"shared-file"}"#),
+        )
+        .await
+        .unwrap();
+    assert!(
+        matches!(shared, pagis_broker::InvokeOutcome::Completed(_)),
+        "the Channel attachment is already shared"
+    );
+    let private = h
+        .broker
+        .invoke(
+            &h.workspace.id,
+            &run.id,
+            &snapshot.id,
+            pagis_broker::ToolCall::new("file_read", r#"{"file_id":"private-file"}"#),
+        )
+        .await
+        .unwrap();
+    assert!(
+        matches!(private, pagis_broker::InvokeOutcome::Waiting(_)),
+        "a File outside the Channel needs permission"
+    );
+    assert_eq!(h.executor.calls.lock().unwrap().len(), 1);
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn disclosure_approval_has_compact_resume_data_and_restores_from_snapshot(pool: SqlitePool) {
+    let h = harness(pool).await;
+    let asker = second_workspace(&h).await;
+    let run = disclosure_conversation(&h, &[asker.id]).await;
+    let snapshot = h
+        .broker
+        .prepare_run(&h.workspace.id, &h.agent.id, &run.id)
+        .await
+        .unwrap();
+    let outcome = h
+        .broker
+        .invoke(
+            &h.workspace.id,
+            &run.id,
+            &snapshot.id,
+            pagis_broker::ToolCall::new("memory_read", r#"{"path":"shared/private.md"}"#)
+                .with_tool_call_id("private-read"),
+        )
+        .await
+        .unwrap();
+    let pagis_broker::InvokeOutcome::Waiting(pending) = outcome else {
+        panic!("Approval")
+    };
+    assert!(
+        pending.request.payload.get("call_context").is_none(),
+        "the snapshot is not copied into an Approval"
+    );
+    assert!(
+        pending.request.payload.get("arguments").is_none(),
+        "private arguments are internal resume data"
+    );
+    assert!(pending.request.payload["resume"].get("entry").is_none());
+    let restored = h
+        .broker
+        .request_for_call(&h.workspace.id, &run.id, "private-read")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(restored.request.id, pending.request.id);
+    let outcome = h
+        .broker
+        .resolve(&pending.request.id, RequestState::Approved)
+        .await
+        .unwrap();
+    assert!(matches!(outcome, pagis_broker::InvokeOutcome::Completed(_)));
+    assert_eq!(
+        h.executor.calls.lock().unwrap()[0].arguments["path"],
+        "shared/private.md"
+    );
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn disclosure_current_conversation_reads_pass_without_memory_permission(pool: SqlitePool) {
+    let h = harness(pool).await;
+    let asker = second_workspace(&h).await;
+    let run = disclosure_conversation(&h, &[asker.id]).await;
+    let snapshot = h
+        .broker
+        .prepare_run(&h.workspace.id, &h.agent.id, &run.id)
+        .await
+        .unwrap();
+    for (name, args) in [
+        (
+            "conversation_read",
+            serde_json::json!({"reference":"message:shared-message"}),
+        ),
+        ("conversation_search", serde_json::json!({"query":"shared"})),
+    ] {
+        let outcome = h
+            .broker
+            .invoke(
+                &h.workspace.id,
+                &run.id,
+                &snapshot.id,
+                pagis_broker::ToolCall::new(name, args.to_string()),
+            )
+            .await
+            .unwrap();
+        assert!(
+            matches!(outcome, pagis_broker::InvokeOutcome::Completed(_)),
+            "{name} reads only the shared Channel"
+        );
+    }
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn disclosure_other_conversation_reads_need_memory_permission(pool: SqlitePool) {
+    let h = harness(pool).await;
+    let asker = second_workspace(&h).await;
+    let run = disclosure_conversation(&h, &[asker.id]).await;
+    let snapshot = h
+        .broker
+        .prepare_run(&h.workspace.id, &h.agent.id, &run.id)
+        .await
+        .unwrap();
+    for (name, args) in [
+        (
+            "conversation_read",
+            serde_json::json!({"channel_id":h.run.channel_id,"reference":"message:private-message"}),
+        ),
+        (
+            "conversation_search",
+            serde_json::json!({"channel_id":h.run.channel_id,"query":"private"}),
+        ),
+    ] {
+        let outcome = h
+            .broker
+            .invoke(
+                &h.workspace.id,
+                &run.id,
+                &snapshot.id,
+                pagis_broker::ToolCall::new(name, args.to_string()),
+            )
+            .await
+            .unwrap();
+        assert!(
+            matches!(outcome, pagis_broker::InvokeOutcome::Waiting(_)),
+            "{outcome:?}"
+        );
+    }
 }

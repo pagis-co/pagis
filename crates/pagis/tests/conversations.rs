@@ -627,3 +627,379 @@ async fn a_private_message_does_not_join_a_reply_to_a_colleague() {
     .await
     .unwrap();
 }
+
+#[tokio::test]
+async fn disclosure_private_memory_waits_for_approval_and_always_stores_a_rule() {
+    use pagis_core::{AgentId, MemoryAccess, MemoryAuthor, MemoryChangeset, ScopedPath};
+    use pagis_testkit::{Script, ScriptedBrain, TestDaemonOptions};
+    use std::sync::Arc;
+    let brain = Arc::new(ScriptedBrain::default());
+    let daemon = TestDaemon::start_in_memory_with(TestDaemonOptions {
+        brain: brain.clone(),
+        ..Default::default()
+    })
+    .await;
+    let (recipient, cookie) = person(&daemon, "Recipient").await;
+    let agent = hire(&daemon, &cookie, "Helper").await;
+    let agent_id = AgentId::from(agent["id"].as_str().unwrap().to_owned());
+    let mut changes = MemoryChangeset::default();
+    changes.writes.insert(
+        ScopedPath::parse("shared/MEMORY.md").unwrap(),
+        "Private index: secret-river-481\n".into(),
+    );
+    changes.writes.insert(
+        ScopedPath::parse("shared/private.md").unwrap(),
+        "Private fact: secret-river-481\n".into(),
+    );
+    daemon
+        .state
+        .memory
+        .commit(
+            &recipient,
+            &agent_id,
+            &MemoryAccess::Owner {
+                agent_id: agent_id.clone(),
+            },
+            &MemoryAuthor {
+                name: "Recipient".into(),
+                email: "recipient@example.com".into(),
+            },
+            &changes,
+            None,
+            "Remember the private fact",
+            None,
+        )
+        .await
+        .unwrap();
+    daemon
+        .stores()
+        .disclosure
+        .set_profile(&recipient, "I design tools.")
+        .await
+        .unwrap();
+    let conversation = post(
+        &daemon,
+        daemon.cookie(),
+        "/api/v1/conversations",
+        json!({"workspace_ids":[recipient]}),
+    )
+    .await;
+    let path = format!(
+        "/api/v1/conversations/{}/messages",
+        conversation["id"].as_str().unwrap()
+    );
+    for (n, scope) in [(0, "deny"), (1, "always"), (2, "rule")] {
+        brain.push_for(
+            "Helper",
+            Script::tool_call(&[], "memory_read", json!({"path":"shared/private.md"})),
+        );
+        brain.push_for(
+            "Helper",
+            Script::reply(&[if n == 0 {
+                "I cannot share that."
+            } else {
+                "The approved answer."
+            }]),
+        );
+        post(&daemon, daemon.cookie(), &path, json!({"text":"What private fact do you remember?", "pending_id":format!("disclosure-{n}")})).await;
+        if scope != "rule" {
+            let pending = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+                loop {
+                    let requests = get(&daemon, &cookie, "/api/v1/requests").await;
+                    if let Some(request) = requests["items"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .find(|r| r["payload"]["disclosure_rules"].is_array())
+                    {
+                        break request.clone();
+                    }
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap_or_else(|error| {
+                panic!(
+                    "the private read waits for an Approval: {error:?}; model requests: {:?}",
+                    brain.requests()
+                )
+            });
+            if n == 0 {
+                for request in brain.requests() {
+                    assert!(
+                        !format!("{request:?}").contains("secret-river-481"),
+                        "private memory enters no model request without permission"
+                    );
+                }
+                assert!(
+                    brain
+                        .requests()
+                        .iter()
+                        .any(|r| r.system.contains("I design tools."))
+                );
+            }
+            assert!(
+                !get(&daemon, daemon.cookie(), &path)
+                    .await
+                    .to_string()
+                    .contains("secret-river-481")
+            );
+            // The asker cannot decide the recipient's Approval.
+            assert_eq!(
+                request(
+                    &daemon,
+                    daemon.cookie(),
+                    reqwest::Method::POST,
+                    &format!(
+                        "/api/v1/requests/{}/decision",
+                        pending["id"].as_str().unwrap()
+                    ),
+                    json!({"decision":"approved"})
+                )
+                .await
+                .status(),
+                404
+            );
+            post(
+                &daemon,
+                &cookie,
+                &format!(
+                    "/api/v1/requests/{}/decision",
+                    pending["id"].as_str().unwrap()
+                ),
+                if n == 0 {
+                    json!({"decision":"denied"})
+                } else {
+                    json!({"decision":"approved","scope":"always"})
+                },
+            )
+            .await;
+        }
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            loop {
+                let runs = get(&daemon, &cookie, "/api/v1/runs").await;
+                if runs["items"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter(|r| r["state"] == "completed")
+                    .count()
+                    > n
+                {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("the conversation Run completes");
+        let rules = daemon.stores().disclosure.list(&recipient).await.unwrap();
+        assert_eq!(rules.len(), usize::from(n > 0));
+        if n > 0 {
+            assert_eq!(
+                rules[0].asker_workspace_id.as_ref(),
+                Some(&daemon.workspace_id)
+            );
+            assert_eq!(rules[0].category, pagis_core::DisclosureCategory::Memory);
+            assert!(brain.requests().iter().any(|r| format!("{:?}", r.messages).contains("Private fact: secret-river-481")));
+        }
+    }
+    assert!(
+        get(&daemon, &cookie, "/api/v1/requests").await["items"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn disclosure_free_busy_passes_without_calendar_details() {
+    use pagis_core::{Author, CalendarEvent, CalendarEventData};
+    use pagis_testkit::{Script, ScriptedBrain, TestDaemonOptions};
+    use std::sync::Arc;
+    let brain = Arc::new(ScriptedBrain::default());
+    let daemon = TestDaemon::start_in_memory_with(TestDaemonOptions {
+        brain: brain.clone(),
+        ..Default::default()
+    })
+    .await;
+    let (recipient, cookie) = person(&daemon, "Recipient").await;
+    hire(&daemon, &cookie, "Helper").await;
+    daemon
+        .stores()
+        .calendar
+        .create(&CalendarEvent::new(
+            recipient.clone(),
+            Author::System,
+            CalendarEventData {
+                title: "Secret appointment".into(),
+                description: "secret-clinic-529".into(),
+                location: "Private office".into(),
+                start: "2026-10-16T09:00:00".into(),
+                end: "2026-10-16T10:00:00".into(),
+                all_day: false,
+                timezone: "UTC".into(),
+                rrule: None,
+                exdates: vec![],
+                attendees: vec![],
+                reminders: vec![],
+                meeting_url: None,
+                invitation: None,
+            },
+        ))
+        .await
+        .unwrap();
+    brain.push_for(
+        "Helper",
+        Script::tool_call(
+            &[],
+            "calendar_free_busy",
+            json!({"from":"2026-10-16T00:00:00Z", "to":"2026-10-17T00:00:00Z"}),
+        ),
+    );
+    brain.push_for("Helper", Script::reply(&["Busy from 09:00 to 10:00 UTC."]));
+    let conversation = post(
+        &daemon,
+        daemon.cookie(),
+        "/api/v1/conversations",
+        json!({"workspace_ids":[recipient]}),
+    )
+    .await;
+    let path = format!(
+        "/api/v1/conversations/{}/messages",
+        conversation["id"].as_str().unwrap()
+    );
+    post(
+        &daemon,
+        daemon.cookie(),
+        &path,
+        json!({"text":"When are you busy?", "pending_id":"free-busy"}),
+    )
+    .await;
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            if get(&daemon, daemon.cookie(), &path)
+                .await
+                .to_string()
+                .contains("Busy from 09:00")
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    for request in brain.requests() {
+        assert!(!format!("{request:?}").contains("secret-clinic-529"));
+        assert!(!format!("{request:?}").contains("Secret appointment"));
+    }
+    assert!(
+        brain
+            .requests()
+            .iter()
+            .any(|r| format!("{:?}", r.messages).contains("2026-10-16T09:00:00Z"))
+    );
+    assert!(
+        get(&daemon, &cookie, "/api/v1/requests").await["items"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn disclosure_calendar_details_need_approval() {
+    use pagis_core::{Author, CalendarEvent, CalendarEventData};
+    use pagis_testkit::{Script, ScriptedBrain, TestDaemonOptions};
+    use std::sync::Arc;
+    let brain = Arc::new(ScriptedBrain::default());
+    let daemon = TestDaemon::start_in_memory_with(TestDaemonOptions {
+        brain: brain.clone(),
+        ..Default::default()
+    })
+    .await;
+    let (recipient, cookie) = person(&daemon, "Recipient").await;
+    hire(&daemon, &cookie, "Helper").await;
+    let event = CalendarEvent::new(
+        recipient.clone(),
+        Author::System,
+        CalendarEventData {
+            title: "Private appointment".into(),
+            description: "secret-clinic-529".into(),
+            location: "Private office".into(),
+            start: "2026-10-16T09:00:00".into(),
+            end: "2026-10-16T10:00:00".into(),
+            all_day: false,
+            timezone: "UTC".into(),
+            rrule: None,
+            exdates: vec![],
+            attendees: vec![],
+            reminders: vec![],
+            meeting_url: None,
+            invitation: None,
+        },
+    );
+    daemon.stores().calendar.create(&event).await.unwrap();
+    brain.push_for(
+        "Helper",
+        Script::tool_call(&[], "calendar_read", json!({"event_id":event.id})),
+    );
+    brain.push_for(
+        "Helper",
+        Script::reply(&["I cannot share the appointment."]),
+    );
+    let conversation = post(
+        &daemon,
+        daemon.cookie(),
+        "/api/v1/conversations",
+        json!({"workspace_ids":[recipient]}),
+    )
+    .await;
+    let path = format!(
+        "/api/v1/conversations/{}/messages",
+        conversation["id"].as_str().unwrap()
+    );
+    post(
+        &daemon,
+        daemon.cookie(),
+        &path,
+        json!({"text":"Why are you busy?", "pending_id":"calendar-details"}),
+    )
+    .await;
+    let pending = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            let requests = get(&daemon, &cookie, "/api/v1/requests").await;
+            if let Some(request) = requests["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|r| r["payload"]["disclosure_rules"][0]["category"] == "calendar_details")
+            {
+                break request.clone();
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("Event details wait for an Approval");
+    for request in brain.requests() {
+        assert!(!format!("{request:?}").contains("secret-clinic-529"));
+    }
+    post(
+        &daemon,
+        &cookie,
+        &format!(
+            "/api/v1/requests/{}/decision",
+            pending["id"].as_str().unwrap()
+        ),
+        json!({"decision":"denied"}),
+    )
+    .await;
+    assert!(
+        !get(&daemon, daemon.cookie(), &path)
+            .await
+            .to_string()
+            .contains("secret-clinic-529")
+    );
+}

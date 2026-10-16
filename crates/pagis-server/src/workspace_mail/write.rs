@@ -249,6 +249,21 @@ pub async fn delete_workspace_mail(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[utoipa::path(delete, path = "/api/v1/workspace/mail/messages/{message_id}", params(("message_id" = String, Path)), responses((status = 204), (status = 401, body = crate::error::ErrorBody), (status = 404, body = crate::error::ErrorBody), (status = 409, body = crate::error::ErrorBody), (status = 422, body = crate::error::ErrorBody)))]
+pub async fn delete_workspace_mail_message(
+    State(state): State<Arc<AppState>>,
+    tenant: Tenant,
+    Path(id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    let _hold = pagis_core::LegalHold::lock(&tenant.workspace_id).await;
+    state.workspaces.refuse_delete(&tenant.workspace_id).await?;
+    let mut store = open(&state, &tenant).await?;
+    let result = store.delete_message(&MessageId::new(id)).await;
+    let _ = store.close().await;
+    result.map_err(read_error)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 #[utoipa::path(post, path = "/api/v1/workspace/mail/messages/{message_id}/move", params(("message_id" = String, Path)), request_body = MailNameRequest, responses((status = 204), (status = 401, body = crate::error::ErrorBody), (status = 404, body = crate::error::ErrorBody), (status = 409, body = crate::error::ErrorBody), (status = 422, body = crate::error::ErrorBody)))]
 pub async fn move_workspace_mail(
     State(state): State<Arc<AppState>>,
