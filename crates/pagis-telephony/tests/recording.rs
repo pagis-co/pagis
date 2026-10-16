@@ -404,9 +404,9 @@ impl World {
                 voicemail: VoicemailPolicy::HangUp,
                 duration_cap,
                 tools: Vec::new(),
-                ivr_mode_prompt: IVR_MODE_PROMPT,
-                classify_prompt: pagis_telephony::CLASSIFY_PROMPT,
-                emergency_rule: EMERGENCY_RULE,
+                ivr_mode_prompt: IVR_MODE_PROMPT.to_string(),
+                classify_prompt: pagis_telephony::CLASSIFY_PROMPT.to_string(),
+                emergency_rule: EMERGENCY_RULE.to_string(),
             },
             tools: Vec::new(),
         }

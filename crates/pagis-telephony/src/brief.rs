@@ -91,7 +91,7 @@ pub struct CallArguments {
 }
 
 /// What one Call is for, and under which limits it runs.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CallBrief {
     pub direction: CallDirection,
     pub agent_id: AgentId,
@@ -115,12 +115,13 @@ pub struct CallBrief {
     /// How the Agent judges the result. An inbound call has none.
     pub success_criteria: Option<String>,
     pub voicemail: VoicemailPolicy,
+    #[serde(with = "crate::duration_seconds")]
     pub duration_cap: Duration,
     /// The tools the Run holds that need no approval.
     pub tools: Vec<ToolDef>,
-    pub ivr_mode_prompt: &'static str,
-    pub classify_prompt: &'static str,
-    pub emergency_rule: &'static str,
+    pub ivr_mode_prompt: String,
+    pub classify_prompt: String,
+    pub emergency_rule: String,
 }
 
 impl CallBrief {
@@ -159,9 +160,9 @@ impl CallBrief {
             voicemail: VoicemailPolicy::HangUp,
             duration_cap: DEFAULT_DURATION_CAP,
             tools: free_tools,
-            ivr_mode_prompt: IVR_MODE_PROMPT,
-            classify_prompt: CLASSIFY_PROMPT,
-            emergency_rule: EMERGENCY_RULE,
+            ivr_mode_prompt: IVR_MODE_PROMPT.to_string(),
+            classify_prompt: CLASSIFY_PROMPT.to_string(),
+            emergency_rule: EMERGENCY_RULE.to_string(),
         }
     }
 
@@ -198,9 +199,9 @@ impl CallBrief {
             voicemail: VoicemailPolicy::HangUp,
             duration_cap: DEFAULT_DURATION_CAP,
             tools: free_tools,
-            ivr_mode_prompt: IVR_MODE_PROMPT,
-            classify_prompt: CLASSIFY_PROMPT,
-            emergency_rule: EMERGENCY_RULE,
+            ivr_mode_prompt: IVR_MODE_PROMPT.to_string(),
+            classify_prompt: CLASSIFY_PROMPT.to_string(),
+            emergency_rule: EMERGENCY_RULE.to_string(),
         }
     }
 }
@@ -319,7 +320,7 @@ impl CallBrief {
             instructions.push_str(&format!("How the call succeeds: {criteria}\n\n"));
         }
         instructions.push_str(&format!("{}\n\n", self.tier_line()));
-        instructions.push_str(self.emergency_rule);
+        instructions.push_str(&self.emergency_rule);
         instructions
     }
 }

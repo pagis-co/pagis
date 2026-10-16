@@ -89,9 +89,9 @@ fn call_log(daemon: &TestDaemon) -> CallLog {
             voicemail: VoicemailPolicy::HangUp,
             duration_cap: DEFAULT_DURATION_CAP,
             tools: Vec::new(),
-            ivr_mode_prompt: IVR_MODE_PROMPT,
-            classify_prompt: CLASSIFY_PROMPT,
-            emergency_rule: EMERGENCY_RULE,
+            ivr_mode_prompt: IVR_MODE_PROMPT.to_string(),
+            classify_prompt: CLASSIFY_PROMPT.to_string(),
+            emergency_rule: EMERGENCY_RULE.to_string(),
         },
         tools: Vec::new(),
     };

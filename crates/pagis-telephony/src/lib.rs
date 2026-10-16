@@ -9,6 +9,7 @@ mod call_tools;
 mod calls;
 mod catalog;
 pub mod dtmf;
+mod duration_seconds;
 pub mod emergency;
 #[cfg(not(target_arch = "wasm32"))]
 mod endpoint;
