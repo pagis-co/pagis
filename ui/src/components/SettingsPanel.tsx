@@ -1,3 +1,4 @@
+import { Members } from './settings/Members'
 import { WorkspaceNumber } from './settings/WorkspaceNumber'
 import { useState, type ReactNode } from 'react'
 import { useLocation, useNavigate } from '@tanstack/react-router'
@@ -92,6 +93,7 @@ export function SettingsPanel({
       isAdministrator={isAdministrator}
       administration={administration}
     >
+      {section === 'members' && <Members api={api} />}
       {section === 'mailbox' && <WorkspaceMailbox api={api} />}
       {section === 'connections' && (
         phone ? <ConnectionsPhone api={api} onOpen={onOpenConnection} /> : <section className="settings-section">

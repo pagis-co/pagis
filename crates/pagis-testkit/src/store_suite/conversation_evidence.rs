@@ -34,7 +34,7 @@ pub async fn search_and_range_read_use_message_id_order_inside_one_conversation(
     participants
         .create(&person_participant(
             &workspace.id,
-            &workspace.user_id,
+            workspace.user_id.as_ref().unwrap(),
             &channel.id,
         ))
         .await
@@ -47,7 +47,7 @@ pub async fn search_and_range_read_use_message_id_order_inside_one_conversation(
     let messages = &backend.stores().messages;
     let mut later_inserted = person_message(
         &workspace.id,
-        &workspace.user_id,
+        workspace.user_id.as_ref().unwrap(),
         &channel.id,
         "ultraviolet code is 8241",
     );
@@ -55,7 +55,7 @@ pub async fn search_and_range_read_use_message_id_order_inside_one_conversation(
     later_inserted.created_at = 1_000;
     let mut earlier_id = person_message(
         &workspace.id,
-        &workspace.user_id,
+        workspace.user_id.as_ref().unwrap(),
         &channel.id,
         "ultraviolet project starts Friday",
     );
@@ -96,7 +96,10 @@ pub async fn search_and_range_read_use_message_id_order_inside_one_conversation(
         .unwrap();
     assert_eq!(page.len(), 1);
     assert_eq!(page[0].text, "ultraviolet code is 8241");
-    assert_eq!(page[0].speaker, format!("person:{}", workspace.user_id));
+    assert_eq!(
+        page[0].speaker,
+        format!("person:{}", workspace.user_id.as_ref().unwrap())
+    );
     assert_eq!(page[0].created_at, 1_000);
 }
 
@@ -109,7 +112,7 @@ pub async fn invalidated_hits_do_not_starve_pages_and_stay_absent_after_restart(
     let messages = &backend.stores().messages;
     let mut first = person_message(
         &workspace.id,
-        &workspace.user_id,
+        workspace.user_id.as_ref().unwrap(),
         &channel.id,
         "marigold first",
     );
@@ -145,7 +148,7 @@ pub async fn invalidated_hits_do_not_starve_pages_and_stay_absent_after_restart(
         .unwrap();
     let mut forgotten = person_message(
         &workspace.id,
-        &workspace.user_id,
+        workspace.user_id.as_ref().unwrap(),
         &channel.id,
         "marigold forgotten",
     );
@@ -153,7 +156,7 @@ pub async fn invalidated_hits_do_not_starve_pages_and_stay_absent_after_restart(
     messages.insert(&forgotten).await.unwrap();
     let mut last = person_message(
         &workspace.id,
-        &workspace.user_id,
+        workspace.user_id.as_ref().unwrap(),
         &channel.id,
         "marigold last",
     );
@@ -237,7 +240,7 @@ pub async fn range_read_keeps_conversation_scope_and_marks_a_missing_file(backen
     let messages = &backend.stores().messages;
     let mut kept = person_message(
         &workspace.id,
-        &workspace.user_id,
+        workspace.user_id.as_ref().unwrap(),
         &channel.id,
         "onyx scoped",
     );
@@ -247,7 +250,7 @@ pub async fn range_read_keeps_conversation_scope_and_marks_a_missing_file(backen
     messages.insert(&kept).await.unwrap();
     let mut foreign = person_message(
         &workspace.id,
-        &workspace.user_id,
+        workspace.user_id.as_ref().unwrap(),
         &other.id,
         "onyx other conversation",
     );
@@ -283,7 +286,7 @@ pub async fn thread_scope_returns_its_root_and_replies_only(backend: &Backend) {
     let messages = &backend.stores().messages;
     let mut root = person_message(
         &workspace.id,
-        &workspace.user_id,
+        workspace.user_id.as_ref().unwrap(),
         &channel.id,
         "saffron root",
     );
@@ -291,7 +294,7 @@ pub async fn thread_scope_returns_its_root_and_replies_only(backend: &Backend) {
     messages.insert(&root).await.unwrap();
     let mut reply = person_message(
         &workspace.id,
-        &workspace.user_id,
+        workspace.user_id.as_ref().unwrap(),
         &channel.id,
         "saffron reply",
     );
@@ -300,7 +303,7 @@ pub async fn thread_scope_returns_its_root_and_replies_only(backend: &Backend) {
     messages.insert(&reply).await.unwrap();
     let mut unrelated = person_message(
         &workspace.id,
-        &workspace.user_id,
+        workspace.user_id.as_ref().unwrap(),
         &channel.id,
         "saffron unrelated",
     );
@@ -335,7 +338,8 @@ pub async fn message_search_of_one_workspace_does_not_reach_another_workspace(ba
             .await
             .unwrap()
             .unwrap()
-            .user_id,
+            .user_id
+            .unwrap(),
         &first.channel_id,
         "cobalt here",
     );
@@ -350,7 +354,8 @@ pub async fn message_search_of_one_workspace_does_not_reach_another_workspace(ba
             .await
             .unwrap()
             .unwrap()
-            .user_id,
+            .user_id
+            .unwrap(),
         &second.channel_id,
         "cobalt there",
     );
@@ -424,7 +429,8 @@ pub async fn search_of_one_workspace_reads_neither_index_of_another_workspace(ba
             .await
             .unwrap()
             .unwrap()
-            .user_id,
+            .user_id
+            .unwrap(),
         &first.channel_id,
         "zinc in a message",
     );
@@ -439,7 +445,8 @@ pub async fn search_of_one_workspace_reads_neither_index_of_another_workspace(ba
             .await
             .unwrap()
             .unwrap()
-            .user_id,
+            .user_id
+            .unwrap(),
         &second.channel_id,
         "zinc in a message",
     );
@@ -535,7 +542,8 @@ async fn retain_tool(
             .await
             .unwrap()
             .unwrap()
-            .user_id,
+            .user_id
+            .unwrap(),
         &scope.channel_id,
         "source",
     );

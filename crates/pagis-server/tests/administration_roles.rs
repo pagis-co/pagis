@@ -32,14 +32,14 @@ async fn people(embedder: &Embedder) -> (User, User) {
         embedder
             .stores
             .users
-            .get(&first.user_id)
+            .get(first.user_id.as_ref().unwrap())
             .await
             .unwrap()
             .unwrap(),
         embedder
             .stores
             .users
-            .get(&second.user_id)
+            .get(second.user_id.as_ref().unwrap())
             .await
             .unwrap()
             .unwrap(),

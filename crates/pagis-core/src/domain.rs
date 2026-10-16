@@ -13,12 +13,12 @@ use crate::time::UnixMillis;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Workspace {
+    pub kind: crate::WorkspaceKind,
     /// The monthly Spend Cap in US dollars. `None` means no cap.
     pub monthly_spend_cap_usd: Option<f64>,
     pub id: WorkspaceId,
-    /// The person this Workspace belongs to. One Workspace per
-    /// person, and it stays their private scope.
-    pub user_id: UserId,
+    /// The Person of a Private Workspace. A Shared Workspace has none.
+    pub user_id: Option<UserId>,
     pub name: String,
     /// The IANA timezone copied into new wall-clock schedules.
     pub timezone: String,

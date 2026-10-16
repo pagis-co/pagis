@@ -420,7 +420,7 @@ where
         .unwrap();
     pagis_core::UserStore::set_name(
         &pagis_storage_sqlite::SqliteUserStore::new(pool.clone()),
-        &workspace.user_id,
+        workspace.user_id.as_ref().unwrap(),
         "Sam",
         now_ms(),
     )
@@ -672,7 +672,7 @@ impl Loop {
     async fn send(&self, text: &str) -> Message {
         self.deliver(fixture::person_message(
             &self.workspace.id,
-            &self.workspace.user_id,
+            self.workspace.user_id.as_ref().unwrap(),
             &self.dm.id,
             text,
         ))
@@ -683,7 +683,7 @@ impl Loop {
     async fn seed_root(&self, text: &str) -> Message {
         let root = fixture::person_message(
             &self.workspace.id,
-            &self.workspace.user_id,
+            self.workspace.user_id.as_ref().unwrap(),
             &self.dm.id,
             text,
         );
@@ -695,7 +695,7 @@ impl Loop {
     async fn send_in_thread(&self, root: &pagis_core::MessageId, text: &str) -> Message {
         let mut reply = fixture::person_message(
             &self.workspace.id,
-            &self.workspace.user_id,
+            self.workspace.user_id.as_ref().unwrap(),
             &self.dm.id,
             text,
         );
@@ -846,7 +846,7 @@ async fn two_runs_of_one_person_send_one_opaque_id_and_another_person_sends_anot
     assert_ne!(run_ids[0], run_ids[1]);
     let people = pagis_storage_sqlite::SqliteUserStore::new(pool.clone());
     let owner = people
-        .get(&harness.workspace.user_id)
+        .get(harness.workspace.user_id.as_ref().unwrap())
         .await
         .unwrap()
         .unwrap();
@@ -854,7 +854,7 @@ async fn two_runs_of_one_person_send_one_opaque_id_and_another_person_sends_anot
     people.create(&other).await.unwrap();
     let workspace = Workspace {
         monthly_spend_cap_usd: None,
-        user_id: other.id.clone(),
+        user_id: Some(other.id.clone()),
         ..fixture::workspace()
     };
     harness.workspaces.create(&workspace).await.unwrap();
@@ -878,7 +878,7 @@ async fn two_runs_of_one_person_send_one_opaque_id_and_another_person_sends_anot
         .unwrap();
     let message = fixture::person_message(
         &workspace.id,
-        &workspace.user_id,
+        workspace.user_id.as_ref().unwrap(),
         &channel.id,
         "other Person",
     );
@@ -900,7 +900,7 @@ async fn two_runs_of_one_person_send_one_opaque_id_and_another_person_sends_anot
     let key = pagis_core::ModelEndUserKey::from_installation_key(&[7; 32]);
     assert_eq!(
         bodies[0]["user"],
-        key.for_person(&harness.workspace.user_id)
+        key.for_person(harness.workspace.user_id.as_ref().unwrap())
     );
     assert_eq!(bodies[2]["user"], key.for_person(&other.id));
 }
@@ -920,7 +920,10 @@ async fn each_run_model_request_names_its_person(pool: SqlitePool) {
     let requests = harness.brain.requests();
     assert!(requests.len() >= 2);
     for request in requests {
-        assert_eq!(request.person_id.as_ref(), Some(&harness.workspace.user_id));
+        assert_eq!(
+            request.person_id.as_ref(),
+            Some(harness.workspace.user_id.as_ref().unwrap())
+        );
     }
 }
 
@@ -1173,9 +1176,8 @@ async fn a_request_above_the_target_that_fits_the_allowance_is_sent_after_compac
     let requests = harness.brain.requests();
     assert_eq!(requests.len(), 2, "one compaction and one reply");
     assert!(
-        requests
-            .iter()
-            .all(|request| request.person_id.as_ref() == Some(&harness.workspace.user_id))
+        requests.iter().all(|request| request.person_id.as_ref()
+            == Some(harness.workspace.user_id.as_ref().unwrap()))
     );
     assert!(
         requests[1]
@@ -2859,7 +2861,7 @@ async fn a_reflection_request_sends_the_output_reserve(pool: SqlitePool) {
     assert_eq!(requests.len(), 1);
     assert_eq!(
         requests[0].person_id.as_ref(),
-        Some(&harness.workspace.user_id)
+        Some(harness.workspace.user_id.as_ref().unwrap())
     );
     assert_eq!(requests[0].max_output_tokens, Some(HAIKU_OUTPUT_RESERVE));
 }
@@ -3903,7 +3905,7 @@ async fn a_message_in_a_channel_without_agents_does_not_trigger(pool: SqlitePool
 
     let message = fixture::person_message(
         &harness.workspace.id,
-        &harness.workspace.user_id,
+        harness.workspace.user_id.as_ref().unwrap(),
         &plain.id,
         "anyone here?",
     );
@@ -3988,8 +3990,12 @@ async fn restart_recovery_fails_unfinished_runs_and_streams(pool: SqlitePool) {
     run.started_at = Some(1);
     runs.create(&run).await.unwrap();
     let messages = SqliteMessageStore::new(pool.clone());
-    let mut partial =
-        fixture::person_message(&workspace.id, &workspace.user_id, &dm.id, "half an ans");
+    let mut partial = fixture::person_message(
+        &workspace.id,
+        workspace.user_id.as_ref().unwrap(),
+        &dm.id,
+        "half an ans",
+    );
     partial.author = Author::Agent(agent.id.clone());
     partial.run_id = Some(run.id.clone());
     partial.status = MessageStatus::Streaming;
@@ -5322,7 +5328,7 @@ async fn a_foreground_commit_records_the_complete_uncompacted_context_range(pool
     ] {
         let mut message = fixture::person_message(
             &harness.workspace.id,
-            &harness.workspace.user_id,
+            harness.workspace.user_id.as_ref().unwrap(),
             &harness.dm.id,
             text,
         );
@@ -7989,7 +7995,7 @@ async fn conversation_tools_recover_an_exact_detail_outside_active_context(pool:
     assert!(read_result.contains("The cedar launch code is 8241"));
     assert!(read_result.contains(&format!(
         "\"speaker\":\"person:{}\"",
-        harness.workspace.user_id
+        harness.workspace.user_id.as_ref().unwrap()
     )));
 }
 
@@ -9150,7 +9156,7 @@ async fn restart_folds_in_a_durable_message_after_the_checkpoint(pool: SqlitePoo
     let run = planted_resume(&pool, &harness, None).await;
     let message = fixture::person_message(
         &run.workspace_id,
-        &harness.workspace.user_id,
+        harness.workspace.user_id.as_ref().unwrap(),
         &harness.dm.id,
         "a correction after the checkpoint",
     );

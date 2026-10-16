@@ -38,7 +38,12 @@ async fn session(backend: &Backend, user_id: &UserId, expires_at: i64) -> Sessio
 
 /// A live Session of the Person who owns `workspace`.
 async fn live_session(backend: &Backend, workspace: &Workspace) -> Session {
-    session(backend, &workspace.user_id, SESSION_LIFETIME_MS).await
+    session(
+        backend,
+        workspace.user_id.as_ref().unwrap(),
+        SESSION_LIFETIME_MS,
+    )
+    .await
 }
 
 /// A Push Subscription of `session` in `workspace`, not yet written.
@@ -374,7 +379,7 @@ pub async fn one_workspace_never_writes_another_workspace_subscription(backend: 
 pub async fn the_end_of_a_session_removes_its_push_subscriptions(backend: &Backend) {
     let workspace = backend.seeded_workspace().await;
     let signed_out = live_session(backend, &workspace).await;
-    let expired = session(backend, &workspace.user_id, 5_000).await;
+    let expired = session(backend, workspace.user_id.as_ref().unwrap(), 5_000).await;
     let kept = live_session(backend, &workspace).await;
     let sessions = &backend.stores().sessions;
     let store = &backend.stores().push_subscriptions;
@@ -406,7 +411,10 @@ pub async fn the_end_of_a_session_removes_its_push_subscriptions(backend: &Backe
         vec![kept.id.clone()]
     );
 
-    sessions.delete_for_user(&workspace.user_id).await.unwrap();
+    sessions
+        .delete_for_user(workspace.user_id.as_ref().unwrap())
+        .await
+        .unwrap();
     assert!(store.list(&workspace.id).await.unwrap().is_empty());
 }
 

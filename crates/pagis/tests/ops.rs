@@ -353,7 +353,7 @@ async fn deleting_connections_and_credentials_revokes_their_grants() {
     )
     .bind(workspace.id.as_str())
     .bind(now_ms())
-    .bind(workspace.user_id.as_str())
+    .bind(workspace.user_id.as_ref().unwrap().as_str())
     .execute(daemon.pool())
     .await
     .unwrap();

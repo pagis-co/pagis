@@ -13,8 +13,9 @@ Established team products separate Org roles from roles in a shared scope.
 Access follows the scope that owns the record. Shared content keeps one
 history, with an author for each change.
 
-Not built: Private and Shared Workspace kinds, Shared Workspace roles, guests
-and offboarding. The daemon gives each Person one Workspace. This decision
+The daemon gives each Person one Private Workspace. A Shared Workspace has
+a membership list with the roles Manager, Responder and Reader.
+Not built: guests and offboarding. This decision
 replaces the single-Person Workspace rules of ADR-0023 and the Channel read
 rules of ADR-0003.
 
@@ -60,15 +61,16 @@ Persons in it have one of three roles:
 | Manager | Responder access; manage People, roles, Agents and settings |
 
 An Administrator creates a Shared Workspace and names its first Manager.
-The Administrator sets the Spend Cap, permitted Plugins and Connections,
-and highest visibility level. A Manager works inside those limits. Member
+The Administrator sets the Spend Cap.
+Not built: limits on permitted Plugins and Connections, and the highest
+visibility level. A Manager works inside those limits. Member
 stays an Org role. It does not name a Shared Workspace role.
 
 The Team trust tier replaces Owner for Persons in a Shared Workspace.
 Managers' words are instructions. Responders' and Readers' words are
 requests. A tier decides authority, not access (ADR-0021).
 
-Not built: Shared Workspaces, these roles and the Team trust tier. The Org's
+Not built: the Team trust tier. The Org's
 Workspace stays the scope for Installation Connections and installed Plugins
 (ADR-0023).
 Not built: its use as an Org-wide Shared Workspace with every
@@ -85,7 +87,10 @@ finer rule adds its own check.
 The Product App lists the Private Workspace and each Shared Workspace the
 Person can enter. Query keys and routes name the Workspace. One sign-in
 serves them all.
-Not built: Shared Workspace routing and role checks.
+A non-member gets 404, as for an unknown Workspace. A member with too little
+access gets 403. A Reader uses GET. A Responder also sends messages and
+decides Requests. A Manager makes all other changes. The role for each
+method is in the route table. The same handlers serve both route prefixes.
 
 ### Personal resources stay private and spend follows the Workspace
 

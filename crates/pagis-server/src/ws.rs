@@ -456,7 +456,7 @@ async fn serve(
 /// registered.
 struct Connection<S> {
     state: EventServices,
-    /// The Workspace of the Session that opened this socket. Every
+    /// The Workspace of the request that opened this socket. Every
     /// frame out belongs to it, and every frame in is read against it.
     tenant: Tenant,
     socket: S,
@@ -603,6 +603,16 @@ impl<S: MessageSocket> Connection<S> {
                 platform,
                 capabilities,
             } => {
+                if self
+                    .tenant
+                    .workspace_role
+                    .is_some_and(|role| role < pagis_core::WorkspaceRole::Manager)
+                {
+                    self.socket
+                        .send(ServerFrame::error("forbidden", "a Manager registers a Host").to_ws())
+                        .await?;
+                    return Ok(true);
+                }
                 match register_host(&self.state, &self.tenant, &name, &platform, &capabilities)
                     .await
                 {
@@ -707,9 +717,8 @@ impl<S: MessageSocket> Connection<S> {
     }
 }
 
-/// Register the client on this socket as a Host of the signed-in person,
-/// and make it present. The Workspace comes from the Session, so a
-/// client registers a machine of its own person and of nobody else.
+/// Register this socket's client as a Host of the request's Workspace,
+/// and make it present. The Tenant has passed the entrance role check.
 #[cfg(feature = "native")]
 async fn register_host(
     state: &EventServices,

@@ -1,3 +1,4 @@
+import { useWorkspaceAccess } from '../../workspace'
 import { useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { FileText } from 'lucide-react'
@@ -33,6 +34,7 @@ export function ApprovalSheet({
   requestId: string
   onClose: () => void
 }) {
+  const { canRespond } = useWorkspaceAccess()
   const request = useRequest(api, requestId)
   const decide = useDecideRequest(api, requestId)
   const agents = useAgents(api)
@@ -81,7 +83,7 @@ export function ApprovalSheet({
       title="Approval"
       showHeader={false}
       footer={
-        pending ? (
+        canRespond && pending ? (
           <>
             <div className="phone-actions">
               <Button size="lg" disabled={decide.isPending} onClick={() => submit('denied')}>

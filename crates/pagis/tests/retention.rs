@@ -21,8 +21,9 @@ async fn fixture(pool: SqlitePool) -> Fixture {
             .await
             .unwrap();
     let workspace = Workspace {
+        kind: pagis_core::WorkspaceKind::Private,
         monthly_spend_cap_usd: None,
-        user_id: person.id.clone(),
+        user_id: Some(person.id.clone()),
         id: WorkspaceId::generate(),
         name: "ws".to_string(),
         timezone: "UTC".to_string(),

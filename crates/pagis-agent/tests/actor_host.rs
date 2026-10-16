@@ -43,9 +43,10 @@ impl ActorHost {
         stores
             .workspaces
             .create(&Workspace {
+                kind: pagis_core::WorkspaceKind::Private,
                 monthly_spend_cap_usd: None,
                 id: agent.workspace_id.clone(),
-                user_id: person.id,
+                user_id: Some(person.id),
                 name: "Desk".into(),
                 timezone: "UTC".into(),
                 created_at: 0,

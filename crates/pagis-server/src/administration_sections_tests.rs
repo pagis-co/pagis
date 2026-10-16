@@ -15,6 +15,7 @@ async fn read_sections(sections: AdministrationSections) -> serde_json::Value {
         .body(Body::empty())
         .unwrap();
     request.extensions_mut().insert(Tenant {
+        workspace_role: None,
         workspace_id: WorkspaceId::generate(),
         user_id: UserId::generate(),
         role: UserRole::Administrator,

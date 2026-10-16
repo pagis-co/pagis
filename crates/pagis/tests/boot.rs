@@ -45,7 +45,7 @@ async fn first_boot_creates_the_layout_the_credential_the_db_and_the_seed() {
     assert_eq!(people.len(), 1);
     assert_eq!(people[0].role, pagis_core::UserRole::Administrator);
     assert_eq!(people[0].password_hash, None);
-    assert_eq!(workspaces[0].user_id, people[0].id);
+    assert_eq!(workspaces[0].user_id.as_ref(), Some(&people[0].id));
 
     let agents = booted
         .stores

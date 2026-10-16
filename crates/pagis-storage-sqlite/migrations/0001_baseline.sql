@@ -11,6 +11,7 @@
 -- writes Memory Search with the Page Index.
 
 CREATE TABLE workspaces (
+    kind TEXT NOT NULL DEFAULT 'private' CHECK (kind IN ('private', 'shared')),
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     -- The monthly Spend Cap the Administrator sets. NULL sets no cap.
@@ -1531,3 +1532,18 @@ BEGIN
         WHERE grant_id = new.id
     );
 END;
+
+-- Shared Workspace membership. Org and Private Workspaces have no list.
+CREATE TABLE workspace_members (
+    workspace_id TEXT NOT NULL REFERENCES workspaces (id),
+    person_id TEXT NOT NULL REFERENCES users (id),
+    role TEXT NOT NULL CHECK (role IN ('manager', 'responder', 'reader')),
+    author_kind TEXT NOT NULL CHECK (author_kind IN ('person', 'agent', 'system')),
+    author_person_id TEXT REFERENCES users (id),
+    author_agent_id TEXT REFERENCES agents (id),
+    PRIMARY KEY (workspace_id, person_id),
+    CHECK ((author_kind = 'person' AND author_person_id IS NOT NULL AND author_agent_id IS NULL)
+        OR (author_kind = 'agent' AND author_person_id IS NULL AND author_agent_id IS NOT NULL)
+        OR (author_kind = 'system' AND author_person_id IS NULL AND author_agent_id IS NULL))
+);
+CREATE INDEX idx_workspace_members_person ON workspace_members (person_id);

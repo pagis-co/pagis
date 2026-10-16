@@ -44,6 +44,12 @@ Mailbox (ADR-0040).
 Not built: outbound Calls and texts from the Workspace Number, and the
 default Grants of the Workspace Mailbox and the Workspace Number.
 
+The sidebar lists the Private Workspace and each Shared Workspace the
+Person can enter. A selection changes the current Workspace. Query keys
+name that Workspace, and one Session serves all of them. Settings has a
+Members section for a Manager. A Reader has no composer or Request decision
+controls.
+
 The sidebar has nine places at the top: Home, People, Sprites, Mail,
 Memory, Automations, Coding, Software and Settings. Home carries the count
 of the Needs-You Queue.

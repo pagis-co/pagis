@@ -1,3 +1,4 @@
+import { useWorkspaceAccess } from '../../workspace'
 import { useNavigate } from '@tanstack/react-router'
 import type { ApiClient } from '../../api/client'
 import { Frame, Row, SectionLabel } from '../../primitives'
@@ -20,6 +21,7 @@ import { NavBar } from './TopBar'
 import { useSound } from '../../state/sound'
 
 export function SettingsPhone({ api }: { api: ApiClient }) {
+  const { canManageMembers } = useWorkspaceAccess()
   const navigate = useNavigate()
   const user = useUser(api)
   const connections = useConnections(api)
@@ -53,7 +55,7 @@ export function SettingsPhone({ api }: { api: ApiClient }) {
           <section className="phone-section" key={group.label}>
             <SectionLabel>{group.label}</SectionLabel>
             <Frame>
-              {(group.label === 'System' ? [...group.sections].reverse() : group.sections).map(
+              {(group.label === 'System' ? [...group.sections].reverse() : group.sections).filter((item) => item.value !== 'members' || canManageMembers).map(
                 (section) => (
                   <Row
                     key={section.value}

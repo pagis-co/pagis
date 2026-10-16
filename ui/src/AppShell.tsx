@@ -1,8 +1,9 @@
+import { workspacePath } from './api/workspace-path'
 // The app shell: the workspace navigation, the pane the route fills,
 // and the inspector slot. Every view is a URL, so the shell
 // reads the route rather than a boolean per destination.
 
-import { privateWorkspaceKey, useCurrentWorkspaceId } from './workspace'
+import { useCurrentWorkspaceId } from './workspace'
 import { createAvatarReactions } from './avatars/reactions'
 import { useAvatarReaction } from './avatars/liveMotion'
 import { AvatarRoster } from './avatars/AvatarRoster'
@@ -97,7 +98,7 @@ import './AppShell.css'
 
 function wsUrl(): string {
   const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws'
-  return `${scheme}://${window.location.host}/api/v1/ws`
+  return `${scheme}://${window.location.host}${workspacePath('/api/v1/ws')}`
 }
 
 function ConnectionBanner() {
@@ -292,8 +293,12 @@ export function AppShell() {
           }
           // The Chief of Staff moved, by the user or by an archive
           // (ADR-0022).
+          if (frame.type.startsWith('workspace.member_')) {
+            void queryClient.invalidateQueries({ queryKey: ['workspaces'] })
+            void queryClient.invalidateQueries({ queryKey: ['workspace', workspaceId, 'members'] })
+          }
           if (frame.type === 'workspace.updated') {
-            void queryClient.invalidateQueries({ queryKey: privateWorkspaceKey })
+            void queryClient.invalidateQueries({ queryKey: ['workspace', workspaceId, 'details'] })
           }
           // A grant write refreshes the settings page.
           if (frame.type === 'grant.changed' || frame.type === 'grant.revoked') {

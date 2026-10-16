@@ -370,7 +370,7 @@ export interface paths {
         };
         get: operations["list_workspaces"];
         put?: never;
-        post?: never;
+        post: operations["create_workspace"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3452,10 +3452,64 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspaces": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_accessible_workspaces"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_workspace_members"];
+        put?: never;
+        post: operations["add_workspace_member"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/members/{person_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["remove_workspace_member"];
+        options?: never;
+        head?: never;
+        patch: operations["change_workspace_member"];
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AccessibleWorkspaceDto: {
+            id: string;
+            kind: components["schemas"]["WorkspaceKind"];
+            name: string;
+            role: components["schemas"]["WorkspaceRole"];
+        };
         /**
          * @description The user's own login, typed into settings. This is the primary
          *     way an existing account reaches the vault; takeover login stays as
@@ -3471,6 +3525,10 @@ export interface components {
             /** @description An optional base32 one-time code seed. */
             totp_seed?: string | null;
             username: string;
+        };
+        AddMember: {
+            person_id: string;
+            role: components["schemas"]["WorkspaceRole"];
         };
         /** @description Where a browser reaches the Administration Interface (ADR-0024). */
         AdministrationAddress: {
@@ -3522,10 +3580,12 @@ export interface components {
         /** @description A Workspace and its owner, with the current month's spend. */
         AdministrationWorkspaceDto: {
             id: string;
+            kind: components["schemas"]["WorkspaceKind"];
+            managers: components["schemas"]["PersonDto"][];
             /** Format: double */
             monthly_spend_cap_usd?: number | null;
             name: string;
-            person: components["schemas"]["PersonDto"];
+            person?: null | components["schemas"]["PersonDto"];
             total: components["schemas"]["UsageTotalDto"];
         };
         AdministrationWorkspacesDto: {
@@ -3756,6 +3816,9 @@ export interface components {
         CatalogueView: {
             catalogue: components["schemas"]["Catalogue"];
             default_filter: components["schemas"]["ReflectionFilter"];
+        };
+        ChangeMember: {
+            role: components["schemas"]["WorkspaceRole"];
         };
         /** @description One file an update changed. */
         ChangedFileDto: {
@@ -4392,6 +4455,10 @@ export interface components {
             instruction: string;
             name: string;
             root_message_id?: string | null;
+        };
+        CreateWorkspaceRequest: {
+            manager_id: string;
+            name: string;
         };
         /**
          * @description One saved login as settings shows it. There is no secret
@@ -5351,6 +5418,15 @@ export interface components {
          * @enum {string}
          */
         MediaRelayKind: "daemon" | "turn";
+        MemberDto: {
+            email?: string | null;
+            name?: string | null;
+            person_id: string;
+            role: components["schemas"]["WorkspaceRole"];
+        };
+        MembersDto: {
+            items: components["schemas"]["MemberDto"][];
+        };
         /** @description The change one commit made, per file. */
         MemoryCommitDiffDto: {
             author: string;
@@ -7654,6 +7730,8 @@ export interface components {
             /** @description The IANA timezone new wall-clock schedules copy. */
             timezone: string;
         };
+        /** @enum {string} */
+        WorkspaceKind: "private" | "shared";
         WorkspaceMailFolders: {
             items: string[];
         };
@@ -7707,6 +7785,8 @@ export interface components {
             carrier?: null | components["schemas"]["CarrierDto"];
             number?: null | components["schemas"]["WorkspaceNumberDto"];
         };
+        /** @enum {string} */
+        WorkspaceRole: "reader" | "responder" | "manager";
         /** @description What one Workspace spent over the period, for the Administrator's read. */
         WorkspaceUsageDto: {
             /**
@@ -7716,6 +7796,9 @@ export interface components {
             cap_reached: boolean;
             total: components["schemas"]["UsageTotalDto"];
             workspace: components["schemas"]["AdministrationWorkspaceDto"];
+        };
+        WorkspacesDto: {
+            items: components["schemas"]["AccessibleWorkspaceDto"][];
         };
     };
     responses: never;
@@ -8678,6 +8761,37 @@ export interface operations {
                 };
             };
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    create_workspace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateWorkspaceRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdministrationWorkspaceDto"];
+                };
+            };
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -16875,6 +16989,137 @@ export interface operations {
                 };
             };
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_accessible_workspaces: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspacesDto"];
+                };
+            };
+        };
+    };
+    list_workspace_members: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MembersDto"];
+                };
+            };
+        };
+    };
+    add_workspace_member: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddMember"];
+            };
+        };
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    remove_workspace_member: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+                person_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    change_workspace_member: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+                person_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangeMember"];
+            };
+        };
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

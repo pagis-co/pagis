@@ -152,7 +152,7 @@ impl World {
         stores.users.create(&person).await.unwrap();
         let second = Workspace {
             monthly_spend_cap_usd: None,
-            user_id: person.id,
+            user_id: Some(person.id),
             ..second
         };
         stores.workspaces.create(&second).await.unwrap();

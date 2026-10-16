@@ -1,3 +1,4 @@
+import { useWorkspaceAccess } from '../workspace'
 // The form block (ADR-0004): fill then submit, the answer
 // going to the run that asked through the same decision endpoint an
 // approval uses. A submission is not a message — the timeline never
@@ -95,13 +96,14 @@ export function RequestForm({
   fields: FormField[]
   submitLabel: string | null | undefined
 }) {
+  const { canRespond } = useWorkspaceAccess()
   const question = useQuestion(api, requestId)
   const decide = useDecideRequest(api, requestId)
   const [draft, setDraft] = useState<Record<string, unknown>>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
 
   const fields = fieldsOf(question.payload, denormalized)
-  const disabled = !question.pending || decide.isPending
+  const disabled = !canRespond || !question.pending || decide.isPending
   // A settled form shows what was submitted, read from the row.
   const shown = question.settled ? (question.values ?? {}) : draft
 
@@ -152,7 +154,7 @@ export function RequestForm({
           ))}
         </CardBody>
         <CardFooter>
-          {question.pending && (
+          {canRespond && question.pending && (
             <>
               <Button variant="primary" type="submit" disabled={decide.isPending}>
                 {submitLabel ?? 'Submit'}

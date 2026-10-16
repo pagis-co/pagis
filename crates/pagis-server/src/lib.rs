@@ -79,6 +79,7 @@ pub mod session_socket;
 mod sessions;
 mod settings;
 pub mod setup;
+mod shared_workspace;
 mod sign_in_links;
 mod software;
 mod subscriptions;
@@ -89,6 +90,7 @@ pub mod voice;
 pub mod voice_list;
 mod widgets;
 mod workspace;
+mod workspace_members;
 pub mod ws;
 
 use std::sync::Arc;
@@ -260,6 +262,7 @@ pub struct AppState {
     pub org_workspace_id: pagis_core::WorkspaceId,
     pub contributions: Arc<dyn pagis_core::ContributionStore>,
     pub workspaces: Arc<dyn WorkspaceStore>,
+    pub workspace_members: Arc<dyn pagis_core::WorkspaceMemberStore>,
     /// The installation. Exactly one Org row exists.
     pub orgs: Arc<dyn OrgStore>,
     /// The people of the Org.
@@ -384,13 +387,15 @@ pub struct Routers {
 /// The layer wraps the whole router, so a new route cannot skip it. The
 /// product port serves the Public Origin and, on a local installation,
 /// its loopback origin; the Administration Port serves its own origin.
-pub fn routers(state: AppState) -> Routers {
+pub fn routers(state: AppState, product_fallback: Router) -> Routers {
     let state = Arc::new(state);
     let product_origins = std::iter::once(state.public_origin.clone())
         .chain(state.local_origin.clone())
         .collect();
-    let product =
-        cross_origin::refuse_other_origins(product_router(Arc::clone(&state)), product_origins);
+    let product = cross_origin::refuse_other_origins(
+        shared_workspace::router(product_router(Arc::clone(&state)).merge(product_fallback)),
+        product_origins,
+    );
     let administration = cross_origin::refuse_other_origins(
         administration::router(Arc::clone(&state)),
         vec![state.administration.origin.clone()],
@@ -782,6 +787,11 @@ fn product_router(state: Arc<AppState>) -> Router {
         // `routers` puts around the product router refuses an upgrade
         // that a page at another origin starts.
         .merge(native_product_routes())
+        .merge(workspace_members::router())
+        .route(
+            "/api/v1/workspaces",
+            get(workspace::list_accessible_workspaces),
+        )
         .layer(middleware::from_fn_with_state(
             Arc::clone(&state),
             auth::authenticate,
@@ -812,6 +822,7 @@ fn product_router(state: Arc<AppState>) -> Router {
             "/api/v1/sessions/link/{code}",
             get(sessions::sign_in_with_start_link),
         )
+        .layer(middleware::from_fn(shared_workspace::unprefixed_only))
         .merge(authed)
         // One origin may make a credentialed cross-origin call: the one
         // this installation is served from. The layer answers the

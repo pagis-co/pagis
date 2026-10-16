@@ -2214,7 +2214,8 @@ async fn quoting_run(
             .await
             .unwrap()
             .unwrap()
-            .user_id,
+            .user_id
+            .unwrap(),
         &channel.id,
         QUESTION,
     );

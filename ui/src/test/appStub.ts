@@ -75,6 +75,11 @@ export function shellResponse(path: string): { data: unknown } {
       },
     }
   }
+  if (path === '/api/v1/workspaces') {
+    return { data: { items: [
+      { id: 'workspace-1', name: 'Workspace', kind: 'private', role: 'manager' },
+    ] } }
+  }
   if (path === '/api/v1/workspace') {
     return {
       data: {

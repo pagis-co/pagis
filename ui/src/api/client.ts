@@ -1,3 +1,4 @@
+import { workspacePath } from './workspace-path'
 // The typed REST client: openapi-fetch over the generated schema. The
 // session is an HTTP-only cookie, which the browser sends with
 // every same-origin request, so no request carries a credential of its
@@ -99,7 +100,17 @@ export type WorkspaceDto = components['schemas']['WorkspaceDto']
 export type ApiClient = ReturnType<typeof createClient<paths>>
 
 export function createApiClient(): ApiClient {
-  return createClient<paths>({ baseUrl: '/' })
+  const client = createClient<paths>({ baseUrl: '/' })
+  client.use({
+    onRequest({ request }) {
+      const url = new URL(request.url)
+      const path = workspacePath(url.pathname, undefined, request.method)
+      if (path === url.pathname) return request
+      url.pathname = path
+      return new Request(url, request)
+    },
+  })
+  return client
 }
 
 /** One spoken block of an Agent message as audio bytes. The
@@ -110,7 +121,7 @@ export async function fetchSpeech(
   block: number,
 ): Promise<Blob> {
   const response = await fetch(
-    `/api/v1/channels/${channelId}/messages/${messageId}/speech?block=${block}`,
+    workspacePath(`/api/v1/channels/${channelId}/messages/${messageId}/speech?block=${block}`),
   )
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as {
@@ -126,7 +137,7 @@ export async function fetchSpeech(
 export async function uploadFile(file: File): Promise<FileDto> {
   const form = new FormData()
   form.append('file', file, file.name)
-  const response = await fetch('/api/v1/files', {
+  const response = await fetch(workspacePath('/api/v1/files', undefined, 'POST'), {
     method: 'POST',
     body: form,
   })
@@ -142,7 +153,7 @@ export async function uploadFile(file: File): Promise<FileDto> {
 /** The agent's screen preview as a Blob, or null when none
  *  exists yet. */
 export async function fetchScreenPreview(agentId: string): Promise<Blob | null> {
-  const response = await fetch(`/api/v1/agents/${agentId}/screen/preview.png`)
+  const response = await fetch(workspacePath(`/api/v1/agents/${agentId}/screen/preview.png`))
   if (response.status === 404) return null
   if (!response.ok) throw new Error(`preview failed (${response.status})`)
   return response.blob()
@@ -158,14 +169,14 @@ export async function fetchWidgetPage(
   widget: string,
 ): Promise<string> {
   const path = [packageName, version, widget].map(encodeURIComponent).join('/')
-  const response = await fetch(`/api/v1/widgets/${path}`)
+  const response = await fetch(workspacePath(`/api/v1/widgets/${path}`))
   if (!response.ok) throw new Error(`widget page failed (${response.status})`)
   return response.text()
 }
 
 /** Fetch file bytes through the daemon (never from storage). */
 export async function fetchFileBlob(fileId: string): Promise<Blob> {
-  const response = await fetch(`/api/v1/files/${fileId}`)
+  const response = await fetch(workspacePath(`/api/v1/files/${fileId}`))
   if (!response.ok) throw new Error(`download failed (${response.status})`)
   return response.blob()
 }

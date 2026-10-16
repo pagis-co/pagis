@@ -13,8 +13,9 @@ async fn person(daemon: &TestDaemon, name: &str) -> (WorkspaceId, String) {
     };
     stores.users.create(&user).await.unwrap();
     let workspace = Workspace {
+        kind: pagis_core::WorkspaceKind::Private,
         id: WorkspaceId::generate(),
-        user_id: user.id.clone(),
+        user_id: Some(user.id.clone()),
         name: name.into(),
         timezone: "UTC".into(),
         monthly_spend_cap_usd: None,

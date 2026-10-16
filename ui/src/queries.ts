@@ -13,7 +13,7 @@ import {
   type InfiniteData,
 } from "@tanstack/react-query";
 import type { components } from "./api/schema";
-import { useCurrentWorkspaceId, privateWorkspaceKey } from "./workspace";
+import { useCurrentWorkspaceId } from './workspace'
 import { deviceTimezone } from "./timezone";
 
 import type {
@@ -1516,7 +1516,7 @@ export function useSetTimezone(api: ApiClient) {
     mutationFn: (timezone: string) =>
       unwrap(api.PUT("/api/v1/workspace/timezone", { body: { timezone } })),
     onSuccess: (saved) => {
-      queryClient.setQueryData(privateWorkspaceKey, saved);
+      queryClient.setQueryData(['workspace', workspaceId, 'details'], saved)
       void queryClient.invalidateQueries({ queryKey: reportKey(workspaceId) });
     },
   });
@@ -1524,6 +1524,7 @@ export function useSetTimezone(api: ApiClient) {
 
 /** Move the Chief of Staff designation from the Staff roster. */
 export function useSetChiefOfStaff(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (agentId: string) =>
@@ -1532,7 +1533,7 @@ export function useSetChiefOfStaff(api: ApiClient) {
           body: { agent_id: agentId },
         }),
       ),
-    onSuccess: (saved) => queryClient.setQueryData(privateWorkspaceKey, saved),
+    onSuccess: (saved) => queryClient.setQueryData(['workspace', workspaceId, 'details'], saved),
   });
 }
 

@@ -1,7 +1,7 @@
-//! The seed of one Person's Workspace.
+//! The seed of a Private or Shared Workspace.
 //!
-//! A local first run and an Administrator creating an account must give
-//! a person the same starting point: one Workspace, one sprite, the DM
+//! A new Private or Shared Workspace has the same starting point:
+//! one Workspace, one sprite, the DM
 //! that sprite greets them in, the well-known model aliases, and the
 //! Report Schedule Home reads. One text writes all of it, so the two
 //! ways in cannot drift apart.
@@ -137,9 +137,10 @@ impl WorkspaceSeed<'_> {
         now: UnixMillis,
     ) -> Result<Workspace, StoreError> {
         let workspace = Workspace {
+            kind: pagis_core::WorkspaceKind::Private,
             monthly_spend_cap_usd: None,
             id: workspace_id,
-            user_id: user_id.clone(),
+            user_id: Some(user_id.clone()),
             name: name.to_string(),
             timezone: timezone.to_string(),
             created_at: now,
@@ -155,6 +156,41 @@ impl WorkspaceSeed<'_> {
         };
         self.workspaces.create(&workspace).await?;
 
+        self.contents(workspace, user_id, now).await
+    }
+
+    pub async fn shared(
+        &self,
+        first_manager: &pagis_core::WorkspaceMember,
+        name: &str,
+        timezone: &str,
+        now: UnixMillis,
+        members: &dyn pagis_core::WorkspaceMemberStore,
+    ) -> Result<Workspace, StoreError> {
+        let workspace = Workspace {
+            kind: pagis_core::WorkspaceKind::Shared,
+            user_id: None,
+            id: first_manager.workspace_id.clone(),
+            name: name.to_string(),
+            timezone: timezone.to_string(),
+            created_at: now,
+            monthly_spend_cap_usd: None,
+            onboarded_at: Some(now),
+            chief_of_staff_agent_id: None,
+            report_schedule_id: None,
+            home_exit_host_id: None,
+        };
+        members.create_workspace(&workspace, first_manager).await?;
+        self.contents(workspace, &first_manager.person_id, now)
+            .await
+    }
+
+    async fn contents(
+        &self,
+        workspace: Workspace,
+        first_person: &UserId,
+        now: UnixMillis,
+    ) -> Result<Workspace, StoreError> {
         let agent = Agent {
             id: AgentId::generate(),
             workspace_id: workspace.id.clone(),
@@ -192,7 +228,7 @@ impl WorkspaceSeed<'_> {
         ] {
             self.participants
                 .create(&ChannelParticipant {
-                    person_id: (kind == ParticipantKind::Person).then(|| workspace.user_id.clone()),
+                    person_id: (kind == ParticipantKind::Person).then(|| first_person.clone()),
                     id: ParticipantId::generate(),
                     workspace_id: workspace.id.clone(),
                     channel_id: channel.id.clone(),

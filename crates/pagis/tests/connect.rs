@@ -776,9 +776,10 @@ mod installation_client {
             .stores()
             .workspaces
             .create(&Workspace {
+                kind: pagis_core::WorkspaceKind::Private,
                 monthly_spend_cap_usd: None,
                 id: WorkspaceId::generate(),
-                user_id: grace.id.clone(),
+                user_id: Some(grace.id.clone()),
                 name: "Grace".to_string(),
                 timezone: "UTC".to_string(),
                 created_at: now,

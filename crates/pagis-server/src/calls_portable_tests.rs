@@ -36,9 +36,10 @@ async fn portable_archive_releases_credentials_sleeps_mailbox_and_reports_no_num
     stores
         .workspaces
         .create(&Workspace {
+            kind: pagis_core::WorkspaceKind::Private,
             monthly_spend_cap_usd: None,
             id: workspace_id.clone(),
-            user_id: user_id.clone(),
+            user_id: Some(user_id.clone()),
             name: "Workspace".into(),
             timezone: "UTC".into(),
             created_at: 1,
@@ -115,6 +116,7 @@ async fn portable_archive_releases_credentials_sleeps_mailbox_and_reports_no_num
         .body(Body::empty())
         .unwrap();
     request.extensions_mut().insert(Tenant {
+        workspace_role: None,
         workspace_id: workspace_id.clone(),
         user_id,
         role: UserRole::Member,

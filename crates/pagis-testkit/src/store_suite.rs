@@ -174,7 +174,7 @@ impl Backend {
         let workspace = Workspace {
             monthly_spend_cap_usd: None,
             id: WorkspaceId::generate(),
-            user_id: person.id,
+            user_id: Some(person.id),
             ..crate::fixture::workspace()
         };
         self.stores

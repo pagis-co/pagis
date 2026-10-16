@@ -35,7 +35,7 @@ function WorkspaceRow({ item }: { item: WorkspaceUsageDto }) {
   return (
     <Row className="spend-row">
       <span className="spend-person">{item.workspace.name}</span>
-      <span>{personLabel(item.workspace.person)}</span>
+      <span>{item.workspace.person ? personLabel(item.workspace.person) : item.workspace.managers.map(personLabel).join(', ')}</span>
       <span>{item.workspace.monthly_spend_cap_usd == null ? 'No monthly cap' : `${money(item.workspace.monthly_spend_cap_usd)} monthly cap`}</span>
       <span className="spend-tokens">
         {tokens(item.total.input_tokens)} in · {tokens(item.total.output_tokens)} out ·{' '}

@@ -324,3 +324,42 @@ pub async fn get_report(
         writing_run_id,
     }))
 }
+
+#[derive(Serialize, ToSchema)]
+pub struct AccessibleWorkspaceDto {
+    pub id: String,
+    pub name: String,
+    pub kind: pagis_core::WorkspaceKind,
+    pub role: pagis_core::WorkspaceRole,
+}
+#[derive(Serialize, ToSchema)]
+pub struct WorkspacesDto {
+    pub items: Vec<AccessibleWorkspaceDto>,
+}
+#[utoipa::path(get, path = "/api/v1/workspaces", responses((status = 200, body = WorkspacesDto)))]
+pub async fn list_accessible_workspaces(
+    State(state): State<Arc<AppState>>,
+    tenant: Tenant,
+) -> Result<Json<WorkspacesDto>, ApiError> {
+    let mut items = Vec::new();
+    for workspace in state.workspaces.list().await? {
+        let role = if workspace.user_id.as_ref() == Some(&tenant.user_id) {
+            pagis_core::WorkspaceRole::Manager
+        } else if let Some(member) = state
+            .workspace_members
+            .get(&workspace.id, &tenant.user_id)
+            .await?
+        {
+            member.role
+        } else {
+            continue;
+        };
+        items.push(AccessibleWorkspaceDto {
+            id: workspace.id.to_string(),
+            name: workspace.name,
+            kind: workspace.kind,
+            role,
+        });
+    }
+    Ok(Json(WorkspacesDto { items }))
+}

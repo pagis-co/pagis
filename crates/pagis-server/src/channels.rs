@@ -268,7 +268,12 @@ pub async fn list_channels(
         let mut row = ChannelDto::new(
             channel,
             agent_participants(&participants),
-            has_person(&participants, &tenant.user_id),
+            has_person(&participants, &tenant.user_id)
+                || state
+                    .workspaces
+                    .get(&tenant.workspace_id)
+                    .await?
+                    .is_some_and(|w| w.kind == pagis_core::WorkspaceKind::Shared),
         );
         if let Some(message) = last {
             let message = readable_message(&state, message).await?;
@@ -656,7 +661,13 @@ pub async fn send_message(
         .participants
         .list_for_channel(&tenant.workspace_id, &channel_id)
         .await?;
-    if !has_person(&participants, &tenant.user_id) {
+    if !has_person(&participants, &tenant.user_id)
+        && !state
+            .workspaces
+            .get(&tenant.workspace_id)
+            .await?
+            .is_some_and(|w| w.kind == pagis_core::WorkspaceKind::Shared)
+    {
         return Err(ApiError::forbidden(
             "this conversation is between agents; the user reads it only",
         ));

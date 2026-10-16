@@ -250,7 +250,9 @@ pub struct SetSpendCapRequest {
 pub struct AdministrationWorkspaceDto {
     pub id: String,
     pub name: String,
-    pub person: PersonDto,
+    pub person: Option<PersonDto>,
+    pub kind: pagis_core::WorkspaceKind,
+    pub managers: Vec<PersonDto>,
     pub total: UsageTotalDto,
     pub monthly_spend_cap_usd: Option<f64>,
 }
@@ -264,7 +266,22 @@ async fn workspace_dto(
     state: &AppState,
     workspace: &Workspace,
 ) -> Result<AdministrationWorkspaceDto, ApiError> {
-    let person = person_of(state, workspace.user_id.as_str()).await?;
+    let person = match &workspace.user_id {
+        Some(id) => Some(person_dto(
+            &person_of(state, id.as_str()).await?,
+            Some(&workspace.id),
+        )),
+        None => None,
+    };
+    let mut managers = Vec::new();
+    for member in state.workspace_members.list(&workspace.id).await? {
+        if member.role == pagis_core::WorkspaceRole::Manager {
+            managers.push(person_dto(
+                &person_of(state, member.person_id.as_str()).await?,
+                None,
+            ));
+        }
+    }
     let month = UsagePeriod::calendar_month(state.clock.now_ms(), &workspace.timezone);
     let total = state
         .usage
@@ -273,7 +290,9 @@ async fn workspace_dto(
     Ok(AdministrationWorkspaceDto {
         id: workspace.id.to_string(),
         name: workspace.name.clone(),
-        person: person_dto(&person, Some(&workspace.id)),
+        person,
+        kind: workspace.kind,
+        managers,
         total: total.into(),
         monthly_spend_cap_usd: workspace.monthly_spend_cap_usd,
     })
@@ -293,6 +312,75 @@ pub async fn list_workspaces(
         items.push(workspace_dto(&state, &workspace).await?);
     }
     Ok(Json(AdministrationWorkspacesDto { items }))
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct CreateWorkspaceRequest {
+    pub name: String,
+    pub manager_id: String,
+}
+
+#[utoipa::path(post, path = "/api/v1/administration/workspaces", request_body = CreateWorkspaceRequest, responses((status = 201, body = AdministrationWorkspaceDto), (status = 422, body = crate::error::ErrorBody)))]
+pub async fn create_workspace(
+    State(state): State<Arc<AppState>>,
+    administrator: Administrator,
+    Json(body): Json<CreateWorkspaceRequest>,
+) -> Result<(StatusCode, Json<AdministrationWorkspaceDto>), ApiError> {
+    let name = body.name.trim();
+    if name.is_empty() {
+        return Err(ApiError::validation("the Shared Workspace needs a name"));
+    }
+    let manager = person_of(&state, &body.manager_id).await?;
+    if manager.is_disabled() {
+        return Err(ApiError::validation("the first Manager must be active"));
+    }
+    let now = state.clock.now_ms();
+    let timezone = state
+        .workspaces
+        .get(&administrator.workspace_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("workspace"))?
+        .timezone;
+    let first_manager = pagis_core::WorkspaceMember {
+        workspace_id: WorkspaceId::generate(),
+        person_id: manager.id.clone(),
+        role: pagis_core::WorkspaceRole::Manager,
+        author: pagis_core::Author::Person(administrator.user_id.clone()),
+    };
+    let workspace = crate::provisioning::WorkspaceSeed {
+        workspaces: state.workspaces.as_ref(),
+        agents: state.agent_store.as_ref(),
+        channels: state.channels.as_ref(),
+        participants: state.participants.as_ref(),
+        messages: state.messages.as_ref(),
+        model_aliases: state.model_aliases.as_ref(),
+        schedules: state.schedules.as_ref(),
+        events: state.events.as_ref(),
+    }
+    .shared(
+        &first_manager,
+        name,
+        &timezone,
+        now,
+        state.workspace_members.as_ref(),
+    )
+    .await
+    .map_err(crate::workspace_members::membership_error)?;
+    let route =
+        crate::model_lists::route_for_new_person(&state, &administrator.workspace_id).await?;
+    if !route.is_empty() {
+        crate::model_lists::set_default_candidates(&state, &workspace.id, &route).await?;
+    }
+    state.bus.publish(pagis_core::NewEvent {
+        workspace_id: org(&state).await?.workspace_id,
+        event_type: "workspace.shared_created".into(),
+        agent_id: None, run_id: None, channel_id: None,
+        payload: serde_json::json!({"administrator_id": administrator.user_id, "workspace_id": workspace.id, "name": workspace.name, "manager_id": manager.id}),
+    }).await?;
+    Ok((
+        StatusCode::CREATED,
+        Json(workspace_dto(&state, &workspace).await?),
+    ))
 }
 
 /// The period a usage read answers for. Both ends are Unix
@@ -1303,7 +1391,10 @@ pub fn router(state: Arc<AppState>) -> Router {
             "/api/v1/administration/workspaces/{workspace_id}/spend-cap",
             put(set_spend_cap),
         )
-        .route("/api/v1/administration/workspaces", get(list_workspaces))
+        .route(
+            "/api/v1/administration/workspaces",
+            get(list_workspaces).post(create_workspace),
+        )
         .route("/api/v1/administration/usage", get(installation_usage))
         .route("/api/v1/administration/sessions", get(list_sessions))
         .route("/api/v1/administration/health", get(installation_health))

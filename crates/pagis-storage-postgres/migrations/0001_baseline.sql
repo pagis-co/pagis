@@ -23,6 +23,7 @@
 --     every index over the column inherits it.
 
 CREATE TABLE workspaces (
+    kind TEXT COLLATE "C" NOT NULL DEFAULT 'private' CHECK (kind IN ('private', 'shared')),
     id TEXT COLLATE "C" PRIMARY KEY,
     name TEXT COLLATE "C" NOT NULL,
     -- The monthly Spend Cap the Administrator sets. NULL sets no cap.
@@ -1679,3 +1680,18 @@ ALTER TABLE grants ADD FOREIGN KEY (created_by_person_id) REFERENCES users (id);
 ALTER TABLE schedules ADD FOREIGN KEY (created_by_person_id) REFERENCES users (id);
 ALTER TABLE event_subscriptions ADD FOREIGN KEY (created_by_person_id) REFERENCES users (id);
 ALTER TABLE channel_participants ADD FOREIGN KEY (person_id) REFERENCES users (id);
+
+-- Shared Workspace membership. Org and Private Workspaces have no list.
+CREATE TABLE workspace_members (
+    workspace_id TEXT COLLATE "C" NOT NULL REFERENCES workspaces (id),
+    person_id TEXT COLLATE "C" NOT NULL REFERENCES users (id),
+    role TEXT COLLATE "C" NOT NULL CHECK (role IN ('manager', 'responder', 'reader')),
+    author_kind TEXT COLLATE "C" NOT NULL CHECK (author_kind IN ('person', 'agent', 'system')),
+    author_person_id TEXT COLLATE "C" REFERENCES users (id),
+    author_agent_id TEXT COLLATE "C" REFERENCES agents (id),
+    PRIMARY KEY (workspace_id, person_id),
+    CHECK ((author_kind = 'person' AND author_person_id IS NOT NULL AND author_agent_id IS NULL)
+        OR (author_kind = 'agent' AND author_person_id IS NULL AND author_agent_id IS NOT NULL)
+        OR (author_kind = 'system' AND author_person_id IS NULL AND author_agent_id IS NULL))
+);
+CREATE INDEX idx_workspace_members_person ON workspace_members (person_id);

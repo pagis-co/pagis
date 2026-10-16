@@ -1,3 +1,4 @@
+import { workspacePath } from '../api/workspace-path'
 // Listen-Live in the Thread (ADR-0020): the minimal control on a
 // `call` block. One button opens the listen socket and plays the mono
 // mix with Web Audio; a second press closes it. Nothing is signalled
@@ -56,7 +57,7 @@ export function useListenLive(
     const create = deps.createSpeaker ?? webAudioSpeaker
     speaker.current = create()
     listen.current = new Listen({
-      url: `${socketOrigin()}/api/v1/calls/${callId}/listen`,
+      url: `${socketOrigin()}${workspacePath(`/api/v1/calls/${callId}/listen`)}`,
       createWebSocket: deps.createWebSocket,
       handlers: {
         onReady: () => setState('listening'),

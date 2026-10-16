@@ -145,7 +145,7 @@ mod tests {
         stores.channels.create(&channel).await.unwrap();
         for participant in [
             fixture::agent_participant(&ws.id, &channel.id, &agent.id),
-            fixture::person_participant(&ws.id, &ws.user_id, &channel.id),
+            fixture::person_participant(&ws.id, ws.user_id.as_ref().unwrap(), &channel.id),
         ] {
             stores.participants.create(&participant).await.unwrap();
         }

@@ -1,3 +1,4 @@
+import { useWorkspaceAccess } from '../workspace'
 // The approval card: the block
 // carries request_id plus denormalized title/body; the state always
 // comes from the Request row, fetched here and invalidated by the
@@ -119,6 +120,7 @@ export function ApprovalCard({
   title: string
   body: string
 }) {
+  const { canRespond } = useWorkspaceAccess()
   const request = useRequest(api, requestId)
   const decide = useDecideRequest(api, requestId)
   const [always, setAlways] = useState(false)
@@ -184,7 +186,7 @@ export function ApprovalCard({
       {harnessPermission && payload?.note != null && request.data !== undefined && (
         <AgentNote api={api} agentId={request.data.agent_id} note={payload.note} />
       )}
-      {state === 'pending' && (
+      {canRespond && state === 'pending' && (
         <CardFooter>
           <Button
             variant="primary"

@@ -62,8 +62,9 @@ impl World {
                 .await
                 .unwrap();
         let workspace = Workspace {
+            kind: pagis_core::WorkspaceKind::Private,
             monthly_spend_cap_usd: None,
-            user_id: person.id.clone(),
+            user_id: Some(person.id.clone()),
             id: WorkspaceId::generate(),
             name: "Home".to_string(),
             timezone: "UTC".to_string(),
@@ -171,7 +172,7 @@ impl World {
             workspace_id: workspace.id.clone(),
             channel_id: channel.id.clone(),
             parent_message_id: None,
-            author: pagis_core::Author::Person(workspace.user_id.clone()),
+            author: pagis_core::Author::Person(workspace.user_id.clone().unwrap()),
             run_id: None,
             status: MessageStatus::Complete,
             blocks: Vec::new(),

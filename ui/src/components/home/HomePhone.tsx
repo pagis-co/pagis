@@ -1,3 +1,4 @@
+import { useWorkspaceAccess } from '../../workspace'
 import { useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { ChevronRight, Phone } from 'lucide-react'
@@ -33,6 +34,7 @@ function ApprovalPreview({
   item: Extract<QueueItem, { kind: 'approval' }>
   agent?: AgentDto
 }) {
+  const { canRespond } = useWorkspaceAccess()
   const decide = useDecideRequest(api, item.request_id)
   const request = useRequest(api, item.request_id)
   const navigate = useNavigate()
@@ -71,7 +73,7 @@ function ApprovalPreview({
             <ChevronRight size={16} aria-hidden />
           </Button>
         </div>
-        <div className="phone-actions">
+        {canRespond && <div className="phone-actions">
           <Button
             disabled={decide.isPending}
             onClick={() => decide.mutate({ decision: 'denied', scope: 'once' })}
@@ -86,6 +88,7 @@ function ApprovalPreview({
             Approve
           </Button>
         </div>
+        }
         {decide.isError && <p role="alert">The decision could not be saved. Try again.</p>}
       </div>
     </Frame>

@@ -678,7 +678,8 @@ impl TestDaemon {
             })
         });
 
-        let session_cookie = open_session(&booted.stores, &workspace.user_id).await;
+        let session_cookie =
+            open_session(&booted.stores, workspace.user_id.as_ref().unwrap()).await;
 
         // A test that plants a row directly needs the rows of whichever
         // backend the daemon opened. On SQLite the harness opens its own
@@ -718,7 +719,7 @@ impl TestDaemon {
             public_origin,
             dm_channel_id,
             agent_id,
-            user_id: workspace.user_id.clone(),
+            user_id: workspace.user_id.clone().unwrap(),
             workspace_id: workspace.id.clone(),
             session_cookie,
             restart,

@@ -228,7 +228,7 @@ describe('SettingsPanel', () => {
   it('opens each section from the list', async () => {
     mount(stubApi())
 
-    for (const section of SETTINGS_SECTIONS) {
+    for (const section of SETTINGS_SECTIONS.filter((item) => item.value !== 'members')) {
       await userEvent.click(screen.getByRole('button', { name: section.label }))
       expect(
         screen.getByRole('button', { name: section.label }).getAttribute('aria-current'),
@@ -240,7 +240,7 @@ describe('SettingsPanel', () => {
   })
 
   it('names no tool, no protocol and no second name in what it renders', async () => {
-    for (const section of SETTINGS_SECTIONS) {
+    for (const section of SETTINGS_SECTIONS.filter((item) => item.value !== 'members')) {
       const view = mount(stubApi(), section.value)
       await screen.findByRole('heading', { name: section.label })
       const text = renderedText(view.container as HTMLElement)

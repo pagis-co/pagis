@@ -6,7 +6,7 @@ import type { ReactNode } from 'react'
 
 import type { ApiClient, ChannelDto } from './api/client'
 import { useChannels } from './queries'
-import { CurrentWorkspaceProvider, privateWorkspaceKey } from './workspace'
+import { CurrentWorkspaceProvider, WorkspaceSwitcher, useCurrentWorkspaceId } from './workspace'
 import { WidgetBlock } from './blocks/WidgetBlock'
 import { PageView } from './components/memory/PageView'
 
@@ -40,6 +40,10 @@ function mount(ui: (api: ApiClient) => ReactNode, channels: ChannelDto[] = []) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const api = {
     GET: vi.fn(async (path: string): Promise<{ data: unknown }> => {
+      if (path === '/api/v1/workspaces') return { data: { items: [
+        { id: 'workspace-A', name: 'Private Workspace', kind: 'private', role: 'manager' },
+        { id: 'shared', name: 'Support', kind: 'shared', role: 'reader' },
+      ] } }
       if (path === '/api/v1/workspace') return { data: workspace('workspace-A') }
       if (path === '/api/v1/channels') return { data: { items: channels } }
       if (path === '/api/v1/memory/file') return { data: {
@@ -61,6 +65,31 @@ function mount(ui: (api: ApiClient) => ReactNode, channels: ChannelDto[] = []) {
 }
 
 describe('the current Workspace', () => {
+  it('loads the Private Workspace from the accessible list without a header marker', async () => {
+    function Current() {
+      return <p>{useCurrentWorkspaceId()}</p>
+    }
+    const { api } = mount(() => <Current />)
+    await screen.findByText('workspace-A')
+    expect(api.GET).toHaveBeenCalledWith('/api/v1/workspaces')
+    expect(api.GET.mock.calls.some(([path]) => path === '/api/v1/workspace')).toBe(false)
+  })
+
+  it('switches from the Private Workspace to a Shared Workspace', async () => {
+    function Choice() {
+      const id = useCurrentWorkspaceId()
+      return <><WorkspaceSwitcher /><p data-testid="current-workspace">{id}</p></>
+    }
+    mount(() => <Choice />)
+    await waitFor(() => expect(screen.getByRole('combobox', { name: 'Workspace' }).textContent).toContain('Private Workspace'))
+    fireEvent.click(screen.getByRole('combobox', { name: 'Workspace' }))
+    fireEvent.click(await screen.findByRole('option', { name: 'Support' }))
+    expect(screen.getByTestId('current-workspace').textContent).toBe('shared')
+    fireEvent.click(screen.getByRole('combobox', { name: 'Workspace' }))
+    fireEvent.click(await screen.findByRole('option', { name: 'Private Workspace' }))
+    expect(screen.getByTestId('current-workspace').textContent).toBe('workspace-A')
+  })
+
   it('reads again when the Workspace changes and keeps each result separate', async () => {
     function Channels({ api }: { api: ApiClient }) {
       const channels = useChannels(api)
@@ -68,14 +97,14 @@ describe('the current Workspace', () => {
     }
     const { client, api } = mount(api => <Channels api={api} />, [{ ...otherChannel, title: 'A channel' }])
     await screen.findByText('A channel')
-    expect(api.GET.mock.calls.filter(([path]) => path === '/api/v1/workspace')).toHaveLength(1)
+    expect(api.GET.mock.calls.filter(([path]) => path === '/api/v1/workspaces')).toHaveLength(1)
     api.GET.mockImplementation(async (path) => path === '/api/v1/channels'
       ? { data: { items: [{ ...otherChannel, title: 'B channel' }] } }
       : { data: workspace('workspace-B') })
-    act(() => client.setQueryData(privateWorkspaceKey, workspace('workspace-B')))
+    act(() => client.setQueryData(['workspaces'], [{ id: 'workspace-B', name: 'Private', kind: 'private', role: 'manager' }]))
     await screen.findByText('B channel')
     expect(api.GET.mock.calls.filter(([path]) => path === '/api/v1/channels')).toHaveLength(2)
-    act(() => client.setQueryData(privateWorkspaceKey, workspace('workspace-A')))
+    act(() => client.setQueryData(['workspaces'], [{ id: 'workspace-A', name: 'Private', kind: 'private', role: 'manager' }]))
     await screen.findByText('A channel')
     expect(api.GET.mock.calls.filter(([path]) => path === '/api/v1/channels')).toHaveLength(2)
   })

@@ -20,8 +20,13 @@ impl SqliteWorkspaceStore {
 
 fn row_to_workspace(row: &sqlx::sqlite::SqliteRow) -> Workspace {
     Workspace {
+        kind: if row.get::<String, _>("kind") == "shared" {
+            pagis_core::WorkspaceKind::Shared
+        } else {
+            pagis_core::WorkspaceKind::Private
+        },
         id: WorkspaceId::from(row.get::<String, _>("id")),
-        user_id: UserId::from(row.get::<String, _>("user_id")),
+        user_id: row.get::<Option<String>, _>("user_id").map(UserId::from),
         name: row.get("name"),
         timezone: row.get("timezone"),
         monthly_spend_cap_usd: row.get("monthly_spend_cap_usd"),
@@ -41,7 +46,7 @@ fn row_to_workspace(row: &sqlx::sqlite::SqliteRow) -> Workspace {
 
 /// The columns [`row_to_workspace`] reads, in one place.
 const COLUMNS: &str = "id, user_id, name, timezone, created_at, onboarded_at, \
-     chief_of_staff_agent_id, report_schedule_id, home_exit_host_id, monthly_spend_cap_usd";
+     chief_of_staff_agent_id, report_schedule_id, home_exit_host_id, monthly_spend_cap_usd, kind";
 
 #[async_trait]
 impl WorkspaceStore for SqliteWorkspaceStore {
@@ -51,7 +56,7 @@ impl WorkspaceStore for SqliteWorkspaceStore {
         cap_usd: Option<f64>,
     ) -> Result<bool, StoreError> {
         let updated = sqlx::query(
-            "UPDATE workspaces SET monthly_spend_cap_usd = ? WHERE id = ? AND user_id IS NOT NULL",
+            "UPDATE workspaces SET monthly_spend_cap_usd = ? WHERE id = ? AND id NOT IN (SELECT workspace_id FROM orgs)",
         )
         .bind(cap_usd)
         .bind(id.as_str())
@@ -62,38 +67,12 @@ impl WorkspaceStore for SqliteWorkspaceStore {
     }
 
     async fn create(&self, workspace: &Workspace) -> Result<(), StoreError> {
-        sqlx::query(&format!(
-            "INSERT INTO workspaces ({COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-        ))
-        .bind(workspace.id.as_str())
-        .bind(workspace.user_id.as_str())
-        .bind(&workspace.name)
-        .bind(&workspace.timezone)
-        .bind(workspace.created_at)
-        .bind(workspace.onboarded_at)
-        .bind(
-            workspace
-                .chief_of_staff_agent_id
-                .as_ref()
-                .map(AgentId::as_str),
-        )
-        .bind(
-            workspace
-                .report_schedule_id
-                .as_ref()
-                .map(ScheduleId::as_str),
-        )
-        .bind(workspace.home_exit_host_id.as_ref().map(HostId::as_str))
-        .bind(workspace.monthly_spend_cap_usd)
-        .execute(&self.pool)
-        .await
-        .map_err(db_err)?;
-        Ok(())
+        insert_workspace(&self.pool, workspace).await
     }
 
     async fn get(&self, id: &WorkspaceId) -> Result<Option<Workspace>, StoreError> {
         let row = sqlx::query(&format!(
-            "SELECT {COLUMNS} FROM workspaces WHERE id = ? AND user_id IS NOT NULL"
+            "SELECT {COLUMNS} FROM workspaces WHERE id = ? AND id NOT IN (SELECT workspace_id FROM orgs)"
         ))
         .bind(id.as_str())
         .fetch_optional(&self.pool)
@@ -115,7 +94,7 @@ impl WorkspaceStore for SqliteWorkspaceStore {
 
     async fn list(&self) -> Result<Vec<Workspace>, StoreError> {
         let rows = sqlx::query(&format!(
-            "SELECT {COLUMNS} FROM workspaces WHERE user_id IS NOT NULL ORDER BY id"
+            "SELECT {COLUMNS} FROM workspaces WHERE id NOT IN (SELECT workspace_id FROM orgs) ORDER BY id"
         ))
         .fetch_all(&self.pool)
         .await
@@ -191,4 +170,41 @@ impl WorkspaceStore for SqliteWorkspaceStore {
         .map_err(db_err)?;
         Ok(updated.rows_affected() == 1)
     }
+}
+
+pub(crate) async fn insert_workspace<'e, E>(
+    executor: E,
+    workspace: &Workspace,
+) -> Result<(), StoreError>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
+    sqlx::query(&format!(
+        "INSERT INTO workspaces ({COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ))
+    .bind(workspace.id.as_str())
+    .bind(workspace.user_id.as_ref().map(UserId::as_str))
+    .bind(&workspace.name)
+    .bind(&workspace.timezone)
+    .bind(workspace.created_at)
+    .bind(workspace.onboarded_at)
+    .bind(
+        workspace
+            .chief_of_staff_agent_id
+            .as_ref()
+            .map(AgentId::as_str),
+    )
+    .bind(
+        workspace
+            .report_schedule_id
+            .as_ref()
+            .map(ScheduleId::as_str),
+    )
+    .bind(workspace.home_exit_host_id.as_ref().map(HostId::as_str))
+    .bind(workspace.monthly_spend_cap_usd)
+    .bind(workspace.kind.as_str())
+    .execute(executor)
+    .await
+    .map_err(db_err)?;
+    Ok(())
 }

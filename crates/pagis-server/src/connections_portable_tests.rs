@@ -22,6 +22,7 @@ fn keys() -> Arc<ProviderKeys> {
 fn request(path: &str) -> Request<Body> {
     let mut request = Request::builder().uri(path).body(Body::empty()).unwrap();
     request.extensions_mut().insert(Tenant {
+        workspace_role: None,
         workspace_id: WorkspaceId::from("workspace".to_string()),
         user_id: UserId::generate(),
         role: UserRole::Administrator,

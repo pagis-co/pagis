@@ -18,9 +18,10 @@ async fn onboarding_status_without_computers_holds_docker_null() {
     let person = seed_org_and_administrator(&pool, "Pagis", 1).await.unwrap();
     let workspaces = Arc::new(SqliteWorkspaceStore::new(pool.clone()));
     let workspace = Workspace {
+        kind: pagis_core::WorkspaceKind::Private,
         monthly_spend_cap_usd: None,
         id: WorkspaceId::generate(),
-        user_id: person.id.clone(),
+        user_id: Some(person.id.clone()),
         name: "Ada".into(),
         timezone: "UTC".into(),
         created_at: 1,
@@ -60,6 +61,7 @@ async fn onboarding_status_without_computers_holds_docker_null() {
                 .body(Body::empty())
                 .unwrap();
             request.extensions_mut().insert(Tenant {
+                workspace_role: None,
                 workspace_id: workspace.id.clone(),
                 user_id: person.id.clone(),
                 role,
