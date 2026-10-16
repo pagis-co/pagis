@@ -148,7 +148,7 @@ impl ToolExecutor for RoutingExecutor {
         if pagis_mail::MailToolRuntime::owns(route) {
             self.mail.prepare(workspace, agent, route, arguments).await
         } else {
-            Ok(arguments)
+            self.core.prepare(workspace, agent, route, arguments).await
         }
     }
 

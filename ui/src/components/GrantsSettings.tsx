@@ -7,12 +7,13 @@ import { X } from 'lucide-react'
 
 import type { ApiClient, GrantDto, SessionAllowRule } from '../api/client'
 import { Button, IconButton, Input } from '../primitives'
-import { useRevokeGrant, useSetGrantRules, useWorkspaceMailbox, useCreateWorkspaceMailboxGrant, useGrants } from '../queries'
+import { useColleagues, useRevokeGrant, useSetGrantRules, useWorkspaceMailbox, useCreateWorkspaceMailboxGrant, useGrants } from '../queries'
 
 import './GrantsSettings.css'
 
 const RESOURCE_LABEL: Record<string, string> = {
   host: 'Host access',
+  colleagues: 'Messages to colleagues',
   credential: 'Vault domains',
   workspace_mailbox: 'Workspace Mailbox',
 }
@@ -39,16 +40,30 @@ const RULE_COPY: Record<
   },
 }
 
-export function GrantRow({
+export function GrantRow(props: { api: ApiClient; grant: GrantDto; resourceLabel?: string }) {
+  return props.grant.resource_kind === 'colleagues'
+    ? <ColleagueGrantRow {...props} />
+    : <GrantRulesRow {...props} />
+}
+
+function ColleagueGrantRow(props: { api: ApiClient; grant: GrantDto; resourceLabel?: string }) {
+  const colleagues = useColleagues(props.api)
+  const ruleNames = Object.fromEntries((colleagues.data ?? []).map((person) => [person.workspace_id, person.name]))
+  return <GrantRulesRow {...props} ruleNames={ruleNames} />
+}
+
+function GrantRulesRow({
   api,
   grant,
   resourceLabel,
+  ruleNames,
 }: {
   api: ApiClient
   grant: GrantDto
   /** What the grant reaches, when the caller can name it: the machine of
    *  a host grant. The kind alone is the default. */
   resourceLabel?: string
+  ruleNames?: Record<string, string>
 }) {
   const { canManage } = useWorkspaceAccess()
   const setRules = useSetGrantRules(api)
@@ -102,16 +117,16 @@ export function GrantRow({
       {grant.is_default && <p className="settings-hint">Default for the Chief of Staff</p>}
       <div className="grant-rules">
         {grant.allow.length === 0 && grant.sessions.length === 0 && (
-          <span className="grant-rules-empty">{copy.empty}</span>
+          <span className="grant-rules-empty">{ruleNames ? 'Every message needs an Approval.' : copy.empty}</span>
         )}
         {grant.allow.map((rule) => (
           <span key={rule} className="grant-rule">
-            <code>{rule}</code>
+            <code>{ruleNames ? (ruleNames[rule] ?? 'Unavailable colleague') : rule}</code>
             <IconButton
               icon={X}
               variant="ghost"
               size="sm"
-              label={`Remove rule ${rule}`}
+              label={`Remove rule ${ruleNames ? (ruleNames[rule] ?? 'Unavailable colleague') : rule}`}
               disabled={!canManage || setRules.isPending}
               onClick={() => removeRule(rule)}
             />
@@ -134,7 +149,7 @@ export function GrantRow({
           )
         })}
       </div>
-      <div className="grant-rule-add">
+      {ruleNames ? <p className="settings-hint">Approve a message with Always allow to add colleagues.</p> : <div className="grant-rule-add">
         <Input
           placeholder={copy.placeholder}
           value={draft}
@@ -150,7 +165,7 @@ export function GrantRow({
         >
           {copy.add}
         </Button>
-      </div>
+      </div>}
     </div>
   )
 }

@@ -17,6 +17,12 @@ pub(crate) struct ConversationDelivery {
 }
 
 impl ConversationDelivery {
+    pub fn returns_home(run: &Run) -> bool {
+        run.origin
+            .as_ref()
+            .is_some_and(|origin| origin.agent_id == run.agent_id)
+    }
+
     pub fn of(run: &Run) -> Option<Self> {
         if run.trigger_kind != TriggerKind::Conversation {
             return None;
@@ -26,6 +32,57 @@ impl ConversationDelivery {
 }
 
 impl AgentSystem {
+    /// A Person's answer has no Run. The last message from the asking
+    /// Workspace supplies its request. A Person's own message ends that
+    /// delegation, and an Agent's final shared reply is not a new request.
+    async fn last_agent_request(
+        &self,
+        answer: &pagis_core::Message,
+        workspace: &WorkspaceId,
+        person: &pagis_core::UserId,
+    ) -> Result<Option<pagis_core::Message>, StoreError> {
+        let mut before = answer.id.clone();
+        loop {
+            let page = self
+                .deps
+                .messages
+                .list_top_level(&answer.workspace_id, &answer.channel_id, Some(&before), 64)
+                .await?;
+            let Some(last) = page.last() else {
+                return Ok(None);
+            };
+            before = last.message.id.clone();
+            for entry in page {
+                let message = entry.message;
+                if message.author.person_id() == Some(person) {
+                    return Ok(None);
+                }
+                if message.author_workspace_id.as_ref() != Some(workspace) {
+                    continue;
+                }
+                let Some(run_id) = &message.run_id else {
+                    return Ok(None);
+                };
+                let Some(sender) = self.deps.runs.get(workspace, run_id).await? else {
+                    return Ok(None);
+                };
+                if ConversationDelivery::of(&sender).is_some_and(|delivery| {
+                    delivery.channel_id == message.channel_id
+                        && !ConversationDelivery::returns_home(&sender)
+                }) {
+                    return Ok(None);
+                }
+                return Ok(pagis_core::message_source_is_live(
+                    self.deps.messages.as_ref(),
+                    self.deps.grants.as_ref(),
+                    &message,
+                )
+                .await?
+                .then_some(message));
+            }
+        }
+    }
+
     pub(crate) async fn deliver_conversation(
         &self,
         event: &pagis_core::Event,
@@ -76,7 +133,28 @@ impl AgentSystem {
         let Some(person) = workspace.user_id else {
             return Ok(());
         };
-        if !workspace.delegate_everything
+        let request = if message.author.person_id().is_some() {
+            self.last_agent_request(&message, &workspace.id, &person)
+                .await?
+        } else {
+            None
+        };
+        let (hop_count, origin) = chain_of(&self.deps, request.as_ref().unwrap_or(&message)).await;
+        if hop_count > self.deps.config.max_hops {
+            return Ok(());
+        }
+        // A delegated answer wakes the Agent that asked, even while its Person is active.
+        let returning_agent = if let Some(origin) = &origin {
+            self.deps
+                .agents
+                .get(&workspace.id, &origin.agent_id)
+                .await?
+                .filter(|agent| agent.status == AgentStatus::Active)
+        } else {
+            None
+        };
+        if returning_agent.is_none()
+            && !workspace.delegate_everything
             && self
                 .deps
                 .person_activity
@@ -94,17 +172,16 @@ impl AgentSystem {
         {
             return Ok(());
         }
-        let Some(agent_id) = workspace.chief_of_staff_agent_id else {
+        let Some(agent_id) = returning_agent
+            .map(|agent| agent.id)
+            .or(workspace.chief_of_staff_agent_id)
+        else {
             return Ok(());
         };
         let Some(agent) = self.deps.agents.get(&workspace.id, &agent_id).await? else {
             return Ok(());
         };
         if agent.status != AgentStatus::Active {
-            return Ok(());
-        }
-        let (hop_count, _) = chain_of(&self.deps, &message).await;
-        if hop_count > self.deps.config.max_hops {
             return Ok(());
         }
         let Some(channel) = self
@@ -133,7 +210,7 @@ impl AgentSystem {
             trigger_kind: TriggerKind::Conversation,
             trigger_ref: Some(serde_json::to_string(&delivery).expect("conversation reference")),
             hop_count,
-            origin: None,
+            origin,
             state: RunState::Queued,
             failure_kind: None,
             error: None,

@@ -1003,3 +1003,379 @@ async fn disclosure_calendar_details_need_approval() {
             .contains("secret-clinic-529")
     );
 }
+
+#[tokio::test]
+async fn conversation_agent_collects_colleague_answers_and_each_workspace_pays() {
+    use pagis_testkit::{Script, ScriptedBrain, TestDaemonOptions};
+    use std::sync::Arc;
+    let brain = Arc::new(ScriptedBrain::default());
+    let daemon = TestDaemon::start_in_memory_with(TestDaemonOptions {
+        brain: brain.clone(),
+        agents: pagis_agent::AgentLoopConfig {
+            max_concurrent_runs: 1,
+            ..Default::default()
+        },
+        ..Default::default()
+    })
+    .await;
+    daemon
+        .stores()
+        .users
+        .set_name(&daemon.user_id, "Bob", pagis_core::now_ms())
+        .await
+        .unwrap();
+    let mut active = daemon.event_socket(daemon.cookie()).await;
+    active
+        .send(tokio_tungstenite::tungstenite::Message::text(
+            json!({"type":"activity"}).to_string(),
+        ))
+        .await
+        .unwrap();
+    let (alice, cookie_a) = person(&daemon, "Alice").await;
+    let (carol, cookie_c) = person(&daemon, "Carol").await;
+    hire(&daemon, &cookie_a, "AliceHelper").await;
+    hire(&daemon, &cookie_c, "CarolHelper").await;
+    let costed = |text: &'static str, cost| {
+        Script::reply_costing(
+            &[text],
+            pagis_agent::Usage {
+                input_tokens: 100,
+                output_tokens: 20,
+                ..Default::default()
+            },
+            cost,
+        )
+    };
+    brain.push_for(
+        "Pixie",
+        Script::tool_call(&[], "colleagues_list", json!({})),
+    );
+    brain.push_for(
+        "Pixie",
+        Script::tool_call(
+            &[],
+            "message_colleagues",
+            json!({"workspace_ids":[alice],"text":"Can you attend?"}),
+        ),
+    );
+    brain.push_for("Pixie", costed("I asked Alice.", 0.1));
+    brain.push_for("AliceHelper", costed("Alice can attend.", 0.2));
+    brain.push_for(
+        "Pixie",
+        Script::tool_call(
+            &[],
+            "message_colleagues",
+            json!({"workspace_ids":[carol],"text":"When are you busy?"}),
+        ),
+    );
+    brain.push_for("Pixie", costed("Alice can attend. I asked Carol.", 0.1));
+    brain.push_for(
+        "CarolHelper",
+        Script::tool_call(
+            &[],
+            "calendar_free_busy",
+            json!({"from":"2026-10-16T00:00:00Z","to":"2026-10-17T00:00:00Z"}),
+        ),
+    );
+    brain.push_for("CarolHelper", costed("Carol is free.", 0.3));
+    brain.push_for("Pixie", costed("Alice can attend and Carol is free.", 0.1));
+    post(
+        &daemon,
+        daemon.cookie(),
+        &format!("/api/v1/channels/{}/messages", daemon.dm_channel_id),
+        json!({"pending_id":"ask-colleagues","text":"Ask Alice and Carol about the meeting."}),
+    )
+    .await;
+    for colleague in [&alice, &carol] {
+        let pending = tokio::time::timeout(std::time::Duration::from_secs(15), async {
+            loop {
+                let requests = get(&daemon, daemon.cookie(), "/api/v1/requests").await;
+                if let Some(r) = requests["items"].as_array().unwrap().iter().find(|r| {
+                    r["payload"]["tool_name"] == "message_colleagues"
+                        && r["payload"]["arguments"]["workspace_ids"][0] == json!(colleague)
+                }) {
+                    break r.clone();
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("the send waits for an Approval");
+        assert!(
+            get(&daemon, daemon.cookie(), "/api/v1/conversations").await["items"]
+                .as_array()
+                .unwrap()
+                .len()
+                < 2
+        );
+        let name = if colleague == &alice {
+            "Alice"
+        } else {
+            "Carol"
+        };
+        assert_eq!(
+            pending["payload"]["action_title"],
+            format!("Message {name} for your Person")
+        );
+        assert_eq!(
+            pending["payload"]["always_label"],
+            format!("Always allow messages to {name}")
+        );
+        post(
+            &daemon,
+            daemon.cookie(),
+            &format!(
+                "/api/v1/requests/{}/decision",
+                pending["id"].as_str().unwrap()
+            ),
+            json!({"decision":"approved","scope":"always"}),
+        )
+        .await;
+    }
+    tokio::time::timeout(std::time::Duration::from_secs(15), async {
+        loop {
+            if get(
+                &daemon,
+                daemon.cookie(),
+                &format!("/api/v1/channels/{}/messages", daemon.dm_channel_id),
+            )
+            .await
+            .to_string()
+            .contains("Alice can attend and Carol is free.")
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the answer comes home to Bob's DM Channel");
+    let grants = daemon
+        .stores()
+        .grants
+        .list_live_for_agent(
+            &daemon.workspace_id,
+            &pagis_core::AgentId::from(daemon.agent_id.clone()),
+        )
+        .await
+        .unwrap();
+    let grant = grants
+        .iter()
+        .find(|g| g.resource_kind == "colleagues")
+        .unwrap();
+    assert!(grant.allow_rules().contains(&alice.to_string()));
+    assert!(grant.allow_rules().contains(&carol.to_string()));
+    let conversations = get(&daemon, daemon.cookie(), "/api/v1/conversations").await;
+    assert_eq!(conversations["items"].as_array().unwrap().len(), 2);
+    for conversation in conversations["items"].as_array().unwrap() {
+        let messages = get(
+            &daemon,
+            daemon.cookie(),
+            &format!(
+                "/api/v1/conversations/{}/messages",
+                conversation["id"].as_str().unwrap()
+            ),
+        )
+        .await;
+        assert!(
+            messages.to_string().contains("Pixie, for Bob"),
+            "{messages}"
+        );
+        assert_eq!(
+            messages["items"].as_array().unwrap().len(),
+            2,
+            "no reply loop"
+        );
+    }
+    let period = pagis_core::UsagePeriod {
+        from: 0,
+        to: i64::MAX,
+    };
+    for (workspace, cost) in [(&daemon.workspace_id, 0.3), (&alice, 0.2), (&carol, 0.3)] {
+        let total = daemon
+            .stores()
+            .usage
+            .total_for_workspace(workspace, period)
+            .await
+            .unwrap();
+        assert!(
+            (total.cost_usd - cost).abs() < 0.00001,
+            "{workspace}: {total:?}"
+        );
+    }
+    for request in brain
+        .requests()
+        .iter()
+        .filter(|r| r.system.contains("Conversation between Workspaces"))
+    {
+        let text = format!("{:?}", request.messages);
+        assert!(text.contains("trust=colleague"), "{text}");
+        assert!(text.contains("authority=requests"), "{text}");
+    }
+}
+
+#[tokio::test]
+async fn conversation_delegation_hop_cap_stops_a_reply_across_workspaces() {
+    use pagis_testkit::{Script, ScriptedBrain, TestDaemonOptions};
+    use std::sync::Arc;
+    let brain = Arc::new(ScriptedBrain::default());
+    let daemon = TestDaemon::start_in_memory_with(TestDaemonOptions {
+        brain: brain.clone(),
+        agents: pagis_agent::AgentLoopConfig {
+            max_hops: 1,
+            ..Default::default()
+        },
+        ..Default::default()
+    })
+    .await;
+    let (colleague, cookie) = person(&daemon, "Alice").await;
+    hire(&daemon, &cookie, "Helper").await;
+    daemon
+        .stores()
+        .grants
+        .create(&pagis_core::Grant {
+            created_by: pagis_core::Author::Person(daemon.user_id.clone()),
+            id: pagis_core::GrantId::generate(),
+            workspace_id: daemon.workspace_id.clone(),
+            agent_id: pagis_core::AgentId::from(daemon.agent_id.clone()),
+            resource_kind: pagis_core::Grant::COLLEAGUES_KIND.into(),
+            resource_id: None,
+            scope: pagis_core::Grant::allow_scope(&[colleague.to_string()]),
+            revision: 1,
+            created_at: pagis_core::now_ms(),
+            revoked_at: None,
+        })
+        .await
+        .unwrap();
+    brain.push_for(
+        "Pixie",
+        Script::tool_call(
+            &[],
+            "message_colleagues",
+            json!({"workspace_ids":[colleague],"text":"Can you attend?"}),
+        ),
+    );
+    brain.push_for("Pixie", Script::reply(&["I asked Alice."]));
+    brain.push_for("Helper", Script::reply(&["Alice can attend."]));
+    post(
+        &daemon,
+        daemon.cookie(),
+        &format!("/api/v1/channels/{}/messages", daemon.dm_channel_id),
+        json!({"pending_id":"hop-cap","text":"Ask Alice."}),
+    )
+    .await;
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            let runs = get(&daemon, &cookie, "/api/v1/runs").await;
+            if runs["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|r| r["state"] == "completed" && r["hop_count"] == 1)
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+    let runs = get(&daemon, daemon.cookie(), "/api/v1/runs").await;
+    assert_eq!(
+        runs["items"].as_array().unwrap().len(),
+        1,
+        "the reply at hop two starts no Run in the asking Workspace"
+    );
+    assert_eq!(brain.requests().len(), 3);
+}
+
+#[tokio::test]
+async fn conversation_person_reply_wakes_the_asking_agent_and_returns_home() {
+    use pagis_testkit::{Script, ScriptedBrain, TestDaemonOptions};
+    use std::sync::Arc;
+    let brain = Arc::new(ScriptedBrain::default());
+    let daemon = TestDaemon::start_in_memory_with(TestDaemonOptions {
+        brain: brain.clone(),
+        agents: pagis_agent::AgentLoopConfig {
+            max_concurrent_runs: 1,
+            ..Default::default()
+        },
+        ..Default::default()
+    })
+    .await;
+    let (colleague, cookie) = person(&daemon, "Alice").await;
+    daemon
+        .stores()
+        .grants
+        .create(&pagis_core::Grant {
+            created_by: pagis_core::Author::Person(daemon.user_id.clone()),
+            id: pagis_core::GrantId::generate(),
+            workspace_id: daemon.workspace_id.clone(),
+            agent_id: pagis_core::AgentId::from(daemon.agent_id.clone()),
+            resource_kind: pagis_core::Grant::COLLEAGUES_KIND.into(),
+            resource_id: None,
+            scope: pagis_core::Grant::allow_scope(&[colleague.to_string()]),
+            revision: 1,
+            created_at: pagis_core::now_ms(),
+            revoked_at: None,
+        })
+        .await
+        .unwrap();
+    brain.push_for(
+        "Pixie",
+        Script::tool_call(
+            &[],
+            "message_colleagues",
+            json!({"workspace_ids":[colleague],"text":"Can you attend?"}),
+        ),
+    );
+    brain.push_for("Pixie", Script::reply(&["I asked Alice."]));
+    brain.push_for("Pixie", Script::reply(&["Alice says she can attend."]));
+    post(
+        &daemon,
+        daemon.cookie(),
+        &format!("/api/v1/channels/{}/messages", daemon.dm_channel_id),
+        json!({"pending_id":"ask-person","text":"Ask Alice."}),
+    )
+    .await;
+    let conversation = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            let conversations = get(&daemon, &cookie, "/api/v1/conversations").await;
+            if let Some(conversation) = conversations["items"].as_array().unwrap().first() {
+                break conversation.clone();
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    post(
+        &daemon,
+        &cookie,
+        &format!(
+            "/api/v1/conversations/{}/messages",
+            conversation["id"].as_str().unwrap()
+        ),
+        json!({"pending_id":"person-answer","text":"Yes, I can attend."}),
+    )
+    .await;
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        loop {
+            if get(
+                &daemon,
+                daemon.cookie(),
+                &format!("/api/v1/channels/{}/messages", daemon.dm_channel_id),
+            )
+            .await
+            .to_string()
+            .contains("Alice says she can attend.")
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("a Person's answer returns to the asking Agent's DM Channel");
+}

@@ -652,6 +652,8 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         Arc::clone(&grants) as _,
     ));
     let tool_runtime = Arc::new(CoreToolRuntime::new(ToolRuntimeDeps {
+        users: stores.users.clone(),
+        orgs: stores.orgs.clone(),
         files: stores.files.clone(),
         blobs: blobs.clone(),
         calendar: stores.calendar.clone(),

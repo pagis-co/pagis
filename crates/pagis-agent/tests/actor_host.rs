@@ -118,6 +118,8 @@ impl ActorHost {
         let blobs: Arc<dyn object_store::ObjectStore> =
             Arc::new(object_store::memory::InMemory::new());
         let runtime = Arc::new(CoreToolRuntime::new(ToolRuntimeDeps {
+            users: self.stores.users.clone(),
+            orgs: self.stores.orgs.clone(),
             files: self.stores.files.clone(),
             blobs: blobs.clone(),
             calendar: self.stores.calendar.clone(),

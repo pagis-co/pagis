@@ -8,7 +8,8 @@ fn category(entry: &SnapshotTool) -> Option<DisclosureCategory> {
     match &entry.manifest.route {
         ToolRoute::Ui { .. }
         | ToolRoute::Core {
-            tool: CoreTool::CalendarFreeBusy,
+            tool:
+                CoreTool::CalendarFreeBusy | CoreTool::ColleaguesList | CoreTool::MessageColleagues,
         } => None,
         ToolRoute::Core {
             tool: CoreTool::CalendarRead,
@@ -167,13 +168,14 @@ mod tests {
         for tool in manifest.tools {
             let expected = match tool.route {
                 ToolRoute::Core {
-                    tool: CoreTool::CalendarFreeBusy,
-                } => {
-                    continue;
-                }
+                    tool:
+                        CoreTool::CalendarFreeBusy
+                        | CoreTool::ColleaguesList
+                        | CoreTool::MessageColleagues,
+                } => None,
                 ToolRoute::Core {
                     tool: CoreTool::CalendarRead,
-                } => DisclosureCategory::CalendarDetails,
+                } => Some(DisclosureCategory::CalendarDetails),
                 ToolRoute::Core {
                     tool:
                         CoreTool::MemoryRead
@@ -185,8 +187,8 @@ mod tests {
                         | CoreTool::MemoryDelete
                         | CoreTool::MemoryReview
                         | CoreTool::ConversationPage,
-                } => DisclosureCategory::Memory,
-                _ => DisclosureCategory::OtherPrivateData,
+                } => Some(DisclosureCategory::Memory),
+                _ => Some(DisclosureCategory::OtherPrivateData),
             };
             let entry = SnapshotTool {
                 namespace: "core".into(),
@@ -195,7 +197,7 @@ mod tests {
                 source_version: manifest.source_version.clone(),
                 grants: Vec::new(),
             };
-            assert_eq!(category(&entry), Some(expected));
+            assert_eq!(category(&entry), expected);
         }
     }
     #[test]

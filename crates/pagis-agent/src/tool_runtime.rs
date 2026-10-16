@@ -18,7 +18,11 @@ use pagis_core::{
 use crate::memory::MemoryOverlay;
 use crate::ui::BlockBuffer;
 
+mod colleagues;
+
 pub struct ToolRuntimeDeps {
+    pub users: Arc<dyn pagis_core::UserStore>,
+    pub orgs: Arc<dyn pagis_core::OrgStore>,
     pub files: Arc<dyn pagis_core::FileStore>,
     pub blobs: Arc<dyn object_store::ObjectStore>,
     pub calendar: Arc<dyn pagis_core::CalendarStore>,
@@ -177,6 +181,8 @@ impl CoreToolRuntime {
             CoreTool::CalendarRead => self.execute_calendar_read(&call).await,
             CoreTool::HostShell => self.execute_host(&call).await,
             CoreTool::ComputerShell => self.execute_computer_shell(&call).await,
+            CoreTool::MessageColleagues => self.execute_message_colleagues(&call).await,
+            CoreTool::ColleaguesList => self.execute_colleagues_list(&call).await,
             CoreTool::SendMessage => self.execute_send(&call).await,
             CoreTool::MemoryRead => self.execute_memory_read(&call).await,
             CoreTool::MemorySearch => self.execute_memory_search(&call).await,
@@ -1548,6 +1554,26 @@ fn evidence_limit(call: &AuthorizedCall, tool: &str) -> Result<u32, ToolResult> 
 
 #[async_trait]
 impl ToolExecutor for CoreToolRuntime {
+    async fn prepare(
+        &self,
+        workspace: &WorkspaceId,
+        _agent: &pagis_core::AgentId,
+        route: &ToolRoute,
+        mut arguments: serde_json::Value,
+    ) -> Result<serde_json::Value, ToolResult> {
+        if matches!(
+            route,
+            ToolRoute::Core {
+                tool: CoreTool::MessageColleagues
+            }
+        ) {
+            let (_, colleagues) = self.message_recipients(workspace, &arguments).await?;
+            arguments["colleague_names"] =
+                serde_json::json!(colleagues.iter().map(|(_, name)| name).collect::<Vec<_>>());
+        }
+        Ok(arguments)
+    }
+
     async fn execute(&self, call: AuthorizedCall) -> ToolResult {
         match call.route.clone() {
             ToolRoute::Core { tool } => self.execute_core(call, tool).await,

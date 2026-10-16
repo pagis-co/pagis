@@ -424,6 +424,11 @@ fn mailbox_of(request: &Request) -> Option<AgentMailboxId> {
 /// the record and not only the kind (ADR-0017).
 fn grant_target(request: &Request) -> Option<(&'static str, Option<String>)> {
     if request.kind == Request::TOOL_ACTION_KIND
+        && request.payload["tool_name"] == pagis_broker::MESSAGE_COLLEAGUES
+    {
+        return Some((Grant::COLLEAGUES_KIND, None));
+    }
+    if request.kind == Request::TOOL_ACTION_KIND
         && request.payload["workspace_mailbox_grant_id"].is_string()
     {
         return Some((

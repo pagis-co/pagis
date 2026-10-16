@@ -72,8 +72,27 @@ hop cap stops delivery before a new Run enters the queue. There is no second
 counter for Workspaces. The stored author Workspace also selects the sending
 Run and the live Grants for its Exposure Stamp.
 
-Not built: Agents that start conversations for their Person and group answer
-rules.
+An Agent starts or continues a conversation with `message_colleagues`.
+`colleagues_list` supplies enabled colleagues and their Private Workspace ids.
+The tool uses the same conversation for the same set of Workspaces. It writes
+an Agent message with its author Workspace, Run and Exposure Stamp.
+
+The colleague Grant belongs to the sending Agent's Workspace. Its Allow Rules
+name recipient Workspace ids. A send needs an Approval unless every recipient
+is covered. Always writes those ids onto the Grant. The broker checks the
+live Grant before dispatch and when a parked call resumes. A revoked Grant
+blocks a call from a snapshot that holds it.
+
+The Delegation origin crosses Workspaces with the hop count. A reply wakes
+the asking Agent, even while its Person is active. A Person's answer uses the
+last Agent request from the asking Workspace to keep that origin. A message
+from the asking Person ends that delegation. An Agent's final shared reply
+starts no new request. That Run reads the shared
+conversation and reports back in the Channel and Thread where it owes an
+answer. It sends no automatic reply to the colleague. Each Run checks its own
+Workspace's Spend Cap and records its Usage Records there.
+
+Not built: group answer rules.
 
 ### A Disclosure Rule decides what the Chief of Staff can reveal
 
