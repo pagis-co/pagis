@@ -19,6 +19,7 @@ mod conversation;
 mod events;
 mod evidence;
 mod forget;
+mod governance;
 mod identity;
 mod knowledge;
 mod memory;
@@ -37,6 +38,8 @@ pub struct FakeDatabase(Shared);
 
 #[derive(Clone, Default)]
 pub struct FakeAuditLog(Shared);
+#[derive(Clone, Default)]
+pub struct FakeWorkspaceGovernanceStore(Shared);
 
 /// The in-memory Calendar store.
 #[derive(Clone, Default)]
@@ -255,6 +258,7 @@ impl FakeDatabase {
         Stores {
             mail_assessments: Arc::new(FakeMailAssessmentStore(self.0.clone())),
             audit: Arc::new(FakeAuditLog(self.0.clone())),
+            governance: Arc::new(FakeWorkspaceGovernanceStore(self.0.clone())),
             workspace_mailboxes: Arc::new(FakeWorkspaceMailboxStore(self.0.clone())),
             agent_mailboxes: Arc::new(FakeAgentMailboxStore(self.0.clone())),
             agents: Arc::new(FakeAgentStore(self.0.clone())),
@@ -312,6 +316,8 @@ impl FakeDatabase {
 #[derive(Default)]
 struct Data {
     audit: BTreeMap<AuditEntryId, AuditEntry>,
+    limits: BTreeMap<WorkspaceId, crate::SharedWorkspaceLimits>,
+    versions: Vec<crate::AgentVersion>,
     workspace_mail_sends: BTreeMap<WorkspaceId, (i64, u32)>,
     mail_assessments: BTreeMap<(WorkspaceId, String, String), crate::MailAssessment>,
     workspace_mailboxes: BTreeMap<WorkspaceId, crate::WorkspaceMailbox>,

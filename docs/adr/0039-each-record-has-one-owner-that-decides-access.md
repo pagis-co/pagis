@@ -47,8 +47,8 @@ Person across all Workspaces and does not supply a connected member roster.
 Authorship on messages, Request decisions, Credentials, Grants, Schedules,
 Calendar Events and Event Subscriptions is built. Conversation messages live once under their
 Channel and record their Person author. Files are built.
-Not built: Shared Workspace Agent versioning and auditing, and
-collaborative Artifacts, which are documents, sheets, slide decks or sites. An
+Shared Workspace Agent versioning and auditing are built (ADR-0047).
+Not built: collaborative Artifacts, which are documents, sheets, slide decks or sites. An
 Artifact belongs to one Workspace, can be stored apart from it, and is shared
 by an access grant, never by a copy. Text from outside its Workspace is
 untrusted input to Agents.
@@ -69,8 +69,8 @@ Persons in it have one of three roles:
 
 An Administrator creates a Shared Workspace and names its first Manager.
 The Administrator sets the Spend Cap.
-Not built: limits on permitted Plugins and Connections, and the highest
-visibility level. A Manager works inside those limits. Member
+Shared Workspace Limits name permitted Plugins and Connections and the
+highest Mail Visibility (ADR-0047). A Manager works inside those limits. Member
 stays an Org role. It does not name a Shared Workspace role.
 
 The Team trust tier replaces Owner for Persons in a Shared Workspace.

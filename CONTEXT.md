@@ -350,7 +350,8 @@ _Avoid_: update (of an installation), migration
 
 ### Administrator
 The role that configures the installation: it manages the People, their
-passwords, sets each Workspace's Spend Cap, reads spend, and sets up the
+passwords, sets each Workspace's Spend Cap and Shared Workspace Limits,
+reads spend, and sets up the
 providers, the System Settings and the Plugins. Every Org has at least one:
 the seeded Person of a Local Installation, or the first Person of Server Setup
 (ADR-0023).
@@ -500,6 +501,15 @@ roles and removes Persons. The last Manager
 cannot be removed or demoted (ADR-0039).
 _Avoid_: team (in code and ADRs), Member (for a Shared Workspace role)
 
+### Shared Workspace Limits
+The outer limits an Administrator sets for a Shared Workspace: permitted
+Plugins, permitted Connections and highest Mail Visibility. A Manager
+configures Agents within these limits. A permission list can permit all
+resources, named resource ids, or none. A lowered limit stops existing
+Grants outside the limit at their next use. The Administrator sets the
+Spend Cap through its separate route in the Administration Interface
+(ADR-0047).
+
 ### Sign-In Link
 A one-use URL whose secret trades for a Session. There are two kinds. The
 start link is the one that the `pagis` binary prints at start on a Local
@@ -571,6 +581,15 @@ A Shared Workspace Agent introduces itself as "<Agent name>, from the
 <Workspace name> team" (ADR-0039).
 Not built: Calls or texts through a Workspace Number under a Grant (ADR-0041).
 _Avoid_: sprite (in the glossary, code and ADRs), bot
+
+### Agent Version
+An append-only snapshot of a Shared Workspace Agent configuration after a
+Person changes it. It records the Agent, Workspace, version number, Person
+author and time. Each configuration write records the version explicitly.
+The store assigns the next number in one transaction for each Agent. The
+Org Audit Log records each change. A Manager of the Workspace reads the versions.
+An Administrator reads the changes in the Org Audit Log.
+Private Workspace Agents have no Agent Versions (ADR-0047).
 
 ### Agent Voice
 How one Agent sounds, the same in a Thread and on a Call. It is one name of
@@ -1575,6 +1594,14 @@ applies after the verdict. Not built: Junk and spam verdict filtering
 One of the tools an Agent uses to search, read, send and file mail, in its
 own Agent Mailbox, in a Workspace Mailbox under its Grant, or in one of the
 Person's mail Connections under a Grant (ADR-0019, ADR-0040).
+
+### Mail Visibility
+The ordered human read levels for a Shared Workspace Mailbox: Agent only,
+Escalations and All mail. The product calls Agent only **Sprite only**.
+Shared Workspace Limits set the highest level a Manager can select. The
+level type and limit check are built.
+Not built: the selected mailbox level and enforcement on human reads
+(ADR-0040, ADR-0047).
 
 ### Mailbox Provider
 The Installation Connection through which Agent Mailboxes and Workspace

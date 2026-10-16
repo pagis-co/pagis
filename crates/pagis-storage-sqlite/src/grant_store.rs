@@ -3,6 +3,7 @@ use pagis_core::{AgentId, Grant, GrantId, GrantStore, StoreError, UnixMillis, Wo
 use sqlx::{Row, SqlitePool};
 
 use crate::db_err;
+use pagis_core::WorkspaceGovernanceStore;
 
 const COLUMNS: &str = "created_by_kind, created_by_person_id, created_by_agent_id, id, workspace_id, agent_id, resource_kind, resource_id, scope, revision, \
                        created_at, revoked_at";
@@ -43,6 +44,13 @@ fn row_to_grant(row: &sqlx::sqlite::SqliteRow) -> Result<Grant, StoreError> {
 #[async_trait]
 impl GrantStore for SqliteGrantStore {
     async fn create(&self, grant: &Grant) -> Result<(), StoreError> {
+        crate::SqliteWorkspaceGovernanceStore::new(self.pool.clone())
+            .limits(&grant.workspace_id)
+            .await?
+            .check_resource(
+                &grant.resource_kind,
+                grant.resource_id.as_deref().unwrap_or(""),
+            )?;
         sqlx::query(
             "INSERT INTO grants (created_by_kind, created_by_person_id, created_by_agent_id, id, workspace_id, agent_id, resource_kind, resource_id, scope, \
              revision, created_at, revoked_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -110,7 +118,14 @@ impl GrantStore for SqliteGrantStore {
         .fetch_optional(&self.pool)
         .await
         .map_err(db_err)?;
-        row.as_ref().map(row_to_grant).transpose()
+        let limits = crate::SqliteWorkspaceGovernanceStore::new(self.pool.clone())
+            .limits(workspace_id)
+            .await?;
+        Ok(row.as_ref().map(row_to_grant).transpose()?.filter(|g| {
+            limits
+                .check_resource(&g.resource_kind, g.resource_id.as_deref().unwrap_or(""))
+                .is_ok()
+        }))
     }
 
     async fn list_live_for_agent(
@@ -127,7 +142,18 @@ impl GrantStore for SqliteGrantStore {
         .fetch_all(&self.pool)
         .await
         .map_err(db_err)?;
-        rows.iter().map(row_to_grant).collect()
+        let limits = crate::SqliteWorkspaceGovernanceStore::new(self.pool.clone())
+            .limits(workspace_id)
+            .await?;
+        let grants: Vec<_> = rows.iter().map(row_to_grant).collect::<Result<_, _>>()?;
+        Ok(grants
+            .into_iter()
+            .filter(|g| {
+                limits
+                    .check_resource(&g.resource_kind, g.resource_id.as_deref().unwrap_or(""))
+                    .is_ok()
+            })
+            .collect())
     }
 
     async fn live_for_resource(
@@ -149,7 +175,14 @@ impl GrantStore for SqliteGrantStore {
         .fetch_optional(&self.pool)
         .await
         .map_err(db_err)?;
-        row.as_ref().map(row_to_grant).transpose()
+        let limits = crate::SqliteWorkspaceGovernanceStore::new(self.pool.clone())
+            .limits(workspace_id)
+            .await?;
+        Ok(row.as_ref().map(row_to_grant).transpose()?.filter(|g| {
+            limits
+                .check_resource(&g.resource_kind, g.resource_id.as_deref().unwrap_or(""))
+                .is_ok()
+        }))
     }
 
     async fn set_scope(

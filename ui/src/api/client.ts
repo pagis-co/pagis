@@ -181,4 +181,6 @@ export async function fetchFileBlob(fileId: string): Promise<Blob> {
   return response.blob()
 }
 
+export type SharedWorkspaceLimits = components['schemas']['SharedWorkspaceLimits']
+export type MailVisibility = components['schemas']['MailVisibility']
 export type AdministrationWorkspaceDto = components['schemas']['AdministrationWorkspaceDto']

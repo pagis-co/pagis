@@ -36,6 +36,7 @@ use crate::store::{
 /// of a task clones that field and holds nothing else.
 #[derive(Clone)]
 pub struct Stores {
+    pub governance: Arc<dyn crate::WorkspaceGovernanceStore>,
     pub audit: Arc<dyn crate::AuditLog>,
     pub workspace_members: Arc<dyn crate::WorkspaceMemberStore>,
     pub mail_assessments: Arc<dyn crate::MailAssessmentStore>,

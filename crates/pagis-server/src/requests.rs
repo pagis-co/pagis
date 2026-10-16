@@ -237,14 +237,11 @@ pub async fn decide_request(
     // decision always writes its grant and wakes its run.
     let rules: &[String] = if always { &proposed_rules } else { &[] };
     if always
-        && current.payload["workspace_mailbox_grant_id"].is_string()
         && tenant
             .workspace_role
             .is_some_and(|role| role != pagis_core::WorkspaceRole::Manager)
     {
-        return Err(ApiError::forbidden(
-            "a Manager sets Workspace Mailbox Allow Rules",
-        ));
+        return Err(ApiError::forbidden("a Manager sets Allow Rules"));
     }
     let target = if !always && current.payload["workspace_mailbox_grant_id"].is_string() {
         None
@@ -277,6 +274,7 @@ pub async fn decide_request(
             {
                 write_grant(
                     &state,
+                    &tenant,
                     &decided,
                     kind,
                     resource.as_deref(),
@@ -297,6 +295,7 @@ pub async fn decide_request(
                     .allow_recipient_domains(&tenant.workspace_id, &mailbox_id, &proposed_rules)
                     .await
                     .map_err(crate::mailboxes::mailbox_error)?;
+                crate::agent_versions::record(&state, &tenant, &decided.agent_id).await?;
             }
             // The event wakes the parked run and drives WS
             // invalidation of every card view.
@@ -509,6 +508,7 @@ async fn check_added_rules(
 /// [`check_added_rules`] has already checked the rules.
 async fn write_grant(
     state: &AppState,
+    tenant: &Tenant,
     request: &Request,
     resource_kind: &str,
     resource_id: Option<&str>,
@@ -541,6 +541,7 @@ async fn write_grant(
                 grant.scope = grant.with_session_allow_rules(std::slice::from_ref(rule));
             }
             state.grants.create(&grant).await?;
+            crate::agent_versions::record(state, tenant, &grant.agent_id).await?;
             crate::grants::publish_grant_event(state, &grant, "grant.changed").await
         }
         Some(mut grant) => {
@@ -561,11 +562,15 @@ async fn write_grant(
                 sessions.push(rule.clone());
                 grant.scope = grant.with_session_allow_rules(&sessions);
             }
-            state
+            if !state
                 .grants
                 .set_scope(&request.workspace_id, &grant.id, &grant.scope)
-                .await?;
+                .await?
+            {
+                return Err(ApiError::conflict("grant is revoked"));
+            }
             grant.revision += 1;
+            crate::agent_versions::record(state, tenant, &grant.agent_id).await?;
             crate::grants::publish_grant_event(state, &grant, "grant.changed").await
         }
     }

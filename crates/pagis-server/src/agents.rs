@@ -334,6 +334,7 @@ pub async fn create_agent(
                 .address,
         ),
     };
+    crate::agent_versions::record(&state, &tenant, &agent.id).await?;
     Ok((StatusCode::CREATED, Json(agent_dto(agent, email_address))))
 }
 
@@ -380,6 +381,7 @@ pub async fn update_agent(
     agent.standing_brief = trimmed_standing_brief(request.standing_brief);
     agent.updated_at = now_ms();
     state.agent_store.update(&agent).await?;
+    crate::agent_versions::record(&state, &tenant, &agent.id).await?;
     state
         .bus
         .publish(NewEvent {
@@ -416,6 +418,7 @@ pub async fn update_appearance(
     {
         return Err(ApiError::not_found("agent"));
     }
+    crate::agent_versions::record(&state, &tenant, &agent_id).await?;
     state
         .bus
         .publish(NewEvent {
@@ -469,6 +472,43 @@ impl axum::extract::FromRef<Arc<AppState>> for ArchiveState {
     )
 )]
 pub async fn archive_agent(
+    State(state): State<Arc<AppState>>,
+    tenant: Tenant,
+    Path(agent_id): Path<String>,
+) -> Result<Json<AgentDto>, ApiError> {
+    let id = AgentId::from(agent_id.clone());
+    let changed = state
+        .agent_store
+        .get(&tenant.workspace_id, &id)
+        .await?
+        .is_some_and(|agent| agent.status != AgentStatus::Archived);
+    let previous_chief = state
+        .workspaces
+        .get(&tenant.workspace_id)
+        .await?
+        .and_then(|w| w.chief_of_staff_agent_id);
+    let response = archive(
+        State(axum::extract::FromRef::from_ref(&state)),
+        tenant.clone(),
+        Path(agent_id),
+    )
+    .await?;
+    if changed {
+        crate::agent_versions::record(&state, &tenant, &id).await?;
+        if previous_chief.as_ref() == Some(&id)
+            && let Some(next) = state
+                .workspaces
+                .get(&tenant.workspace_id)
+                .await?
+                .and_then(|w| w.chief_of_staff_agent_id)
+        {
+            crate::agent_versions::record(&state, &tenant, &next).await?;
+        }
+    }
+    Ok(response)
+}
+
+pub(crate) async fn archive(
     State(state): State<ArchiveState>,
     tenant: Tenant,
     Path(agent_id): Path<String>,

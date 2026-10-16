@@ -8,6 +8,7 @@
 const TABLES: &[&str] = &[
     "address_ledger",
     "agent_mailboxes",
+    "agent_versions",
     "agents",
     "audit_entries",
     "calendar_events",
@@ -89,6 +90,7 @@ const TABLES: &[&str] = &[
     "users",
     "wakeup_sources",
     "wakeups",
+    "workspace_limits",
     "workspace_mailboxes",
     "workspace_members",
     "workspaces",

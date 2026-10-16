@@ -204,6 +204,7 @@ pub async fn set_chief_of_staff(
             "an archived agent cannot be the chief of staff",
         ));
     }
+    let previous = load(&state, &tenant).await?.chief_of_staff_agent_id;
     designate(
         state.workspaces.as_ref(),
         state.bus.as_ref(),
@@ -212,6 +213,12 @@ pub async fn set_chief_of_staff(
         Some(&agent.id),
     )
     .await?;
+    if previous.as_ref() != Some(&agent.id) {
+        if let Some(previous) = previous {
+            crate::agent_versions::record(&state, &tenant, &previous).await?;
+        }
+        crate::agent_versions::record(&state, &tenant, &agent.id).await?;
+    }
     Ok(Json(workspace_dto(load(&state, &tenant).await?)))
 }
 
