@@ -587,6 +587,10 @@ CREATE TABLE calls (
 CREATE INDEX idx_calls_workspace ON calls (workspace_id, created_at);
 CREATE INDEX idx_calls_number ON calls (phone_number_id, state);
 CREATE INDEX idx_calls_run ON calls (run_id);
+-- A callback reaches the Agent of the latest outbound Call to that number.
+CREATE INDEX idx_calls_callback ON calls (
+    workspace_id, phone_number_id, remote_e164, created_at DESC, id DESC
+) WHERE direction = 'outbound';
 CREATE INDEX idx_files_retention ON files (workspace_id, kind, created_at);
 
 CREATE TABLE file_retention_policies (
@@ -697,7 +701,7 @@ CREATE TABLE grants (
     workspace_id TEXT COLLATE "C" NOT NULL REFERENCES workspaces (id),
     agent_id TEXT COLLATE "C" NOT NULL REFERENCES agents (id),
     resource_kind TEXT COLLATE "C" NOT NULL
-        CHECK (resource_kind IN ('connection', 'credential', 'host', 'plugin')),
+        CHECK (resource_kind IN ('connection', 'credential', 'host', 'plugin', 'workspace_number')),
     resource_id TEXT COLLATE "C",
     scope TEXT COLLATE "C" NOT NULL,
     revision BIGINT NOT NULL DEFAULT 1,

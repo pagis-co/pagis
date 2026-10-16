@@ -209,6 +209,7 @@ impl Embedder {
             plugins: OnceLock::new(),
         });
         let broker = Arc::new(Broker::new(BrokerDeps {
+            numbers: stores.phone_numbers.clone(),
             run_journal: stores.run_journal.clone(),
             forget: stores.forget.clone(),
             grants: stores.grants.clone(),

@@ -1170,6 +1170,13 @@ pub const ROUTES: &[Route] = &[
     },
     Route {
         shared: true,
+        path: "/api/v1/grants/workspace-number",
+        methods: &["post"],
+        authenticated: true,
+        part: Some("Calls"),
+    },
+    Route {
+        shared: true,
         path: "/api/v1/grants",
         methods: &["get", "post"],
         authenticated: true,

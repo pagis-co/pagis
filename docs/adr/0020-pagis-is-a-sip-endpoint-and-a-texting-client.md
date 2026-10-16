@@ -29,7 +29,8 @@ texts; two of three carriers accept the API call and fail the message later.
 
 ADR-0041 defines Workspace Number ownership, inbound Call routing, Call
 hand-off and inbound text delivery. The Person sets the number in Settings.
-Not built: outbound Calls and outbound texts from the Workspace Number.
+Outbound Calls need a Workspace Number Grant (ADR-0041).
+Not built: outbound texts from the Workspace Number.
 
 ### Pagis terminates SIP and RTP itself
 
@@ -156,7 +157,7 @@ the Call (ADR-0041).
 A live Call uses only free tools. An action that needs approval waits until
 the Call ends. The Trust Tier narrows the tools (ADR-0021). The session tools
 hang up, send keypad digits and hand off the Call. Hand-off needs a confirmed
-Trust Tier. Not built: outbound Calls from the Workspace Number.
+Trust Tier. Outbound Calls need a Workspace Number Grant (ADR-0041).
 
 ### The classify phase
 
@@ -286,7 +287,7 @@ The `text.message_received` Incoming Event carries the number, sender,
 Trust Tier, receipt time, segment count, media flag and Text Record id.
 It contains no body. The Run reads the body from the Text Record store.
 
-Not built: outbound Calls and outbound texts from the Workspace Number,
+Not built: outbound texts from the Workspace Number,
 text tools, Messaging Readiness reads and display, the text Outgoing Cap,
 MMS media storage and the Conversation Inspector. The carrier transport and
 Text Record types contain the fields for these capabilities.

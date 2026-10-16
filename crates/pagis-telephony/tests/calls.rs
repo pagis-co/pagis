@@ -377,3 +377,13 @@ async fn stopping_the_endpoint_hangs_up_the_call() {
     assert_eq!(hub.ended(), Some(EndedReason::LocalHangup));
     assert_eq!(party.state(), PartyState::Ended(EndedReason::LocalHangup));
 }
+
+#[tokio::test(start_paused = true)]
+async fn dial_path_refuses_emergency_numbers_without_carrier_dial() {
+    let world = registered().await;
+    let before = world.transport.calls();
+    let result = world.task.place_call(&world.number, "+1911").await;
+    assert!(result.is_err());
+    assert_eq!(world.transport.calls(), before);
+    world.task.stop().await;
+}

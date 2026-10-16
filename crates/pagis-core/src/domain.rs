@@ -1293,7 +1293,8 @@ impl Request {
 /// grant names one Host and holds command allow rules, session allow
 /// rules and the widest Session Approval Mode. A connection grant names
 /// one connection and holds capabilities. A Plugin grant names one
-/// Plugin. The off switch is `revoked_at`.
+/// Plugin. A Workspace Number Grant names one number and has an empty scope.
+/// The off switch is `revoked_at`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Grant {
     pub created_by: Author,
@@ -1310,6 +1311,9 @@ pub struct Grant {
 }
 
 impl Grant {
+    /// A Grant to place outbound Calls from the Workspace Number.
+    pub const WORKSPACE_NUMBER_KIND: &'static str = "workspace_number";
+
     /// The `resource_kind` of a host grant.
     pub const HOST_KIND: &'static str = "host";
 

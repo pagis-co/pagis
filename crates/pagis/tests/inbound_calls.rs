@@ -711,3 +711,243 @@ async fn a_workspace_with_no_chief_refuses_the_call_before_answer() {
     assert!(matches!(party.state(), PartyState::Refused(_)));
     assert!(desk.bridge.answered().is_empty());
 }
+
+async fn callback(age: i64, archived: bool) {
+    use pagis_core::{CallStore, PhoneNumberStore};
+    let desk = Desk::start().await;
+    let (status, agent) = desk
+        .post(
+            "/api/v1/agents",
+            serde_json::json!({"name":"Wren","job":"Calls","personality":"calm"}),
+        )
+        .await;
+    assert_eq!(status, 201, "{agent}");
+    let target = agent["id"].as_str().unwrap();
+    let pool = desk.daemon.pool();
+    let numbers = pagis_storage_sqlite::SqlitePhoneNumberStore::new(pool.clone());
+    let number = numbers
+        .list(&desk.daemon.workspace_id)
+        .await
+        .unwrap()
+        .remove(0);
+    // An inbound Call supplies a stored Run for the outbound record.
+    let mut socket = desk.firehose().await;
+    desk.transport.ring(OWN, REMOTE);
+    let ended = next_frame_of(&mut socket, "call.ended").await;
+    let run_id = ended["payload"]["run_id"].as_str().unwrap();
+    let mut outbound = pagis_testkit::fixture::missed_call(
+        &desk.daemon.workspace_id,
+        &pagis_core::AgentId::from(target.to_string()),
+        &pagis_core::RunId::from(run_id.to_string()),
+    );
+    outbound.direction = CallDirection::Outbound;
+    outbound.phone_number_id = number.id;
+    outbound.remote_e164 = REMOTE.into();
+    outbound.created_at = pagis_core::now_ms() - age;
+    pagis_storage_sqlite::SqliteCallStore::new(pool.clone())
+        .insert(&outbound)
+        .await
+        .unwrap();
+    if archived {
+        let (status, body) = desk
+            .post(
+                &format!("/api/v1/agents/{target}/archive"),
+                serde_json::json!({}),
+            )
+            .await;
+        assert_eq!(status, 200, "{body}");
+    }
+    desk.transport.ring(OWN, REMOTE);
+    let placed = next_frame_of(&mut socket, "call.placed").await;
+    let expected = if archived || age > 7 * 24 * 60 * 60 * 1000 {
+        desk.daemon.agent_id.as_str()
+    } else {
+        target
+    };
+    assert_eq!(placed["payload"]["agent_id"], expected);
+    next_frame_of(&mut socket, "call.ended").await;
+    assert_eq!(
+        desk.bridge.answered().last().unwrap().brief.tier,
+        pagis_core::TrustTier::Unknown
+    );
+}
+#[tokio::test]
+async fn callback_inside_window_reaches_calling_agent() {
+    callback(1000, false).await;
+}
+#[tokio::test]
+async fn callback_after_window_reaches_chief_of_staff() {
+    callback(8 * 24 * 60 * 60 * 1000, false).await;
+}
+#[tokio::test]
+async fn callback_after_agent_archive_reaches_chief_of_staff() {
+    callback(1000, true).await;
+}
+
+#[tokio::test]
+async fn grants_reject_workspace_number_of_another_workspace() {
+    let pair = pagis_testkit::tenancy::TwoTenants::start().await;
+    let client = reqwest::Client::new();
+    let agent: serde_json::Value = client
+        .post(format!("{}/api/v1/agents", pair.daemon.base_url))
+        .header("cookie", &pair.b.cookie)
+        .json(&serde_json::json!({"name":"Wren", "job":"Calls", "personality":"calm"}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let number = pagis_core::PhoneNumberStore::list(
+        &pagis_storage_sqlite::SqlitePhoneNumberStore::new(pair.daemon.pool().clone()),
+        &pair.a.workspace_id,
+    )
+    .await
+    .unwrap()
+    .into_iter()
+    .find(|number| number.status == pagis_core::PhoneNumberStatus::Active)
+    .unwrap();
+    let response = client
+        .post(format!(
+            "{}/api/v1/grants/workspace-number",
+            pair.daemon.base_url
+        ))
+        .header("cookie", &pair.b.cookie)
+        .json(&serde_json::json!({"agent_id":agent["id"],"number_id":number.id}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status().as_u16(), 404);
+}
+
+#[tokio::test]
+async fn grants_create_list_and_revoke_workspace_number_access() {
+    let desk = Desk::start().await;
+    let (_, page) = desk.get("/api/v1/workspace/number").await;
+    let (status, grant) = desk
+        .post(
+            "/api/v1/grants/workspace-number",
+            serde_json::json!({
+                "agent_id":desk.daemon.agent_id,"number_id":page["number"]["id"],
+            }),
+        )
+        .await;
+    assert_eq!(status, 201, "{grant}");
+    assert_eq!(grant["resource_kind"], "workspace_number");
+    assert_eq!(grant["resource_id"], page["number"]["id"]);
+    let (_, grants) = desk.get("/api/v1/grants").await;
+    assert!(
+        grants["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["id"] == grant["id"])
+    );
+    let (status, _) = desk
+        .put(
+            &format!("/api/v1/grants/{}/rules", grant["id"].as_str().unwrap()),
+            serde_json::json!({"allow":["all"]}),
+        )
+        .await;
+    assert_eq!(status, 422);
+    let response = reqwest::Client::new()
+        .delete(format!(
+            "{}/api/v1/grants/{}",
+            desk.daemon.base_url,
+            grant["id"].as_str().unwrap()
+        ))
+        .header("cookie", desk.daemon.cookie())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status().as_u16(), 204);
+    let (_, grants) = desk.get("/api/v1/grants").await;
+    assert!(
+        !grants["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["id"] == grant["id"])
+    );
+}
+
+#[tokio::test]
+async fn granted_phone_call_dials_workspace_number_and_records_agent_and_run() {
+    let brain = Arc::new(ScriptedBrain::default());
+    brain.push(Script::tool_call(
+        &[],
+        "phone_call",
+        serde_json::json!({"to":REMOTE,"purpose":"Book a table"}),
+    ));
+    brain.push(Script::reply(&["Done."]));
+    let sessions = Arc::new(pagis_telephony::model_fake::FakeModelSessions::new());
+    let desk = Desk::start_with(TestDaemonOptions {
+        brain,
+        model_sessions: Some(sessions.clone()),
+        keys: pagis_testkit::test_provider_keys(vec![("OPENAI_API_KEY", "sk-test")]),
+        ..TestDaemonOptions::default()
+    })
+    .await;
+    let (_, page) = desk.get("/api/v1/workspace/number").await;
+    let (status, grant) = desk
+        .post(
+            "/api/v1/grants/workspace-number",
+            serde_json::json!({"agent_id":desk.daemon.agent_id,"number_id":page["number"]["id"]}),
+        )
+        .await;
+    assert_eq!(status, 201, "{grant}");
+    let mut socket = desk.firehose().await;
+    let (status, message) = desk
+        .post(
+            &format!("/api/v1/channels/{}/messages", desk.daemon.dm_channel_id),
+            serde_json::json!({"pending_id":"call-table","text":"Book a table"}),
+        )
+        .await;
+    assert_eq!(status, 201, "{message}");
+    let requested = next_frame_of(&mut socket, "request.created").await;
+    let request = requested["payload"]["payload"]["request_id"]
+        .as_str()
+        .unwrap();
+    let (status, body) = desk
+        .post(
+            &format!("/api/v1/requests/{request}/decision"),
+            serde_json::json!({"decision":"approved"}),
+        )
+        .await;
+    assert_eq!(status, 200, "{body}");
+    let placed = next_frame_of(&mut socket, "call.placed").await;
+    let call_id = placed["payload"]["payload"]["call_id"].as_str().unwrap();
+    let run_id = placed["payload"]["run_id"].as_str().unwrap();
+    let party = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if let Some(party) = desk.transport.dials().first() {
+                break party.clone();
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the carrier receives the Call");
+    assert!(desk.transport.calls().iter().any(|call| matches!(call, pagis_telephony::fake::LineCall::Dial { from, to } if from == OWN && to == REMOTE)));
+    party.answer();
+    let peer = model_peer(&sessions, 0).await;
+    peer.wait_for("session.update").await;
+    party.speak(pagis_telephony::audio::Frame::silence(
+        pagis_telephony::audio::Codec::Pcmu,
+    ));
+    peer.wait_for("input_audio_buffer.append").await;
+    peer.function_call(
+        "classify",
+        "report_answer",
+        serde_json::json!({"category":"human"}),
+    );
+    party.hangup();
+    next_frame_of(&mut socket, "call.ended").await;
+    let (status, call) = desk.get(&format!("/api/v1/calls/{call_id}")).await;
+    assert_eq!(status, 200, "{call}");
+    assert_eq!(call["agent_id"], desk.daemon.agent_id);
+    assert_eq!(call["run_id"], run_id);
+    assert_eq!(call["direction"], "outbound");
+    assert_eq!(call["own_e164"], OWN);
+    assert_eq!(call["remote_e164"], REMOTE);
+}

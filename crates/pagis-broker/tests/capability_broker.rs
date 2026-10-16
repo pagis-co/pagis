@@ -237,6 +237,9 @@ async fn harness_with(
     let behind = behind.unwrap_or_else(|| Arc::clone(&executor) as _);
     let starts = Arc::new(ScriptedStarts::default());
     let broker = Broker::new(BrokerDeps {
+        numbers: Arc::new(pagis_storage_sqlite::SqlitePhoneNumberStore::new(
+            pool.clone(),
+        )),
         run_journal: Arc::new(pagis_storage_sqlite::SqliteRunJournal::new(pool.clone())),
         forget: Arc::new(pagis_storage_sqlite::SqliteForgetStore::new(pool.clone())),
         grants: Arc::new(SqliteGrantStore::new(pool.clone())),
@@ -2409,4 +2412,96 @@ async fn an_installation_manifest_reaches_every_tenant(pool: SqlitePool) {
             .broker
             .connection_capabilities(&second.workspace.id, "google")
     );
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn phone_call_is_absent_without_workspace_number_grant(pool: SqlitePool) {
+    let harness = harness(pool).await;
+    pagis_core::PhoneNumberStore::create(
+        &pagis_storage_sqlite::SqlitePhoneNumberStore::new(harness.pool.clone()),
+        &pagis_core::PhoneNumber::new(
+            pagis_core::PhoneNumberId::generate(),
+            harness.workspace.id.clone(),
+            pagis_core::ConnectionId::generate(),
+            "+14155550123".into(),
+            "carrier".into(),
+            now_ms(),
+        ),
+    )
+    .await
+    .unwrap();
+    let snapshot = harness
+        .broker
+        .prepare_run(&harness.workspace.id, &harness.agent.id, &harness.run.id)
+        .await
+        .unwrap();
+    assert!(!snapshot.tools.iter().any(|tool| tool.name == "phone_call"));
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn phone_call_rechecks_workspace_number_grant_after_approval(pool: SqlitePool) {
+    use pagis_core::PhoneNumberStore;
+    let harness = harness(pool).await;
+    let number = pagis_core::PhoneNumber::new(
+        pagis_core::PhoneNumberId::generate(),
+        harness.workspace.id.clone(),
+        pagis_core::ConnectionId::generate(),
+        "+14155550123".into(),
+        "carrier".into(),
+        now_ms(),
+    );
+    pagis_storage_sqlite::SqlitePhoneNumberStore::new(harness.pool.clone())
+        .create(&number)
+        .await
+        .unwrap();
+    let grant = Grant {
+        id: GrantId::generate(),
+        created_by: pagis_core::Author::System,
+        workspace_id: harness.workspace.id.clone(),
+        agent_id: harness.agent.id.clone(),
+        resource_kind: Grant::WORKSPACE_NUMBER_KIND.into(),
+        resource_id: Some(number.id.to_string()),
+        scope: serde_json::json!({}),
+        revision: 1,
+        created_at: now_ms(),
+        revoked_at: None,
+    };
+    let grants = SqliteGrantStore::new(harness.pool.clone());
+    grants.create(&grant).await.unwrap();
+    let snapshot = harness
+        .broker
+        .prepare_run(&harness.workspace.id, &harness.agent.id, &harness.run.id)
+        .await
+        .unwrap();
+    assert!(snapshot.tools.iter().any(|tool| tool.name == "phone_call"));
+    let outcome = harness
+        .broker
+        .invoke(
+            &harness.workspace.id,
+            &harness.run.id,
+            &snapshot.id,
+            pagis_broker::ToolCall::new(
+                "phone_call",
+                r#"{"to":"+16505550100","purpose":"Book a table"}"#,
+            ),
+        )
+        .await
+        .unwrap();
+    let pagis_broker::InvokeOutcome::Waiting(pending) = outcome else {
+        panic!("a Call needs approval: {outcome:?}");
+    };
+    grants
+        .revoke(&harness.workspace.id, &grant.id, now_ms())
+        .await
+        .unwrap();
+    let outcome = harness
+        .broker
+        .resolve(&pending.request.id, RequestState::Approved)
+        .await
+        .unwrap();
+    let pagis_broker::InvokeOutcome::Rejected(result) = outcome else {
+        panic!("revocation blocks the Call: {outcome:?}");
+    };
+    assert_eq!(result.code.as_deref(), Some("permission_revoked"));
+    assert!(harness.executor.calls.lock().unwrap().is_empty());
 }

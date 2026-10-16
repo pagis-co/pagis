@@ -562,7 +562,10 @@ Change the Chief of Staff to change who answers the next Call. The Call
 Brief in Settings belongs to that Agent. Release the number in Settings to
 return it to the carrier and stop the charge.
 
-Not built: outbound Calls and outbound texts from the Workspace Number.
+An Agent with a live Workspace Number Grant uses `phone_call` to call out.
+Callbacks within seven days reach the active Agent of the latest outbound
+Call to that caller. Otherwise the Chief of Staff answers.
+Not built: outbound texts from the Workspace Number.
 
 ## Mail
 

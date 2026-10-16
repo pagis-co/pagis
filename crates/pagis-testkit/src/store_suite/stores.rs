@@ -1093,6 +1093,67 @@ pub async fn a_dismissed_run_keeps_its_first_dismissal(backend: &Backend) {
     assert_eq!(read.state, RunState::Failed);
 }
 
+pub async fn latest_outbound_call_matches_number_remote_party_and_window(backend: &Backend) {
+    let ws = backend.seeded_workspace().await;
+    let other = backend.seeded_workspace().await;
+    let a = agent(&ws.id);
+    backend.stores().agents.create(&a).await.unwrap();
+    let ch = channel(&ws.id);
+    backend.stores().channels.create(&ch).await.unwrap();
+    let run = queued_run(&ws.id, &a.id, &ch.id);
+    backend.stores().runs.create(&run).await.unwrap();
+    let store = &backend.stores().calls;
+    let mut call = missed_call(&ws.id, &a.id, &run.id);
+    call.direction = pagis_core::CallDirection::Outbound;
+    call.created_at = 100;
+    store.insert(&call).await.unwrap();
+    let mut latest = call.clone();
+    latest.id = pagis_core::CallId::generate();
+    latest.created_at = 200;
+    store.insert(&latest).await.unwrap();
+    let mut inbound = latest.clone();
+    inbound.id = pagis_core::CallId::generate();
+    inbound.direction = pagis_core::CallDirection::Inbound;
+    inbound.created_at = 300;
+    store.insert(&inbound).await.unwrap();
+    assert_eq!(
+        store
+            .latest_outbound_since(&ws.id, &call.phone_number_id, &call.remote_e164, 200)
+            .await
+            .unwrap(),
+        Some(latest)
+    );
+    for (workspace, number, remote, since) in [
+        (
+            &other.id,
+            call.phone_number_id.clone(),
+            call.remote_e164.as_str(),
+            0,
+        ),
+        (
+            &ws.id,
+            pagis_core::PhoneNumberId::generate(),
+            call.remote_e164.as_str(),
+            0,
+        ),
+        (&ws.id, call.phone_number_id.clone(), "+14155550000", 0),
+        (
+            &ws.id,
+            call.phone_number_id.clone(),
+            call.remote_e164.as_str(),
+            201,
+        ),
+    ] {
+        assert!(
+            store
+                .latest_outbound_since(workspace, &number, remote, since)
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+}
+
 pub async fn a_dismissed_call_keeps_its_first_dismissal(backend: &Backend) {
     let ws = backend.seeded_workspace().await;
     let other_ws = backend.seeded_workspace().await;
@@ -2954,6 +3015,7 @@ macro_rules! store_suite_stores {
             fail_streaming_marks_only_streaming_messages,
             run_roundtrips_and_updates_through_store,
             a_dismissed_run_keeps_its_first_dismissal,
+            latest_outbound_call_matches_number_remote_party_and_window,
             a_dismissed_call_keeps_its_first_dismissal,
             file_roundtrips_through_store,
             duplicate_content_dedups_to_the_original_file,

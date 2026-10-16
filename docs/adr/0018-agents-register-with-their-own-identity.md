@@ -35,7 +35,8 @@ belongs to the Workspace. The Chief of Staff answers inbound Calls and
 receives inbound texts (ADR-0041). A change of designation changes who
 answers the next Call. Archiving an Agent does not release the number.
 Calls name the Agent that holds them. Text Records name the Workspace Number.
-Not built: outbound Calls and outbound texts from the Workspace Number.
+Outbound Calls need a Workspace Number Grant (ADR-0041).
+Not built: outbound texts from the Workspace Number.
 
 ### Pagis never calls an emergency number
 
@@ -46,8 +47,8 @@ caller id enabled for it.
 
 The telephony library contains one emergency-number predicate. It has no
 setting, override or approval. Keypad tones are not filtered: a tone does
-not start a Call. Not built: the Grant-based outbound Call path and its
-broker and dial guards (ADR-0041).
+not start a Call. The outbound Call tool and the dial path both refuse
+emergency numbers (ADR-0041).
 
 The data is libphonenumber's short-number and phone-number metadata
 (Apache-2.0). `cargo xtask emergency-numbers` converts the emergency patterns

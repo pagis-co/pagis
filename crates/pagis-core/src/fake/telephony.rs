@@ -476,6 +476,28 @@ impl SentMailStore for FakeSentMailStore {
 
 #[async_trait::async_trait]
 impl CallStore for FakeCallStore {
+    async fn latest_outbound_since(
+        &self,
+        workspace_id: &WorkspaceId,
+        number_id: &PhoneNumberId,
+        remote_e164: &str,
+        since: UnixMillis,
+    ) -> Result<Option<Call>, StoreError> {
+        Ok(self
+            .0
+            .lock()
+            .unwrap()
+            .calls
+            .rows(workspace_id)
+            .filter(|call| {
+                &call.phone_number_id == number_id
+                    && call.remote_e164 == remote_e164
+                    && call.direction == CallDirection::Outbound
+                    && call.created_at >= since
+            })
+            .max_by(|a, b| (a.created_at, &a.id).cmp(&(b.created_at, &b.id)))
+            .cloned())
+    }
     async fn insert(&self, call: &Call) -> Result<(), StoreError> {
         self.0
             .lock()

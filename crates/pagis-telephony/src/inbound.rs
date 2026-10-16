@@ -61,6 +61,9 @@ pub struct InboundCallsDeps {
     pub standing_rule: Arc<dyn crate::events::StandingCallRule>,
 }
 
+/// The period in which a callback reaches the Agent that called.
+pub const CALLBACK_WINDOW_MS: i64 = 7 * 24 * 60 * 60 * 1000;
+
 pub struct InboundCalls {
     deps: InboundCallsDeps,
 }
@@ -117,21 +120,49 @@ impl InboundCalls {
         let number = self
             .held_number(&incoming.workspace_id, &incoming.phone_number_id)
             .await?;
-        let agent_id = self
+        let recent = self
             .deps
-            .workspaces
-            .get(&number.workspace_id)
+            .calls
+            .latest_outbound_since(
+                &number.workspace_id,
+                &number.id,
+                &incoming.from_e164,
+                now_ms().saturating_sub(CALLBACK_WINDOW_MS),
+            )
             .await
-            .map_err(|error| InboundError(error.to_string()))?
-            .and_then(|workspace| workspace.chief_of_staff_agent_id)
-            .ok_or_else(|| InboundError("this Workspace has no Chief of Staff".into()))?;
-        let agent = self
-            .deps
-            .agents
-            .get(&number.workspace_id, &agent_id)
-            .await
-            .map_err(|error| InboundError(error.to_string()))?
-            .ok_or_else(|| InboundError("the Agent is gone".to_string()))?;
+            .map_err(|error| InboundError(error.to_string()))?;
+        let callback_agent = match recent {
+            Some(call) => self
+                .deps
+                .agents
+                .get(&number.workspace_id, &call.agent_id)
+                .await
+                .map_err(|error| InboundError(error.to_string()))?
+                .filter(|agent| agent.status == pagis_core::AgentStatus::Active),
+            None => None,
+        };
+        let agent = match callback_agent {
+            Some(agent) => agent,
+            None => {
+                let agent_id = self
+                    .deps
+                    .workspaces
+                    .get(&number.workspace_id)
+                    .await
+                    .map_err(|error| InboundError(error.to_string()))?
+                    .and_then(|workspace| workspace.chief_of_staff_agent_id)
+                    .ok_or_else(|| InboundError("this Workspace has no Chief of Staff".into()))?;
+                self.deps
+                    .agents
+                    .get(&number.workspace_id, &agent_id)
+                    .await
+                    .map_err(|error| InboundError(error.to_string()))?
+                    .filter(|agent| agent.status == pagis_core::AgentStatus::Active)
+                    .ok_or_else(|| {
+                        InboundError("this Workspace has no active Chief of Staff".into())
+                    })?
+            }
+        };
         let call_id = CallId::generate();
         let run = self
             .deps

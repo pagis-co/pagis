@@ -86,7 +86,7 @@ pub use events::{
     STANDING_CALL_INSTRUCTION, STANDING_CALL_RULE_NAME, SettledCall, StandingCallRule,
     StandingRuleError, call_ended_event,
 };
-pub use inbound::{InboundCalls, InboundCallsDeps, InboundError, InboundRuns};
+pub use inbound::{CALLBACK_WINDOW_MS, InboundCalls, InboundCallsDeps, InboundError, InboundRuns};
 pub use keypad::{CodeCheck, Keypad, NoCode};
 pub use live::{CallActive, LiveCallGuard, LiveCalls};
 pub use model_router::{
