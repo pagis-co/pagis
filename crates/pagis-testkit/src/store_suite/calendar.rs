@@ -225,11 +225,90 @@ pub async fn calendar_authors_use_checked_columns(backend: &Backend) {
     }
 }
 
+pub async fn calendar_free_busy(backend: &Backend) {
+    let workspace = backend.seeded_workspace().await;
+    let store = &backend.stores().calendar;
+    let ms = |s: &str| {
+        chrono::DateTime::parse_from_rfc3339(s)
+            .unwrap()
+            .timestamp_millis()
+    };
+    let row = event(workspace.id.clone());
+    store.create(&row).await.unwrap();
+    for (start, end) in [("09:30:00", "10:30:00"), ("10:30:00", "11:00:00")] {
+        let mut overlap = event(workspace.id.clone());
+        overlap.data.rrule = None;
+        overlap.data.exdates.clear();
+        overlap.data.start = format!("2026-03-08T{start}");
+        overlap.data.end = format!("2026-03-08T{end}");
+        store.create(&overlap).await.unwrap();
+    }
+    let mut all_day = event(workspace.id.clone());
+    all_day.data.all_day = true;
+    all_day.data.start = "2026-03-07".into();
+    all_day.data.end = "2026-03-11".into();
+    all_day.data.rrule = None;
+    all_day.data.exdates.clear();
+    store.create(&all_day).await.unwrap();
+    let from = ms("2026-03-07T14:30:00Z");
+    let to = ms("2026-03-11T00:00:00Z");
+    let busy = store.free_busy(&workspace.id, from, to).await.unwrap();
+    assert_eq!(
+        busy,
+        vec![
+            pagis_core::BusyInterval {
+                start_ms: from,
+                end_ms: ms("2026-03-07T15:00:00Z")
+            },
+            pagis_core::BusyInterval {
+                start_ms: ms("2026-03-08T13:00:00Z"),
+                end_ms: ms("2026-03-08T15:00:00Z")
+            },
+            pagis_core::BusyInterval {
+                start_ms: ms("2026-03-10T13:00:00Z"),
+                end_ms: ms("2026-03-10T14:00:00Z")
+            },
+        ]
+    );
+    assert!(
+        store
+            .free_busy(&WorkspaceId::generate(), from, to)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(store.free_busy(&workspace.id, to, from).await.is_err());
+    assert!(
+        store
+            .free_busy(
+                &workspace.id,
+                ms("2026-03-08T15:00:00Z"),
+                ms("2026-03-09T00:00:00Z")
+            )
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        store
+            .free_busy(
+                &workspace.id,
+                ms("2026-03-08T13:00:00Z"),
+                ms("2026-03-08T13:30:00Z")
+            )
+            .await
+            .unwrap()[0]
+            .end_ms,
+        ms("2026-03-08T13:30:00Z")
+    );
+}
+
 #[macro_export]
 macro_rules! store_suite_calendar {
     ($emit:path) => {
         $emit!(
             calendar,
+            calendar_free_busy,
             calendar_crud_and_workspace_boundary,
             calendar_recurrence_dst_exdate_and_range,
             calendar_all_day_and_occurrence_cap,

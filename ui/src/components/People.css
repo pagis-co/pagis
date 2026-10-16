@@ -36,3 +36,5 @@
   flex: 1;
   overflow: hidden auto;
 }
+
+.person-presence-in_a_meeting { background: var(--on-call); }

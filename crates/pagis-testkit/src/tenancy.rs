@@ -135,6 +135,10 @@ const OPAQUE: &[(&str, &str)] = &[
 /// how each route keeps.
 const ORG_OWNED: &[(&str, &str)] = &[
     (
+        "/api/v1/free-busy",
+        "Free/Busy is readable in the Org by design. The answer holds merged busy intervals and no Event details.",
+    ),
+    (
         "/api/v1/plugins/{plugin_id}",
         "the Org's installed Plugin, which everybody in the Org reads. \
          The running state and the frozen catalogue in the answer come \

@@ -58,9 +58,18 @@ other attendees. Not built: iMIP invitation handling.
 
 ### Availability and event details have separate access rules
 
-Free/busy is readable inside the Org. Event details follow Disclosure Rules
-(ADR-0043). An availability answer does not open the event, mail or memory
-that explains it. Not built: free/busy reads and Disclosure Rules.
+Free/Busy reads return merged busy intervals in a half-open UTC range.
+Timed occurrences are busy. All-day Events are free. Overlapping and touching
+intervals merge. Each Org member can read Free/Busy by a Person's login
+email or a Workspace Mailbox address. The answer holds start and end times
+only, with no Event details. The planner shows the Free/Busy of attendees
+and the Person on an hour axis, with the chosen time and conflicts.
+A colleague is in a meeting while a busy interval of their Private Workspace
+Calendar contains the current time. The server computes this status on each read;
+it takes priority over active client input.
+Event details follow Disclosure Rules (ADR-0043). An availability answer
+does not open the Event, mail or memory that explains it.
+Not built: Disclosure Rules.
 
 ### Agents use calendar tools under Grants
 

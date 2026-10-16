@@ -20,7 +20,8 @@ pub struct ColleagueDto {
     pub person_id: String,
     pub workspace_id: String,
     pub name: String,
-    /// `active` or `away`, from the Private Workspace's client input.
+    /// `in_a_meeting` during a busy Event in the Private Workspace Calendar;
+    /// otherwise `active` or `away`, from client input.
     pub presence: String,
 }
 
@@ -58,24 +59,34 @@ pub struct ConversationMessages {
     pub next_cursor: Option<String>,
 }
 
-fn person_dto(
+async fn person_dto(
     state: &AppState,
     person: pagis_core::User,
     workspace_id: &WorkspaceId,
-) -> ColleagueDto {
-    let active = state
-        .person_activity
-        .hold_until(&person.id, state.clock.now_ms())
-        .is_some();
-    ColleagueDto {
+) -> Result<ColleagueDto, ApiError> {
+    let now = state.clock.now_ms();
+    let active = state.person_activity.hold_until(&person.id, now).is_some();
+    let meeting = !state
+        .calendar
+        .free_busy(workspace_id, now, now + 1)
+        .await?
+        .is_empty();
+    Ok(ColleagueDto {
         person_id: person.id.to_string(),
         workspace_id: workspace_id.to_string(),
         name: person
             .name
             .or(person.email)
             .unwrap_or_else(|| "Person".into()),
-        presence: if active { "active" } else { "away" }.into(),
-    }
+        presence: if meeting {
+            "in_a_meeting"
+        } else if active {
+            "active"
+        } else {
+            "away"
+        }
+        .into(),
+    })
 }
 
 async fn people(state: &AppState, tenant: &Tenant) -> Result<Vec<ColleagueDto>, ApiError> {
@@ -90,7 +101,7 @@ async fn people(state: &AppState, tenant: &Tenant) -> Result<Vec<ColleagueDto>, 
             continue;
         }
         if let Some(workspace) = state.workspaces.for_user(&person.id).await? {
-            items.push(person_dto(state, person, &workspace.id));
+            items.push(person_dto(state, person, &workspace.id).await?);
         }
     }
     Ok(items)
@@ -161,7 +172,7 @@ async fn dto(
             )
             .await?
             .ok_or_else(|| ApiError::not_found("participant"))?;
-        participants.push(person_dto(state, person, &id));
+        participants.push(person_dto(state, person, &id).await?);
     }
     let last_message = match state
         .messages

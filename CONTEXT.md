@@ -417,11 +417,11 @@ Not built: its use as an Org-wide Shared Workspace with every Person in it
 One human in the Org, with a name, an Org role and exactly one Private
 Workspace. A Person signs in before a client reads or writes their data.
 The daemon gives each Person one Workspace (ADR-0023). Presence is
-active while a visible client had input in the last 120 s, and away
-otherwise. It reads the Private Workspace's Notification activity state
-(ADR-0030). A Person enters each Shared
+in a meeting during a busy Event in the Private Workspace Calendar;
+otherwise active while a visible client had input in the last 120 s, and away
+otherwise. Active and away read the Private Workspace's Notification
+activity state (ADR-0030). A Person enters each Shared
 Workspace through its role (ADR-0039).
-Not built: calendar presence (ADR-0043).
 _Avoid_: user record, account (for a Person; an
 account is at an external provider)
 
@@ -565,12 +565,12 @@ Workspace role. A Channel can also have Workspaces as participants. That
 conversation is stored once in the Org's Workspace, outside the
 participant Workspaces. Each participant Workspace reads it there. The
 same set of Workspaces opens one conversation. Each route checks
-participation before access. A Person finds colleagues and their active
-or away presence in People. A message publishes a live event to each
-participant Workspace and starts no Agent Run (ADR-0039, ADR-0043).
+participation before access. A Person finds colleagues and their active,
+away or in a meeting presence in People. A message publishes a live event
+to each participant Workspace and starts no Agent Run (ADR-0039, ADR-0043).
 Not built: away Notifications, Chief of Staff answers, Delegate
 everything, For the person only, Disclosure Rules, Agents messaging
-colleagues, group answer rules and calendar presence.
+colleagues and group answer rules.
 
 ### Chief of Staff
 The main Agent of a Workspace: the active Agent it addresses by default.
@@ -701,6 +701,14 @@ meeting link that the Person chooses. A reminder is stored as minutes
 before the start. Reminder delivery as Notifications is not built
 (ADR-0042). An Event is separate from an Incoming Event or an Event
 Subscription.
+
+### Free/Busy
+The merged busy intervals of a Workspace Calendar in a half-open UTC range.
+Timed occurrences are busy. All-day Events are free. Overlapping and touching
+intervals merge. Org members read the start and end times by a Person's
+login email or a Workspace Mailbox address. The answer holds no Event details.
+The Event editor shows attendees and the Person on an hour axis, with the
+chosen time and conflicts (ADR-0042).
 
 ## Runs and triggers
 

@@ -45,6 +45,24 @@ impl CalendarStore for FakeCalendarStore {
             .remove(workspace, id)
             .is_some())
     }
+    async fn free_busy(
+        &self,
+        workspace: &WorkspaceId,
+        from: i64,
+        to: i64,
+    ) -> Result<Vec<crate::BusyInterval>, StoreError> {
+        crate::calendar::free_busy(
+            self.0
+                .lock()
+                .unwrap()
+                .calendar
+                .rows(workspace)
+                .cloned()
+                .collect(),
+            CalendarRange::new(from, to)?,
+        )
+        .map_err(Into::into)
+    }
     async fn list(
         &self,
         workspace: &WorkspaceId,

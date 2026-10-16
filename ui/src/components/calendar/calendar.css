@@ -100,6 +100,7 @@
 .calendar-timed-event .calendar-event-open { height: auto; }
 
 .calendar-editor {
+  min-width: 0;
   display: grid;
   gap: var(--space-3-5);
 }
@@ -138,3 +139,16 @@
   .calendar-month .calendar-day-cell { padding: var(--space-0-5); }
   .calendar-editor-times { grid-template-columns: 1fr; }
 }
+
+.calendar-free-busy { min-width: 0; max-width: 100%; }
+.calendar-free-busy-scroll { overflow-x: auto; max-width: 100%; }
+.calendar-free-busy table { border-collapse: collapse; width: 100%; min-width: 72rem; }
+.calendar-free-busy th { text-align: left; font-weight: var(--weight-regular); }
+.calendar-free-busy th:first-child { width: 12rem; overflow-wrap: anywhere; padding-right: var(--space-2); position: sticky; left: 0; z-index: 1; background: var(--panel); }
+.calendar-free-busy-axis, .calendar-free-busy-track { position: relative; height: 2rem; }
+.calendar-free-busy-axis span { position: absolute; font-size: var(--text-xs); }
+.calendar-free-busy-track { background: var(--panel); border: 1px solid var(--border); }
+.calendar-free-busy-interval, .calendar-free-busy-chosen { position: absolute; top: 0; height: 100%; box-sizing: border-box; }
+.calendar-free-busy-interval { background: var(--border-strong); }
+.calendar-free-busy-chosen { border: 2px solid var(--accent); }
+.calendar-conflict { display: block; color: var(--waiting-ink); font-size: var(--text-xs); }

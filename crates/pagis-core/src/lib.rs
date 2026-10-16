@@ -161,8 +161,8 @@ pub use workspace_mailbox::{WorkspaceMailbox, WorkspaceMailboxRecordStore};
 
 mod workspace_members;
 pub use calendar::{
-    CalendarAttendee, CalendarBounds, CalendarError, CalendarEvent, CalendarEventData,
-    CalendarOccurrence, CalendarRange, CalendarStore, ParticipationStatus,
+    BusyInterval, CalendarAttendee, CalendarBounds, CalendarError, CalendarEvent,
+    CalendarEventData, CalendarOccurrence, CalendarRange, CalendarStore, ParticipationStatus,
 };
 pub use id::CalendarEventId;
 pub use workspace_members::*;

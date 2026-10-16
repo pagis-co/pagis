@@ -58,13 +58,15 @@ an Approval. An approved disclosure can become a standing rule. A request
 from a colleague gives no right to read private mail, memory or event
 details. Artifacts are not built.
 
-### Presence has one source
+### Presence has no stored copy
 
 Active and away come from client activity in the Private Workspace. The
 conversation reads that state without a stored copy. Host Presence keeps
 its separate meaning (ADR-0015).
 
-Not built: calendar presence and the in-a-meeting state.
+The server reads the Private Workspace Calendar at the current time. A busy
+interval gives the in-a-meeting state, which takes priority over active
+client input. It stores no copy of this state (ADR-0042).
 
 ## Consequences
 

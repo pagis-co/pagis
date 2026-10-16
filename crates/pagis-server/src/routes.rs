@@ -876,6 +876,13 @@ pub const ROUTES: &[Route] = &[
     },
     Route {
         shared: false,
+        path: "/api/v1/free-busy",
+        methods: &["post"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
+        shared: false,
         path: "/api/v1/colleagues",
         methods: &["get"],
         authenticated: true,
