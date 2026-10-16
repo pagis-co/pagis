@@ -1,6 +1,7 @@
 /** Each section is a URL: `/settings/:section`. Agents are
  *  not here: the sprites have a page of their own. */
 export type SettingsSection =
+  | 'disclosure'
   | 'members'
   | 'workspace-number'
   | 'mailbox'
@@ -27,6 +28,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
   {
     label: 'Access',
     sections: [
+      { value: 'disclosure', label: 'Disclosure Rules' },
       { value: 'members', label: 'Members' },
       { value: 'workspace-number', label: 'Workspace Number' },
       { value: 'mailbox', label: 'Workspace Mailbox' },

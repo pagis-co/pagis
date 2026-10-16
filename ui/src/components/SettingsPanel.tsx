@@ -1,4 +1,5 @@
 import { useWorkspaceAccess } from '../workspace'
+import { DisclosureRules } from './settings/DisclosureRules'
 import { Members } from './settings/Members'
 import { WorkspaceNumber } from './settings/WorkspaceNumber'
 import { useState, type ReactNode } from 'react'
@@ -95,6 +96,8 @@ export function SettingsPanel({
       isAdministrator={isAdministrator}
       administration={administration}
     >
+      {section === 'disclosure' && isPrivate && <DisclosureRules api={api} />}
+      {section === 'disclosure' && !isPrivate && <p>Disclosure Rules belong to a Private Workspace.</p>}
       {section === 'members' && <Members api={api} />}
       {section === 'mailbox' && <WorkspaceMailbox api={api} />}
       {section === 'connections' && (

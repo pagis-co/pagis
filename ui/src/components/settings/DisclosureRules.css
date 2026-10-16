@@ -1,0 +1,13 @@
+.disclosure-profile {
+  width: 100%;
+}
+
+.disclosure-rule-editor {
+  flex-wrap: wrap;
+}
+
+.disclosure-rule > span {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}

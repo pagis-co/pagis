@@ -374,7 +374,17 @@ transaction (ADR-0044).
 A rule that says what a Chief of Staff may reveal to whom. Defaults share
 free/busy, the Person's profile and Files or Artifacts already shared with
 the asker. Anything else needs an Approval. An approved disclosure can
-become a standing rule. Not built: Disclosure Rules (ADR-0043).
+become a standing rule. The Person writes the profile and manages rules in
+Settings. A rule permits memory, mail, calendar details or other private data
+for one Workspace or every Workspace of the Org. The daemon checks each
+private tool read in a colleague Run. Private indexes and the Brief do not
+enter that Run automatically. Always on the Approval stores the matching
+rules for every asker who needs permission. Every other participant
+Workspace is an asker. Files attached to messages in that shared Channel
+pass through `file_read` by default. `conversation_read` and
+`conversation_search` read that Channel by default. Private Subject Pages
+need Memory permission. The request API hides internal resume arguments.
+Collaborative Artifacts are not built (ADR-0043).
 
 ### Exposure Stamp
 The record of which Grants the author of a message or a memory file held
@@ -632,7 +642,7 @@ to each participant Workspace. In a conversation between two Workspaces,
 the Chief of Staff answers when the recipient is away or Delegate everything
 is on. For the person only keeps the Agent's context note private. An Agent
 reply shows `<Agent>, for <Person>` (ADR-0039, ADR-0043).
-Not built: away Notifications, Disclosure Rules, Agents that start messages
+Not built: away Notifications, Agents that start messages
 for their Person and group answer rules.
 
 ### Chief of Staff
@@ -1791,7 +1801,7 @@ Run queued or running in a Channel. A Run that reflects turns no ring
 The kind of Request that asks permission to act: a tool action, a
 credential action, or a Harness Permission that asks the Person. The
 approval card is a view of it. Only an Approval takes a scope, which is how
-"Always allow" writes an Allow Rule (ADR-0004, ADR-0033).
+"Always allow" writes an Allow Rule or a Disclosure Rule (ADR-0004, ADR-0033, ADR-0043).
 
 ### Artifact
 A collaborative document, sheet, slide deck or site. It belongs to one

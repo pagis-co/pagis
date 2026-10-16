@@ -56,7 +56,7 @@ export function SettingsPhone({ api }: { api: ApiClient }) {
             <SectionLabel>{group.label}</SectionLabel>
             <Frame>
               {(group.label === 'System' ? [...group.sections].reverse() : group.sections).filter((item) => (item.value !== 'members' || canManageMembers)
-            && (item.value !== 'hosts' || isPrivate)).map(
+            && (!['hosts', 'disclosure'].includes(item.value) || isPrivate)).map(
                 (section) => (
                   <Row
                     key={section.value}

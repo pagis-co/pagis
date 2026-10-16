@@ -77,12 +77,40 @@ rules.
 
 ### A Disclosure Rule decides what the Chief of Staff can reveal
 
-Not built: Disclosure Rules and their default disclosures. These rules
-must limit disclosure to free and busy times, the Person's profile and
-Files or Artifacts already shared with the asker. Other disclosure needs
-an Approval. An approved disclosure can become a standing rule. A request
-from a colleague gives no right to read private mail, memory or event
-details. Artifacts are not built.
+The Person writes a profile and manages Disclosure Rules in Settings.
+A rule names one asker Workspace, or every Workspace of the Org, and one
+category: memory, mail, calendar details or other private data. Both storage
+backends keep profiles and rules under their owning Workspace.
+
+The defaults share free and busy times, the Person's profile and Files
+attached to a message in the shared Channel. The `file_read` tool reads
+these Files without a Disclosure Rule. Other File reads need permission.
+Collaborative Artifacts are not built.
+A request from a colleague gives no right to read private mail, memory or
+Event details. The broker checks disclosure before a private tool reads.
+Each participant Workspace other than the answering Workspace is an asker.
+Every asker must have a matching rule. Otherwise the broker parks the call
+on an Approval to the Person. The Approval names the category and every
+asker without a rule. Always stores one rule for each of these askers before
+the call resumes. The call still needs its Grants and any action Approval.
+Unknown tools also need disclosure permission, because a shell, Plugin or
+Coding Session can read private data.
+
+A colleague Run reads shared conversation history and the profile. It does
+not load private memory indexes, the Brief or Skill notes into its prompt.
+It obtains private data only through the checked tool path. Model
+instructions do not decide access.
+
+`conversation_read` and `conversation_search` read the shared Channel by
+default. A reference to a private message cannot change that scope. A read
+of the Run's private Channel needs Memory permission. Other Channel scopes
+are not supported. `conversation_page` reads and writes the private Subject
+Page and needs Memory permission.
+
+A parked call stores its resume arguments and resolved action state. The
+Run's immutable Capability Snapshot supplies the tool and Grant binding at
+resume. The request API hides resume data. A disclosure Approval shows the
+tool, category and askers, with no private tool arguments.
 
 ### Presence has no stored copy
 

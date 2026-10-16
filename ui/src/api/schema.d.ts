@@ -1325,6 +1325,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/disclosure": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_disclosure"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/disclosure/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["set_profile"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/disclosure/rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["add_rule"];
+        delete: operations["remove_rule"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/event-subscriptions": {
         parameters: {
             query?: never;
@@ -4909,10 +4957,10 @@ export interface components {
              */
             decision: string;
             /**
-             * @description `once` (the default), or `always` to also write the request's
-             *     proposed allow rules, or its proposed session allow rule, into
-             *     the agent's grant. Meaningful for a `tool_action` and a
-             *     `harness_permission` only.
+             * @description `once` (the default), or `always` to store the proposed Allow
+             *     Rule or Disclosure Rule. An Allow Rule belongs to the Agent's
+             *     Grant or Mailbox. A Disclosure Rule belongs to the Person's
+             *     Private Workspace. Only an Approval takes this scope.
              */
             scope?: string | null;
             /**
@@ -4999,6 +5047,17 @@ export interface components {
             message: string;
             /** @enum {string} */
             type: "error";
+        };
+        /** @enum {string} */
+        DisclosureCategory: "memory" | "mail" | "calendar_details" | "other_private_data";
+        DisclosureDto: {
+            profile: string;
+            rules: components["schemas"]["DisclosureRule"][];
+        };
+        DisclosureRule: {
+            /** @description None permits every Workspace of the Org. */
+            asker_workspace_id?: string | null;
+            category: components["schemas"]["DisclosureCategory"];
         };
         /** @description One candidate endpoint and what it answered. */
         DockerCandidateDto: {
@@ -6692,6 +6751,9 @@ export interface components {
         PreviewForget: {
             target: components["schemas"]["ForgetTarget"];
         };
+        ProfileBody: {
+            profile: string;
+        };
         /**
          * @description One `progress.state` WS payload: the whole current text, never a
          *     delta. A client applies a frame only when `seq` is newer than the
@@ -6947,9 +7009,9 @@ export interface components {
              */
             kind: string;
             /**
-             * @description The trusted content the daemon minted the row with: tool name
-             *     and arguments for an action, the field schema for a form, the
-             *     options for a choice.
+             * @description The content the Person can review: action details, form fields
+             *     or choice options. Internal resume data is excluded. A disclosure
+             *     Approval names its tool, category and askers, with no private arguments.
              */
             payload: unknown;
             run_id?: string | null;
@@ -11977,6 +12039,126 @@ export interface operations {
                 };
             };
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_disclosure: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DisclosureDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    set_profile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProfileBody"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DisclosureDto"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    add_rule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DisclosureRule"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DisclosureDto"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    remove_rule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DisclosureRule"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DisclosureDto"];
+                };
+            };
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
