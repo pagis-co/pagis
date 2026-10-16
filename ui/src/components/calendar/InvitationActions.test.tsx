@@ -14,10 +14,10 @@ const event: CalendarEvent = {
     invitation: { organizer: 'organizer@example.org', sequence: 1, status: 'tentative' },
   },
 }
-function mount(value = event, fail = false) {
+function mount(value = event, fail = false, messageId?: string) {
   const POST = vi.fn(async () => fail ? { error: { message: 'Send failed' } } : { data: value })
   const GET = vi.fn(async () => ({ data: { mailbox: { address: 'reader@example.com' } } }))
-  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><CurrentWorkspaceContext value="workspace-1"><InvitationActions api={{ GET, POST } as unknown as ApiClient} event={value} /></CurrentWorkspaceContext></QueryClientProvider>)
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><CurrentWorkspaceContext value="workspace-1"><InvitationActions api={{ GET, POST } as unknown as ApiClient} event={value} messageId={messageId} /></CurrentWorkspaceContext></QueryClientProvider>)
   return POST
 }
 for (const [label, status] of [['Accept', 'accepted'], ['Maybe', 'tentative'], ['Decline', 'declined']]) {
@@ -37,4 +37,13 @@ it('shows cancellation without response actions', async () => {
   mount({ ...event, data: { ...event.data, invitation: { ...event.data.invitation!, status: 'cancelled' } } })
   expect(await screen.findByText('Cancelled')).toBeTruthy()
   expect(screen.queryByRole('button', { name: 'Accept' })).toBeNull()
+})
+
+it('answers a mail invitation through the message route', async () => {
+  const POST = mount(event, false, 'INBOX:1')
+  fireEvent.click(await screen.findByRole('button', { name: 'Accept' }))
+  await waitFor(() => expect(POST).toHaveBeenCalledWith(
+    '/api/v1/workspace/mail/messages/{message_id}/response',
+    { params: { path: { message_id: 'INBOX:1' } }, body: { status: 'accepted' } },
+  ))
 })

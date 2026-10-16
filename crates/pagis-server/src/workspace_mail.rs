@@ -1,4 +1,6 @@
 //! The Product API reads the tenant Workspace Mailbox through its store.
+mod visibility;
+pub use visibility::*;
 mod write;
 pub use write::*;
 
@@ -16,6 +18,9 @@ use utoipa::{IntoParams, ToSchema};
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct WorkspaceMailboxDto {
+    pub visibility: pagis_core::MailVisibility,
+    pub effective_visibility: pagis_core::MailVisibility,
+    pub max_visibility: pagis_core::MailVisibility,
     pub spam_mode: String,
     pub workspace_id: String,
     pub connection_id: String,
@@ -25,6 +30,9 @@ pub struct WorkspaceMailboxDto {
 impl From<pagis_core::WorkspaceMailbox> for WorkspaceMailboxDto {
     fn from(m: pagis_core::WorkspaceMailbox) -> Self {
         Self {
+            visibility: m.visibility,
+            effective_visibility: m.visibility,
+            max_visibility: pagis_core::MailVisibility::AllMail,
             spam_mode: match m.spam_mode {
                 pagis_core::MailScoringMode::ScoreOnly => "score_only".into(),
             },
@@ -145,6 +153,7 @@ pub struct WorkspaceMailThread {
 pub struct WorkspaceMailQuery {
     pub folder: Option<String>,
     pub q: Option<String>,
+    pub reason: Option<String>,
     pub cursor: Option<String>,
 }
 
@@ -174,7 +183,10 @@ pub async fn get_workspace_mailbox(
         Vec::new()
     };
     Ok(Json(WorkspaceMailboxPage {
-        mailbox: mailbox.map(Into::into),
+        mailbox: match mailbox {
+            Some(m) => Some(mailbox_dto(&state, &tenant, m).await?),
+            None => None,
+        },
         offers,
     }))
 }
@@ -187,11 +199,23 @@ pub async fn create_workspace_mailbox(
     tenant: Tenant,
     Json(request): Json<NewMailboxRequest>,
 ) -> Result<(StatusCode, Json<WorkspaceMailboxDto>), ApiError> {
-    let mailbox = state
+    let mut mailbox = state
         .mailbox_desk
         .provision_workspace(&tenant.workspace_id, request.into())
         .await
         .map_err(mailbox_error)?;
+    if !tenant.is_private() {
+        mailbox.visibility = state
+            .governance
+            .limits(&tenant.workspace_id)
+            .await?
+            .max_mail_visibility;
+        state
+            .mailbox_desk
+            .workspace_mailbox_records()
+            .set_visibility(&tenant.workspace_id, mailbox.visibility)
+            .await?;
+    }
     if let Some(agent) = state
         .workspaces
         .get(&tenant.workspace_id)
@@ -200,7 +224,10 @@ pub async fn create_workspace_mailbox(
     {
         crate::agent_versions::record(&state, &tenant, &agent).await?;
     }
-    Ok((StatusCode::CREATED, Json(mailbox.into())))
+    Ok((
+        StatusCode::CREATED,
+        Json(mailbox_dto(&state, &tenant, mailbox).await?),
+    ))
 }
 async fn open(state: &AppState, tenant: &Tenant) -> Result<Box<dyn WorkspaceMailStore>, ApiError> {
     if state
@@ -249,20 +276,58 @@ pub async fn list_workspace_mail_messages(
     tenant: Tenant,
     Query(query): Query<WorkspaceMailQuery>,
 ) -> Result<Json<WorkspaceMailMessages>, ApiError> {
-    let mut store = open(&state, &tenant).await?;
+    Ok(Json(human_mail_messages(&state, &tenant, query, 50).await?))
+}
+
+pub(crate) async fn human_mail_messages(
+    state: &AppState,
+    tenant: &Tenant,
+    query: WorkspaceMailQuery,
+    limit: usize,
+) -> Result<WorkspaceMailMessages, ApiError> {
+    let level = effective_visibility(state, tenant).await?;
+    let searching = query.q.as_ref().is_some_and(|q| !q.trim().is_empty());
+    if searching
+        && level == pagis_core::MailVisibility::Escalations
+        && query.reason.as_ref().is_none_or(|r| r.trim().is_empty())
+    {
+        return Err(ApiError::validation("Enter a reason for the search."));
+    }
+    if searching {
+        audit_read(
+            state,
+            tenant,
+            "mail.search",
+            serde_json::json!({"query":query.q,"reason":query.reason}),
+        )
+        .await?;
+    }
+    if level == pagis_core::MailVisibility::AgentOnly {
+        return Ok(WorkspaceMailMessages {
+            items: Vec::new(),
+            next: None,
+        });
+    }
+    let mut store = open(state, tenant).await?;
     let result = store
         .messages(
             query.folder.as_deref().unwrap_or(""),
             query.q.as_deref().unwrap_or(""),
-            &PageRequest::new(query.cursor, 50),
+            &PageRequest::new(query.cursor, limit),
         )
         .await;
     let _ = store.close().await;
     let page = result.map_err(read_error)?;
-    Ok(Json(WorkspaceMailMessages {
-        items: page.items.into_iter().map(Into::into).collect(),
+    let mut items = Vec::new();
+    for m in page.items {
+        if can_read_workspace_mail(state, tenant, &m.summary).await? {
+            items.push(m.into());
+        }
+    }
+    Ok(WorkspaceMailMessages {
+        items,
         next: page.next,
-    }))
+    })
 }
 #[utoipa::path(get, path = "/api/v1/workspace/mail/messages/{message_id}", params(("message_id" = String, Path)), responses(
     (status = 200, body = WorkspaceMailMessageDto), (status = 401, body = crate::error::ErrorBody), (status = 404, body = crate::error::ErrorBody)
@@ -274,23 +339,25 @@ pub async fn get_workspace_mail_message(
 ) -> Result<Json<WorkspaceMailMessageDto>, ApiError> {
     let mut store = open(&state, &tenant).await?;
     let result = async {
-        let id = MessageId::new(id);
+        let message =
+            read_message(&state, &tenant, store.as_mut(), &id, "mail.message.read").await?;
         store
             .set_flags(
-                &id,
+                &MessageId::new(id),
                 FlagChange {
                     seen: Some(true),
                     ..Default::default()
                 },
             )
-            .await?;
-        store.message(&id).await
+            .await
+            .map_err(read_error)?;
+        let mut message = message;
+        message.flags.seen = true;
+        Ok::<_, ApiError>(message)
     }
     .await;
     let _ = store.close().await;
-    Ok(Json(
-        message_dto(&state, &tenant, result.map_err(read_error)?).await?,
-    ))
+    Ok(Json(message_dto(&state, &tenant, result?).await?))
 }
 #[utoipa::path(get, path = "/api/v1/workspace/mail/threads/{thread_id}", params(("thread_id" = String, Path)), responses(
     (status = 200, body = WorkspaceMailThread), (status = 401, body = crate::error::ErrorBody), (status = 404, body = crate::error::ErrorBody)
@@ -302,8 +369,19 @@ pub async fn get_workspace_mail_thread(
 ) -> Result<Json<WorkspaceMailThread>, ApiError> {
     let mut store = open(&state, &tenant).await?;
     let result = async {
-        let mut messages = store.thread(&id).await?;
-        for m in &mut messages {
+        let messages = store.thread(&id).await.map_err(read_error)?;
+        let mut items = Vec::new();
+        for mut m in messages {
+            if !can_read_workspace_mail(&state, &tenant, &m.message.summary).await? {
+                continue;
+            }
+            audit_read(
+                &state,
+                &tenant,
+                "mail.thread.read",
+                serde_json::json!({"thread_id":id,"message_id":m.message.summary.id.to_string()}),
+            )
+            .await?;
             store
                 .set_flags(
                     &m.message.summary.id,
@@ -312,18 +390,19 @@ pub async fn get_workspace_mail_thread(
                         ..Default::default()
                     },
                 )
-                .await?;
+                .await
+                .map_err(read_error)?;
             m.flags.seen = true;
+            items.push(message_dto(&state, &tenant, m).await?);
         }
-        Ok::<_, pagis_mail::TransportError>(messages)
+        if items.is_empty() {
+            return Err(ApiError::not_found("mail thread"));
+        }
+        Ok(Json(WorkspaceMailThread { items }))
     }
     .await;
     let _ = store.close().await;
-    let mut items = Vec::new();
-    for message in result.map_err(read_error)? {
-        items.push(message_dto(&state, &tenant, message).await?);
-    }
-    Ok(Json(WorkspaceMailThread { items }))
+    result
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -366,4 +445,34 @@ async fn message_dto(
         };
     }
     Ok(dto)
+}
+
+#[utoipa::path(post, path = "/api/v1/workspace/mail/messages/{message_id}/response", params(("message_id" = String, Path)), request_body = crate::calendar_mail::InvitationResponse, responses((status = 200, body = pagis_core::CalendarEvent), (status = 404), (status = 409)), tag = "calendar")]
+pub async fn answer_mail_invitation(
+    State(state): State<Arc<AppState>>,
+    tenant: Tenant,
+    Path(id): Path<String>,
+    response: Json<crate::calendar_mail::InvitationResponse>,
+) -> Result<Json<pagis_core::CalendarEvent>, ApiError> {
+    let mut store = open(&state, &tenant).await?;
+    let result = read_message(
+        &state,
+        &tenant,
+        store.as_mut(),
+        &id,
+        "mail.invitation.respond",
+    )
+    .await;
+    let _ = store.close().await;
+    let event = message_dto(&state, &tenant, result?)
+        .await?
+        .invitation
+        .ok_or_else(|| ApiError::not_found("invitation"))?;
+    crate::calendar_mail::answer_invitation(
+        State(state),
+        tenant,
+        Path(event.id.to_string()),
+        response,
+    )
+    .await
 }

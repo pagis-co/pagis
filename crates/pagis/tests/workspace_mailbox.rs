@@ -911,3 +911,357 @@ async fn imip_invitations_replies_and_cancellations_through_the_product_api() {
         );
     }
 }
+
+#[tokio::test]
+async fn shared_workspace_mail_visibility_limits_reads_and_audits_searches() {
+    let app = MailboxApp::start().await;
+    let (status, shared) = app
+        .post(
+            "/api/v1/administration/workspaces",
+            json!({"name":"Support", "manager_id":app.daemon.user_id}),
+        )
+        .await;
+    assert_eq!(status, 201, "{shared}");
+    let prefix = format!("/api/v1/workspaces/{}", shared["id"].as_str().unwrap());
+    let (status, _) = app
+        .post(
+            &format!("{prefix}/workspace/mailbox"),
+            json!({"connection_id":app.connection_id,"local_part":"support"}),
+        )
+        .await;
+    assert_eq!(status, 201);
+    app.deliver_thread();
+    let page = app.get(&format!("{prefix}/workspace/mail/messages")).await;
+    let id = page["items"][0]["id"].as_str().unwrap();
+    assert_eq!(page["items"].as_array().unwrap().len(), 2);
+    app.get(&format!("{prefix}/workspace/mail/messages/{id}"))
+        .await;
+    for level in ["escalations", "agent_only", "all_mail"] {
+        let (status, body) = app
+            .request(
+                reqwest::Method::PUT,
+                &format!("{prefix}/workspace/mailbox/visibility"),
+                Some(json!({"visibility":level})),
+            )
+            .await;
+        assert_eq!(status, 200, "{body}");
+        assert_eq!(body["effective_visibility"], level);
+        let global = app.get("/api/v1/search?q=invoice").await;
+        assert_eq!(
+            global["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|item| item["kind"] == "mail")
+                .count(),
+            if level == "all_mail" { 2 } else { 0 }
+        );
+        let page = app.get(&format!("{prefix}/workspace/mail/messages")).await;
+        assert_eq!(
+            page["items"].as_array().unwrap().len(),
+            if level == "all_mail" { 2 } else { 0 }
+        );
+        let (status, _) = app
+            .request(
+                reqwest::Method::GET,
+                &format!("{prefix}/workspace/mail/messages/{id}"),
+                None,
+            )
+            .await;
+        assert_eq!(status, if level == "all_mail" { 200 } else { 404 });
+        let (status, _) = app
+            .request(
+                reqwest::Method::GET,
+                &format!("{prefix}/workspace/mail/messages?q=invoice"),
+                None,
+            )
+            .await;
+        assert_eq!(status, if level == "escalations" { 422 } else { 200 });
+    }
+    app.request(
+        reqwest::Method::PUT,
+        &format!("{prefix}/workspace/mailbox/visibility"),
+        Some(json!({"visibility":"escalations"})),
+    )
+    .await;
+    let page = app
+        .get(&format!(
+            "{prefix}/workspace/mail/messages?q=invoice&reason=Customer%20request"
+        ))
+        .await;
+    assert!(page["items"].as_array().unwrap().is_empty());
+    let audit = app.get(&format!("{prefix}/workspace/mail/audit")).await;
+    assert!(audit["items"].as_array().unwrap().iter().any(|entry| {
+        entry["action"] == "mail.search"
+            && entry["reason"]
+                .as_str()
+                .unwrap()
+                .contains("Customer request")
+    }));
+    assert!(
+        audit["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry["action"] == "mail.message.read"
+                && entry["reason"].as_str().unwrap().contains(id))
+    );
+}
+
+#[tokio::test]
+async fn shared_workspace_mail_escalation_opens_only_one_message_and_limits_apply_live() {
+    let app = MailboxApp::start().await;
+    let (_, shared) = app
+        .post(
+            "/api/v1/administration/workspaces",
+            json!({"name":"Support","manager_id":app.daemon.user_id}),
+        )
+        .await;
+    let workspace = shared["id"].as_str().unwrap();
+    let prefix = format!("/api/v1/workspaces/{workspace}");
+    let (status, _) = app
+        .post(
+            &format!("{prefix}/workspace/mailbox"),
+            json!({"connection_id":app.connection_id,"local_part":"support"}),
+        )
+        .await;
+    assert_eq!(status, 201);
+    app.deliver_thread();
+    let page = app.get(&format!("{prefix}/workspace/mail/messages")).await;
+    let id = page["items"][0]["id"].as_str().unwrap();
+    let hidden = page["items"][1]["id"].as_str().unwrap();
+    let thread = page["items"][0]["thread_id"].as_str().unwrap();
+    let (_, agent) = app
+        .post(
+            &format!("{prefix}/agents"),
+            json!({"name":"Aria","job":"Handle mail"}),
+        )
+        .await;
+    let agent_id = pagis_core::AgentId::from(agent["id"].as_str().unwrap().to_string());
+    assert_eq!(
+        app.post(
+            &format!("{prefix}/grants/workspace-mailbox"),
+            json!({"agent_id":agent_id})
+        )
+        .await
+        .0,
+        201
+    );
+    let channel = app
+        .daemon
+        .stores()
+        .channels
+        .find_user_dm(
+            &pagis_core::WorkspaceId::from(workspace.to_string()),
+            &agent_id,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    app.request(
+        reqwest::Method::PUT,
+        &format!("{prefix}/workspace/mailbox/visibility"),
+        Some(json!({"visibility":"agent_only"})),
+    )
+    .await;
+    app.brain.push(Script::tool_call(
+        &[],
+        "workspace_mail_escalate",
+        json!({"message_id":id}),
+    ));
+    app.brain.push(Script::reply(&["This message needs you."]));
+    assert_eq!(
+        app.post(
+            &format!("{prefix}/channels/{}/messages", channel.id),
+            json!({"pending_id":"escalate-mail","text":"Escalate this message"})
+        )
+        .await
+        .0,
+        201
+    );
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let runs = app.get(&format!("{prefix}/runs")).await;
+            if runs["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|run| run["state"] == "completed")
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert!(
+        app.get(&format!("{prefix}/workspace/mail/messages")).await["items"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        app.request(
+            reqwest::Method::PUT,
+            &format!("{prefix}/workspace/mailbox/visibility"),
+            Some(json!({"visibility":"escalations"}))
+        )
+        .await
+        .0,
+        200
+    );
+    let page = app.get(&format!("{prefix}/workspace/mail/messages")).await;
+    assert_eq!(page["items"].as_array().unwrap().len(), 1);
+    app.get(&format!("{prefix}/workspace/mail/messages/{id}"))
+        .await;
+    let mut url = reqwest::Url::parse(&app.daemon.base_url).unwrap();
+    url.path_segments_mut().unwrap().extend([
+        "api",
+        "v1",
+        "workspaces",
+        workspace,
+        "workspace",
+        "mail",
+        "threads",
+        thread,
+    ]);
+    let response: Value = app
+        .client
+        .get(url)
+        .header("cookie", app.daemon.cookie())
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(response["items"].as_array().unwrap().len(), 1);
+    for suffix in [
+        format!("messages/{hidden}"),
+        format!("messages/{hidden}/attachments/0"),
+        format!("messages/{hidden}/composer?action=reply"),
+    ] {
+        assert_eq!(
+            app.request(
+                reqwest::Method::GET,
+                &format!("{prefix}/workspace/mail/{suffix}"),
+                None
+            )
+            .await
+            .0,
+            404
+        );
+    }
+    let limits = format!("/api/v1/administration/workspaces/{workspace}/limits");
+    assert_eq!(app.request(reqwest::Method::PUT, &limits, Some(json!({"permitted_plugins":null,"permitted_connections":null,"max_mail_visibility":"agent_only"}))).await.0, 200);
+    let mailbox = app.get(&format!("{prefix}/workspace/mailbox")).await;
+    assert_eq!(mailbox["mailbox"]["visibility"], "escalations");
+    assert_eq!(mailbox["mailbox"]["effective_visibility"], "agent_only");
+    assert_eq!(
+        app.request(
+            reqwest::Method::GET,
+            &format!("{prefix}/workspace/mail/messages/{id}"),
+            None
+        )
+        .await
+        .0,
+        404
+    );
+    assert_eq!(
+        app.request(
+            reqwest::Method::PUT,
+            &format!("{prefix}/workspace/mailbox/visibility"),
+            Some(json!({"visibility":"all_mail"}))
+        )
+        .await
+        .0,
+        409
+    );
+    let audit = app.get_admin_audit().await;
+    assert!(
+        audit["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["action"] == "mail.message.read" && e["subject_workspace_id"] == workspace)
+    );
+}
+
+impl MailboxApp {
+    async fn get_admin_audit(&self) -> Value {
+        self.request(reqwest::Method::GET, "/api/v1/admin/audit", None)
+            .await
+            .1
+    }
+}
+
+#[tokio::test]
+async fn mail_invitation_response_checks_message_visibility() {
+    let app = MailboxApp::start().await;
+    let (status, shared) = app
+        .post(
+            "/api/v1/administration/workspaces",
+            json!({"name":"Support", "manager_id":app.daemon.user_id}),
+        )
+        .await;
+    assert_eq!(status, 201);
+    let prefix = format!("/api/v1/workspaces/{}", shared["id"].as_str().unwrap());
+    assert_eq!(
+        app.post(
+            &format!("{prefix}/workspace/mailbox"),
+            json!({"connection_id":app.connection_id,"local_part":"support"})
+        )
+        .await
+        .0,
+        201
+    );
+    let fixture = include_str!("../../pagis-core/tests/fixtures/imip/google-request.ics")
+        .replace("reader@example.com", "support@example.com");
+    let incoming = pagis_mail::build_mime(
+        "organizer@example.org",
+        &pagis_mail::OutgoingMessage {
+            to: vec!["support@example.com".into()],
+            body: "Please join.".into(),
+            attachments: vec![pagis_mail::OutgoingAttachment {
+                name: "invite.ics".into(),
+                content_type: "text/calendar; method=REQUEST".into(),
+                data: fixture.into_bytes(),
+            }],
+            ..Default::default()
+        },
+        0,
+    )
+    .unwrap();
+    let id = app.transport.deliver_raw(&incoming.raw);
+    let path = format!("{prefix}/workspace/mail/messages/{id}/response");
+    for visibility in ["agent_only", "escalations", "all_mail"] {
+        assert_eq!(
+            app.request(
+                reqwest::Method::PUT,
+                &format!("{prefix}/workspace/mailbox/visibility"),
+                Some(json!({"visibility":visibility}))
+            )
+            .await
+            .0,
+            200
+        );
+        let (status, event) = app.post(&path, json!({"status":"accepted"})).await;
+        if visibility == "all_mail" {
+            assert_eq!(status, 200, "{event}");
+            assert_eq!(event["data"]["attendees"][0]["status"], "accepted");
+            assert_eq!(app.transport.sent().len(), 1);
+        } else {
+            assert_eq!(status, 404, "{event}");
+            assert!(app.transport.sent().is_empty());
+        }
+    }
+    let audit = app.get(&format!("{prefix}/workspace/mail/audit")).await;
+    assert!(
+        audit["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry["action"] == "mail.invitation.respond")
+    );
+}

@@ -59,6 +59,7 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
     ),
     paths(
         crate::calendar_mail::answer_invitation,
+        workspace_mail::answer_mail_invitation,
         crate::calendar::query_free_busy,
         crate::calendar::list_calendar_events,
         crate::calendar::create_calendar_event,
@@ -104,6 +105,8 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         workspace_mail::label_workspace_mail,
         workspace_mail::unlabel_workspace_mail,
         workspace_mail::download_workspace_mail_attachment,
+        workspace_mail::set_workspace_mail_visibility,
+        workspace_mail::list_workspace_mail_audit,
         workspace_mail::get_workspace_mailbox,
         workspace_mail::create_workspace_mailbox,
         workspace_mail::list_workspace_mail_folders,

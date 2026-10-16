@@ -18,6 +18,7 @@ use crate::{AppState, auth::Tenant, error::ApiError, workspace::AccessibleWorksp
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct SearchQuery {
     pub q: String,
+    pub reason: Option<String>,
     pub limit: Option<u32>,
 }
 
@@ -135,6 +136,7 @@ async fn search_workspace(
     person: &Tenant,
     choice: &AccessibleWorkspaceDto,
     query: &str,
+    reason: Option<&str>,
     limit: u32,
 ) -> Result<Vec<SearchItem>, ApiError> {
     let id = WorkspaceId::from(choice.id.clone());
@@ -219,33 +221,36 @@ async fn search_workspace(
         .map_err(crate::mailboxes::mailbox_error)?
         .is_some()
     {
-        let mut store = state
-            .mailbox_desk
-            .open_workspace(&id)
-            .await
-            .map_err(crate::mailboxes::mailbox_error)?;
-        let result = store
-            .messages(
-                "",
-                query,
-                &pagis_mail::PageRequest::new(None, limit as usize),
-            )
-            .await;
-        let _ = store.close().await;
-        for mail in result
-            .map_err(|_| ApiError::conflict("Workspace Mailbox search failed"))?
-            .items
+        let level = crate::workspace_mail::effective_visibility(state, &tenant).await?;
+        if level == pagis_core::MailVisibility::AllMail
+            || (level == pagis_core::MailVisibility::Escalations
+                && reason.is_some_and(|reason| !reason.trim().is_empty()))
         {
-            found.push(SearchItem {
-                workspace: workspace.clone(),
-                kind: "mail".into(),
-                title: mail.summary.subject,
-                snippet: mail.summary.snippet,
-                at: mail.summary.date,
-                url: query_url("/mail", &[("message", &mail.summary.id.to_string())]),
-            });
+            let page = crate::workspace_mail::human_mail_messages(
+                state,
+                &tenant,
+                crate::workspace_mail::WorkspaceMailQuery {
+                    folder: None,
+                    q: Some(query.into()),
+                    cursor: None,
+                    reason: reason.map(str::to_string),
+                },
+                limit as usize,
+            )
+            .await?;
+            for mail in page.items {
+                found.push(SearchItem {
+                    workspace: workspace.clone(),
+                    kind: "mail".into(),
+                    title: mail.subject,
+                    snippet: mail.snippet,
+                    at: mail.date,
+                    url: query_url("/mail", &[("message", &mail.id)]),
+                });
+            }
         }
     }
+
     if owner.kind == WorkspaceKind::Private {
         found.extend(search_messages(state, person, &workspace, query, limit, true).await?);
     }
@@ -268,11 +273,12 @@ pub async fn search(
             "Use 2 to 200 characters and a limit from 1 to 100.",
         ));
     }
+    let reason = query.reason.as_deref();
     let choices = crate::workspace::accessible_workspaces(&state, &tenant).await?;
     let mut response = fan_out(choices, Duration::from_secs(3), |workspace| {
         let state = &state;
         let tenant = &tenant;
-        async move { search_workspace(state, tenant, &workspace, text, limit).await }
+        async move { search_workspace(state, tenant, &workspace, text, reason, limit).await }
     })
     .await;
     newest(&mut response.items, limit);

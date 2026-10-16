@@ -25,6 +25,10 @@ pub struct Route {
 
 /// Writes that a Responder can make in a Shared Workspace.
 pub const RESPONDER_WRITES: &[(&str, &str)] = &[
+    (
+        "/api/v1/workspace/mail/messages/{message_id}/response",
+        "post",
+    ),
     ("/api/v1/calendar/events/{event_id}/response", "post"),
     ("/api/v1/channels/{channel_id}/messages", "post"),
     ("/api/v1/requests/{request_id}/decision", "post"),
@@ -55,6 +59,8 @@ impl Route {
         use pagis_core::WorkspaceRole::{Manager, Reader, Responder};
         if !self.shared || !self.methods.contains(&method) {
             None
+        } else if self.path == "/api/v1/workspace/mail/audit" {
+            Some(Manager)
         } else if method == "get" {
             Some(Reader)
         } else if RESPONDER_WRITES.contains(&(self.path, method)) {
@@ -569,6 +575,13 @@ pub const ADMINISTRATION_ROUTES: &[Route] = &[
 pub const ROUTES: &[Route] = &[
     Route {
         shared: true,
+        path: "/api/v1/workspace/mail/messages/{message_id}/response",
+        methods: &["post"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
+        shared: true,
         path: "/api/v1/calendar/events/{event_id}/response",
         methods: &["post"],
         authenticated: true,
@@ -669,6 +682,20 @@ pub const ROUTES: &[Route] = &[
         shared: true,
         path: "/api/v1/workspaces/{workspace_id}/members/{person_id}",
         methods: &["delete", "patch"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
+        shared: true,
+        path: "/api/v1/workspace/mailbox/visibility",
+        methods: &["put"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
+        shared: true,
+        path: "/api/v1/workspace/mail/audit",
+        methods: &["get"],
         authenticated: true,
         part: None,
     },

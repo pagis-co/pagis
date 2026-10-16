@@ -1309,3 +1309,137 @@ async fn imip_request_reaches_the_calendar_through_the_supplied_memory_store() {
         assert!(e.mailbox_host.addresses().is_empty());
     }
 }
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+async fn mail_invitation_response_checks_visibility_with_a_supplied_store() {
+    let host = std::sync::Arc::new(pagis_mail::fake::MemoryWorkspaceMailHost::default());
+    let e = Embedder::with_workspace_mail(host.clone()).await;
+    let mut shared = e
+        .stores
+        .workspaces
+        .get(&e.workspace)
+        .await
+        .unwrap()
+        .unwrap();
+    let owner = shared.user_id.take().unwrap();
+    shared.id = WorkspaceId::generate();
+    shared.kind = WorkspaceKind::Shared;
+    e.stores.workspaces.create(&shared).await.unwrap();
+    let mut member = WorkspaceMember {
+        workspace_id: shared.id.clone(),
+        person_id: owner.clone(),
+        role: WorkspaceRole::Manager,
+        author: Author::Person(owner),
+    };
+    e.stores.workspace_members.add(&member).await.unwrap();
+    let connection = provider(&e).await;
+    let prefix = format!("/api/v1/workspaces/{}", shared.id);
+    let (status, mailbox) = response(
+        &e,
+        "POST",
+        &format!("{prefix}/workspace/mailbox"),
+        json!({"connection_id":connection, "local_part":"reader"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{mailbox}");
+    let other = e
+        .stores
+        .workspaces
+        .get(&e.other_workspace)
+        .await
+        .unwrap()
+        .unwrap()
+        .user_id
+        .unwrap();
+    e.stores
+        .workspace_members
+        .add(&WorkspaceMember {
+            workspace_id: shared.id.clone(),
+            person_id: other,
+            role: WorkspaceRole::Manager,
+            author: member.author.clone(),
+        })
+        .await
+        .unwrap();
+    member.role = WorkspaceRole::Responder;
+    e.stores.workspace_members.change(&member).await.unwrap();
+    let raw = pagis_mail::build_mime(
+        "organizer@example.org",
+        &pagis_mail::OutgoingMessage {
+            to: vec!["reader@example.com".into()],
+            body: "Please join.".into(),
+            attachments: vec![pagis_mail::OutgoingAttachment {
+                name: "invite.ics".into(),
+                content_type: "text/calendar; method=REQUEST".into(),
+                data: include_bytes!("../../../pagis-core/tests/fixtures/imip/google-request.ics")
+                    .to_vec(),
+            }],
+            ..Default::default()
+        },
+        0,
+    )
+    .unwrap();
+    let mail = host.store(&shared.id).unwrap();
+    let id = mail.deliver_raw(&raw.raw).unwrap();
+    let path = format!("{prefix}/workspace/mail/messages/{id}/response");
+    for visibility in [
+        MailVisibility::AgentOnly,
+        MailVisibility::Escalations,
+        MailVisibility::AllMail,
+    ] {
+        e.stores
+            .workspace_mailboxes
+            .set_visibility(&shared.id, visibility)
+            .await
+            .unwrap();
+        let (status, event) = response(&e, "POST", &path, json!({"status":"accepted"})).await;
+        if visibility == MailVisibility::AllMail {
+            assert_eq!(status, StatusCode::OK, "{event}");
+            assert_eq!(event["data"]["attendees"][0]["status"], "accepted");
+        } else {
+            assert_eq!(status, StatusCode::NOT_FOUND, "{event}");
+            let event = e
+                .stores
+                .calendar
+                .get_by_uid(&shared.id, "meeting@example.org")
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                event.data.attendees[0].status,
+                ParticipationStatus::NeedsAction
+            );
+        }
+    }
+    let audit = e
+        .stores
+        .audit
+        .list(&e.routers.state.org_workspace_id, 0, 200)
+        .await
+        .unwrap();
+    assert!(
+        audit
+            .iter()
+            .any(|entry| entry.action == "mail.invitation.respond")
+    );
+    member.role = WorkspaceRole::Reader;
+    e.stores.workspace_members.change(&member).await.unwrap();
+    assert_eq!(
+        response(&e, "POST", &path, json!({"status":"declined"}))
+            .await
+            .0,
+        StatusCode::FORBIDDEN
+    );
+    let event = e
+        .stores
+        .calendar
+        .get_by_uid(&shared.id, "meeting@example.org")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        event.data.attendees[0].status,
+        ParticipationStatus::Accepted
+    );
+}
