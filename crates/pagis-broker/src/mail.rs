@@ -238,6 +238,10 @@ pub fn mail_manifest() -> CapabilityManifest {
                     },
                     "subject": {"type": "string"},
                     "body": {"type": "string", "description": "The message text."},
+                    "reply_to_workspace_message_id": {
+                        "type": "string", "minLength": 1,
+                        "description": "Reply from your own Agent Mailbox to this Workspace Mailbox message. Requires its Grant. Keeps the thread and copies the Workspace Mailbox."
+                    },
                     "in_reply_to": {
                         "type": "string",
                         "description": "The `Message-ID` of the message this one answers, for example `<abc@example.com>`."
@@ -432,6 +436,16 @@ pub fn connection_capability(tool: MailTool) -> &'static str {
 /// Refuse a mail call whose text arguments are empty. The schema says
 /// a field is a string; this says it must say something.
 pub fn validate_arguments(tool: MailTool, arguments: &Value) -> Result<(), ToolResult> {
+    if tool == MailTool::Send
+        && arguments["reply_to_workspace_message_id"].is_string()
+        && arguments["mailbox"] != OWN_MAILBOX
+    {
+        return Err(ToolResult::plain_error(
+            "invalid_request",
+            "a Workspace Mailbox reply uses your own Agent Mailbox",
+        ));
+    }
+
     let text = |field: &str| {
         arguments[field]
             .as_str()
@@ -530,6 +544,15 @@ mod tests {
 
     fn send(to: &[&str], cc: &[&str]) -> Value {
         serde_json::json!({"mailbox": "own", "to": to, "cc": cc, "subject": "s", "body": "b"})
+    }
+
+    #[test]
+    fn a_workspace_reply_reference_uses_only_the_agents_own_mailbox() {
+        let mut arguments = send(&["sender@example.com"], &[]);
+        arguments["reply_to_workspace_message_id"] = serde_json::json!("message");
+        assert!(validate_arguments(MailTool::Send, &arguments).is_ok());
+        arguments["mailbox"] = serde_json::json!("work");
+        assert!(validate_arguments(MailTool::Send, &arguments).is_err());
     }
 
     #[test]

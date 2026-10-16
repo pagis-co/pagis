@@ -681,6 +681,10 @@ fn product_router(state: Arc<AppState>) -> Router {
             get(memory::commit_diff),
         )
         .route(
+            "/api/v1/grants/workspace-mailbox",
+            post(grants::create_workspace_mailbox_grant),
+        )
+        .route(
             "/api/v1/grants",
             get(grants::list_grants).post(grants::create_connection_grant),
         )

@@ -983,6 +983,15 @@ export function useCreateConnectionGrant(api: ApiClient) {
 }
 
 /** Give one Agent outbound Call access to the Workspace Number. */
+export function useCreateWorkspaceMailboxGrant(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { agent_id: string }) => unwrap(api.POST('/api/v1/grants/workspace-mailbox', { body })),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: grantsKey(workspaceId) }),
+  });
+}
+
 export function useCreateWorkspaceNumberGrant(api: ApiClient) {
   const workspaceId = useCurrentWorkspaceId()
   const queryClient = useQueryClient()

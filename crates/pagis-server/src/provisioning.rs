@@ -69,6 +69,8 @@ pub fn well_known_aliases() -> Vec<(&'static str, Vec<String>)> {
 /// daemon's boot passes its store set and an API handler passes the
 /// fields of its own state.
 pub struct WorkspaceSeed<'a> {
+    pub grants: &'a dyn pagis_core::GrantStore,
+    pub workspace_mailboxes: &'a dyn pagis_core::WorkspaceMailboxRecordStore,
     pub workspaces: &'a dyn WorkspaceStore,
     pub agents: &'a dyn AgentStore,
     pub channels: &'a dyn ChannelStore,
@@ -82,6 +84,8 @@ pub struct WorkspaceSeed<'a> {
 impl<'a> From<&'a pagis_core::Stores> for WorkspaceSeed<'a> {
     fn from(stores: &'a pagis_core::Stores) -> Self {
         Self {
+            grants: stores.grants.as_ref(),
+            workspace_mailboxes: stores.workspace_mailboxes.as_ref(),
             workspaces: stores.workspaces.as_ref(),
             agents: stores.agents.as_ref(),
             channels: stores.channels.as_ref(),
@@ -212,6 +216,17 @@ impl WorkspaceSeed<'_> {
         self.workspaces
             .set_chief_of_staff(&workspace.id, Some(&agent.id))
             .await?;
+        for event in pagis_core::reconcile_workspace_mailbox_grants(
+            &workspace.id,
+            self.workspaces,
+            self.agents,
+            self.workspace_mailboxes,
+            self.grants,
+        )
+        .await?
+        {
+            self.events.append(event).await?;
+        }
 
         // The assistant's DM: the person and Pixie. Messages here
         // trigger the agent loop.

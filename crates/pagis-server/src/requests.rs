@@ -236,7 +236,21 @@ pub async fn decide_request(
     // stored. A refusal then leaves the Request pending, and a stored
     // decision always writes its grant and wakes its run.
     let rules: &[String] = if always { &proposed_rules } else { &[] };
-    let target = grant_target(&current);
+    if always
+        && current.payload["workspace_mailbox_grant_id"].is_string()
+        && tenant
+            .workspace_role
+            .is_some_and(|role| role != pagis_core::WorkspaceRole::Manager)
+    {
+        return Err(ApiError::forbidden(
+            "a Manager sets Workspace Mailbox Allow Rules",
+        ));
+    }
+    let target = if !always && current.payload["workspace_mailbox_grant_id"].is_string() {
+        None
+    } else {
+        grant_target(&current)
+    };
     if decision == RequestState::Approved
         && let Some((kind, resource)) = &target
     {
@@ -381,6 +395,15 @@ fn mailbox_of(request: &Request) -> Option<AgentMailboxId> {
 /// the record and not only the kind (ADR-0017).
 fn grant_target(request: &Request) -> Option<(&'static str, Option<String>)> {
     if request.kind == Request::TOOL_ACTION_KIND
+        && request.payload["workspace_mailbox_grant_id"].is_string()
+    {
+        return Some((
+            Grant::WORKSPACE_MAILBOX_KIND,
+            Some(request.workspace_id.to_string()),
+        ));
+    }
+
+    if request.kind == Request::TOOL_ACTION_KIND
         && (request.payload["tool_name"] == pagis_broker::HOST_SHELL
             || request.payload["tool_name"] == pagis_broker::CODING_SESSION_START)
     {
@@ -411,6 +434,21 @@ async fn live_grant(
     resource_kind: &str,
     resource_id: Option<&str>,
 ) -> Result<Option<Grant>, ApiError> {
+    if resource_kind == Grant::WORKSPACE_MAILBOX_KIND {
+        let Some(id) = request.payload["workspace_mailbox_grant_id"].as_str() else {
+            return Ok(None);
+        };
+        return Ok(state
+            .grants
+            .get(&request.workspace_id, &GrantId::from(id.to_string()))
+            .await?
+            .filter(|g| {
+                g.revoked_at.is_none()
+                    && g.agent_id == request.agent_id
+                    && g.resource_kind == Grant::WORKSPACE_MAILBOX_KIND
+                    && g.resource_id.as_deref() == Some(request.workspace_id.as_str())
+            }));
+    }
     Ok(match resource_id {
         Some(resource_id) => {
             state
@@ -446,7 +484,7 @@ async fn check_added_rules(
     resource_id: Option<&str>,
     rules: &[String],
 ) -> Result<(), ApiError> {
-    if resource_kind != Grant::CREDENTIAL_KIND {
+    if ![Grant::CREDENTIAL_KIND, Grant::WORKSPACE_MAILBOX_KIND].contains(&resource_kind) {
         return crate::grants::check_rules(resource_kind, rules);
     }
     let stored = live_grant(state, request, resource_kind, resource_id)

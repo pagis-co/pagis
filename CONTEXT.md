@@ -381,7 +381,9 @@ withheld from every reader (ADR-0004, ADR-0008).
 A scoped permission that lets one Agent use one Workspace resource: a
 Connection with capabilities, the Vault with allowed domains, a Host with
 command Allow Rules, session Allow Rules and the widest Session Approval
-Mode of its Agent on that machine, or a Plugin. A Grant has numbered revisions. An action that
+Mode of its Agent on that machine, a Plugin, a Workspace Number, or a
+Workspace Mailbox with recipient-domain Allow Rules. A Grant has numbered
+revisions. An action that
 matches the live revision needs no new approval (ADR-0005).
 
 ### guest
@@ -609,8 +611,10 @@ and the composer on Home speaks to it. The seed makes Pixie and names
 it. The Person can move the designation to any active Agent. The
 designation grants no power (ADR-0022). A Shared
 Workspace has its own seeded Chief of Staff.
-Not built: the default Grant that gives it the Workspace Mailbox and
-Workspace Number, and reading mail first (ADR-0039, ADR-0040, ADR-0041).
+A System default Workspace Mailbox Grant gives it the Workspace Mailbox.
+The daemon moves that Grant when the designation changes and keeps manual
+Grants. Not built: the default Workspace Number Grant and reading mail
+first (ADR-0039, ADR-0040, ADR-0041).
 
 ### Compaction
 The step that summarizes the older part of a conversation into a
@@ -1566,8 +1570,8 @@ applies after the verdict. Not built: Junk and spam verdict filtering
 
 ### Mail Tool
 One of the tools an Agent uses to search, read, send and file mail, in its
-own Agent Mailbox or in one of the Person's mail Connections under a Grant
-(ADR-0019). Not built: Workspace Mailbox access under a Grant (ADR-0040).
+own Agent Mailbox, in a Workspace Mailbox under its Grant, or in one of the
+Person's mail Connections under a Grant (ADR-0019, ADR-0040).
 
 ### Mailbox Provider
 The Installation Connection through which Agent Mailboxes and Workspace
@@ -1602,6 +1606,7 @@ both before a Wake-up or Agent read. Scores use thousandths of one point in
 storage. The Mail place shows decimal points and the host's action.
 The record uses the Message-ID header within its Workspace and mailbox;
 mail without that header uses its IMAP id. Workspace Mailbox mail uses the
+reading Agent's Trust List when read under a Grant. A human read uses the
 current active Chief of Staff's Trust List. Without one, its tier is Unknown.
 A Workspace Mailbox uses score-only mode: it records verdicts and moves
 nothing. Not built: Junk moves, corrections, lists, sensitivity, quarantine
@@ -1641,8 +1646,22 @@ The store uses the mail transport. Its conformance suite checks the
 operations (ADR-0040).
 The store records a Spam Verdict and Trust Tier before each read. The Mail
 place shows the score, action and reasons. Score-only mode moves nothing.
+The Chief of Staff holds its default Workspace Mailbox Grant. Other Agents
+need a Grant from the owner or a Manager. An Agent send as the Workspace
+Mailbox needs an Approval for each message unless its Grant's recipient-domain
+Allow Rules cover every recipient. An Agent replies from its own Agent
+Mailbox with the Workspace Mailbox in Cc by default and keeps the original
+thread. In a Private Workspace that address is the Person's mailbox; in
+a Shared Workspace it is the team mailbox.
 Not built: Junk handling, Agent triage, Needs you items,
-Agent Grants, Shared Workspace visibility, assignments and saved drafts.
+Shared Workspace visibility, assignments and saved drafts.
+
+### Workspace Mailbox Grant
+The Grant that gives one active Agent access to its Workspace Mailbox.
+Its resource is the mailbox record, keyed by the Workspace id. Its Allow
+Rules are recipient registrable domains. The daemon authors the Chief of
+Staff's default Grant as System and moves it with the designation. Manual
+Grants stay when the Chief of Staff changes (ADR-0022, ADR-0040).
 
 ## Messages and UI
 

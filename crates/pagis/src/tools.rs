@@ -138,6 +138,20 @@ impl RoutingExecutor {
 
 #[async_trait]
 impl ToolExecutor for RoutingExecutor {
+    async fn prepare(
+        &self,
+        workspace: &pagis_core::WorkspaceId,
+        agent: &pagis_core::AgentId,
+        route: &ToolRoute,
+        arguments: serde_json::Value,
+    ) -> Result<serde_json::Value, ToolResult> {
+        if pagis_mail::MailToolRuntime::owns(route) {
+            self.mail.prepare(workspace, agent, route, arguments).await
+        } else {
+            Ok(arguments)
+        }
+    }
+
     async fn execute(&self, call: AuthorizedCall) -> ToolResult {
         if crate::subscription_tools::SubscriptionToolRuntime::owns(&call.route)
             || crate::schedule_tools::ScheduleToolRuntime::owns(&call.route)
@@ -167,7 +181,9 @@ impl ToolExecutor for RoutingExecutor {
             ToolRoute::Core { .. } | ToolRoute::Ui { .. } => self.core.execute(call).await,
             // Every Software route went to the Software runtime above,
             // and every Mailbox route to the mail runtime.
-            ToolRoute::Software { .. } | ToolRoute::Mailbox { .. } => ToolResult::error(
+            ToolRoute::Software { .. }
+            | ToolRoute::Mailbox { .. }
+            | ToolRoute::WorkspaceMailbox { .. } => ToolResult::error(
                 "temporarily_unavailable",
                 "that tool runtime is not registered",
             ),

@@ -60,6 +60,24 @@ function mount(api: ReturnType<typeof stubApi>, blocks: unknown = [cardBlock]) {
 }
 
 describe('ApprovalCard', () => {
+  it('shows all Workspace Mailbox send fields on the Approval card', async () => {
+    const api = {
+      GET: vi.fn(async () => ({ data: {
+        id: 'ap1', agent_id: 'ag1', kind: 'tool_action', state: 'pending',
+        payload: { tool_name: 'workspace_mail_send', workspace_mailbox_grant_id: 'g1',
+          arguments: { from: 'team@example.com', to: ['recipient@other.test'], cc: ['person@example.com'], subject: 'Invoice', body: 'The invoice is paid.' },
+        },
+      } })),
+      POST: vi.fn(),
+    }
+    mount(api as unknown as ReturnType<typeof stubApi>, [{ ...cardBlock, title: 'Send an email from team@example.com', body: 'The invoice is paid.' }])
+    expect(await screen.findByText('team@example.com')).toBeTruthy()
+    expect(screen.getByText('recipient@other.test')).toBeTruthy()
+    expect(screen.getByText('person@example.com')).toBeTruthy()
+    expect(screen.getByText('Invoice')).toBeTruthy()
+    expect(screen.getAllByText('The invoice is paid.').length).toBeGreaterThan(0)
+  })
+
   it('renders the denormalized title and body with the pending actions', async () => {
     const api = stubApi('pending')
     mount(api)

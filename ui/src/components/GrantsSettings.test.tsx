@@ -62,6 +62,21 @@ const credentialGrant = {
 }
 
 describe('GrantRow', () => {
+  it('shows the default Workspace Mailbox Grant and edits recipient domains', async () => {
+    const api = stubApi()
+    mount(api, [{ ...credentialGrant, resource_kind: 'workspace_mailbox', is_default: true }])
+    expect(await screen.findByText('Workspace Mailbox')).toBeTruthy()
+    expect(screen.getByText('Default for the Chief of Staff')).toBeTruthy()
+    fireEvent.change(screen.getByPlaceholderText('Add a domain, e.g. example.com'), {
+      target: { value: 'example.org' },
+    })
+    fireEvent.click(screen.getByText('Add domain'))
+    await waitFor(() => expect(api.PUT).toHaveBeenCalledWith('/api/v1/grants/{grant_id}/rules', {
+      params: { path: { grant_id: 'g2' } },
+      body: { allow: ['example.com', 'example.org'] },
+    }))
+  })
+
   it('lists a credential grant as vault domains', async () => {
     const api = stubApi()
     mount(api, [credentialGrant])

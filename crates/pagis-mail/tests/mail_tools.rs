@@ -38,6 +38,9 @@ use sqlx::SqlitePool;
 const ALIAS: &str = "mail";
 
 struct World {
+    desk: Arc<MailboxDesk>,
+    transport: Arc<FakeMailTransport>,
+    connection_id: ConnectionId,
     runtime: MailToolRuntime,
     mailboxes: Arc<SqliteAgentMailboxStore>,
     messages: Arc<SqliteMessageStore>,
@@ -122,6 +125,7 @@ impl World {
             transport.refuse_login_with(Some(pagis_mail::TransportErrorCode::Unreachable));
         }
         let desk = Arc::new(MailboxDesk::new(MailboxDeskDeps {
+            grants: Arc::new(pagis_storage_sqlite::SqliteGrantStore::new(pool.clone())),
             intake: Arc::new(pagis_mail::MailIntake {
                 workspaces: Arc::new(pagis_storage_sqlite::SqliteWorkspaceStore::new(
                     pool.clone(),
@@ -236,6 +240,7 @@ impl World {
         }));
         let memory = Arc::new(MemoryMailbox::default());
         let runtime = MailToolRuntime::new(MailToolDeps {
+            workspace: desk.clone(),
             mailboxes: Arc::clone(&memory) as _,
             records: Arc::clone(&mailboxes) as _,
             runs: Arc::clone(&runs) as _,
@@ -243,6 +248,9 @@ impl World {
             blocks,
         });
         Self {
+            desk,
+            transport,
+            connection_id: connection.id,
             runtime,
             mailboxes,
             messages,
@@ -836,4 +844,167 @@ async fn a_provider_without_endpoints_reads_and_sends_through_mailboxes(pool: Sq
     assert_eq!(sent["sends_today"], 1);
     assert_eq!(world.memory.sent().len(), 1);
     assert_eq!(world.memory.sent()[0].body, "Checked.");
+}
+
+#[sqlx::test(migrations = "./../pagis-storage-sqlite/migrations")]
+async fn workspace_mailbox_reply_resolves_headers_and_cc_before_approval(pool: SqlitePool) {
+    use pagis_core::{Grant, GrantId, GrantStore};
+    let world = World::new(pool.clone()).await;
+    world
+        .desk
+        .provision_workspace(
+            &world.workspace_id,
+            NewMailbox {
+                connection_id: world.connection_id.clone(),
+                local_part: "person".into(),
+                outgoing_cap: Some(1),
+                password: None,
+            },
+        )
+        .await
+        .unwrap();
+    let grants = pagis_storage_sqlite::SqliteGrantStore::new(pool);
+    let grant = Grant {
+        created_by: pagis_core::Author::System,
+        id: GrantId::generate(),
+        workspace_id: world.workspace_id.clone(),
+        agent_id: world.agent_id.clone(),
+        resource_kind: Grant::WORKSPACE_MAILBOX_KIND.into(),
+        resource_id: Some(world.workspace_id.to_string()),
+        scope: Grant::allow_scope(&[]),
+        revision: 1,
+        created_at: now_ms(),
+        revoked_at: None,
+    };
+    let id = world.transport.deliver_raw(b"Message-ID: <question@other.test>\r\nReferences: <root@other.test>\r\nFrom: sender@other.test\r\nTo: person@example.com\r\nSubject: Question\r\n\r\nHello");
+    let route = ToolRoute::Mailbox {
+        tool: MailTool::Send,
+    };
+    let args = serde_json::json!({"mailbox":"own","to":["wrong@elsewhere.test"],"bcc":["hidden@elsewhere.test"],"subject":"Ignored","body":"Answer","reply_to_workspace_message_id":id.to_string()});
+    assert!(
+        world
+            .runtime
+            .prepare(&world.workspace_id, &world.agent_id, &route, args.clone())
+            .await
+            .is_err()
+    );
+    grants.create(&grant).await.unwrap();
+    let prepared = world
+        .runtime
+        .prepare(&world.workspace_id, &world.agent_id, &route, args)
+        .await
+        .unwrap();
+    assert_eq!(prepared["to"], serde_json::json!(["sender@other.test"]));
+    assert_eq!(prepared["cc"], serde_json::json!(["person@example.com"]));
+    assert_eq!(prepared["bcc"], serde_json::json!([]));
+    assert_eq!(prepared["subject"], "Re: Question");
+    assert_eq!(prepared["in_reply_to"], "<question@other.test>");
+    assert_eq!(
+        prepared["references"],
+        serde_json::json!(["<root@other.test>", "<question@other.test>"])
+    );
+    assert_eq!(prepared["body"], "Answer");
+    let answer = world.answer(MailTool::Send, prepared.clone()).await;
+    assert_eq!(answer["from"], world.mailbox.address);
+    let sent = world.memory.sent();
+    assert_eq!(sent[0].cc, ["person@example.com"]);
+    assert_eq!(
+        sent[0].references,
+        ["<root@other.test>", "<question@other.test>"]
+    );
+    assert_eq!(
+        sent[0].in_reply_to.as_deref(),
+        Some("<question@other.test>")
+    );
+    grants
+        .revoke(&world.workspace_id, &grant.id, now_ms())
+        .await
+        .unwrap();
+    let result = world.call(MailTool::Send, prepared).await;
+    assert!(result.is_error);
+    assert_eq!(world.memory.sent().len(), 1);
+}
+
+#[sqlx::test(migrations = "./../pagis-storage-sqlite/migrations")]
+async fn workspace_mailbox_tools_read_and_send_with_the_outgoing_cap(pool: SqlitePool) {
+    use pagis_broker::WorkspaceMailTool;
+    let world = World::new(pool.clone()).await;
+    SqliteWorkspaceStore::new(pool)
+        .set_chief_of_staff(&world.workspace_id, Some(&world.agent_id))
+        .await
+        .unwrap();
+    world
+        .desk
+        .provision_workspace(
+            &world.workspace_id,
+            NewMailbox {
+                connection_id: world.connection_id.clone(),
+                local_part: "person".into(),
+                outgoing_cap: Some(1),
+                password: None,
+            },
+        )
+        .await
+        .unwrap();
+    let id = world.transport.deliver_raw(b"Message-ID: <question@other.test>\r\nFrom: sender@other.test\r\nTo: person@example.com\r\nSubject: Question\r\n\r\nHello");
+    for (tool, args) in [
+        (
+            WorkspaceMailTool::Search,
+            serde_json::json!({"query":"Question"}),
+        ),
+        (
+            WorkspaceMailTool::GetMessage,
+            serde_json::json!({"message_id":id.to_string()}),
+        ),
+        (
+            WorkspaceMailTool::GetThread,
+            serde_json::json!({"thread_id":"<question@other.test>"}),
+        ),
+        (
+            WorkspaceMailTool::Reply,
+            serde_json::json!({"message_id":id.to_string(),"body":"Answer"}),
+        ),
+        (
+            WorkspaceMailTool::Send,
+            serde_json::json!({"to":["sender@other.test"],"subject":"Again","body":"Answer"}),
+        ),
+    ] {
+        let route = ToolRoute::WorkspaceMailbox { tool };
+        let arguments = world
+            .runtime
+            .prepare(&world.workspace_id, &world.agent_id, &route, args)
+            .await
+            .unwrap();
+        let result = world
+            .runtime
+            .execute(AuthorizedCall {
+                workspace_id: world.workspace_id.clone(),
+                agent_id: world.agent_id.clone(),
+                run_id: world.run_id.clone(),
+                tool_name: "workspace_mail".into(),
+                source_version: "test".into(),
+                route,
+                arguments,
+                selected_connection: None,
+                grant_id: None,
+                grant_revision: None,
+                call_timeout: None,
+                tool_call_id: None,
+                host: None,
+                approved_by_rule: false,
+            })
+            .await;
+        if tool == WorkspaceMailTool::Send {
+            assert!(result.content.contains("outgoing_cap_reached"));
+        } else {
+            assert!(!result.is_error, "{}", result.content);
+        }
+    }
+    let sent = world.transport.sent();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].subject, "Re: Question");
+    assert_eq!(
+        sent[0].in_reply_to.as_deref(),
+        Some("<question@other.test>")
+    );
 }

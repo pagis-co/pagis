@@ -11,6 +11,9 @@
 //!
 //! A Mailbox makes and reads its own ids and page tokens.
 
+mod workspace;
+use workspace::workspace_error;
+
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -54,6 +57,7 @@ pub enum ReservedSendError {
 }
 
 pub struct MailToolDeps {
+    pub workspace: Arc<crate::MailboxDesk>,
     /// The host opens mail without exposing its credentials.
     pub mailboxes: Arc<dyn Mailboxes>,
     /// Agent Mailbox identities and the Outgoing Cap tally.
@@ -76,7 +80,10 @@ impl MailToolRuntime {
 
     /// Whether a route is this runtime's to execute.
     pub fn owns(route: &ToolRoute) -> bool {
-        matches!(route, ToolRoute::Mailbox { .. })
+        matches!(
+            route,
+            ToolRoute::Mailbox { .. } | ToolRoute::WorkspaceMailbox { .. }
+        )
     }
 
     async fn run(
@@ -84,6 +91,13 @@ impl MailToolRuntime {
         tool: MailTool,
         call: &AuthorizedCall,
     ) -> Result<serde_json::Value, ToolResult> {
+        if call.arguments["reply_to_workspace_message_id"].is_string() {
+            self.deps
+                .workspace
+                .require_workspace_grant(&call.workspace_id, &call.agent_id)
+                .await
+                .map_err(workspace_error)?;
+        }
         let mailbox = self
             .deps
             .records
@@ -133,6 +147,7 @@ impl MailToolRuntime {
                 .filter(|id| !id.is_empty())
                 .map(str::to_string),
             message_id: None,
+            references: strings(&call.arguments, "references"),
             ..Default::default()
         };
         let sent = opened.send(&message).await.map_err(transport_error)?;
@@ -264,7 +279,23 @@ impl MailToolRuntime {
 
 #[async_trait]
 impl ToolExecutor for MailToolRuntime {
+    async fn prepare(
+        &self,
+        workspace: &WorkspaceId,
+        agent: &pagis_core::AgentId,
+        route: &ToolRoute,
+        arguments: serde_json::Value,
+    ) -> Result<serde_json::Value, ToolResult> {
+        self.prepare_mail(workspace, agent, route, arguments).await
+    }
+
     async fn execute(&self, call: AuthorizedCall) -> ToolResult {
+        if let ToolRoute::WorkspaceMailbox { tool } = call.route {
+            return match self.run_workspace(tool, &call).await {
+                Ok(answer) => ToolResult::success(answer.to_string()),
+                Err(error) => error,
+            };
+        }
         let ToolRoute::Mailbox { tool } = call.route else {
             return ToolResult::error(
                 "invalid_request",

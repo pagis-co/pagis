@@ -90,6 +90,7 @@ async fn portable_archive_releases_credentials_sleeps_mailbox_and_reports_no_num
     stores.agent_mailboxes.create(&mailbox).await.unwrap();
     let bus = Arc::new(pagis_core::fake::FakeEventBus::new(Default::default()));
     let desk = Arc::new(pagis_mail::MailboxDesk::new(pagis_mail::MailboxDeskDeps {
+        grants: stores.grants.clone(),
         intake: Arc::new(pagis_mail::MailIntake {
             workspaces: stores.workspaces.clone(),
             agents: stores.agents.clone(),

@@ -2,17 +2,19 @@
 // host grant (ADR-0022, ADR-0033).
 
 import { useState } from 'react'
+import { useWorkspaceAccess } from '../workspace'
 import { X } from 'lucide-react'
 
 import type { ApiClient, GrantDto, SessionAllowRule } from '../api/client'
 import { Button, IconButton, Input } from '../primitives'
-import { useRevokeGrant, useSetGrantRules } from '../queries'
+import { useRevokeGrant, useSetGrantRules, useWorkspaceMailbox, useCreateWorkspaceMailboxGrant, useGrants } from '../queries'
 
 import './GrantsSettings.css'
 
 const RESOURCE_LABEL: Record<string, string> = {
   host: 'Host access',
   credential: 'Vault domains',
+  workspace_mailbox: 'Workspace Mailbox',
 }
 
 // What one grant's rules are, per resource kind.
@@ -24,6 +26,11 @@ const RULE_COPY: Record<
     empty: 'No allow rules — every command asks for an approval.',
     placeholder: 'Add a command prefix, e.g. git status',
     add: 'Add rule',
+  },
+  workspace_mailbox: {
+    empty: 'No allowed domains — every message needs an Approval.',
+    placeholder: 'Add a domain, e.g. example.com',
+    add: 'Add domain',
   },
   credential: {
     empty: 'No allowed domains — every saved login asks for an approval.',
@@ -43,6 +50,7 @@ export function GrantRow({
    *  a host grant. The kind alone is the default. */
   resourceLabel?: string
 }) {
+  const { canManage } = useWorkspaceAccess()
   const setRules = useSetGrantRules(api)
   const revoke = useRevokeGrant(api)
   const [draft, setDraft] = useState('')
@@ -85,12 +93,13 @@ export function GrantRow({
           variant="danger"
           size="sm"
           className="grant-revoke"
-          disabled={revoke.isPending}
+          disabled={!canManage || revoke.isPending}
           onClick={() => revoke.mutate(grant.id)}
         >
           Revoke
         </Button>
       </div>
+      {grant.is_default && <p className="settings-hint">Default for the Chief of Staff</p>}
       <div className="grant-rules">
         {grant.allow.length === 0 && grant.sessions.length === 0 && (
           <span className="grant-rules-empty">{copy.empty}</span>
@@ -103,7 +112,7 @@ export function GrantRow({
               variant="ghost"
               size="sm"
               label={`Remove rule ${rule}`}
-              disabled={setRules.isPending}
+              disabled={!canManage || setRules.isPending}
               onClick={() => removeRule(rule)}
             />
           </span>
@@ -118,7 +127,7 @@ export function GrantRow({
                 variant="ghost"
                 size="sm"
                 label={`Remove rule ${text}`}
-                disabled={setRules.isPending}
+                disabled={!canManage || setRules.isPending}
                 onClick={() => removeSessionRule(rule)}
               />
             </span>
@@ -136,7 +145,7 @@ export function GrantRow({
         />
         <Button
           variant="primary"
-          disabled={setRules.isPending || draft.trim() === ''}
+          disabled={!canManage || setRules.isPending || draft.trim() === ''}
           onClick={addRule}
         >
           {copy.add}
@@ -144,4 +153,22 @@ export function GrantRow({
       </div>
     </div>
   )
+}
+
+export function WorkspaceMailboxAccess({ api, agent }: { api: ApiClient; agent: { id: string; name: string } }) {
+  const { canManage } = useWorkspaceAccess()
+  const mailbox = useWorkspaceMailbox(api)
+  const grants = useGrants(api)
+  const create = useCreateWorkspaceMailboxGrant(api)
+  const own = (grants.data ?? []).filter((grant) => grant.agent_id === agent.id && grant.resource_kind === 'workspace_mailbox')
+  if (!mailbox.data?.mailbox) return null
+  return <div className="agent-access-connection">
+    <strong>Workspace Mailbox: {mailbox.data.mailbox.address}</strong>
+    {own.length === 0 && <Button
+      aria-label={`Grant Workspace Mailbox to ${agent.name}`}
+      disabled={!canManage || grants.isPending || create.isPending}
+      onClick={() => create.mutate({ agent_id: agent.id })}
+    >Grant access</Button>}
+    {create.isError && <p role="alert">Workspace Mailbox access did not change.</p>}
+  </div>
 }

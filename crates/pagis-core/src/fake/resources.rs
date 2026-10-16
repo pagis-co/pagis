@@ -329,6 +329,8 @@ impl GrantStore for FakeGrantStore {
                     && row.agent_id == grant.agent_id
                     && row.resource_kind == grant.resource_kind
                     && row.resource_id == grant.resource_id
+                    && (grant.resource_kind != Grant::WORKSPACE_MAILBOX_KIND
+                        || (row.scope["default"] == true) == (grant.scope["default"] == true))
             })
         {
             return Err(conflict("live Grant exists"));

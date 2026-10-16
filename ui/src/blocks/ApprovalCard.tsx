@@ -43,6 +43,8 @@ const STATE_TONE: Record<string, SettledTone> = {
 }
 
 export interface ApprovalPayload {
+  workspace_mailbox_grant_id?: string | null
+  arguments?: Record<string, unknown>
   proposed_rules?: string[]
   tool_name?: string
   domain?: string
@@ -120,7 +122,7 @@ export function ApprovalCard({
   title: string
   body: string
 }) {
-  const { canRespond } = useWorkspaceAccess()
+  const { canRespond, canManage } = useWorkspaceAccess()
   const request = useRequest(api, requestId)
   const decide = useDecideRequest(api, requestId)
   const [always, setAlways] = useState(false)
@@ -133,7 +135,9 @@ export function ApprovalCard({
   // here, and its one rule is the tool's own qualified name.
   const pluginTool = typeof payload?.plugin_id === 'string'
   const harnessPermission = request.data?.kind === 'harness_permission'
-  const alwaysWords = alwaysAllowWords(payload)
+  const alwaysWords = payload?.workspace_mailbox_grant_id && !canManage ? null : alwaysAllowWords(payload)
+  const mail = payload?.workspace_mailbox_grant_id != null
+  const args = payload?.arguments ?? {}
   const reach = alwaysAllowReach(request.data?.kind, payload)
   const alwaysId = `approval-always-${requestId}`
   const scopeId = `approval-always-scope-${requestId}`
@@ -172,6 +176,15 @@ export function ApprovalCard({
           <>
             Pagis opens <code>{payload?.login_url}</code> and types there.
           </>
+        ) : mail ? (
+          <dl>
+            {(['from', 'to', 'cc', 'bcc', 'subject'] as const).map((field) => (
+              <div key={field}>
+                <dt>{({ from: 'From', to: 'To', cc: 'Cc', bcc: 'Bcc', subject: 'Subject' })[field]}</dt>
+                <dd>{Array.isArray(args[field]) ? args[field].join(', ') : String(args[field] ?? '')}</dd>
+              </div>
+            ))}
+          </dl>
         ) : pluginTool ? (
           "This tool is a plugin's. It runs on this computer with your privileges."
         ) : harnessPermission ? (

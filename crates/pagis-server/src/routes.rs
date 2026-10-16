@@ -1219,6 +1219,13 @@ pub const ROUTES: &[Route] = &[
     },
     Route {
         shared: true,
+        path: "/api/v1/grants/workspace-mailbox",
+        methods: &["post"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
+        shared: true,
         path: "/api/v1/grants",
         methods: &["get", "post"],
         authenticated: true,

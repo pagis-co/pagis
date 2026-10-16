@@ -13,7 +13,7 @@ The Person creates a Workspace Mailbox in Settings and reads it in the
 Mail place of the Product App.
 
 Not built: Agent triage, Junk handling, verdict filtering, quarantine,
-Needs you items, Agent Grants, Shared Workspace visibility levels,
+Needs you items, Shared Workspace visibility levels,
 assignments and saved drafts.
 
 ## Decision
@@ -26,8 +26,12 @@ mail domain Connection to create the mailbox. The Address Ledger reserves
 the address across Agent Mailboxes and Workspace Mailboxes. The credential
 is a Workspace secret.
 
-Not built: the default Grant to the Chief of Staff and Grants to other
-Agents. The designation grants no power (ADR-0022).
+The active Chief of Staff holds a System default Workspace Mailbox Grant.
+A change of Chief of Staff moves the default Grant. Manual Grants stay.
+The owner of a Private Workspace or a Manager of a Shared Workspace grants
+access to another active Agent. The Grant names the Workspace Mailbox
+record, whose primary key is the Workspace id. The designation grants no
+power by itself (ADR-0022).
 
 A store interface holds messages, threads, folders, labels and flags. Its
 conformance suite checks each operation. The daemon implements the store
@@ -55,7 +59,9 @@ and store both in one write before a read or Wake-up. A source or storage
 failure stops the pass without advancing the cursor. The next poll retries.
 Workspace Mailbox reads use the current active Chief of Staff's Trust List.
 The designation is read at each assessment. Without an active Chief of Staff,
-the Trust Tier is Unknown. Agent access under a Grant is not built.
+the Trust Tier is Unknown. An Agent that reads under a Workspace Mailbox
+Grant uses its own Trust List. Each tool checks for a live Grant. A
+revocation stops the next dispatch, including a send that waits for an Approval.
 The stored record uses the Message-ID header within its Workspace and mailbox,
 so a folder move or UIDVALIDITY change keeps the verdict. Mail without that
 header uses its IMAP id. The host's Rspamd result supplies its score and
@@ -105,8 +111,16 @@ send path.
 Agents reply from their own Agent Mailbox with the Person in Cc by default.
 Sending as the Workspace Mailbox needs an Approval for each message until a
 standing Grant allows that kind of mail.
-Not built: these Workspace Mailbox
-send rules.
+The broker offers Workspace Mailbox read, send and reply tools only under
+a Workspace Mailbox Grant. A send or reply as the Workspace Mailbox parks
+the Run on a tool action Request for an Approval. The card shows the from,
+to, Cc, subject and body. Recipient-domain Allow Rules on the Grant approve
+a class of sends in advance. Every recipient, including Cc and Bcc, must
+match a rule. The Outgoing Cap applies to all sends from the mailbox.
+An Agent Mailbox send can name the Workspace Mailbox message it answers.
+The daemon reads the original under the Agent's Grant, keeps In-Reply-To
+and References, uses a Re: subject and puts the Workspace Mailbox in Cc.
+The Agent Mailbox's existing send rules apply.
 
 ### Visibility limits each human read
 

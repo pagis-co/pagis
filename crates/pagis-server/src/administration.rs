@@ -350,6 +350,8 @@ pub async fn create_workspace(
         author: pagis_core::Author::Person(administrator.user_id.clone()),
     };
     let workspace = crate::provisioning::WorkspaceSeed {
+        grants: state.grants.as_ref(),
+        workspace_mailboxes: state.mailbox_desk.workspace_mailbox_records(),
         workspaces: state.workspaces.as_ref(),
         agents: state.agent_store.as_ref(),
         channels: state.channels.as_ref(),
@@ -628,6 +630,8 @@ pub async fn create_account(
         .map(|workspace| workspace.timezone)
         .unwrap_or_else(|| "UTC".to_string());
     let workspace = crate::provisioning::WorkspaceSeed {
+        grants: state.grants.as_ref(),
+        workspace_mailboxes: state.mailbox_desk.workspace_mailbox_records(),
         workspaces: state.workspaces.as_ref(),
         agents: state.agent_store.as_ref(),
         channels: state.channels.as_ref(),

@@ -1,6 +1,6 @@
 //! Grants REST: the settings page lists live grants with
-//! their allow rules, edits the rules, and revokes a grant. Revocation
-//! is the off switch — the next call re-enters the approval flow. A
+//! their Allow Rules, edits the rules, and revokes a Grant. Revocation
+//! stops access where a Grant is required. A
 //! host grant's rules are command prefixes; a credential grant's rules
 //! are registrable domains, capped at five. A host grant also holds its
 //! session allow rules, the widest Session Approval Mode of its Agent on
@@ -32,13 +32,15 @@ pub struct GrantDto {
     pub agent_id: String,
     /// Denormalized so the settings page renders standalone.
     pub agent_name: String,
-    /// The resource kind, including `workspace_number`.
+    /// The resource kind, including `workspace_number` and `workspace_mailbox`.
     pub resource_kind: String,
-    /// The Connection, Plugin, Host or Workspace Number the Grant reaches.
+    /// The System default Grant for the Chief of Staff.
+    pub is_default: bool,
+    /// The Connection, Plugin, Host, Workspace Number or Workspace Mailbox record.
     /// A credential Grant names none.
     pub resource_id: Option<String>,
     /// The allow rules — command prefixes on a host grant, registrable
-    /// domains on a credential grant. Empty is per-action mode.
+    /// domains on a Credential or Workspace Mailbox Grant. Empty is per-action mode.
     pub allow: Vec<String>,
     /// Named capabilities on a Connection grant.
     pub capabilities: Vec<String>,
@@ -84,6 +86,61 @@ pub struct CreateConnectionGrantRequest {
 pub struct CreateWorkspaceNumberGrantRequest {
     pub agent_id: String,
     pub number_id: String,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CreateWorkspaceMailboxGrantRequest {
+    pub agent_id: String,
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/grants/workspace-mailbox",
+    request_body = CreateWorkspaceMailboxGrantRequest,
+    responses(
+        (status = 201, body = GrantDto),
+        (status = 401, body = crate::error::ErrorBody),
+        (status = 404, body = crate::error::ErrorBody),
+        (status = 409, body = crate::error::ErrorBody),
+        (status = 422, body = crate::error::ErrorBody),
+    )
+)]
+pub async fn create_workspace_mailbox_grant(
+    State(state): State<Arc<AppState>>,
+    tenant: Tenant,
+    Json(request): Json<CreateWorkspaceMailboxGrantRequest>,
+) -> Result<(StatusCode, Json<GrantDto>), ApiError> {
+    let agent = state
+        .agent_store
+        .get(&tenant.workspace_id, &AgentId::from(request.agent_id))
+        .await?
+        .filter(|agent| agent.status == pagis_core::AgentStatus::Active)
+        .ok_or_else(|| ApiError::not_found("Agent"))?;
+    let mailbox = state
+        .mailbox_desk
+        .workspace_mailbox(&tenant.workspace_id)
+        .await
+        .map_err(crate::mailboxes::mailbox_error)?
+        .ok_or_else(|| ApiError::not_found("Workspace Mailbox"))?;
+    let grant = Grant {
+        id: GrantId::generate(),
+        workspace_id: tenant.workspace_id.clone(),
+        agent_id: agent.id,
+        resource_kind: Grant::WORKSPACE_MAILBOX_KIND.into(),
+        resource_id: Some(mailbox.workspace_id.to_string()),
+        scope: Grant::allow_scope(&[]),
+        revision: 1,
+        created_by: pagis_core::Author::Person(tenant.user_id),
+        created_at: now_ms(),
+        revoked_at: None,
+    };
+    state.grants.create(&grant).await?;
+    publish_grant_event(&state, &grant, "grant.created").await?;
+    Ok((
+        StatusCode::CREATED,
+        Json(grant_dto(&state, &grant, &agent.name).await?),
+    ))
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -135,6 +192,8 @@ pub(crate) async fn grant_dto(
         agent_id: grant.agent_id.to_string(),
         agent_name: agent_name.to_string(),
         resource_kind: grant.resource_kind.clone(),
+        is_default: grant.created_by == pagis_core::Author::System
+            && grant.scope["default"] == true,
         resource_id: grant.resource_id.clone(),
         allow: grant.allow_rules(),
         capabilities: grant.capabilities(),
@@ -422,7 +481,7 @@ pub async fn set_grant_rules(
         .contains(&grant.resource_kind.as_str())
     {
         return Err(ApiError::validation(
-            "only host and credential grants have allow rules",
+            "only Host, Credential and Workspace Mailbox Grants have Allow Rules",
         ));
     }
 
@@ -684,7 +743,13 @@ pub async fn revoke_grant(
 /// One rule as it is stored. A credential rule is a domain, and
 /// domains are case-insensitive.
 fn normalize_rule(resource_kind: &str, rule: &str) -> String {
-    if resource_kind == Grant::CREDENTIAL_KIND {
+    if resource_kind == Grant::WORKSPACE_MAILBOX_KIND {
+        let normalized = pagis_broker::normalize_domain(rule);
+        if !is_domain(&normalized) {
+            return normalized;
+        }
+        pagis_broker::recipient_domain(&format!("rule@{normalized}")).unwrap_or(normalized)
+    } else if resource_kind == Grant::CREDENTIAL_KIND {
         pagis_broker::normalize_domain(rule)
     } else {
         rule.trim().to_string()
@@ -709,19 +774,24 @@ pub(crate) fn check_rules(resource_kind: &str, allow: &[String]) -> Result<(), A
             None => Ok(()),
         };
     }
-    if resource_kind != Grant::CREDENTIAL_KIND {
+    if ![Grant::CREDENTIAL_KIND, Grant::WORKSPACE_MAILBOX_KIND].contains(&resource_kind) {
         return Ok(());
     }
+    let kind = if resource_kind == Grant::WORKSPACE_MAILBOX_KIND {
+        "Workspace Mailbox Grant"
+    } else {
+        "credential grant"
+    };
     if allow.len() > pagis_broker::MAX_CREDENTIAL_RULES {
         return Err(ApiError::validation(format!(
-            "a credential grant holds at most {} domains; remove one first",
+            "a {kind} holds at most {} domains; remove one first",
             pagis_broker::MAX_CREDENTIAL_RULES
         )));
     }
     for rule in allow {
         if !is_domain(rule) {
             return Err(ApiError::validation(format!(
-                "{rule:?} is not a domain; a credential rule is one registrable domain"
+                "{rule:?} is not a domain; an Allow Rule is one registrable domain"
             )));
         }
     }

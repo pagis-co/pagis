@@ -278,6 +278,7 @@ impl World {
         let mail_transport = Arc::new(pagis_mail::fake::FakeMailTransport::with_idle(false));
         let mail_ingest = Arc::new(pagis_mail::fake::FakeMailIngest::default());
         let desk = Arc::new(pagis_mail::MailboxDesk::new(pagis_mail::MailboxDeskDeps {
+            grants: stores.grants.clone(),
             intake: Arc::new(pagis_mail::MailIntake {
                 workspaces: stores.workspaces.clone(),
                 agents: stores.agents.clone(),

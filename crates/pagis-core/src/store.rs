@@ -1037,7 +1037,9 @@ pub trait GrantStore: Send + Sync {
         workspace_id: &WorkspaceId,
         agent_id: &AgentId,
     ) -> Result<Vec<Grant>, StoreError>;
-    /// One live grant for an exact agent and workspace resource.
+    /// One live Grant for an exact Agent and Workspace resource. A Workspace
+    /// Mailbox can have a default and a manual Grant; use the live list to
+    /// select a particular Grant when both exist.
     async fn live_for_resource(
         &self,
         workspace_id: &WorkspaceId,

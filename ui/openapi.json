@@ -5127,6 +5127,77 @@
         "x-workspace-role": "manager"
       }
     },
+    "/api/v1/grants/workspace-mailbox": {
+      "post": {
+        "tags": [
+          "grants"
+        ],
+        "operationId": "create_workspace_mailbox_grant",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateWorkspaceMailboxGrantRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GrantDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "x-workspace-role": "manager"
+      }
+    },
     "/api/v1/grants/workspace-number": {
       "post": {
         "tags": [
@@ -16250,6 +16321,18 @@
           }
         }
       },
+      "CreateWorkspaceMailboxGrantRequest": {
+        "type": "object",
+        "required": [
+          "agent_id"
+        ],
+        "properties": {
+          "agent_id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
       "CreateWorkspaceNumberGrantRequest": {
         "type": "object",
         "required": [
@@ -17101,6 +17184,7 @@
           "agent_id",
           "agent_name",
           "resource_kind",
+          "is_default",
           "allow",
           "capabilities",
           "sessions",
@@ -17120,7 +17204,7 @@
             "items": {
               "type": "string"
             },
-            "description": "The allow rules — command prefixes on a host grant, registrable\ndomains on a credential grant. Empty is per-action mode."
+            "description": "The allow rules — command prefixes on a host grant, registrable\ndomains on a Credential or Workspace Mailbox Grant. Empty is per-action mode."
           },
           "capabilities": {
             "type": "array",
@@ -17139,16 +17223,20 @@
           "id": {
             "type": "string"
           },
+          "is_default": {
+            "type": "boolean",
+            "description": "The System default Grant for the Chief of Staff."
+          },
           "resource_id": {
             "type": [
               "string",
               "null"
             ],
-            "description": "The Connection, Plugin, Host or Workspace Number the Grant reaches.\nA credential Grant names none."
+            "description": "The Connection, Plugin, Host, Workspace Number or Workspace Mailbox record.\nA credential Grant names none."
           },
           "resource_kind": {
             "type": "string",
-            "description": "The resource kind, including `workspace_number`."
+            "description": "The resource kind, including `workspace_number` and `workspace_mailbox`."
           },
           "revision": {
             "type": "integer",

@@ -150,6 +150,7 @@ struct CheckedMailbox {
 /// Everything the desk needs. Every collaborator is a seam, so a test
 /// drives the whole lifecycle with no network.
 pub struct MailboxDeskDeps {
+    pub grants: Arc<dyn pagis_core::GrantStore>,
     pub intake: Arc<crate::MailIntake>,
     pub workspaces: Arc<dyn pagis_core::WorkspaceStore>,
     pub workspace_mailboxes: Arc<dyn pagis_core::WorkspaceMailboxRecordStore>,
@@ -169,6 +170,7 @@ pub struct MailboxDeskDeps {
 }
 
 pub struct MailboxDesk {
+    grants: Arc<dyn pagis_core::GrantStore>,
     intake: Arc<crate::MailIntake>,
     workspaces: Arc<dyn pagis_core::WorkspaceStore>,
     workspace_mailboxes: Arc<dyn pagis_core::WorkspaceMailboxRecordStore>,
@@ -190,6 +192,7 @@ pub struct MailboxDesk {
 impl MailboxDesk {
     pub fn new(deps: MailboxDeskDeps) -> Self {
         Self {
+            grants: deps.grants,
             intake: deps.intake,
             workspaces: deps.workspaces,
             workspace_mailboxes: deps.workspace_mailboxes,
