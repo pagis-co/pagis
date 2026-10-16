@@ -652,6 +652,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         Arc::clone(&grants) as _,
     ));
     let tool_runtime = Arc::new(CoreToolRuntime::new(ToolRuntimeDeps {
+        workspaces: stores.workspaces.clone(),
         presence: Arc::clone(&host_presence),
         agents: Arc::clone(&agent_store) as _,
         channels: Arc::clone(&channels) as _,
@@ -831,6 +832,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
                 stores.connections.clone(),
             )),
         }),
+        workspaces: stores.workspaces.clone(),
         workspace_mailboxes: stores.workspace_mailboxes.clone(),
         mailboxes: Arc::clone(&mailbox_store) as _,
         connections: Arc::clone(&connections) as _,
@@ -1514,6 +1516,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     };
 
     let state = AppState {
+        audit: stores.audit.clone(),
         conversation_evidence: stores.conversation_evidence.clone(),
         workspace_members: stores.workspace_members.clone(),
         plugins: Arc::clone(&plugins),

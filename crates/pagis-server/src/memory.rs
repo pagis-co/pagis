@@ -39,6 +39,7 @@ pub(crate) fn user_author() -> MemoryAuthor {
 
 pub(crate) fn memory_error(err: MemoryError) -> ApiError {
     match err {
+        MemoryError::LegalHold => ApiError::conflict(pagis_core::LegalHold::MESSAGE),
         MemoryError::NotFound(what) => ApiError::not_found(&what),
         MemoryError::Invalid(message) => ApiError::validation(message),
         MemoryError::RevertConflict => ApiError {
@@ -639,6 +640,7 @@ pub async fn revert_commit(
     Path(sha): Path<String>,
     Json(request): Json<MemoryRevertRequest>,
 ) -> Result<Json<MemoryRevertResponse>, ApiError> {
+    state.workspaces.refuse_delete(&tenant.workspace_id).await?;
     let access = current_access(&state, &tenant, AgentId::from(String::new())).await?;
     let revert_sha = state
         .memory

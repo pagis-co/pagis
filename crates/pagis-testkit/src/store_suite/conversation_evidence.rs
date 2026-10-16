@@ -685,6 +685,7 @@ pub async fn search_of_one_workspace_reads_neither_index_of_another_workspace(ba
 async fn tenant_pair(backend: &Backend) -> (ConversationScope, ConversationScope) {
     let first = backend.seeded_workspace().await;
     let second = Workspace {
+        legal_hold: None,
         monthly_spend_cap_usd: None,
         id: WorkspaceId::generate(),
         ..first.clone()

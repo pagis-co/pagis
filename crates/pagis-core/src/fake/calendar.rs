@@ -60,6 +60,14 @@ impl CalendarStore for FakeCalendarStore {
     ) -> Result<bool, StoreError> {
         value.bounds()?;
         let mut data = self.0.lock().unwrap();
+        if data.calendar.get(workspace, id).is_some_and(|old| {
+            value
+                .exdates
+                .iter()
+                .any(|date| !old.data.exdates.contains(date))
+        }) {
+            super::audit::refuse_delete(&data, workspace)?;
+        }
         let Some(event) = data.calendar.get_mut(workspace, id) else {
             return Ok(false);
         };
@@ -71,13 +79,9 @@ impl CalendarStore for FakeCalendarStore {
         workspace: &WorkspaceId,
         id: &CalendarEventId,
     ) -> Result<bool, StoreError> {
-        Ok(self
-            .0
-            .lock()
-            .unwrap()
-            .calendar
-            .remove(workspace, id)
-            .is_some())
+        let mut data = self.0.lock().unwrap();
+        super::audit::refuse_delete(&data, workspace)?;
+        Ok(data.calendar.remove(workspace, id).is_some())
     }
     async fn free_busy(
         &self,

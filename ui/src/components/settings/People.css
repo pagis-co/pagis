@@ -94,3 +94,8 @@
 .people-password {
   width: 12rem;
 }
+
+.audit-entry > * {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}

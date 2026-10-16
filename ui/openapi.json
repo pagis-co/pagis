@@ -10,6 +10,202 @@
     "version": "0.4.1"
   },
   "paths": {
+    "/api/v1/admin/audit": {
+      "get": {
+        "tags": [
+          "crate::legal_hold"
+        ],
+        "operationId": "list_audit_entries",
+        "parameters": [
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditPage"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/workspaces/{workspace_id}/legal-hold": {
+      "put": {
+        "tags": [
+          "crate::legal_hold"
+        ],
+        "operationId": "start_legal_hold",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartLegalHold"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdministrationWorkspaceDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "crate::legal_hold"
+        ],
+        "operationId": "end_legal_hold",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdministrationWorkspaceDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/administration/computer-image/pull": {
       "post": {
         "tags": [
@@ -2797,6 +2993,16 @@
           },
           "404": {
             "description": ""
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
           }
         },
         "x-workspace-role": "manager"
@@ -2822,6 +3028,16 @@
           },
           "404": {
             "description": ""
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
           }
         },
         "x-workspace-role": "manager"
@@ -13297,6 +13513,16 @@
           "kind": {
             "$ref": "#/components/schemas/WorkspaceKind"
           },
+          "legal_hold": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LegalHold"
+              }
+            ]
+          },
           "managers": {
             "type": "array",
             "items": {
@@ -13494,6 +13720,66 @@
           "enabled": {
             "type": "boolean",
             "description": "The System Setting: whether the Administrator lets the daemon\nsend. On by default."
+          }
+        }
+      },
+      "AuditEntry": {
+        "type": "object",
+        "description": "One append-only record owned by the Org Workspace.",
+        "required": [
+          "id",
+          "org_workspace_id",
+          "actor",
+          "action",
+          "subject_workspace_id",
+          "at"
+        ],
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "actor": {
+            "$ref": "#/components/schemas/Author"
+          },
+          "at": {
+            "$ref": "#/components/schemas/i64"
+          },
+          "id": {
+            "type": "string"
+          },
+          "org_workspace_id": {
+            "type": "string"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "subject_workspace_id": {
+            "type": "string"
+          }
+        }
+      },
+      "AuditPage": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuditEntry"
+            }
+          },
+          "next_offset": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
           }
         }
       },
@@ -17920,6 +18206,21 @@
           "running": {
             "type": "boolean",
             "description": "True while the terminal window is open."
+          }
+        }
+      },
+      "LegalHold": {
+        "type": "object",
+        "required": [
+          "started_at",
+          "started_by"
+        ],
+        "properties": {
+          "started_at": {
+            "$ref": "#/components/schemas/i64"
+          },
+          "started_by": {
+            "$ref": "#/components/schemas/Author"
           }
         }
       },
@@ -23227,6 +23528,17 @@
           }
         }
       },
+      "StartLegalHold": {
+        "type": "object",
+        "required": [
+          "reason"
+        ],
+        "properties": {
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
       "StartSignInRequest": {
         "type": "object",
         "required": [
@@ -25316,6 +25628,10 @@
             }
           }
         }
+      },
+      "i64": {
+        "type": "integer",
+        "format": "int64"
       }
     }
   }

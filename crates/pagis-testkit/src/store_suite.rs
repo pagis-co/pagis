@@ -172,6 +172,7 @@ impl Backend {
         .await
         .expect("seed the Org and its administrator");
         let workspace = Workspace {
+            legal_hold: None,
             monthly_spend_cap_usd: None,
             id: WorkspaceId::generate(),
             user_id: Some(person.id),
@@ -196,6 +197,7 @@ impl Backend {
     }
 }
 
+pub mod audit;
 pub mod calendar;
 /// The modules that hold the bodies. Each one is the trait tests of one
 /// area, and each one carries its own `store_suite_<module>!` list right
@@ -246,6 +248,7 @@ macro_rules! store_suite {
         $crate::store_suite_memory_pages!($crate::__store_suite_emit);
         $crate::store_suite_model_request_captures!($crate::__store_suite_emit);
         $crate::store_suite_pending_reviews!($crate::__store_suite_emit);
+        $crate::store_suite_audit!($crate::__store_suite_emit);
         $crate::store_suite_calendar!($crate::__store_suite_emit);
         $crate::store_suite_push_subscriptions!($crate::__store_suite_emit);
         $crate::store_suite_run_journal!($crate::__store_suite_emit);
@@ -360,6 +363,11 @@ const MODULES: &[(&str, &str, &str)] = &[
         "pending_reviews",
         include_str!("store_suite/pending_reviews.rs"),
         "macro_rules! store_suite_pending_reviews",
+    ),
+    (
+        "audit",
+        include_str!("store_suite/audit.rs"),
+        "macro_rules! store_suite_audit",
     ),
     (
         "calendar",

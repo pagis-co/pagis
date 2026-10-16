@@ -87,6 +87,7 @@ async fn a_workspace_subscription_skips_every_other_workspace(pool: SqlitePool) 
     let template = stores.get(&first).await.unwrap().expect("the seeded one");
     stores
         .create(&Workspace {
+            legal_hold: None,
             monthly_spend_cap_usd: None,
             id: second.clone(),
             ..template

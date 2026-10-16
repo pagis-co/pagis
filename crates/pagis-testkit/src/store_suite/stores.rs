@@ -427,6 +427,7 @@ pub async fn event_append_assigns_increasing_seq_and_lists_after(backend: &Backe
 pub async fn events_of_one_workspace_list_without_the_others(backend: &Backend) {
     let first = backend.seeded_workspace().await;
     let second = pagis_core::Workspace {
+        legal_hold: None,
         monthly_spend_cap_usd: None,
         id: WorkspaceId::generate(),
         ..first.clone()
@@ -481,6 +482,7 @@ pub async fn events_of_one_workspace_list_without_the_others(backend: &Backend) 
 pub async fn a_subscriber_cursor_skips_no_event_of_concurrent_appends(backend: &Backend) {
     let slow = backend.seeded_workspace().await;
     let fast = pagis_core::Workspace {
+        legal_hold: None,
         monthly_spend_cap_usd: None,
         id: WorkspaceId::generate(),
         ..slow.clone()
@@ -2129,6 +2131,7 @@ pub async fn an_adopted_number_is_recorded_without_an_intent(backend: &Backend) 
 pub async fn one_number_is_held_once_in_the_installation(backend: &Backend) {
     let (ws, _) = seed_grant_deps(backend).await;
     let other = pagis_core::Workspace {
+        legal_hold: None,
         monthly_spend_cap_usd: None,
         id: WorkspaceId::generate(),
         ..ws.clone()
@@ -2154,6 +2157,7 @@ pub async fn one_number_is_held_once_in_the_installation(backend: &Backend) {
 pub async fn the_live_records_of_a_number_span_every_workspace(backend: &Backend) {
     let (ws, _) = seed_grant_deps(backend).await;
     let other = pagis_core::Workspace {
+        legal_hold: None,
         monthly_spend_cap_usd: None,
         id: WorkspaceId::generate(),
         ..ws.clone()
@@ -2769,6 +2773,7 @@ pub async fn an_uninstall_revokes_the_grants_and_keeps_nothing_else(backend: &Ba
     grants.create(&grant).await.unwrap();
     // Another person grants the Org's Plugin in their own Workspace.
     let other = pagis_core::Workspace {
+        legal_hold: None,
         monthly_spend_cap_usd: None,
         id: WorkspaceId::generate(),
         ..backend

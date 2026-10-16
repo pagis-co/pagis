@@ -4,6 +4,38 @@
  */
 
 export interface paths {
+    "/api/v1/admin/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_audit_entries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/workspaces/{workspace_id}/legal-hold": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["start_legal_hold"];
+        post?: never;
+        delete: operations["end_legal_hold"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/administration/computer-image/pull": {
         parameters: {
             query?: never;
@@ -3662,6 +3694,7 @@ export interface components {
         AdministrationWorkspaceDto: {
             id: string;
             kind: components["schemas"]["WorkspaceKind"];
+            legal_hold?: null | components["schemas"]["LegalHold"];
             managers: components["schemas"]["PersonDto"][];
             /** Format: double */
             monthly_spend_cap_usd?: number | null;
@@ -3731,6 +3764,21 @@ export interface components {
              *     send. On by default.
              */
             enabled: boolean;
+        };
+        /** @description One append-only record owned by the Org Workspace. */
+        AuditEntry: {
+            action: string;
+            actor: components["schemas"]["Author"];
+            at: components["schemas"]["i64"];
+            id: string;
+            org_workspace_id: string;
+            reason?: string | null;
+            subject_workspace_id: string;
+        };
+        AuditPage: {
+            items: components["schemas"]["AuditEntry"][];
+            /** Format: int32 */
+            next_offset?: number | null;
         };
         Author: {
             /** @enum {string} */
@@ -5319,6 +5367,10 @@ export interface components {
             id: string;
             /** @description True while the terminal window is open. */
             running: boolean;
+        };
+        LegalHold: {
+            started_at: components["schemas"]["i64"];
+            started_by: components["schemas"]["Author"];
         };
         LinkSignInRequest: {
             /**
@@ -7302,6 +7354,9 @@ export interface components {
         StartConversationRequest: {
             workspace_ids: string[];
         };
+        StartLegalHold: {
+            reason: string;
+        };
         StartSignInRequest: {
             method: components["schemas"]["HarnessSignInMethod"];
         };
@@ -8006,6 +8061,8 @@ export interface components {
         WorkspacesDto: {
             items: components["schemas"]["AccessibleWorkspaceDto"][];
         };
+        /** Format: int64 */
+        i64: number;
     };
     responses: never;
     parameters: never;
@@ -8015,6 +8072,138 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    list_audit_entries: {
+        parameters: {
+            query?: {
+                offset?: number | null;
+                limit?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditPage"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    start_legal_hold: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartLegalHold"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdministrationWorkspaceDto"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    end_legal_hold: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdministrationWorkspaceDto"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     pull_computer_image: {
         parameters: {
             query?: never;
@@ -10070,6 +10259,14 @@ export interface operations {
                 };
                 content?: never;
             };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
         };
     };
     delete_calendar_event: {
@@ -10094,6 +10291,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
             };
         };
     };

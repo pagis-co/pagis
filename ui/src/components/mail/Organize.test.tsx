@@ -147,3 +147,15 @@ it('moves a message to the selected folder', async () => {
   )
   await waitFor(() => expect(moved).toHaveBeenCalled())
 })
+
+it('shows the server refusal for a held mail folder and keeps the folder', async () => {
+  const message = 'This Workspace is under legal hold. Nothing in it can be deleted until the hold ends.'
+  const DELETE = vi.fn(async () => ({ error: { error: { code: 'conflict', message } } }))
+  render(<QueryClientProvider client={new QueryClient()}>
+    <FolderManager api={{ DELETE } as unknown as ApiClient} folders={['Records']} />
+  </QueryClientProvider>)
+  fireEvent.click(screen.getByRole('button', { name: 'Delete Records' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm delete Records' }))
+  expect((await screen.findByRole('alert')).textContent).toBe(message)
+  expect(screen.getByRole('button', { name: 'Delete Records' })).toBeTruthy()
+})

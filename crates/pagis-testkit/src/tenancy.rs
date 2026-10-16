@@ -259,6 +259,7 @@ impl TwoTenants {
         users.create(&b_user).await.expect("write person B");
         let b_workspace = Workspace {
             kind: pagis_core::WorkspaceKind::Private,
+            legal_hold: None,
             monthly_spend_cap_usd: None,
             id: WorkspaceId::generate(),
             user_id: Some(b_user.id.clone()),
@@ -587,6 +588,7 @@ async fn seed_a(
     // Person A is the installation's administrator. Person B
     // drives the administration routes against A's own id, so a Member
     // who disabled, reset or capped the administrator would fail here.
+    owned.insert("workspace_id", workspace_id.to_string());
     owned.insert("user_id", daemon.user_id.to_string());
     owned.insert("person_id", daemon.user_id.to_string());
 

@@ -18,6 +18,7 @@ async fn person(daemon: &TestDaemon, name: &str) -> (WorkspaceId, String) {
         user_id: Some(user.id.clone()),
         name: name.into(),
         timezone: "UTC".into(),
+        legal_hold: None,
         monthly_spend_cap_usd: None,
         created_at: pagis_core::now_ms(),
         onboarded_at: None,

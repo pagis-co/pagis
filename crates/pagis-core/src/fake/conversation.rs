@@ -696,14 +696,30 @@ impl ModelRequestCaptureStore for FakeModelRequestCaptureStore {
     async fn delete_before(&self, cutoff: UnixMillis) -> Result<u64, StoreError> {
         let mut data = self.0.lock().unwrap();
         let before = data.captures.0.len();
-        data.captures.0.retain(|_, r| r.created_at >= cutoff);
+        let held: BTreeSet<_> = data
+            .workspaces
+            .values()
+            .filter(|w| w.legal_hold.is_some())
+            .map(|w| w.id.clone())
+            .collect();
+        data.captures
+            .0
+            .retain(|_, r| r.created_at >= cutoff || held.contains(&r.workspace_id));
         Ok((before - data.captures.0.len()) as u64)
     }
     async fn delete_all(&self) -> Result<u64, StoreError> {
         let mut data = self.0.lock().unwrap();
         let count = data.captures.0.len();
-        data.captures.0.clear();
-        Ok(count as u64)
+        let held: BTreeSet<_> = data
+            .workspaces
+            .values()
+            .filter(|w| w.legal_hold.is_some())
+            .map(|w| w.id.clone())
+            .collect();
+        data.captures
+            .0
+            .retain(|_, r| held.contains(&r.workspace_id));
+        Ok((count - data.captures.0.len()) as u64)
     }
 }
 

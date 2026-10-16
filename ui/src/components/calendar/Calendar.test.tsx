@@ -111,6 +111,18 @@ it('changes a series and deletes one occurrence through EXDATE', async () => {
   }))
 })
 
+it('shows the server refusal when an Event is under Legal Hold', async () => {
+  const message = 'This Workspace is under legal hold. Nothing in it can be deleted until the hold ends.'
+  const DELETE = vi.fn(async () => ({ error: { error: { code: 'conflict', message } } }))
+  const close = vi.fn()
+  render(<QueryClientProvider client={new QueryClient()}>
+    <EventEditor api={{ DELETE } as unknown as ApiClient} event={event} date="2026-03-09" onClose={close} />
+  </QueryClientProvider>)
+  fireEvent.click(screen.getByRole('button', { name: 'Delete event' }))
+  await waitFor(() => expect(screen.getAllByRole('alert').map(alert => alert.textContent)).toContain(message))
+  expect(close).not.toHaveBeenCalled()
+})
+
 it('opens a Calendar Event from a Search result', async () => {
   const GET = vi.fn(async (path: string) => ({ data: path.endsWith("{event_id}") ? event : [] }))
   render(<QueryClientProvider client={new QueryClient()}><CurrentWorkspaceContext value="workspace-1">

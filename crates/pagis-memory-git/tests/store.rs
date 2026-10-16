@@ -440,6 +440,10 @@ struct NoSuppression {
 }
 #[async_trait::async_trait]
 impl pagis_core::ForgetStore for NoSuppression {
+    async fn refuse_delete(&self, _: &WorkspaceId) -> Result<(), pagis_core::StoreError> {
+        Ok(())
+    }
+
     async fn preview_affects(
         &self,
         _: &WorkspaceId,

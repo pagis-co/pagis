@@ -881,6 +881,10 @@ mod tests {
 
     #[async_trait]
     impl pagis_core::ForgetStore for NoSuppression {
+        async fn refuse_delete(&self, _: &WorkspaceId) -> Result<(), pagis_core::StoreError> {
+            Ok(())
+        }
+
         async fn preview(
             &self,
             _: &WorkspaceId,

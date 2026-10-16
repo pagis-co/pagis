@@ -170,3 +170,6 @@ pub use workspace_members::*;
 
 mod spam;
 pub use spam::*;
+pub mod legal_hold;
+pub use id::AuditEntryId;
+pub use legal_hold::{AuditEntry, AuditLog, LegalHold};

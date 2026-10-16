@@ -24,6 +24,7 @@ const EVERYTHING: UsagePeriod = UsagePeriod {
 /// A second Workspace of the same Org, for the reads that cross one.
 async fn second_workspace(backend: &Backend, first: &Workspace) -> Workspace {
     let second = Workspace {
+        legal_hold: None,
         monthly_spend_cap_usd: None,
         id: WorkspaceId::generate(),
         ..first.clone()

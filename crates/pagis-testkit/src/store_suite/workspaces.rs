@@ -303,6 +303,241 @@ pub async fn shared_workspace_membership_and_last_manager(backend: &Backend) {
     assert_eq!(remaining[0].role, WorkspaceRole::Manager);
 }
 
+/// Hold changes and their Audit Entries are one operation.
+pub async fn legal_hold_and_org_audit_log(backend: &Backend) {
+    use pagis_core::{AuditEntry, AuditEntryId, Author, LegalHold};
+    let workspace = backend.seeded_workspace().await;
+    let stores = backend.stores();
+    let org = stores.orgs.list().await.unwrap().remove(0);
+    let actor = Author::Person(workspace.user_id.clone().unwrap());
+    let start = AuditEntry {
+        id: AuditEntryId::generate(),
+        org_workspace_id: org.workspace_id.clone(),
+        actor: actor.clone(),
+        action: "legal_hold.started".into(),
+        subject_workspace_id: workspace.id.clone(),
+        reason: Some("Preserve the records".into()),
+        at: 100,
+    };
+    stores.workspaces.start_legal_hold(&start).await.unwrap();
+    assert_eq!(
+        stores
+            .workspaces
+            .get(&workspace.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .legal_hold,
+        Some(LegalHold {
+            started_at: 100,
+            started_by: actor
+        })
+    );
+    assert_eq!(
+        stores
+            .workspaces
+            .refuse_delete(&workspace.id)
+            .await
+            .unwrap_err()
+            .to_string(),
+        LegalHold::MESSAGE
+    );
+    assert!(stores.workspaces.start_legal_hold(&start).await.is_err());
+    let end = AuditEntry {
+        id: AuditEntryId::generate(),
+        action: "legal_hold.ended".into(),
+        at: 200,
+        ..start.clone()
+    };
+    stores.workspaces.end_legal_hold(&end).await.unwrap();
+    stores
+        .workspaces
+        .refuse_delete(&workspace.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        stores
+            .workspaces
+            .get(&workspace.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .legal_hold,
+        None
+    );
+    assert!(stores.workspaces.end_legal_hold(&end).await.is_err());
+    assert_eq!(
+        stores.audit.list(&org.workspace_id, 0, 1).await.unwrap(),
+        vec![end]
+    );
+    assert_eq!(
+        stores.audit.list(&org.workspace_id, 1, 1).await.unwrap(),
+        vec![start.clone()]
+    );
+    assert!(
+        stores
+            .audit
+            .list(&pagis_core::WorkspaceId::generate(), 0, 10)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    let invalid = AuditEntry {
+        id: AuditEntryId::generate(),
+        org_workspace_id: pagis_core::WorkspaceId::generate(),
+        ..start
+    };
+    assert!(stores.workspaces.start_legal_hold(&invalid).await.is_err());
+    assert_eq!(
+        stores
+            .workspaces
+            .get(&workspace.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .legal_hold,
+        None
+    );
+    assert_eq!(
+        stores
+            .audit
+            .list(&org.workspace_id, 0, 10)
+            .await
+            .unwrap()
+            .len(),
+        2
+    );
+}
+
+/// File and capture deletes use the same hold as Forget.
+pub async fn legal_hold_preserves_files_captures_and_forget(backend: &Backend) {
+    use pagis_core::{
+        AuditEntry, AuditEntryId, Author, ForgetTarget, ModelRequestCapture, ModelRequestCaptureId,
+        StoreError,
+    };
+    let workspace = backend.seeded_workspace().await;
+    let stores = backend.stores();
+    let file = crate::fixture::file(&workspace.id, "held-file");
+    stores.files.insert(&file).await.unwrap();
+    let agent = crate::fixture::agent(&workspace.id);
+    stores.agents.create(&agent).await.unwrap();
+    let channel = crate::fixture::channel(&workspace.id);
+    stores.channels.create(&channel).await.unwrap();
+    let run = crate::fixture::queued_run(&workspace.id, &agent.id, &channel.id);
+    stores.runs.create(&run).await.unwrap();
+    let capture = ModelRequestCapture {
+        id: ModelRequestCaptureId::generate(),
+        workspace_id: workspace.id.clone(),
+        run_id: run.id.clone(),
+        phase: "reply".into(),
+        phase_request: 0,
+        request: serde_json::json!({}),
+        answer: serde_json::json!({}),
+        created_at: 1,
+    };
+    stores
+        .model_request_captures
+        .record(&capture)
+        .await
+        .unwrap();
+    let org = stores.orgs.list().await.unwrap().remove(0);
+    let entry = AuditEntry {
+        id: AuditEntryId::generate(),
+        org_workspace_id: org.workspace_id,
+        actor: Author::System,
+        action: "legal_hold.started".into(),
+        subject_workspace_id: workspace.id.clone(),
+        reason: Some("Preserve".into()),
+        at: 100,
+    };
+    stores.workspaces.start_legal_hold(&entry).await.unwrap();
+    assert!(matches!(
+        stores.files.delete(&workspace.id, &file.id).await,
+        Err(StoreError::LegalHold)
+    ));
+    assert_eq!(
+        stores
+            .model_request_captures
+            .delete_before(100)
+            .await
+            .unwrap(),
+        0
+    );
+    assert_eq!(stores.model_request_captures.delete_all().await.unwrap(), 0);
+    assert_eq!(
+        stores
+            .model_request_captures
+            .list_for_run(&workspace.id, &run.id)
+            .await
+            .unwrap(),
+        vec![capture]
+    );
+    let target = ForgetTarget::Account {
+        connection_id: pagis_core::ConnectionId::generate(),
+    };
+    assert!(matches!(
+        stores
+            .forget
+            .begin(&workspace.id, &target, "", 100, backend.keys())
+            .await,
+        Err(StoreError::LegalHold)
+    ));
+    assert!(
+        stores
+            .forget
+            .operations(&workspace.id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    stores
+        .workspaces
+        .end_legal_hold(&AuditEntry {
+            id: AuditEntryId::generate(),
+            action: "legal_hold.ended".into(),
+            at: 200,
+            ..entry
+        })
+        .await
+        .unwrap();
+    assert!(stores.files.delete(&workspace.id, &file.id).await.unwrap());
+    assert_eq!(stores.model_request_captures.delete_all().await.unwrap(), 1);
+}
+
+/// A hold waits for a content operation that has started.
+pub async fn legal_hold_waits_for_an_active_delete(backend: &Backend) {
+    use pagis_core::{AuditEntry, AuditEntryId, Author, LegalHold};
+    let workspace = backend.seeded_workspace().await;
+    let stores = backend.stores();
+    let org = stores.orgs.list().await.unwrap().remove(0);
+    let deleting = LegalHold::lock(&workspace.id).await;
+    let entry = AuditEntry {
+        id: AuditEntryId::generate(),
+        org_workspace_id: org.workspace_id,
+        actor: Author::System,
+        action: "legal_hold.started".into(),
+        subject_workspace_id: workspace.id.clone(),
+        reason: Some("Preserve".into()),
+        at: 1,
+    };
+    let start = stores.workspaces.start_legal_hold(&entry);
+    tokio::pin!(start);
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(25), &mut start)
+            .await
+            .is_err()
+    );
+    drop(deleting);
+    start.await.unwrap();
+    assert!(
+        stores
+            .workspaces
+            .refuse_delete(&workspace.id)
+            .await
+            .is_err()
+    );
+}
+
 /// Every body of this module. [`crate::store_suite!`] turns each one
 /// into a SQLite test and a Postgres test.
 #[macro_export]
@@ -310,6 +545,9 @@ macro_rules! store_suite_workspaces {
     ($emit:path) => {
         $emit!(
             workspaces,
+            legal_hold_and_org_audit_log,
+            legal_hold_waits_for_an_active_delete,
+            legal_hold_preserves_files_captures_and_forget,
             shared_workspace_membership_and_last_manager,
             workspace_roundtrips_through_store,
             missing_workspace_is_none,

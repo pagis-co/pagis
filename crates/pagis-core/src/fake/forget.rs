@@ -2,6 +2,10 @@ use super::*;
 
 #[async_trait::async_trait]
 impl ForgetStore for FakeForgetStore {
+    async fn refuse_delete(&self, workspace: &WorkspaceId) -> Result<(), StoreError> {
+        super::audit::refuse_delete(&self.0.lock().unwrap(), workspace)
+    }
+
     async fn preview(
         &self,
         workspace: &WorkspaceId,
@@ -36,6 +40,7 @@ impl ForgetStore for FakeForgetStore {
         keys: &dyn ForgetKeys,
     ) -> Result<ForgetOperation, StoreError> {
         let mut data = self.0.lock().unwrap();
+        super::audit::refuse_delete(&data, workspace)?;
         let current = preview(&data, workspace, target)?;
         if current.revision != expected_revision {
             return Err(conflict("Forget preview changed"));
@@ -170,6 +175,7 @@ impl ForgetStore for FakeForgetStore {
     }
     async fn purge_structured(&self, workspace: &WorkspaceId, id: &str) -> Result<(), StoreError> {
         let mut data = self.0.lock().unwrap();
+        super::audit::refuse_delete(&data, workspace)?;
         let Some(record) = data
             .forget_operations
             .get(workspace, &id.to_string())
@@ -291,6 +297,7 @@ impl ForgetStore for FakeForgetStore {
     }
     async fn memory_purged(&self, workspace: &WorkspaceId, id: &str) -> Result<(), StoreError> {
         let mut data = self.0.lock().unwrap();
+        super::audit::refuse_delete(&data, workspace)?;
         if let Some(row) = data
             .forget_operations
             .get_mut(workspace, &id.to_string())

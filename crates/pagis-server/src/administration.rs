@@ -248,6 +248,7 @@ pub struct SetSpendCapRequest {
 /// A Workspace and its owner, with the current month's spend.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct AdministrationWorkspaceDto {
+    pub legal_hold: Option<pagis_core::LegalHold>,
     pub id: String,
     pub name: String,
     pub person: Option<PersonDto>,
@@ -262,7 +263,7 @@ pub struct AdministrationWorkspacesDto {
     pub items: Vec<AdministrationWorkspaceDto>,
 }
 
-async fn workspace_dto(
+pub(crate) async fn workspace_dto(
     state: &AppState,
     workspace: &Workspace,
 ) -> Result<AdministrationWorkspaceDto, ApiError> {
@@ -288,6 +289,7 @@ async fn workspace_dto(
         .total_for_workspace(&workspace.id, month)
         .await?;
     Ok(AdministrationWorkspaceDto {
+        legal_hold: workspace.legal_hold.clone(),
         id: workspace.id.to_string(),
         name: workspace.name.clone(),
         person,
@@ -1395,6 +1397,11 @@ pub fn router(state: Arc<AppState>) -> Router {
             "/api/v1/administration/workspaces",
             get(list_workspaces).post(create_workspace),
         )
+        .route(
+            "/api/v1/admin/workspaces/{workspace_id}/legal-hold",
+            put(crate::legal_hold::start).delete(crate::legal_hold::end),
+        )
+        .route("/api/v1/admin/audit", get(crate::legal_hold::list))
         .route("/api/v1/administration/usage", get(installation_usage))
         .route("/api/v1/administration/sessions", get(list_sessions))
         .route("/api/v1/administration/health", get(installation_health))

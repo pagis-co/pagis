@@ -11,6 +11,7 @@
 -- writes Memory Search with the Page Index.
 
 CREATE TABLE workspaces (
+    legal_hold TEXT,
     kind TEXT NOT NULL DEFAULT 'private' CHECK (kind IN ('private', 'shared')),
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -1578,3 +1579,15 @@ CREATE TABLE mail_assessments (
     assessment TEXT NOT NULL,
     PRIMARY KEY (workspace_id, mailbox, message_id)
 );
+
+-- The Audit Log belongs to the Org Workspace.
+CREATE TABLE audit_entries (
+    id TEXT PRIMARY KEY,
+    org_workspace_id TEXT NOT NULL REFERENCES orgs (workspace_id),
+    actor TEXT NOT NULL,
+    action TEXT NOT NULL,
+    subject_workspace_id TEXT NOT NULL REFERENCES workspaces (id),
+    reason TEXT,
+    at INTEGER NOT NULL
+);
+CREATE INDEX idx_audit_entries_org_at ON audit_entries (org_workspace_id, at DESC, id DESC);

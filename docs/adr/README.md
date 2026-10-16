@@ -64,4 +64,5 @@ built. Read the records that touch an area before you change it.
 - [0042](0042-each-workspace-holds-a-calendar.md): Each Workspace holds a calendar
 - [0043](0043-messages-between-workspaces-follow-disclosure-rules.md): Messages between Workspaces follow Disclosure Rules
 
+- [0044](0044-a-legal-hold-stops-each-delete-in-a-workspace.md): A Legal Hold stops each delete in a Workspace
 - [0045](0045-search-sends-the-query-to-each-workspace.md): Search sends the query to each Workspace

@@ -12,6 +12,7 @@ use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 
+mod audit;
 mod automation;
 mod calendar;
 mod conversation;
@@ -33,6 +34,9 @@ type Shared = Arc<Mutex<Data>>;
 /// A set of related fake stores. Clones share their records.
 #[derive(Clone, Default)]
 pub struct FakeDatabase(Shared);
+
+#[derive(Clone, Default)]
+pub struct FakeAuditLog(Shared);
 
 /// The in-memory Calendar store.
 #[derive(Clone, Default)]
@@ -250,6 +254,7 @@ impl FakeDatabase {
     pub fn stores(&self) -> Stores {
         Stores {
             mail_assessments: Arc::new(FakeMailAssessmentStore(self.0.clone())),
+            audit: Arc::new(FakeAuditLog(self.0.clone())),
             workspace_mailboxes: Arc::new(FakeWorkspaceMailboxStore(self.0.clone())),
             agent_mailboxes: Arc::new(FakeAgentMailboxStore(self.0.clone())),
             agents: Arc::new(FakeAgentStore(self.0.clone())),
@@ -306,6 +311,7 @@ impl FakeDatabase {
 
 #[derive(Default)]
 struct Data {
+    audit: BTreeMap<AuditEntryId, AuditEntry>,
     workspace_mail_sends: BTreeMap<WorkspaceId, (i64, u32)>,
     mail_assessments: BTreeMap<(WorkspaceId, String, String), crate::MailAssessment>,
     workspace_mailboxes: BTreeMap<WorkspaceId, crate::WorkspaceMailbox>,

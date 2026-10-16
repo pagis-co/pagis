@@ -359,6 +359,13 @@ Harness in one directory of one Host (a **session Allow Rule**), or mail to
 one domain. The Person makes one from an approval card or in settings. It
 reaches no further than its Grant (ADR-0005, ADR-0033).
 
+### Audit Log
+The append-only record of audited actions in an Org. Each Audit Entry
+belongs to the Org Workspace and records its author, action, subject
+Workspace, optional reason and time. An Administrator reads it newest
+first in pages. Each Legal Hold change and its Audit Entry share one
+transaction (ADR-0044).
+
 ### Disclosure Rule
 A rule that says what a Chief of Staff may reveal to whom. Defaults share
 free/busy, the Person's profile and Files or Artifacts already shared with
@@ -381,6 +388,13 @@ matches the live revision needs no new approval (ADR-0005).
 A login with the Org role guest. A guest has no Private Workspace and
 has access only to Shared Workspaces that a Manager names.
 Not built: guests (ADR-0039).
+
+### Legal Hold
+The preservation rule an Administrator starts on a Workspace with a
+reason. Nothing in that Workspace is deleted until the hold ends.
+Retention Policies skip it, and Forget and content deletes are refused.
+The hold does not change read access. Settings and access records are
+outside the hold. Each start and end writes an Audit Entry (ADR-0044).
 
 ### Manager
 The role of a Person in a Shared Workspace who manages its People,
@@ -868,6 +882,7 @@ turn, a Compaction or a Reflection. A bad row does not hide a good one
 (ADR-0007).
 
 ### Forget
+A Legal Hold refuses Forget and stops an unfinished purge until the hold ends (ADR-0044).
 The Person's order to remove one source item, or everything from one
 account, from what Pagis holds: the structured records, the memory paths
 and history derived from it, and each message, tool result and Model
@@ -1760,6 +1775,7 @@ Request with no Run: it waits on its Coding Session, and it expires when
 the harness stops waiting for it (ADR-0033).
 
 ### Retention Policy
+A Legal Hold preserves the Workspace from every Retention Policy until the hold ends (ADR-0044).
 How long one File class is kept in a Workspace. With no policy a class
 is kept for ever (ADR-0020, ADR-0022).
 

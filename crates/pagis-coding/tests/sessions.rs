@@ -143,6 +143,7 @@ async fn world(pool: SqlitePool) -> World {
 
 async fn workspace(pool: &SqlitePool, user_id: pagis_core::UserId) -> WorkspaceId {
     let workspace = Workspace {
+        legal_hold: None,
         monthly_spend_cap_usd: None,
         id: WorkspaceId::generate(),
         user_id: Some(user_id),

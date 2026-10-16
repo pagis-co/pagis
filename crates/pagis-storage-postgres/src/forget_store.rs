@@ -76,6 +76,11 @@ pub(crate) async fn permits_provenance(
 
 #[async_trait]
 impl ForgetStore for PostgresForgetStore {
+    async fn refuse_delete(&self, workspace: &WorkspaceId) -> Result<(), StoreError> {
+        crate::audit_log::refuse_delete(&mut *self.pool.acquire().await.map_err(db_err)?, workspace)
+            .await
+    }
+
     async fn preview(
         &self,
         workspace: &WorkspaceId,

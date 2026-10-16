@@ -154,6 +154,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// behind the storage seams. The bus must already be ring-wrapped
 /// (`RingedBus`) so every published event is resumable over `last_seq`.
 pub struct AppState {
+    pub audit: Arc<dyn pagis_core::AuditLog>,
     #[cfg(feature = "native")]
     pub native: NativeState,
     /// The installed Plugins (ADR-0017), with the PackageSource and
@@ -1028,3 +1029,5 @@ mod runtime_identity_tests {
 
 #[cfg(all(test, not(feature = "native")))]
 mod calls_portable_tests;
+
+mod legal_hold;

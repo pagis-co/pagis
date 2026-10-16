@@ -18,8 +18,8 @@ impl PostgresWorkspaceStore {
     }
 }
 
-fn row_to_workspace(row: &sqlx::postgres::PgRow) -> Workspace {
-    Workspace {
+fn row_to_workspace(row: &sqlx::postgres::PgRow) -> Result<Workspace, StoreError> {
+    Ok(Workspace {
         kind: if row.get::<String, _>("kind") == "shared" {
             pagis_core::WorkspaceKind::Shared
         } else {
@@ -29,6 +29,13 @@ fn row_to_workspace(row: &sqlx::postgres::PgRow) -> Workspace {
         user_id: row.get::<Option<String>, _>("user_id").map(UserId::from),
         name: row.get("name"),
         timezone: row.get("timezone"),
+        legal_hold: row
+            .get::<Option<String>, _>("legal_hold")
+            .map(|s| {
+                serde_json::from_str(&s)
+                    .map_err(|e| StoreError::Corrupt(format!("Legal Hold: {e}")))
+            })
+            .transpose()?,
         monthly_spend_cap_usd: row.get("monthly_spend_cap_usd"),
         created_at: row.get("created_at"),
         onboarded_at: row.get("onboarded_at"),
@@ -41,15 +48,22 @@ fn row_to_workspace(row: &sqlx::postgres::PgRow) -> Workspace {
         home_exit_host_id: row
             .get::<Option<String>, _>("home_exit_host_id")
             .map(HostId::from),
-    }
+    })
 }
 
 /// The columns [`row_to_workspace`] reads, in one place.
 const COLUMNS: &str = "id, user_id, name, timezone, created_at, onboarded_at, \
-     chief_of_staff_agent_id, report_schedule_id, home_exit_host_id, monthly_spend_cap_usd, kind";
+     chief_of_staff_agent_id, report_schedule_id, home_exit_host_id, monthly_spend_cap_usd, kind, legal_hold";
 
 #[async_trait]
 impl WorkspaceStore for PostgresWorkspaceStore {
+    async fn start_legal_hold(&self, entry: &pagis_core::AuditEntry) -> Result<(), StoreError> {
+        crate::audit_log::change_hold(&self.pool, entry, true).await
+    }
+    async fn end_legal_hold(&self, entry: &pagis_core::AuditEntry) -> Result<(), StoreError> {
+        crate::audit_log::change_hold(&self.pool, entry, false).await
+    }
+
     async fn set_monthly_spend_cap(
         &self,
         id: &WorkspaceId,
@@ -71,7 +85,7 @@ impl WorkspaceStore for PostgresWorkspaceStore {
         .fetch_optional(&self.pool)
         .await
         .map_err(db_err)?;
-        Ok(row.as_ref().map(row_to_workspace))
+        row.as_ref().map(row_to_workspace).transpose()
     }
 
     async fn for_user(&self, user_id: &UserId) -> Result<Option<Workspace>, StoreError> {
@@ -82,7 +96,7 @@ impl WorkspaceStore for PostgresWorkspaceStore {
         .fetch_optional(&self.pool)
         .await
         .map_err(db_err)?;
-        Ok(row.as_ref().map(row_to_workspace))
+        row.as_ref().map(row_to_workspace).transpose()
     }
 
     async fn list(&self) -> Result<Vec<Workspace>, StoreError> {
@@ -92,7 +106,7 @@ impl WorkspaceStore for PostgresWorkspaceStore {
         .fetch_all(&self.pool)
         .await
         .map_err(db_err)?;
-        Ok(rows.iter().map(row_to_workspace).collect())
+        rows.iter().map(row_to_workspace).collect()
     }
 
     async fn set_onboarded(&self, id: &WorkspaceId, at: UnixMillis) -> Result<(), StoreError> {
@@ -176,7 +190,7 @@ where
 {
     sqlx::query(&format!(
         "INSERT INTO workspaces ({COLUMNS}) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)"
     ))
     .bind(workspace.id.as_str())
     .bind(workspace.user_id.as_ref().map(UserId::as_str))
@@ -199,6 +213,12 @@ where
     .bind(workspace.home_exit_host_id.as_ref().map(HostId::as_str))
     .bind(workspace.monthly_spend_cap_usd)
     .bind(workspace.kind.as_str())
+    .bind(
+        workspace
+            .legal_hold
+            .as_ref()
+            .map(|h| serde_json::to_string(h).expect("Legal Hold")),
+    )
     .execute(executor)
     .await
     .map_err(db_err)?;

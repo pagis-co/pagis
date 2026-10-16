@@ -386,6 +386,7 @@ impl AgentMailboxStore for FakeAgentMailboxStore {
         at: UnixMillis,
     ) -> Result<bool, StoreError> {
         let mut data = self.0.lock().unwrap();
+        super::audit::refuse_delete(&data, workspace_id)?;
         let Some(row) = data
             .agent_mailboxes
             .get_mut(workspace_id, id)
