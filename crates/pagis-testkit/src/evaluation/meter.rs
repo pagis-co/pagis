@@ -353,7 +353,9 @@ mod tests {
         let meter = Arc::new(ModelMeter::default());
         let brain = MeteredBrain::new(Arc::new(RetriedPreGrader), Arc::clone(&meter));
         let request = TurnRequest {
-            person_id: Some(pagis_core::UserId::from("person-one".to_string())),
+            caller: Some(pagis_agent::ModelCaller::Person(pagis_core::UserId::from(
+                "person-one".to_string(),
+            ))),
             model_alias: "evaluation-pre-grader".into(),
             model_candidates: vec!["openai/gpt-5-mini".into()],
             system: "Grade one evaluation probe.".into(),

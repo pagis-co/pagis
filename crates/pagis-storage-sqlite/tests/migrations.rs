@@ -324,3 +324,16 @@ async fn run_titles_are_backfilled_without_losing_references() {
     assert!(broken.is_empty(), "{broken:?}");
     pagis_testkit::migration::assert_run_titles(&pagis_storage_sqlite::stores(pool)).await;
 }
+
+#[tokio::test]
+async fn usage_has_an_optional_run() {
+    let pool = pagis_storage_sqlite::connect_memory().await.unwrap();
+    pagis_storage_sqlite::MIGRATOR.run(&pool).await.unwrap();
+    let required: i32 = sqlx::query_scalar(
+        r#"SELECT "notnull" FROM pragma_table_info('usage') WHERE name = 'run_id' "#,
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(required, 0);
+}

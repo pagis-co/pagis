@@ -18623,6 +18623,41 @@
           }
         }
       },
+      "MailOpinion": {
+        "type": "object",
+        "description": "One bounded input to the Spam Verdict.",
+        "required": [
+          "label",
+          "confidence",
+          "reasons"
+        ],
+        "properties": {
+          "confidence": {
+            "type": "integer",
+            "format": "int32",
+            "maximum": 100,
+            "minimum": 0
+          },
+          "label": {
+            "$ref": "#/components/schemas/MailOpinionLabel"
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 3
+          }
+        }
+      },
+      "MailOpinionLabel": {
+        "type": "string",
+        "enum": [
+          "spam",
+          "not_spam",
+          "unsure"
+        ]
+      },
       "MailboxDto": {
         "type": "object",
         "description": "One Agent Mailbox as the desk shows it. The password is never part\nof it (ADR-0013).",
@@ -23586,6 +23621,16 @@
         "properties": {
           "action": {
             "type": "string"
+          },
+          "opinion": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/MailOpinion"
+              }
+            ]
           },
           "reasons": {
             "type": "array",

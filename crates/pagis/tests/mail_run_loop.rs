@@ -525,6 +525,9 @@ async fn collector_verdict_failure_blocks_a_run_then_retries_with_metadata() {
     *harness.verdicts.0.lock().unwrap() = Err(pagis_mail::TransportError(
         pagis_mail::TransportErrorCode::Unreachable,
     ));
+    harness.brain.push(Script::reply(&[
+        r#"{"label":"unsure","confidence":0,"reasons":[]}"#,
+    ]));
     harness.brain.push(Script::tool_call(
         &[],
         "mail__get_message",
@@ -553,6 +556,7 @@ async fn collector_verdict_failure_blocks_a_run_then_retries_with_metadata() {
             .any(|r| r["trigger_kind"] == "event")
     );
     *harness.verdicts.0.lock().unwrap() = Ok(pagis_core::SpamVerdict {
+        opinion: None,
         score: 7200,
         action: pagis_core::SpamAction::AddHeader,
         reasons: vec!["GTUBE".into()],
@@ -570,6 +574,10 @@ async fn collector_verdict_failure_blocks_a_run_then_retries_with_metadata() {
         .await
         .unwrap()
         .unwrap();
+    assert_eq!(
+        saved.verdict.opinion.as_ref().unwrap().label,
+        pagis_core::MailOpinionLabel::Unsure
+    );
     assert_eq!(saved.verdict.score, 7200);
     assert_eq!(saved.trust_tier, pagis_core::TrustTier::Unknown);
     let prompt = harness.event_turn_prompt().await;

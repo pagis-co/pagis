@@ -30,7 +30,7 @@ use sha2::Sha256;
 use crate::secrets::{SecretStore, workspace_secret_name};
 use crate::{ForgetKeys, SealedSecret, SuppressionKey, WorkspaceId};
 
-/// The key for opaque Person ids in model requests. It is separate from
+/// The key for opaque Person and Workspace ids in model requests. It is separate from
 /// the Installation Key that seals secrets and never leaves the daemon.
 pub struct ModelEndUserKey([u8; 32]);
 
@@ -41,6 +41,16 @@ impl ModelEndUserKey {
             .expand(b"pagis/model-end-user/v1", &mut key)
             .expect("32 bytes is a valid HKDF-SHA256 output length");
         Self(key)
+    }
+
+    /// The opaque identity of an automatic Workspace model request.
+    pub fn for_workspace(&self, workspace_id: &crate::WorkspaceId) -> String {
+        use hmac::{Hmac, Mac};
+        let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(&self.0)
+            .expect("HMAC-SHA256 accepts a 32-byte key");
+        mac.update(b"workspace:");
+        mac.update(workspace_id.as_str().as_bytes());
+        hex_encode(&mac.finalize().into_bytes())
     }
 
     /// The stable hex HMAC-SHA256 of the Person id for this installation.
@@ -518,5 +528,24 @@ mod tests {
         for sealed in &sealed {
             assert_eq!(kept.open(sealed), Ok("secret".to_string()));
         }
+    }
+}
+
+#[cfg(test)]
+mod workspace_model_identity_tests {
+    use super::*;
+    #[test]
+    fn workspace_model_identity_is_stable_and_separate_from_a_person() {
+        let key = ModelEndUserKey::from_installation_key(&[7; 32]);
+        let id = crate::WorkspaceId::from("same-id".to_string());
+        assert_eq!(key.for_workspace(&id), key.for_workspace(&id));
+        assert_ne!(
+            key.for_workspace(&id),
+            key.for_person(&crate::UserId::from("same-id".to_string()))
+        );
+        assert_ne!(
+            key.for_workspace(&id),
+            ModelEndUserKey::from_installation_key(&[8; 32]).for_workspace(&id)
+        );
     }
 }

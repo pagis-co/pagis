@@ -5514,6 +5514,15 @@ export interface components {
         MailNameRequest: {
             name: string;
         };
+        /** @description One bounded input to the Spam Verdict. */
+        MailOpinion: {
+            /** Format: int32 */
+            confidence: number;
+            label: components["schemas"]["MailOpinionLabel"];
+            reasons: string[];
+        };
+        /** @enum {string} */
+        MailOpinionLabel: "spam" | "not_spam" | "unsure";
         /**
          * @description One Agent Mailbox as the desk shows it. The password is never part
          *     of it (ADR-0013).
@@ -7367,6 +7376,7 @@ export interface components {
         };
         SpamVerdictDto: {
             action: string;
+            opinion?: null | components["schemas"]["MailOpinion"];
             reasons: string[];
             /** Format: double */
             score: number;

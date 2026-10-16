@@ -181,11 +181,26 @@ impl TurnMessage {
     }
 }
 
+/// The identity responsible for a model request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ModelCaller {
+    Person(pagis_core::UserId),
+    Workspace(pagis_core::WorkspaceId),
+}
+impl ModelCaller {
+    fn opaque_id(&self, key: &pagis_core::ModelEndUserKey) -> String {
+        match self {
+            Self::Person(id) => key.for_person(id),
+            Self::Workspace(id) => key.for_workspace(id),
+        }
+    }
+}
+
 /// One model turn: the rebuilt context for one streaming call.
 #[derive(Debug, Clone)]
 pub struct TurnRequest {
-    /// The Person of the Run. ModelCall resolves it from the Workspace.
-    pub person_id: Option<pagis_core::UserId>,
+    /// ModelCall supplies the Person for a Run; automatic mail names its Workspace.
+    pub caller: Option<ModelCaller>,
     pub model_alias: String,
     /// Ordered `provider/model` candidates resolved for this run.
     pub model_candidates: Vec<String>,
@@ -759,12 +774,11 @@ impl Brain for RouterBrain {
         messages.extend(request.messages.into_iter().map(to_router_message));
         let mut chat = ChatRequest::new(request.model_alias, messages);
         chat.end_user = Some(
-            self.end_user_key.for_person(
-                request
-                    .person_id
-                    .as_ref()
-                    .ok_or_else(|| BrainError::new("model request has no Person"))?,
-            ),
+            request
+                .caller
+                .as_ref()
+                .ok_or_else(|| BrainError::new("model request has no caller"))?
+                .opaque_id(&self.end_user_key),
         );
         chat.max_tokens = request.max_output_tokens;
         chat.output_schema = request.output_schema;
@@ -867,7 +881,9 @@ mod tests {
 
     fn request() -> TurnRequest {
         TurnRequest {
-            person_id: Some(pagis_core::UserId::from("person-one".to_string())),
+            caller: Some(ModelCaller::Person(pagis_core::UserId::from(
+                "person-one".to_string(),
+            ))),
             model_alias: "default".to_string(),
             model_candidates: vec!["anthropic/claude-sonnet-4-6".to_string()],
             system: "system".to_string(),
@@ -900,7 +916,9 @@ mod tests {
         .with_base_url(Provider::OpenRouter, server.uri());
         for person in ["person-one", "person-one", "person-two"] {
             let mut turn = request();
-            turn.person_id = Some(pagis_core::UserId::from(person.to_string()));
+            turn.caller = Some(ModelCaller::Person(pagis_core::UserId::from(
+                person.to_string(),
+            )));
             turn.model_candidates = vec!["openrouter/openai/gpt-6-astra".into()];
             let events: Vec<_> = brain.turn(turn).await.unwrap().collect().await;
             assert!(events.iter().all(Result::is_ok));
@@ -912,7 +930,9 @@ mod tests {
         )
         .with_base_url(Provider::OpenRouter, server.uri());
         let mut turn = request();
-        turn.person_id = Some(pagis_core::UserId::from("person-one".to_string()));
+        turn.caller = Some(ModelCaller::Person(pagis_core::UserId::from(
+            "person-one".to_string(),
+        )));
         turn.model_candidates = vec!["openrouter/openai/gpt-6-astra".into()];
         let events: Vec<_> = other_installation.turn(turn).await.unwrap().collect().await;
         assert!(events.iter().all(Result::is_ok));

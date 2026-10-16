@@ -349,3 +349,14 @@ async fn run_titles_are_backfilled_without_losing_references() {
     ))
     .await;
 }
+
+#[tokio::test]
+async fn usage_has_an_optional_run() {
+    let Some(database) = postgres::database().await else {
+        return;
+    };
+    let pool = database.pool.clone();
+    let required: i32 = sqlx::query_scalar(r#"SELECT CASE WHEN is_nullable = 'YES' THEN 0 ELSE 1 END FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'usage' AND column_name = 'run_id' "#)
+        .fetch_one(&pool).await.unwrap();
+    assert_eq!(required, 0);
+}

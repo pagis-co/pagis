@@ -68,6 +68,14 @@ export function MailThread({
                     Spam score {item.spam_verdict.score} · {item.spam_verdict.action}
                   </summary>
                   <ul>
+                    {item.spam_verdict.opinion && (
+                      <li>
+                        Model opinion: {item.spam_verdict.opinion.label} · {item.spam_verdict.opinion.confidence}%
+                        {item.spam_verdict.opinion.reasons.map((reason, index) => (
+                          <span className="block" key={index}>{reason}</span>
+                        ))}
+                      </li>
+                    )}
                     {item.spam_verdict.reasons.map((reason, index) => (
                       <li key={index}>{reason}</li>
                     ))}

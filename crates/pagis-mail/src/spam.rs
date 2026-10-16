@@ -92,6 +92,7 @@ pub fn parse_spam_verdict(headers: &[(String, String)], in_junk: bool) -> SpamVe
         reasons.push("The mail host stores this message in Junk".into());
     }
     SpamVerdict {
+        opinion: None,
         score,
         action,
         reasons,
@@ -153,4 +154,14 @@ fn rspamd_result(value: &str) -> (Option<i32>, Vec<String>) {
         })
         .collect();
     (score, reasons)
+}
+
+/// A second opinion on uncertain mail.
+#[async_trait]
+pub trait MailOpinionSource: Send + Sync {
+    async fn opinion(
+        &self,
+        workspace: &pagis_core::WorkspaceId,
+        message: &MessageSummary,
+    ) -> Result<Option<pagis_core::MailOpinion>, TransportError>;
 }

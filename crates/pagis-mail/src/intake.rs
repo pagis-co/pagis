@@ -10,6 +10,7 @@ use pagis_core::{
 use std::sync::Arc;
 
 pub struct MailIntake {
+    pub opinions: Arc<dyn crate::MailOpinionSource>,
     pub workspaces: Arc<dyn WorkspaceStore>,
     pub agents: Arc<dyn AgentStore>,
     pub source: Arc<dyn SpamVerdictSource>,
@@ -31,7 +32,29 @@ impl MailReadContext {
         summary: &mut MessageSummary,
         in_junk: bool,
     ) -> Result<(), TransportError> {
-        let verdict = self.intake.source.verdict(summary, in_junk).await?;
+        let mut verdict = self.intake.source.verdict(summary, in_junk).await?;
+        if pagis_core::spam_band(verdict.score, verdict.action) == pagis_core::SpamBand::Uncertain {
+            let stored_opinion = self
+                .intake
+                .records
+                .get(&self.workspace, &self.address, summary.assessment_key())
+                .await
+                .map_err(store_error)?
+                .and_then(|assessment| assessment.verdict.opinion);
+            let opinion = match stored_opinion {
+                Some(opinion) => Some(opinion),
+                None => match self.intake.opinions.opinion(&self.workspace, summary).await {
+                    Ok(opinion) => opinion,
+                    Err(error) => {
+                        tracing::warn!(%error, "Mail Opinion is unavailable");
+                        None
+                    }
+                },
+            };
+            if let Some(opinion) = opinion {
+                verdict.apply_opinion(opinion);
+            }
+        }
         let ids = self
             .authserv_ids
             .iter()

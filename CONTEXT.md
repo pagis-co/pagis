@@ -537,7 +537,7 @@ _Avoid_: quota, spend limit
 
 ### Usage Record
 What one model call spent: the tokens the provider reported and the cost
-that the price list makes of them, with the Workspace and the Run. A model
+that the price list makes of them, with the Workspace and an optional Run. A model
 with no known price has an unknown cost, never zero. It is an accounting
 record, not a bill (ADR-0010, ADR-0023).
 _Avoid_: usage row, token log, billing record
@@ -1571,6 +1571,13 @@ Not spam actions correct the verdict through its seam. The Trust Tier
 applies after the verdict. Not built: Junk and spam verdict filtering
 (ADR-0040).
 
+### Mail Opinion
+A model's bounded second opinion on Uncertain mail: a label, confidence
+and short reasons. It adjusts the host score by at most 3.0 points and
+never supplies the Spam Verdict alone. The `mail-opinion` Model Alias
+selects its model. Its call counts against the Workspace Spend Cap and
+has no Run (ADR-0046).
+
 ### Mail Tool
 One of the tools an Agent uses to search, read, send and file mail, in its
 own Agent Mailbox, in a Workspace Mailbox under its Grant, or in one of the
@@ -1601,6 +1608,11 @@ Number may send in a day, whatever the host or carrier allows. The daemon
 refuses mail past the mailbox's cap. Not built: outbound texts from the Workspace Number and its
 text cap (ADR-0019, ADR-0041).
 
+### Spam Band
+The host score range that selects a Mail Opinion: Clean below 4.0 points,
+Uncertain from 4.0 inclusive to 15.0 exclusive, and Junk at 15.0 or more.
+The host's Junk folder and Reject action always mean Junk (ADR-0046).
+
 ### Spam Verdict
 The score, action, reasons and source that describe one mail message.
 The daemon reads the mail host's spam headers and Junk folder through a
@@ -1612,8 +1624,10 @@ mail without that header uses its IMAP id. Workspace Mailbox mail uses the
 reading Agent's Trust List when read under a Grant. A human read uses the
 current active Chief of Staff's Trust List. Without one, its tier is Unknown.
 A Workspace Mailbox uses score-only mode: it records verdicts and moves
-nothing. Not built: Junk moves, corrections, lists, sensitivity, quarantine
-and the model's second opinion (ADR-0040).
+nothing. Each read computes the host verdict again. Uncertain mail reuses
+a stored Mail Opinion or asks the model when no opinion is stored.
+Clean and Junk mail use no opinion (ADR-0046). Not built: Junk moves,
+corrections, lists, sensitivity and quarantine (ADR-0040).
 
 ### Text Conversation
 The texts between one Workspace Number and one counterpart number: a

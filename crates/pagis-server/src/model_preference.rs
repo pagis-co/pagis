@@ -24,8 +24,16 @@ pub const DEFAULT_PREFERENCE: &[&str] = &[
 ];
 
 /// Each well-known alias and its Model Preference.
-pub const PREFERENCES: [(&str, &[&str]); if cfg!(feature = "native") { 6 } else { 3 }] = [
+pub const PREFERENCES: [(&str, &[&str]); if cfg!(feature = "native") { 7 } else { 4 }] = [
     (DEFAULT_MODEL_ALIAS, DEFAULT_PREFERENCE),
+    (
+        crate::mail_opinion::MAIL_OPINION_MODEL_ALIAS,
+        &[
+            "openai/gpt-6-luna",
+            "openrouter/openai/gpt-6-luna",
+            "anthropic/claude-haiku-4-5",
+        ],
+    ),
     (
         pagis_voice::TRANSCRIBE_ALIAS,
         &[
@@ -140,7 +148,7 @@ mod tests {
     #[cfg(not(feature = "native"))]
     #[test]
     fn portable_preferences_have_no_call_alias() {
-        assert_eq!(PREFERENCES.len(), 3);
+        assert_eq!(PREFERENCES.len(), 4);
         for alias in ["phone", "gpt-live-reasoning", "phone-classifier"] {
             assert!(preference(alias).is_empty(), "{alias}");
             assert_eq!(alias_use(alias), ProviderUse::Thinking);

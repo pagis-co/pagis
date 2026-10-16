@@ -1,5 +1,5 @@
 //! What a Person spends: the tokens and the cost of every model
-//! call, attributed to the Workspace and the Run that asked for it.
+//! call, attributed to the Workspace and, when present, its Run.
 //!
 //! The router already computes the cost of one call from the model's own
 //! price table. Nothing kept it, so an installation whose Administrator
@@ -25,7 +25,8 @@ use crate::time::UnixMillis;
 pub struct UsageRecord {
     pub id: UsageId,
     pub workspace_id: WorkspaceId,
-    pub run_id: RunId,
+    /// Automatic Workspace calls have no Run.
+    pub run_id: Option<RunId>,
     /// The provider that served the call, when the router named one.
     pub provider: Option<String>,
     /// The concrete model, not the alias.
