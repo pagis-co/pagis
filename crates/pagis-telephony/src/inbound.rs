@@ -185,7 +185,7 @@ impl InboundCalls {
                 return Err(error);
             }
         };
-        let _live = match self.deps.live.begin(
+        let live = match self.deps.live.begin(
             &placed.workspace_id,
             &number.id,
             &placed.id,
@@ -219,7 +219,11 @@ impl InboundCalls {
         // The bridge consumes the answered call, so the caller's
         // number is read before it goes.
         let from_e164 = incoming.from_e164.clone();
-        let report = match self.deps.bridge.answer(incoming, placed, &log).await {
+        let answered = self.deps.bridge.answer(incoming, placed, &log).await;
+        // The media is over, so the line is free before anyone hears of
+        // the end: a caller who rings again at once reaches it.
+        drop(live);
+        let report = match answered {
             Ok(report) => report,
             Err(error) => {
                 if let Err(error) = log.failed(&error).await {
