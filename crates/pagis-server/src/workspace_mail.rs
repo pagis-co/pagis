@@ -344,10 +344,8 @@ pub async fn get_workspace_mail_message(
     tenant: Tenant,
     Path(id): Path<String>,
 ) -> Result<Json<WorkspaceMailMessageDto>, ApiError> {
-    let mut store = open(&state, &tenant).await?;
+    let (mut store, message) = open_message(&state, &tenant, &id, "mail.message.read").await?;
     let result = async {
-        let message =
-            read_message(&state, &tenant, store.as_mut(), &id, "mail.message.read").await?;
         store
             .set_flags(
                 &MessageId::new(id),

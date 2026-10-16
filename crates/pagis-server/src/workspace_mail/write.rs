@@ -1,5 +1,5 @@
 //! A Person sends and organizes Workspace Mailbox mail.
-use super::{open, read_error};
+use super::{open, open_message, read_error};
 use crate::mailboxes::mailbox_error;
 use crate::{AppState, auth::Tenant, error::ApiError};
 use axum::{
@@ -57,8 +57,16 @@ pub async fn prepare_workspace_mail(
     Path(id): Path<String>,
     Query(query): Query<ComposeQuery>,
 ) -> Result<Json<MailComposerDto>, ApiError> {
-    let mut store = open(&state, &tenant).await?;
-    let result = prepare(&state, &tenant, store.as_mut(), &id, &query.action).await;
+    let (mut store, original) = open_message(&state, &tenant, &id, "mail.composer.read").await?;
+    let result = prepare(
+        &state,
+        &tenant,
+        store.as_mut(),
+        &original.message,
+        &id,
+        &query.action,
+    )
+    .await;
     let _ = store.close().await;
     let mail = result?;
     Ok(Json(MailComposerDto {
@@ -72,12 +80,10 @@ async fn prepare(
     state: &AppState,
     tenant: &Tenant,
     store: &mut dyn WorkspaceMailStore,
+    original: &pagis_mail::Message,
     id: &str,
     action: &str,
 ) -> Result<OutgoingMessage, ApiError> {
-    let original = super::read_message(state, tenant, store, id, "mail.composer.read")
-        .await?
-        .message;
     let mailbox = state
         .mailbox_desk
         .workspace_mailbox(&tenant.workspace_id)
@@ -86,12 +92,12 @@ async fn prepare(
         .ok_or_else(|| ApiError::not_found("Workspace Mailbox"))?;
     match action {
         "reply" | "reply-all" => Ok(reply_message(
-            &original,
+            original,
             &mailbox.address,
             action == "reply-all",
         )),
         "forward" => {
-            let mut mail = forward_message(&original);
+            let mut mail = forward_message(original);
             for index in 0..original.attachments.len() {
                 mail.attachments.push(
                     store
@@ -111,10 +117,18 @@ async fn send(
     source: Option<(&str, &str)>,
     request: SendMailRequest,
 ) -> Result<(StatusCode, Json<SentMailDto>), ApiError> {
-    let mut store = open(state, tenant).await?;
+    let (mut store, source) = match source {
+        Some((id, action)) => {
+            let (store, original) = open_message(state, tenant, id, "mail.composer.read").await?;
+            (store, Some((original.message, id, action)))
+        }
+        None => (open(state, tenant).await?, None),
+    };
     let result = async {
         let mut mail = match source {
-            Some((id, action)) => prepare(state, tenant, store.as_mut(), id, action).await?,
+            Some((original, id, action)) => {
+                prepare(state, tenant, store.as_mut(), &original, id, action).await?
+            }
             None => OutgoingMessage::default(),
         };
         mail.to = request.to;
@@ -257,7 +271,7 @@ pub async fn delete_workspace_mail_message(
 ) -> Result<StatusCode, ApiError> {
     let _hold = pagis_core::LegalHold::lock(&tenant.workspace_id).await;
     state.workspaces.refuse_delete(&tenant.workspace_id).await?;
-    let mut store = open(&state, &tenant).await?;
+    let (mut store, _) = open_message(&state, &tenant, &id, "mail.message.delete").await?;
     let result = store.delete_message(&MessageId::new(id)).await;
     let _ = store.close().await;
     result.map_err(read_error)?;
@@ -271,7 +285,7 @@ pub async fn move_workspace_mail(
     Path(id): Path<String>,
     Json(request): Json<MailNameRequest>,
 ) -> Result<StatusCode, ApiError> {
-    let mut store = open(&state, &tenant).await?;
+    let (mut store, _) = open_message(&state, &tenant, &id, "mail.message.move").await?;
     let result = store.move_message(&MessageId::new(id), &request.name).await;
     let _ = store.close().await;
     result.map_err(read_error)?;
@@ -285,7 +299,7 @@ pub async fn label_workspace_mail(
     Path(id): Path<String>,
     Json(request): Json<MailNameRequest>,
 ) -> Result<StatusCode, ApiError> {
-    let mut store = open(&state, &tenant).await?;
+    let (mut store, _) = open_message(&state, &tenant, &id, "mail.message.label").await?;
     let result = store
         .set_label(&MessageId::new(id), &request.name, true)
         .await;
@@ -300,7 +314,7 @@ pub async fn unlabel_workspace_mail(
     tenant: Tenant,
     Path((id, label)): Path<(String, String)>,
 ) -> Result<StatusCode, ApiError> {
-    let mut store = open(&state, &tenant).await?;
+    let (mut store, _) = open_message(&state, &tenant, &id, "mail.message.unlabel").await?;
     let result = store.set_label(&MessageId::new(id), &label, false).await;
     let _ = store.close().await;
     result.map_err(read_error)?;
@@ -313,9 +327,8 @@ pub async fn download_workspace_mail_attachment(
     tenant: Tenant,
     Path((id, index)): Path<(String, usize)>,
 ) -> Result<Response, ApiError> {
-    let mut store = open(&state, &tenant).await?;
+    let (mut store, _) = open_message(&state, &tenant, &id, "mail.attachment.read").await?;
     let result = async {
-        super::read_message(&state, &tenant, store.as_mut(), &id, "mail.attachment.read").await?;
         store
             .attachment(&MessageId::new(id), index)
             .await

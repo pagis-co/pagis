@@ -78,23 +78,41 @@ pub(super) async fn audit_read(
         .await?;
     Ok(())
 }
-pub(crate) async fn read_message(
+/// Open a message before any human read or write. Close the store on rejection.
+pub(crate) async fn open_message(
     state: &AppState,
     tenant: &Tenant,
-    store: &mut dyn WorkspaceMailStore,
     id: &str,
     action: &str,
-) -> Result<pagis_mail::WorkspaceMailMessage, ApiError> {
-    let message = store
-        .message(&MessageId::new(id))
-        .await
-        .map_err(read_error)?;
-    if !can_read_workspace_mail(state, tenant, &message.message.summary).await? {
-        return Err(ApiError::not_found("mail message"));
+) -> Result<
+    (
+        Box<dyn WorkspaceMailStore>,
+        pagis_mail::WorkspaceMailMessage,
+    ),
+    ApiError,
+> {
+    let mut store = open(state, tenant).await?;
+    let result = async {
+        let message = store
+            .message(&MessageId::new(id))
+            .await
+            .map_err(read_error)?;
+        if !can_read_workspace_mail(state, tenant, &message.message.summary).await? {
+            return Err(ApiError::not_found("mail message"));
+        }
+        audit_read(state, tenant, action, serde_json::json!({"message_id":id})).await?;
+        Ok(message)
     }
-    audit_read(state, tenant, action, serde_json::json!({"message_id":id})).await?;
-    Ok(message)
+    .await;
+    match result {
+        Ok(message) => Ok((store, message)),
+        Err(error) => {
+            let _ = store.close().await;
+            Err(error)
+        }
+    }
 }
+
 #[derive(Deserialize, ToSchema)]
 pub struct SetMailVisibility {
     pub visibility: MailVisibility,

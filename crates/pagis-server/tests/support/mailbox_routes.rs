@@ -1128,3 +1128,184 @@ async fn quarantine_blocks_message_and_folder_deletes_in_the_supplied_store() {
     .await;
     assert_eq!(page["items"], json!([]));
 }
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+async fn every_workspace_mail_message_route_checks_visibility() {
+    use pagis_mail::WorkspaceMailReader;
+    let host = std::sync::Arc::new(pagis_mail::fake::MemoryWorkspaceMailHost::default());
+    let embedder = Embedder::with_workspace_mail(host.clone()).await;
+    let connection = provider(&embedder).await;
+    let person = embedder
+        .stores
+        .workspaces
+        .get(&embedder.workspace)
+        .await
+        .unwrap()
+        .unwrap()
+        .user_id
+        .unwrap();
+    let responder = embedder
+        .stores
+        .workspaces
+        .get(&embedder.other_workspace)
+        .await
+        .unwrap()
+        .unwrap()
+        .user_id
+        .unwrap();
+    let shared = pagis_server::provisioning::WorkspaceSeed::from(&embedder.stores)
+        .shared(
+            &WorkspaceMember {
+                workspace_id: WorkspaceId::generate(),
+                person_id: person,
+                role: WorkspaceRole::Manager,
+                author: Author::System,
+            },
+            "Team",
+            "UTC",
+            now_ms(),
+            embedder.stores.workspace_members.as_ref(),
+        )
+        .await
+        .unwrap();
+    embedder
+        .stores
+        .workspace_members
+        .add(&WorkspaceMember {
+            workspace_id: shared.id.clone(),
+            person_id: responder,
+            role: WorkspaceRole::Responder,
+            author: Author::System,
+        })
+        .await
+        .unwrap();
+    let prefix = format!("/api/v1/workspaces/{}", shared.id);
+    assert_eq!(
+        response(
+            &embedder,
+            "POST",
+            &format!("{prefix}/workspace/mailbox"),
+            json!({"connection_id":connection,"local_part":"team"})
+        )
+        .await
+        .0,
+        StatusCode::CREATED
+    );
+    assert_eq!(
+        response(
+            &embedder,
+            "POST",
+            &format!("{prefix}/workspace/mail/folders"),
+            json!({"name":"Records"})
+        )
+        .await
+        .0,
+        StatusCode::NO_CONTENT
+    );
+    let mut mail = host.store(&shared.id).unwrap();
+    let root = format!("{prefix}/workspace/mail/messages");
+    let missing = response(&embedder, "GET", &format!("{root}/missing"), Value::Null).await;
+    assert_eq!(missing.0, StatusCode::NOT_FOUND);
+    for route in pagis_server::routes::ROUTES.iter().filter(|r| {
+        r.path.starts_with("/api/v1/workspace/mail/") && r.path.contains("{message_id}")
+    }) {
+        for method in route.methods {
+            let suffix = route.path.split("{message_id}").nth(1).unwrap();
+            let (body, expected) = match (*method, suffix) {
+                ("get", "" | "/composer") => (Value::Null, StatusCode::OK),
+                ("get", "/attachments/{index}") => (Value::Null, StatusCode::OK),
+                ("delete", "" | "/labels/{label}") => (Value::Null, StatusCode::NO_CONTENT),
+                ("post", "/move") => (json!({"name":"Records"}), StatusCode::NO_CONTENT),
+                ("post", "/labels") => (json!({"name":"Accounts"}), StatusCode::NO_CONTENT),
+                ("post", "/spam") => (json!({"spam":false}), StatusCode::NO_CONTENT),
+                ("post", "/reply" | "/reply-all" | "/forward") => (
+                    json!({"to":["sender@test"],"subject":"Reply","body":"Answer"}),
+                    StatusCode::CREATED,
+                ),
+                _ => panic!("Add a valid request for {} {method}", route.path),
+            };
+            for cookie in [&embedder.cookie, &embedder.other_cookie] {
+                for (level, escalated, visible) in [
+                    (MailVisibility::AgentOnly, false, false),
+                    (MailVisibility::Escalations, false, false),
+                    (MailVisibility::Escalations, true, true),
+                    (MailVisibility::AllMail, false, true),
+                ] {
+                    let id = mail.deliver("sender@test", "Message", "Body");
+                    mail.attach(
+                        &id,
+                        pagis_mail::OutgoingAttachment {
+                            name: "note.txt".into(),
+                            content_type: "text/plain".into(),
+                            data: b"Note".to_vec(),
+                        },
+                    );
+                    if escalated {
+                        let message = mail.message(&id).await.unwrap();
+                        embedder
+                            .stores
+                            .workspace_mailboxes
+                            .escalate(
+                                &shared.id,
+                                message.message.summary.assessment_key(),
+                                shared.chief_of_staff_agent_id.as_ref().unwrap(),
+                            )
+                            .await
+                            .unwrap();
+                    }
+                    embedder
+                        .stores
+                        .workspace_mailboxes
+                        .set_visibility(&shared.id, level)
+                        .await
+                        .unwrap();
+                    let path = format!("{prefix}{}", route.path.strip_prefix("/api/v1").unwrap())
+                        .replace("{message_id}", id.as_str())
+                        .replace("{label}", "Accounts")
+                        .replace("{index}", "0");
+                    let path = if suffix == "/composer" {
+                        format!("{path}?action=reply")
+                    } else {
+                        path
+                    };
+                    let result = embedder
+                        .routers
+                        .product
+                        .clone()
+                        .oneshot(
+                            Request::builder()
+                                .method(method.to_uppercase().as_str())
+                                .uri(&path)
+                                .extension(pagis_server::Peer("127.0.0.1:1234".parse().unwrap()))
+                                .header("content-type", "application/json")
+                                .header("cookie", cookie)
+                                .body(Body::from(body.to_string()))
+                                .unwrap(),
+                        )
+                        .await
+                        .unwrap();
+                    let status = result.status();
+                    let bytes = to_bytes(result.into_body(), 1024 * 1024).await.unwrap();
+                    assert_eq!(
+                        status,
+                        if visible {
+                            expected
+                        } else {
+                            StatusCode::NOT_FOUND
+                        },
+                        "{method} {path}, {level:?}: {bytes:?}"
+                    );
+                    if !visible {
+                        assert_eq!(
+                            serde_json::from_slice::<Value>(&bytes).unwrap(),
+                            missing.1,
+                            "{method} {path}"
+                        );
+                        assert_eq!(mail.message(&id).await.unwrap().message.text, "Body");
+                    }
+                }
+            }
+        }
+    }
+}

@@ -788,7 +788,7 @@ async fn workspace_mailbox_grant_creation_rules_and_revocation_have_versions() {
 
 #[tokio::test]
 async fn workspace_mail_visibility_checks_every_human_read_and_current_limits() {
-    use pagis_mail::fake::MemoryWorkspaceMailHost;
+    use pagis_mail::{WorkspaceMailReader, fake::MemoryWorkspaceMailHost};
     let host = std::sync::Arc::new(MemoryWorkspaceMailHost::default());
     let e = Embedder::with_workspace_mail(host.clone()).await;
     let (workspace, owner, agent) = team(&e).await;
@@ -810,7 +810,7 @@ async fn workspace_mail_visibility_checks_every_human_read_and_current_limits() 
     )
     .await;
     assert_eq!(status, StatusCode::CREATED, "{body}");
-    let mail = host.store(&workspace).unwrap();
+    let mut mail = host.store(&workspace).unwrap();
     let hidden = mail.deliver("sender@example.com", "Hidden", "private body");
     let visible = mail.deliver("sender@example.com", "Escalated", "human body");
     mail.attach(
@@ -1172,6 +1172,12 @@ async fn workspace_mail_visibility_checks_every_human_read_and_current_limits() 
             "{sent}"
         );
         let disposable = mail.deliver("sender@example.com", "Delete", "Disposable mail");
+        let message = mail.message(&disposable).await.unwrap();
+        e.stores
+            .workspace_mailboxes
+            .escalate(&workspace, message.message.summary.assessment_key(), &agent)
+            .await
+            .unwrap();
         let (status, body) = call(
             &e,
             false,

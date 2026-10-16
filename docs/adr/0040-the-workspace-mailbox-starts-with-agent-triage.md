@@ -158,7 +158,7 @@ daemon reads the original under the Agent's Grant, keeps In-Reply-To and
 References, uses a Re: subject and puts the Workspace Mailbox in Cc. The
 Agent Mailbox's existing send rules apply.
 
-### Visibility limits each human read
+### Visibility limits each human read and message write
 
 A Shared Workspace Mailbox has one visibility level: All mail, Escalations
 or Agent only. The Org sets the highest level a Manager can select. Each
@@ -177,7 +177,11 @@ that level and the current Shared Workspace Limit. All mail permits every
 message. Escalations permits only messages that an Agent escalates to
 humans. Agent only hides messages and keeps mailbox settings visible.
 Lists, threads, message reads, attachments and reply preparation use the
-same message check. Assignment links use this check too.
+same message check. Every route that takes a message id opens the store
+and reads the message through one visibility and quarantine check before
+it reads or changes the message. A hidden message returns the same 404
+answer as a message that does not exist. Assignment links use this check
+too.
 
 An Agent with a live Workspace Mailbox Grant marks a message as Needs you
 through the escalation tool. The store records the Agent and the stable

@@ -1768,7 +1768,10 @@ Rules cover every recipient. An Agent replies from its own Agent Mailbox
 with the Workspace Mailbox in Cc by default and keeps the original
 thread. In a Private Workspace that address is the Person's mailbox; in
 a Shared Workspace it is the team mailbox. A Shared Workspace Mailbox
-uses Mail Visibility. A Responder or Manager sends as it, and the send
+uses Mail Visibility. Every route that takes a message id uses the same
+visibility and quarantine check before it reads or changes the message.
+A hidden message returns the same 404 answer as a message that does not
+exist. A Responder or Manager sends as it, and the send
 records its Person author in the Org Audit Log. An Agent with a live
 Grant marks a message as Needs you through its escalation tool. The
 escalation keeps the Agent author and the message identity across folder
