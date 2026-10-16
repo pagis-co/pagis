@@ -23,6 +23,7 @@
 --     every index over the column inherits it.
 
 CREATE TABLE workspaces (
+    delegate_everything BOOLEAN NOT NULL DEFAULT FALSE,
     legal_hold TEXT COLLATE "C",
     kind TEXT COLLATE "C" NOT NULL DEFAULT 'private' CHECK (kind IN ('private', 'shared')),
     id TEXT COLLATE "C" PRIMARY KEY,
@@ -109,6 +110,8 @@ CREATE UNIQUE INDEX idx_channel_participants_unique
     ON channel_participants (channel_id, participant_kind, COALESCE(person_id, ''), COALESCE(agent_id, ''), COALESCE(participant_workspace_id, ''));
 
 CREATE TABLE messages (
+    author_workspace_id TEXT COLLATE "C" REFERENCES workspaces (id),
+    for_person_only BOOLEAN NOT NULL DEFAULT FALSE,
     author_kind TEXT COLLATE "C" NOT NULL CHECK (author_kind IN ('person', 'agent', 'system')),
     author_person_id TEXT COLLATE "C",
     author_agent_id TEXT COLLATE "C" REFERENCES agents (id),
@@ -139,7 +142,7 @@ CREATE TABLE runs (
     agent_id TEXT COLLATE "C" NOT NULL REFERENCES agents (id),
     channel_id TEXT COLLATE "C" REFERENCES channels (id),
     root_message_id TEXT COLLATE "C" REFERENCES messages (id),
-    trigger_kind TEXT COLLATE "C" NOT NULL CHECK (trigger_kind IN ('message', 'schedule', 'event', 'arrival', 'review')),
+    trigger_kind TEXT COLLATE "C" NOT NULL CHECK (trigger_kind IN ('message', 'conversation', 'schedule', 'event', 'arrival', 'review')),
     trigger_ref TEXT COLLATE "C",
     state TEXT COLLATE "C" NOT NULL CHECK (state IN (
         'queued', 'running', 'reflecting', 'waiting_for_user', 'waiting_for_approval',

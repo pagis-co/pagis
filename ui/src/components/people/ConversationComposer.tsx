@@ -7,12 +7,14 @@ import '../Composer.css'
 export function ConversationComposer({
   onSend,
 }: {
-  onSend: (text: string) => void
+  onSend: (text: string, forPersonOnly: boolean) => void
 }) {
   const [text, setText] = useState('')
+  const [forPersonOnly, setForPersonOnly] = useState(false)
   const submit = () => {
     if (!text.trim()) return
-    onSend(text.trim())
+    onSend(text.trim(), forPersonOnly)
+    setForPersonOnly(false)
     setText('')
   }
 
@@ -24,6 +26,7 @@ export function ConversationComposer({
         submit()
       }}
     >
+      <label><input type="checkbox" checked={forPersonOnly} onChange={event => setForPersonOnly(event.target.checked)} /> For the person only</label>
       <div className="composer-row">
         <Textarea
           className="composer-input"

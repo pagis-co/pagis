@@ -1313,7 +1313,9 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
             Arc::clone(&channels) as _,
         )),
     )));
+    let person_activity = Arc::new(pagis_needs_you::PersonActivity::new());
     let agents = AgentSystem::start(AgentDeps {
+        person_activity: person_activity.clone(),
         run_journal: stores.run_journal.clone(),
         forget: stores.forget.clone(),
         workspaces: Arc::clone(&workspaces) as _,
@@ -1372,7 +1374,6 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     // Each item that enters the Needs-You Queue sends a Notification,
     // and waits while the Person is active in a client (ADR-0030). The
     // task subscribes before the queue task can publish.
-    let person_activity = Arc::new(pagis_needs_you::PersonActivity::new());
     let notifications = Arc::new(pagis_needs_you::Notifications::new(
         Arc::new(pagis_push::WebPush::new(
             &pagis_needs_you::vapid_key(options.secrets.as_ref())?,

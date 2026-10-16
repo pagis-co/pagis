@@ -76,13 +76,13 @@ export function WorkspaceConversation({
             api={api}
             row={row}
             personId={person?.id}
-            onRetry={(pendingId, text) => send.mutate({ pendingId, text })}
+            onRetry={(pendingId, text) => send.mutate({ pendingId, text, forPersonOnly: pending.find(item => item.pending_id === pendingId)?.for_person_only ?? false })}
           />
           </div>
         ))}
       </div>
       <ConversationComposer
-        onSend={(text) => send.mutate({ pendingId: randomId(), text })}
+        onSend={(text, forPersonOnly) => send.mutate({ pendingId: randomId(), text, forPersonOnly })}
       />
     </section>
   )

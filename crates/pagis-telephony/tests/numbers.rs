@@ -18,6 +18,7 @@ async fn desk() -> (
 ) {
     let stores = pagis_core::fake::stores();
     let workspace = pagis_core::Workspace {
+        delegate_everything: false,
         kind: pagis_core::WorkspaceKind::Private,
         id: WorkspaceId::generate(),
         user_id: Some(pagis_core::UserId::generate()),

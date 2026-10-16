@@ -61,12 +61,14 @@ describe('People', () => {
     } as unknown as ApiClient
     mount(<WorkspaceConversation api={api} conversationId="conversation" />)
     const input = screen.getByRole('textbox', { name: 'Message' })
+    fireEvent.click(screen.getByRole('checkbox', { name: 'For the person only' }))
     fireEvent.change(input, { target: { value: 'First send' } })
     fireEvent.click(screen.getByRole('button', { name: 'Send' }))
     expect(await screen.findByText('sending…')).toBeTruthy()
     expect(screen.getByText('First send')).toBeTruthy()
     expect((input as HTMLTextAreaElement).value).toBe('')
     const original = send.mock.calls[0][1].body
+    expect(original.for_person_only).toBe(true)
     fail(new Error('Connection closed'))
     const retry = await screen.findByRole('button', { name: 'Failed — retry' })
     fireEvent.change(input, { target: { value: 'Second send' } })
@@ -195,4 +197,14 @@ it('loads older conversation pages to open a Search result', async () => {
   mount(<WorkspaceConversation api={{ GET } as unknown as ApiClient} conversationId="conversation" targetMessageId="older" />)
   expect(await screen.findByText('Selected message')).toBeTruthy()
   expect(screen.getByRole('region', { name: 'Selected message' })).toBeTruthy()
+})
+
+it('shows the Agent and Person on a shared reply', async () => {
+  const api = { GET: vi.fn(async (path: string) => ({ data: path === '/api/v1/user' ? { id: 'person', name: 'Reader' } : { items: [{
+    id: 'reply', channel_id: 'conversation', author: { kind: 'agent', id: 'helper', name: 'Helper, for Recipient' },
+    blocks: [{ type: 'markdown', text: 'An answer' }], text_content: 'An answer', status: 'complete',
+    for_person_only: false, pending_id: null, run_id: null, created_at: 1, completed_at: 1,
+  }], next_cursor: null } })) } as unknown as ApiClient
+  mount(<WorkspaceConversation api={api} conversationId="conversation" />)
+  expect(await screen.findByText('Helper, for Recipient')).toBeTruthy()
 })

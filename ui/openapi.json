@@ -12149,6 +12149,46 @@
         "x-workspace-role": "manager"
       }
     },
+    "/api/v1/workspace/delegate-everything": {
+      "put": {
+        "tags": [
+          "workspace"
+        ],
+        "operationId": "put_delegate_everything",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DelegateEverythingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceDto"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/workspace/mail/audit": {
       "get": {
         "tags": [
@@ -16428,6 +16468,9 @@
           "text"
         ],
         "properties": {
+          "for_person_only": {
+            "type": "boolean"
+          },
           "pending_id": {
             "type": "string"
           },
@@ -16901,6 +16944,17 @@
           },
           "workspace_id": {
             "type": "string"
+          }
+        }
+      },
+      "DelegateEverythingRequest": {
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
           }
         }
       },
@@ -19934,6 +19988,7 @@
       "MessageDto": {
         "type": "object",
         "required": [
+          "for_person_only",
           "id",
           "channel_id",
           "author",
@@ -19967,6 +20022,9 @@
           "created_at": {
             "type": "integer",
             "format": "int64"
+          },
+          "for_person_only": {
+            "type": "boolean"
           },
           "id": {
             "type": "string"
@@ -25063,6 +25121,7 @@
           {
             "type": "object",
             "required": [
+              "for_person_only",
               "id",
               "channel_id",
               "author",
@@ -25096,6 +25155,9 @@
               "created_at": {
                 "type": "integer",
                 "format": "int64"
+              },
+              "for_person_only": {
+                "type": "boolean"
               },
               "id": {
                 "type": "string"
@@ -25279,6 +25341,7 @@
         "enum": [
           "unknown",
           "trusted",
+          "colleague",
           "team",
           "owner"
         ]
@@ -26013,6 +26076,7 @@
         "type": "object",
         "description": "The Workspace the shell reads once at start.",
         "required": [
+          "delegate_everything",
           "id",
           "name",
           "timezone"
@@ -26024,6 +26088,9 @@
               "null"
             ],
             "description": "The Chief of Staff; `null` when no Agent is active."
+          },
+          "delegate_everything": {
+            "type": "boolean"
           },
           "id": {
             "type": "string"

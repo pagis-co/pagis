@@ -89,6 +89,8 @@ async fn post_note(
     let now = deps.clock.now_ms();
     let blocks = vec![Block::markdown(&text)];
     let note = Message {
+        for_person_only: false,
+        author_workspace_id: None,
         id: MessageId::generate(),
         workspace_id: workspace_id.clone(),
         channel_id: dm.id.clone(),

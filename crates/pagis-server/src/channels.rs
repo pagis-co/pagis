@@ -74,6 +74,7 @@ impl ChannelDto {
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct MessageDto {
+    pub for_person_only: bool,
     pub id: String,
     pub channel_id: String,
     pub parent_message_id: Option<String>,
@@ -96,15 +97,29 @@ pub struct MessageDto {
 
 impl MessageDto {
     pub(crate) async fn read(state: &AppState, m: Message) -> Result<Self, ApiError> {
-        let author = m
+        let mut author = m
             .author
             .resolve(
-                &m.workspace_id,
+                m.author_workspace_id.as_ref().unwrap_or(&m.workspace_id),
                 state.users.as_ref(),
                 state.agent_store.as_ref(),
             )
             .await?;
+        if let Some(workspace_id) = &m.author_workspace_id
+            && let Some(workspace) = state.workspaces.get(workspace_id).await?
+            && let Some(person_id) = workspace.user_id
+        {
+            let person = Author::Person(person_id)
+                .resolve(
+                    workspace_id,
+                    state.users.as_ref(),
+                    state.agent_store.as_ref(),
+                )
+                .await?;
+            author.name = format!("{}, for {}", author.name, person.name);
+        }
         Ok(MessageDto {
+            for_person_only: m.for_person_only,
             id: m.id.to_string(),
             channel_id: m.channel_id.to_string(),
             parent_message_id: m.parent_message_id.map(|p| p.to_string()),
@@ -474,7 +489,10 @@ pub(crate) async fn message_is_readable(
 }
 
 /// Keep timeline identity and pagination stable while withholding expired source prose.
-async fn readable_message(state: &AppState, mut message: Message) -> Result<Message, ApiError> {
+pub(crate) async fn readable_message(
+    state: &AppState,
+    mut message: Message,
+) -> Result<Message, ApiError> {
     if !message_is_readable(state, &message).await? {
         message.text_content =
             "This message is unavailable because its source access cannot be verified.".into();
@@ -707,6 +725,8 @@ pub async fn send_message(
     let now = state.clock.now_ms();
     let blocks = user_blocks(&request.text, &attachments);
     let message = Message {
+        for_person_only: false,
+        author_workspace_id: None,
         id: MessageId::generate(),
         workspace_id: tenant.workspace_id.clone(),
         channel_id: channel_id.clone(),

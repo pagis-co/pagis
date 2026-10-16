@@ -1389,6 +1389,8 @@ impl CodingSessions {
         let parent_message_id =
             (record.root_message_id != record.message_id).then(|| record.root_message_id.clone());
         let message = Message {
+            for_person_only: false,
+            author_workspace_id: None,
             id: record.message_id.clone(),
             workspace_id: record.workspace_id.clone(),
             channel_id: record.channel_id.clone(),

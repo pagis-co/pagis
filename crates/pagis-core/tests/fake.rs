@@ -789,6 +789,7 @@ async fn software_read_only_the_named_workspace() {
 async fn workspaces_belong_to_the_named_person() {
     let stores = pagis_core::fake::stores();
     let row = Workspace {
+        delegate_everything: false,
         kind: pagis_core::WorkspaceKind::Private,
         legal_hold: None,
         monthly_spend_cap_usd: None,
@@ -1649,6 +1650,8 @@ async fn conversation_evidence_reads_only_the_named_workspace() {
         root_message_id: None,
     };
     let row = Message {
+        for_person_only: false,
+        author_workspace_id: None,
         id: "message".to_string().into(),
         workspace_id: owner(),
         channel_id: scope.channel_id.clone(),
@@ -1895,6 +1898,8 @@ async fn evidence_files_read_only_the_message_workspace() {
     };
     stores.files.insert(&file).await.unwrap();
     let message = Message {
+        for_person_only: false,
+        author_workspace_id: None,
         id: MessageId::generate(),
         workspace_id: owner(),
         channel_id: scope.channel_id.clone(),
@@ -1957,6 +1962,8 @@ async fn message_views_keep_the_thread_and_completion_rules() {
     let channel = ChannelId::generate();
     let run = RunId::generate();
     let root = Message {
+        for_person_only: false,
+        author_workspace_id: None,
         id: MessageId::generate(),
         workspace_id: owner(),
         channel_id: channel.clone(),
@@ -2073,6 +2080,7 @@ async fn legal_hold_and_audit_are_atomic_in_the_fake_store() {
         .await
         .unwrap();
     let workspace = Workspace {
+        delegate_everything: false,
         id: WorkspaceId::generate(),
         kind: WorkspaceKind::Private,
         user_id: Some(person.id.clone()),

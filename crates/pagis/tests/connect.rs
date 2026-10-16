@@ -776,6 +776,7 @@ mod installation_client {
             .stores()
             .workspaces
             .create(&Workspace {
+                delegate_everything: false,
                 kind: pagis_core::WorkspaceKind::Private,
                 legal_hold: None,
                 monthly_spend_cap_usd: None,

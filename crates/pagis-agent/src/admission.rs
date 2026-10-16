@@ -18,7 +18,10 @@ impl Pool {
     pub fn of(kind: TriggerKind) -> Self {
         match kind {
             TriggerKind::Arrival | TriggerKind::Review => Self::Arrival,
-            TriggerKind::Message | TriggerKind::Schedule | TriggerKind::Event => Self::Conversation,
+            TriggerKind::Conversation
+            | TriggerKind::Message
+            | TriggerKind::Schedule
+            | TriggerKind::Event => Self::Conversation,
         }
     }
 }
@@ -49,22 +52,31 @@ impl AdmissionRun {
             id,
             thread,
             pool: Pool::of(kind),
-            message: kind == TriggerKind::Message,
+            message: matches!(kind, TriggerKind::Message | TriggerKind::Conversation),
         }
     }
 }
 
 impl From<&Run> for AdmissionRun {
     fn from(run: &Run) -> Self {
-        let thread = match Pool::of(run.trigger_kind) {
-            Pool::Arrival => ThreadKey::Background(run.id.clone()),
-            Pool::Conversation => ThreadKey::Conversation {
-                channel_id: run
-                    .channel_id
-                    .clone()
-                    .expect("conversation Run has a Channel"),
-                root_message_id: run.root_message_id.clone(),
-            },
+        let thread = if run.trigger_kind == TriggerKind::Conversation {
+            let delivery = crate::conversations::ConversationDelivery::of(run)
+                .expect("Conversation Run has its shared message reference");
+            ThreadKey::Conversation {
+                channel_id: delivery.channel_id,
+                root_message_id: None,
+            }
+        } else {
+            match Pool::of(run.trigger_kind) {
+                Pool::Arrival => ThreadKey::Background(run.id.clone()),
+                Pool::Conversation => ThreadKey::Conversation {
+                    channel_id: run
+                        .channel_id
+                        .clone()
+                        .expect("conversation Run has a Channel"),
+                    root_message_id: run.root_message_id.clone(),
+                },
+            }
         };
         Self::new(run.id.clone(), thread, run.trigger_kind)
     }

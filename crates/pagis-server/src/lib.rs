@@ -726,6 +726,10 @@ fn product_router(state: Arc<AppState>) -> Router {
             put(workspace::set_chief_of_staff),
         )
         .route("/api/v1/workspace/timezone", put(workspace::put_timezone))
+        .route(
+            "/api/v1/workspace/delegate-everything",
+            put(workspace::put_delegate_everything),
+        )
         .route("/api/v1/workspace/report", get(workspace::get_report))
         .route(
             "/api/v1/settings/onboarding",

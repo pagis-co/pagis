@@ -32,6 +32,7 @@ pub async fn seeded_workspace(pool: &sqlx::SqlitePool) -> Workspace {
 /// person, so this one is for a test that keeps its records in memory.
 pub fn workspace() -> Workspace {
     Workspace {
+        delegate_everything: false,
         kind: pagis_core::WorkspaceKind::Private,
         legal_hold: None,
         monthly_spend_cap_usd: None,
@@ -77,6 +78,8 @@ pub fn person_message(
 ) -> Message {
     let now = now_ms();
     Message {
+        for_person_only: false,
+        author_workspace_id: None,
         id: MessageId::generate(),
         workspace_id: workspace_id.clone(),
         channel_id: channel_id.clone(),

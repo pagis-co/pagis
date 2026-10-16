@@ -322,6 +322,8 @@ pub(crate) async fn mint_strip(
         call_id: call_id.to_string(),
     })];
     let strip = Message {
+        for_person_only: false,
+        author_workspace_id: None,
         id: MessageId::generate(),
         workspace_id: run.workspace_id.clone(),
         channel_id: channel_id.clone(),

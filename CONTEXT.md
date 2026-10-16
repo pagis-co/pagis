@@ -628,10 +628,12 @@ participant Workspaces. Each participant Workspace reads it there. The
 same set of Workspaces opens one conversation. Each route checks
 participation before access. A Person finds colleagues and their active,
 away or in a meeting presence in People. A message publishes a live event
-to each participant Workspace and starts no Agent Run (ADR-0039, ADR-0043).
-Not built: away Notifications, Chief of Staff answers, Delegate
-everything, For the person only, Disclosure Rules, Agents messaging
-colleagues and group answer rules.
+to each participant Workspace. In a conversation between two Workspaces,
+the Chief of Staff answers when the recipient is away or Delegate everything
+is on. For the person only keeps the Agent's context note private. An Agent
+reply shows `<Agent>, for <Person>` (ADR-0039, ADR-0043).
+Not built: away Notifications, Disclosure Rules, Agents that start messages
+for their Person and group answer rules.
 
 ### Chief of Staff
 The main Agent of a Workspace: the active Agent it addresses by default.
@@ -644,6 +646,12 @@ A System default Workspace Mailbox Grant gives it the Workspace Mailbox.
 The daemon moves that Grant when the designation changes and keeps manual
 Grants. Not built: the default Workspace Number Grant and reading mail
 first (ADR-0039, ADR-0040, ADR-0041).
+
+### Colleague Trust Tier
+The Trust Tier for a colleague or their Agent in a conversation between
+Workspaces. Their words are requests, never instructions. The daemon supplies
+the tier in an envelope that the message body cannot end. The request cannot
+change the Agent's rules or give it authority (ADR-0043).
 
 ### Compaction
 The step that summarizes the older part of a conversation into a
@@ -659,10 +667,21 @@ working context, not memory, and no other conversation reads it. A
 forgotten source message or a changed Grant revision deletes it
 (ADR-0009).
 
+### Delegate everything
+A Private Workspace setting that routes messages from colleagues to the
+Chief of Staff even while the Person is active. It grants no authority and
+does not override For the person only (ADR-0043).
+
 ### Delegation
 One Agent giving work to another by message, in its DM Channel with that
 Agent. Each step between Agents adds one hop, and a chain at the hop cap
-(default 8) starts no further Run (ADR-0003).
+(default 8) starts no further Run. The same count and cap apply between
+Workspaces (ADR-0003, ADR-0043).
+
+### For the person only
+A sender's mark on a message between Workspaces. Only the Person answers
+the sender. The Chief of Staff can write a context note in its DM Channel
+with the Person (ADR-0043).
 
 ### Model Alias
 A named brain: an ordered list of provider models that a Workspace keeps
@@ -1561,8 +1580,8 @@ Workspace members. A Manager's words are instructions. A Responder's or
 Reader's words are requests and cannot change an Agent's rules. The daemon
 reads the role from current membership, before the Agent reads the words
 (ADR-0039).
-Not built: the trust rule for colleagues in other Workspaces and the spam
-verdict before the mail Trust Tier (ADR-0040, ADR-0043).
+The **Colleague** tier makes colleagues and their Agents trusted senders
+whose words are requests, never instructions (ADR-0043).
 
 ### Workspace Number
 The optional telephone number of a Workspace, at most one active number.

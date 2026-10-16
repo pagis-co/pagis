@@ -182,6 +182,7 @@ mod tests {
             report_schedule_id: None,
             home_exit_host_id: None,
             legal_hold: None,
+            delegate_everything: false,
         };
         stores.workspaces.create(&workspace).await.unwrap();
         if configured {
