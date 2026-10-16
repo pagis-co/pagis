@@ -171,11 +171,39 @@ fn stale() -> TransportError {
 
 #[async_trait]
 impl WorkspaceMailReader for MemoryWorkspaceMailStore {
+    async fn quarantined_message(
+        &mut self,
+        id: &MessageId,
+    ) -> Result<WorkspaceMailMessage, TransportError> {
+        let mut message = Mailbox::message(&mut self.mail, id).await?;
+        if let Some(context) = &self.context {
+            context.assess(&mut message.summary, false).await?;
+        }
+        let flags = self
+            .state
+            .lock()
+            .unwrap()
+            .entries
+            .get(id.as_str())
+            .ok_or_else(stale)?
+            .flags
+            .clone();
+        Ok(WorkspaceMailMessage {
+            labels: flags.labels.clone(),
+            flags,
+            message,
+        })
+    }
+    async fn junk_folder(&mut self) -> Result<String, TransportError> {
+        self.state.lock().unwrap().folders.insert("Junk".into());
+        Ok("Junk".into())
+    }
     async fn attachment(
         &mut self,
         id: &MessageId,
         index: usize,
     ) -> Result<OutgoingAttachment, TransportError> {
+        self.message(id).await?;
         self.state
             .lock()
             .unwrap()
@@ -186,6 +214,7 @@ impl WorkspaceMailReader for MemoryWorkspaceMailStore {
             .ok_or_else(stale)
     }
     async fn folders(&mut self) -> Result<Vec<String>, TransportError> {
+        self.junk_folder().await?;
         Ok(self.state.lock().unwrap().folders.iter().cloned().collect())
     }
     async fn messages(
@@ -206,6 +235,18 @@ impl WorkspaceMailReader for MemoryWorkspaceMailStore {
         };
         let mut found = Vec::new();
         for summary in self.mail.summaries(false).into_iter().rev() {
+            let message = match self.message(&summary.id).await {
+                Ok(message) => message,
+                Err(TransportError(TransportErrorCode::StaleId)) => continue,
+                Err(error) => return Err(error),
+            };
+            if message.message.summary.is_junk()
+                && let Some(context) = &self.context
+                && context.moves_junk().await?
+            {
+                let junk = self.junk_folder().await?;
+                self.move_message(&summary.id, &junk).await?;
+            }
             let in_folder = self
                 .state
                 .lock()
@@ -216,7 +257,6 @@ impl WorkspaceMailReader for MemoryWorkspaceMailStore {
             if !in_folder {
                 continue;
             }
-            let message = self.message(&summary.id).await?;
             if !format!(
                 "{} {} {}",
                 summary.from, summary.subject, message.message.text
@@ -241,7 +281,15 @@ impl WorkspaceMailReader for MemoryWorkspaceMailStore {
     async fn message(&mut self, id: &MessageId) -> Result<WorkspaceMailMessage, TransportError> {
         let mut message = Mailbox::message(&mut self.mail, id).await?;
         if let Some(context) = &self.context {
-            context.assess(&mut message.summary, false).await?;
+            let in_junk = self
+                .state
+                .lock()
+                .unwrap()
+                .entries
+                .get(id.as_str())
+                .is_some_and(|e| e.folder == "Junk");
+            context.assess(&mut message.summary, in_junk).await?;
+            message.summary.require_visible()?;
         }
         let flags = self
             .state
@@ -262,13 +310,18 @@ impl WorkspaceMailReader for MemoryWorkspaceMailStore {
         let mut messages = Vec::new();
         for summary in self.mail.summaries(false) {
             if summary.thread_id == id {
-                messages.push(self.message(&summary.id).await?);
+                match self.message(&summary.id).await {
+                    Ok(message) => messages.push(message),
+                    Err(TransportError(TransportErrorCode::StaleId)) => {}
+                    Err(error) => return Err(error),
+                }
             }
         }
         messages.sort_by_key(|message| message.message.summary.date);
         Ok(messages)
     }
     async fn set_flags(&mut self, id: &MessageId, flags: FlagChange) -> Result<(), TransportError> {
+        self.message(id).await?;
         let mut state = self.state.lock().unwrap();
         let entry = state.entries.get_mut(id.as_str()).ok_or_else(stale)?;
         if let Some(seen) = flags.seen {
@@ -286,6 +339,10 @@ impl WorkspaceMailReader for MemoryWorkspaceMailStore {
 
 #[async_trait]
 impl WorkspaceMailWriter for MemoryWorkspaceMailStore {
+    async fn mark_spam(&mut self, id: &MessageId, spam: bool) -> Result<(), TransportError> {
+        let context = self.context.clone().ok_or_else(invalid)?;
+        context.mark_spam(self, id, spam).await
+    }
     async fn send(&mut self, message: &OutgoingMessage) -> Result<SentMessage, TransportError> {
         Mailbox::send(&mut self.mail, message).await
     }
@@ -330,6 +387,7 @@ impl WorkspaceMailWriter for MemoryWorkspaceMailStore {
         Ok(())
     }
     async fn move_message(&mut self, id: &MessageId, folder: &str) -> Result<(), TransportError> {
+        self.message(id).await?;
         let mut state = self.state.lock().unwrap();
         if !state.folders.contains(folder) {
             return Err(invalid());
@@ -343,6 +401,7 @@ impl WorkspaceMailWriter for MemoryWorkspaceMailStore {
         label: &str,
         apply: bool,
     ) -> Result<(), TransportError> {
+        self.message(id).await?;
         if label.is_empty() {
             return Err(invalid());
         }

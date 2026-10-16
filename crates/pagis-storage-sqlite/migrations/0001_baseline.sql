@@ -761,7 +761,7 @@ CREATE TABLE workspace_mailboxes (
     workspace_id TEXT PRIMARY KEY REFERENCES workspaces (id),
     connection_id TEXT NOT NULL,
     address TEXT NOT NULL UNIQUE,
-    spam_mode TEXT NOT NULL DEFAULT 'score_only' CHECK (spam_mode = 'score_only'),
+    spam_mode TEXT NOT NULL DEFAULT 'score_only' CHECK (spam_mode IN ('score_only', 'move_to_junk')),
     outgoing_cap BIGINT NOT NULL DEFAULT 20,
     sends_today BIGINT NOT NULL DEFAULT 0,
     send_day BIGINT NOT NULL DEFAULT 0,
@@ -1625,4 +1625,19 @@ CREATE TABLE workspace_mail_escalations (
     message_id TEXT NOT NULL,
     agent_id TEXT NOT NULL,
     PRIMARY KEY (workspace_id, message_id)
+);
+
+CREATE TABLE junk_policies (
+    scope TEXT PRIMARY KEY,
+    policy TEXT NOT NULL
+);
+CREATE TABLE junk_messages (
+    workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    mailbox TEXT NOT NULL,
+    message_key TEXT NOT NULL,
+    evidence TEXT NOT NULL,
+    person_mark INTEGER,
+    quarantined INTEGER NOT NULL,
+    released INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (workspace_id, mailbox, message_key)
 );

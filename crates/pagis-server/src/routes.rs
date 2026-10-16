@@ -25,6 +25,7 @@ pub struct Route {
 
 /// Writes that a Responder can make in a Shared Workspace.
 pub const RESPONDER_WRITES: &[(&str, &str)] = &[
+    ("/api/v1/workspace/mail/messages/{message_id}/spam", "post"),
     ("/api/v1/channels/{channel_id}/messages", "post"),
     ("/api/v1/requests/{request_id}/decision", "post"),
     ("/api/v1/files", "post"),
@@ -288,6 +289,34 @@ pub const ADMINISTRATION_ROUTES: &[Route] = &[
         shared: false,
         path: "/api/v1/administration/person-defaults",
         methods: &["get", "put"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
+        shared: false,
+        path: "/api/v1/administration/mail/junk-policy",
+        methods: &["get", "put"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
+        shared: false,
+        path: "/api/v1/administration/mail/quarantine",
+        methods: &["get"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
+        shared: false,
+        path: "/api/v1/administration/mail/quarantine/read",
+        methods: &["post"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
+        shared: false,
+        path: "/api/v1/administration/mail/quarantine/release",
+        methods: &["post"],
         authenticated: true,
         part: None,
     },
@@ -575,6 +604,20 @@ pub const ADMINISTRATION_ROUTES: &[Route] = &[
 
 /// Every route the daemon serves.
 pub const ROUTES: &[Route] = &[
+    Route {
+        shared: true,
+        path: "/api/v1/workspace/mail/junk-policy",
+        methods: &["get", "put"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
+        shared: true,
+        path: "/api/v1/workspace/mail/messages/{message_id}/spam",
+        methods: &["post"],
+        authenticated: true,
+        part: None,
+    },
     Route {
         shared: true,
         path: "/api/v1/calendar/events",

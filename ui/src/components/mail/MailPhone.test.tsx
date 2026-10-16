@@ -126,3 +126,8 @@ it.each(['fetch', 'write', 'viewer'])('shows an alert when attachment %s fails',
   fireEvent.click(screen.getByRole('button', { name: /invoice.txt/ }))
   expect((await screen.findByRole('alert')).textContent).toContain('Could not open the attachment')
 })
+it('opens Junk from the Mail views', async () => {
+  const { GET } = mount()
+  fireEvent.click(await screen.findByRole('button', { name: 'Junk' }))
+  await waitFor(() => expect(GET).toHaveBeenCalledWith('/api/v1/workspace/mail/messages', { params: { query: { folder: 'Junk', q: '', cursor: undefined } } }))
+})

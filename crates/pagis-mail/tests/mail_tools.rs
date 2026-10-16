@@ -133,6 +133,8 @@ impl World {
             )),
             grants: Arc::new(pagis_storage_sqlite::SqliteGrantStore::new(pool.clone())),
             intake: Arc::new(pagis_mail::MailIntake {
+                workspace_mailboxes: workspace_mailboxes.clone(),
+                junk: Arc::new(pagis_storage_sqlite::SqliteJunkStore::new(pool.clone())),
                 opinions: std::sync::Arc::new(pagis_mail::fake::FakeMailOpinions::default()),
                 workspaces: Arc::new(pagis_storage_sqlite::SqliteWorkspaceStore::new(
                     pool.clone(),

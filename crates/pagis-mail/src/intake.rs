@@ -10,6 +10,8 @@ use pagis_core::{
 use std::sync::Arc;
 
 pub struct MailIntake {
+    pub workspace_mailboxes: Arc<dyn pagis_core::WorkspaceMailboxRecordStore>,
+    pub junk: Arc<dyn pagis_core::JunkStore>,
     pub opinions: Arc<dyn crate::MailOpinionSource>,
     pub workspaces: Arc<dyn WorkspaceStore>,
     pub agents: Arc<dyn AgentStore>,
@@ -27,13 +29,96 @@ pub struct MailReadContext {
     pub authserv_ids: Vec<String>,
 }
 impl MailReadContext {
+    pub async fn moves_junk(&self) -> Result<bool, TransportError> {
+        Ok(self
+            .intake
+            .workspace_mailboxes
+            .get(&self.workspace)
+            .await
+            .map_err(store_error)?
+            .filter(|m| m.address.eq_ignore_ascii_case(&self.address))
+            .is_none_or(|m| m.spam_mode == pagis_core::MailScoringMode::MoveToJunk))
+    }
+    pub async fn mark_spam(
+        &self,
+        store: &mut dyn crate::WorkspaceMailStore,
+        id: &crate::MessageId,
+        spam: bool,
+    ) -> Result<(), TransportError> {
+        let message = store.message(id).await?;
+        // A correction is an explicit Person action, including in score-only mode.
+        self.intake
+            .junk
+            .mark(
+                &pagis_core::JunkMessage {
+                    workspace_id: self.workspace.clone(),
+                    mailbox: self.address.clone(),
+                    message_key: message.message.summary.assessment_key().into(),
+                    host_id: id.to_string(),
+                    from: message.message.summary.from.clone(),
+                    subject: message.message.summary.subject.clone(),
+                    reasons: message
+                        .message
+                        .summary
+                        .assessment
+                        .as_ref()
+                        .map(|a| a.verdict.reasons.clone())
+                        .unwrap_or_default(),
+                    person_mark: None,
+                    quarantined: false,
+                    released: false,
+                },
+                spam,
+            )
+            .await
+            .map_err(store_error)?;
+        self.intake.source.correct(store, id, spam).await
+    }
+
+    pub async fn relocate(
+        &self,
+        summary: &MessageSummary,
+        id: &crate::MessageId,
+    ) -> Result<(), TransportError> {
+        let old_key = summary.assessment_key();
+        let Some(mut message) = self
+            .intake
+            .junk
+            .message(&self.workspace, &self.address, old_key)
+            .await
+            .map_err(store_error)?
+        else {
+            return Ok(());
+        };
+        message.host_id = id.to_string();
+        if summary.message_id.is_empty() {
+            message.message_key = id.to_string();
+        }
+        self.intake
+            .junk
+            .relocate(old_key, &message)
+            .await
+            .map_err(store_error)
+    }
+
     pub async fn assess(
         &self,
         summary: &mut MessageSummary,
         in_junk: bool,
     ) -> Result<(), TransportError> {
+        let previous = self
+            .intake
+            .junk
+            .message(&self.workspace, &self.address, summary.assessment_key())
+            .await
+            .map_err(store_error)?;
         let mut verdict = self.intake.source.verdict(summary, in_junk).await?;
-        if pagis_core::spam_band(verdict.score, verdict.action) == pagis_core::SpamBand::Uncertain {
+        let quarantined = crate::spam::quarantine_required(&verdict)
+            || previous.as_ref().is_some_and(|m| m.quarantined);
+        if !quarantined
+            && pagis_core::spam_band(verdict.score, verdict.action)
+                == pagis_core::SpamBand::Uncertain
+        {
             let stored_opinion = self
                 .intake
                 .records
@@ -54,6 +139,56 @@ impl MailReadContext {
             if let Some(opinion) = opinion {
                 verdict.apply_opinion(opinion);
             }
+        }
+        let policy = self.intake.junk.org_policy().await.map_err(store_error)?;
+        let lists = self
+            .intake
+            .junk
+            .workspace_lists(&self.workspace)
+            .await
+            .map_err(store_error)?;
+        self.intake
+            .junk
+            .observe(&pagis_core::JunkMessage {
+                workspace_id: self.workspace.clone(),
+                mailbox: self.address.clone(),
+                message_key: summary.assessment_key().into(),
+                host_id: summary.id.to_string(),
+                from: summary.from.clone(),
+                subject: summary.subject.clone(),
+                reasons: previous
+                    .as_ref()
+                    .filter(|m| m.quarantined)
+                    .map_or_else(|| verdict.reasons.clone(), |m| m.reasons.clone()),
+                person_mark: None,
+                quarantined,
+                released: false,
+            })
+            .await
+            .map_err(store_error)?;
+        let mut junk = false;
+        if quarantined && !previous.as_ref().is_some_and(|m| m.released) {
+            verdict.action = pagis_core::SpamAction::Quarantine;
+        } else if let Some(spam) = previous.and_then(|m| m.person_mark) {
+            junk = spam;
+            verdict.action = if spam {
+                pagis_core::SpamAction::Junk
+            } else {
+                pagis_core::SpamAction::NoAction
+            };
+            verdict.source = "person".into();
+        } else if let Some(block) = pagis_core::list_verdict(&policy.lists, &lists, &summary.from) {
+            junk = block;
+            verdict.action = if block {
+                pagis_core::SpamAction::Junk
+            } else {
+                pagis_core::SpamAction::NoAction
+            };
+            verdict
+                .reasons
+                .push(if block { "block_list" } else { "allow_list" }.into());
+        } else {
+            junk = policy.sensitivity.is_junk(verdict.score, verdict.action);
         }
         let ids = self
             .authserv_ids
@@ -92,6 +227,7 @@ impl MailReadContext {
             None => TrustTier::Unknown,
         };
         let assessment = MailAssessment {
+            junk,
             verdict,
             trust_tier,
         };
@@ -114,6 +250,20 @@ fn store_error(_: pagis_core::StoreError) -> TransportError {
 }
 
 impl MessageSummary {
+    pub fn is_junk(&self) -> bool {
+        self.assessment.as_ref().is_some_and(|a| a.junk)
+    }
+    pub fn require_visible(&self) -> Result<(), TransportError> {
+        if self
+            .assessment
+            .as_ref()
+            .is_some_and(|a| a.verdict.action == pagis_core::SpamAction::Quarantine)
+        {
+            return Err(TransportError(TransportErrorCode::StaleId));
+        }
+        Ok(())
+    }
+
     /// The RFC 5322 Message-ID survives folder moves and UIDVALIDITY changes.
     /// Mail without that header uses its IMAP id.
     pub fn assessment_key(&self) -> &str {

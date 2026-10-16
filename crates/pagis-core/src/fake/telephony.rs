@@ -812,6 +812,21 @@ fn note_send(day: &mut Option<i64>, count: &mut u32, at: i64) -> u32 {
 
 #[async_trait::async_trait]
 impl crate::WorkspaceMailboxRecordStore for FakeWorkspaceMailboxStore {
+    async fn set_spam_mode(
+        &self,
+        workspace: &WorkspaceId,
+        mode: crate::MailScoringMode,
+    ) -> Result<(), StoreError> {
+        self.0
+            .lock()
+            .unwrap()
+            .workspace_mailboxes
+            .get_mut(workspace)
+            .ok_or(StoreError::Conflict("mail record does not exist".into()))?
+            .spam_mode = mode;
+        Ok(())
+    }
+
     async fn set_visibility(
         &self,
         workspace: &WorkspaceId,

@@ -134,6 +134,7 @@ pub async fn open(db_path: &std::path::Path) -> Result<pagis_core::Stores, sqlx:
 /// Every store of this backend, over one pool.
 pub fn stores(pool: sqlx::SqlitePool) -> pagis_core::Stores {
     pagis_core::Stores {
+        junk: Arc::new(SqliteJunkStore::new(pool.clone())),
         mail_assessments: Arc::new(SqliteMailAssessmentStore::new(pool.clone())),
         governance: Arc::new(SqliteWorkspaceGovernanceStore::new(pool.clone())),
         audit: Arc::new(SqliteAuditLog::new(pool.clone())),
@@ -200,3 +201,6 @@ pub use audit_log::SqliteAuditLog;
 
 mod workspace_governance;
 pub use workspace_governance::SqliteWorkspaceGovernanceStore;
+
+mod junk_store;
+pub use junk_store::SqliteJunkStore;

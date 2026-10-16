@@ -37,6 +37,8 @@ const TABLES: &[&str] = &[
     "grants",
     "hosts",
     "incoming_events",
+    "junk_messages",
+    "junk_policies",
     "keypad_failures",
     "knowledge_generations",
     "knowledge_invalidations",

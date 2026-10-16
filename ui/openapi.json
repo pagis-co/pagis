@@ -371,6 +371,170 @@
         }
       }
     },
+    "/api/v1/administration/mail/junk-policy": {
+      "get": {
+        "tags": [
+          "crate::junk"
+        ],
+        "operationId": "get_org_policy",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgJunkPolicy"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "crate::junk"
+        ],
+        "operationId": "set_org_policy",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrgJunkPolicy"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/administration/mail/quarantine": {
+      "get": {
+        "tags": [
+          "crate::junk"
+        ],
+        "operationId": "quarantine",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuarantinePage"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/administration/mail/quarantine/read": {
+      "post": {
+        "tags": [
+          "crate::junk"
+        ],
+        "operationId": "read_quarantine",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuarantineMessageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceMailMessageDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/administration/mail/quarantine/release": {
+      "post": {
+        "tags": [
+          "crate::junk"
+        ],
+        "operationId": "release",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuarantineMessageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/administration/people": {
       "get": {
         "tags": [
@@ -12487,6 +12651,69 @@
         "x-workspace-role": "manager"
       }
     },
+    "/api/v1/workspace/mail/junk-policy": {
+      "get": {
+        "tags": [
+          "crate::junk"
+        ],
+        "operationId": "get_workspace_policy",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceJunkPolicy"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "x-workspace-role": "reader"
+      },
+      "put": {
+        "tags": [
+          "crate::junk"
+        ],
+        "operationId": "set_workspace_policy",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkspaceJunkPolicy"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "x-workspace-role": "manager"
+      }
+    },
     "/api/v1/workspace/mail/messages": {
       "get": {
         "tags": [
@@ -13229,6 +13456,50 @@
             }
           },
           "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "x-workspace-role": "responder"
+      }
+    },
+    "/api/v1/workspace/mail/messages/{message_id}/spam": {
+      "post": {
+        "tags": [
+          "crate::junk"
+        ],
+        "operationId": "correct",
+        "parameters": [
+          {
+            "name": "message_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SpamCorrection"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "404": {
             "description": "",
             "content": {
               "application/json": {
@@ -18336,6 +18607,58 @@
           "result": {}
         }
       },
+      "JunkMessage": {
+        "type": "object",
+        "required": [
+          "workspace_id",
+          "mailbox",
+          "message_key",
+          "host_id",
+          "from",
+          "subject",
+          "reasons",
+          "quarantined",
+          "released"
+        ],
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "host_id": {
+            "type": "string"
+          },
+          "mailbox": {
+            "type": "string"
+          },
+          "message_key": {
+            "type": "string"
+          },
+          "person_mark": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "quarantined": {
+            "type": "boolean"
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "released": {
+            "type": "boolean"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "workspace_id": {
+            "type": "string"
+          }
+        }
+      },
       "KeypadCodeDto": {
         "type": "object",
         "description": "Whether the Workspace holds a Keypad Code, and the wrong codes its\ncallers entered. It is everything the API says about the code: there\nis no reveal and no export.",
@@ -19084,6 +19407,28 @@
           }
         }
       },
+      "MailLists": {
+        "type": "object",
+        "required": [
+          "allow",
+          "block"
+        ],
+        "properties": {
+          "allow": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "block": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
       "MailMessageDto": {
         "type": "object",
         "description": "One message as the inspector shows it. It is read live and stored\nnowhere.",
@@ -19186,6 +19531,14 @@
           "spam",
           "not_spam",
           "unsure"
+        ]
+      },
+      "MailScoringMode": {
+        "type": "string",
+        "description": "Score-only mode records verdicts and leaves messages in their folders.",
+        "enum": [
+          "score_only",
+          "move_to_junk"
         ]
       },
       "MailVisibility": {
@@ -20884,6 +21237,22 @@
           }
         }
       },
+      "OrgJunkPolicy": {
+        "type": "object",
+        "required": [
+          "sensitivity",
+          "lists"
+        ],
+        "properties": {
+          "lists": {
+            "$ref": "#/components/schemas/MailLists"
+          },
+          "sensitivity": {
+            "$ref": "#/components/schemas/OrgSensitivity"
+          }
+        },
+        "additionalProperties": false
+      },
       "OrgMenuEntry": {
         "type": "object",
         "description": "One link in the Org menu, supplied by the server or an Embedder.",
@@ -20910,6 +21279,14 @@
             "description": "The link opens in the same tab."
           }
         }
+      },
+      "OrgSensitivity": {
+        "type": "string",
+        "enum": [
+          "low",
+          "normal",
+          "high"
+        ]
       },
       "OwnAddressDto": {
         "type": "object",
@@ -22077,6 +22454,40 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/PushSubscriptionDto"
+            }
+          }
+        }
+      },
+      "QuarantineMessageRequest": {
+        "type": "object",
+        "required": [
+          "workspace_id",
+          "mailbox",
+          "message_key"
+        ],
+        "properties": {
+          "mailbox": {
+            "type": "string"
+          },
+          "message_key": {
+            "type": "string"
+          },
+          "workspace_id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "QuarantinePage": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JunkMessage"
             }
           }
         }
@@ -24239,6 +24650,18 @@
           }
         }
       },
+      "SpamCorrection": {
+        "type": "object",
+        "required": [
+          "spam"
+        ],
+        "properties": {
+          "spam": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
       "SpamVerdictDto": {
         "type": "object",
         "required": [
@@ -26111,6 +26534,22 @@
           }
         }
       },
+      "WorkspaceJunkPolicy": {
+        "type": "object",
+        "required": [
+          "lists",
+          "spam_mode"
+        ],
+        "properties": {
+          "lists": {
+            "$ref": "#/components/schemas/MailLists"
+          },
+          "spam_mode": {
+            "$ref": "#/components/schemas/MailScoringMode"
+          }
+        },
+        "additionalProperties": false
+      },
       "WorkspaceKind": {
         "type": "string",
         "enum": [
@@ -26181,6 +26620,7 @@
       "WorkspaceMailSummaryDto": {
         "type": "object",
         "required": [
+          "junk",
           "id",
           "thread_id",
           "from",
@@ -26207,6 +26647,9 @@
           },
           "id": {
             "type": "string"
+          },
+          "junk": {
+            "type": "boolean"
           },
           "labels": {
             "type": "array",
@@ -26284,7 +26727,7 @@
             "$ref": "#/components/schemas/MailVisibility"
           },
           "spam_mode": {
-            "type": "string"
+            "$ref": "#/components/schemas/MailScoringMode"
           },
           "visibility": {
             "$ref": "#/components/schemas/MailVisibility"

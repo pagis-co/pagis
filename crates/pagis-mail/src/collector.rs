@@ -407,7 +407,7 @@ impl MailCollector {
             if summaries.is_empty() {
                 return Ok(());
             }
-            self.pass(mailbox, &summaries).await?;
+            self.pass(session, mailbox, &summaries).await?;
             // The cursor moves only once the pass is stored, so a
             // failure reads the same messages again.
             self.desk
@@ -420,6 +420,7 @@ impl MailCollector {
     /// One page of messages, as one collection pass.
     async fn pass(
         &self,
+        session: &mut dyn MailSession,
         mailbox: &AgentMailbox,
         summaries: &[MessageSummary],
     ) -> Result<(), PassError> {
@@ -428,7 +429,9 @@ impl MailCollector {
         let authserv_ids = self.desk.authserv_ids(mailbox).await?;
         let mut events = Vec::with_capacity(summaries.len());
         for summary in summaries {
-            events.push(self.event(mailbox, authserv_ids, summary).await?);
+            if let Some(event) = self.event(session, mailbox, authserv_ids, summary).await? {
+                events.push(event);
+            }
         }
         self.ingest
             .ingest(IngestBatch {
@@ -455,17 +458,35 @@ impl MailCollector {
     /// must land.
     async fn event(
         &self,
+        session: &mut dyn MailSession,
         mailbox: &AgentMailbox,
         authserv_ids: &[&str],
         summary: &MessageSummary,
-    ) -> Result<NormalizedEvent, PassError> {
+    ) -> Result<Option<NormalizedEvent>, PassError> {
         let mut summary = summary.clone();
-        self.desk
-            .read_context(mailbox)
-            .await?
+        let context = self.desk.read_context(mailbox).await?;
+        context
             .assess(&mut summary, false)
             .await
             .map_err(PassError::Assessment)?;
+        if summary.require_visible().is_err() {
+            return Ok(None);
+        }
+        if summary.is_junk() {
+            let folder = match session.junk_folders().await?.into_iter().next() {
+                Some(folder) => folder,
+                None => {
+                    session.create_folder("Junk").await?;
+                    "Junk".into()
+                }
+            };
+            let moved = session.move_message(&summary.id, &folder).await?;
+            context
+                .relocate(&summary, &moved)
+                .await
+                .map_err(PassError::Assessment)?;
+            return Ok(None);
+        }
         let sender = SenderEvidence::of_message(&summary, authserv_ids);
         let assessment = summary
             .assessment
@@ -482,7 +503,7 @@ impl MailCollector {
         event.metadata["spam_verdict"] =
             serde_json::to_value(&assessment.verdict).expect("a Spam Verdict serializes");
         event.landing = self.landing(mailbox, &summary).await?;
-        Ok(event)
+        Ok(Some(event))
     }
 
     /// Where a Wake-up for this message lands. A reply to mail the

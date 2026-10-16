@@ -104,6 +104,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/administration/mail/junk-policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_org_policy"];
+        put: operations["set_org_policy"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/administration/mail/quarantine": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["quarantine"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/administration/mail/quarantine/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["read_quarantine"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/administration/mail/quarantine/release": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["release"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/administration/people": {
         parameters: {
             query?: never;
@@ -3420,6 +3484,22 @@ export interface paths {
         patch: operations["rename_workspace_mail"];
         trace?: never;
     };
+    "/api/v1/workspace/mail/junk-policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_workspace_policy"];
+        put: operations["set_workspace_policy"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspace/mail/messages": {
         parameters: {
             query?: never;
@@ -3574,6 +3654,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["reply_all_workspace_mail"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspace/mail/messages/{message_id}/spam": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["correct"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5362,6 +5458,18 @@ export interface components {
             jsonrpc: string;
             result?: unknown;
         };
+        JunkMessage: {
+            from: string;
+            host_id: string;
+            mailbox: string;
+            message_key: string;
+            person_mark?: boolean | null;
+            quarantined: boolean;
+            reasons: string[];
+            released: boolean;
+            subject: string;
+            workspace_id: string;
+        };
         /**
          * @description Whether the Workspace holds a Keypad Code, and the wrong codes its
          *     callers entered. It is everything the API says about the code: there
@@ -5610,6 +5718,10 @@ export interface components {
             name: string;
             value: string;
         };
+        MailLists: {
+            allow: string[];
+            block: string[];
+        };
         /**
          * @description One message as the inspector shows it. It is read live and stored
          *     nowhere.
@@ -5644,6 +5756,11 @@ export interface components {
         };
         /** @enum {string} */
         MailOpinionLabel: "spam" | "not_spam" | "unsure";
+        /**
+         * @description Score-only mode records verdicts and leaves messages in their folders.
+         * @enum {string}
+         */
+        MailScoringMode: "score_only" | "move_to_junk";
         /** @enum {string} */
         MailVisibility: "agent_only" | "escalations" | "all_mail";
         /**
@@ -6300,6 +6417,10 @@ export interface components {
             entries: components["schemas"]["OrgMenuEntry"][];
             name: string;
         };
+        OrgJunkPolicy: {
+            lists: components["schemas"]["MailLists"];
+            sensitivity: components["schemas"]["OrgSensitivity"];
+        };
         /** @description One link in the Org menu, supplied by the server or an Embedder. */
         OrgMenuEntry: {
             current: boolean;
@@ -6308,6 +6429,8 @@ export interface components {
             /** @description The link opens in the same tab. */
             url: string;
         };
+        /** @enum {string} */
+        OrgSensitivity: "low" | "normal" | "high";
         /**
          * @description One address that is owner because the user holds the account it
          *     belongs to (ADR-0019). It is not a row, so it has no id and the user
@@ -6750,6 +6873,14 @@ export interface components {
         };
         PushSubscriptionsDto: {
             items: components["schemas"]["PushSubscriptionDto"][];
+        };
+        QuarantineMessageRequest: {
+            mailbox: string;
+            message_key: string;
+            workspace_id: string;
+        };
+        QuarantinePage: {
+            items: components["schemas"]["JunkMessage"][];
         };
         ReflectionFilter: {
             default: components["schemas"]["Verdict"];
@@ -7517,6 +7648,9 @@ export interface components {
             resource: string;
             workspace_id: string;
         };
+        SpamCorrection: {
+            spam: boolean;
+        };
         SpamVerdictDto: {
             action: string;
             opinion?: null | components["schemas"]["MailOpinion"];
@@ -8167,6 +8301,10 @@ export interface components {
             /** @description The IANA timezone new wall-clock schedules copy. */
             timezone: string;
         };
+        WorkspaceJunkPolicy: {
+            lists: components["schemas"]["MailLists"];
+            spam_mode: components["schemas"]["MailScoringMode"];
+        };
         /** @enum {string} */
         WorkspaceKind: "private" | "shared";
         WorkspaceMailFolders: {
@@ -8187,6 +8325,7 @@ export interface components {
             flagged: boolean;
             from: string;
             id: string;
+            junk: boolean;
             labels: string[];
             seen: boolean;
             snippet: string;
@@ -8206,7 +8345,7 @@ export interface components {
             created_at: number;
             effective_visibility: components["schemas"]["MailVisibility"];
             max_visibility: components["schemas"]["MailVisibility"];
-            spam_mode: string;
+            spam_mode: components["schemas"]["MailScoringMode"];
             visibility: components["schemas"]["MailVisibility"];
             workspace_id: string;
         };
@@ -8510,6 +8649,149 @@ export interface operations {
                 };
             };
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_org_policy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrgJunkPolicy"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    set_org_policy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OrgJunkPolicy"];
+            };
+        };
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    quarantine: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuarantinePage"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    read_quarantine: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QuarantineMessageRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceMailMessageDto"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    release: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QuarantineMessageRequest"];
+            };
+        };
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -17424,6 +17706,62 @@ export interface operations {
             };
         };
     };
+    get_workspace_policy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceJunkPolicy"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    set_workspace_policy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkspaceJunkPolicy"];
+            };
+        };
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     list_workspace_mail_messages: {
         parameters: {
             query?: {
@@ -17933,6 +18271,37 @@ export interface operations {
                 };
             };
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    correct: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                message_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SpamCorrection"];
+            };
+        };
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

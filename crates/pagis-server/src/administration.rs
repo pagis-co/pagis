@@ -136,6 +136,7 @@ impl AdministrationSections {
             ("settings", Some(Settings)),
             ("plugins", None),
             ("health", None),
+            ("junk", None),
             ("restart", Some(Restart)),
         ]
         .into_iter()
@@ -1448,6 +1449,22 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route(
             "/api/v1/administration/workspaces/{workspace_id}/limits",
             get(crate::workspace_limits::get).put(crate::workspace_limits::put),
+        )
+        .route(
+            "/api/v1/administration/mail/junk-policy",
+            get(crate::junk::get_org_policy).put(crate::junk::set_org_policy),
+        )
+        .route(
+            "/api/v1/administration/mail/quarantine",
+            get(crate::junk::quarantine),
+        )
+        .route(
+            "/api/v1/administration/mail/quarantine/read",
+            post(crate::junk::read_quarantine),
+        )
+        .route(
+            "/api/v1/administration/mail/quarantine/release",
+            post(crate::junk::release),
         )
         .route("/api/v1/administration/usage", get(installation_usage))
         .route("/api/v1/administration/sessions", get(list_sessions))

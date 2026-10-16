@@ -33,6 +33,11 @@ pub trait WorkspaceMailboxRecordStore: Send + Sync {
         workspace: &WorkspaceId,
         message: &str,
     ) -> Result<bool, StoreError>;
+    async fn set_spam_mode(
+        &self,
+        workspace: &WorkspaceId,
+        mode: MailScoringMode,
+    ) -> Result<(), StoreError>;
     /// Reserve one daily send before SMTP. Concurrent sends share the cap.
     async fn reserve_send(&self, workspace: &WorkspaceId, day: i64) -> Result<bool, StoreError>;
     /// Return the allowance when SMTP refuses a send.
@@ -55,15 +60,20 @@ pub trait WorkspaceMailboxRecordStore: Send + Sync {
 }
 
 /// Score-only mode records verdicts and leaves messages in their folders.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, utoipa::ToSchema,
+)]
+#[serde(rename_all = "snake_case")]
 pub enum MailScoringMode {
     ScoreOnly,
+    MoveToJunk,
 }
 
 impl MailScoringMode {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::ScoreOnly => "score_only",
+            Self::MoveToJunk => "move_to_junk",
         }
     }
 }
@@ -72,6 +82,7 @@ impl std::str::FromStr for MailScoringMode {
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
             "score_only" => Ok(Self::ScoreOnly),
+            "move_to_junk" => Ok(Self::MoveToJunk),
             _ => Err(StoreError::Corrupt("unknown mail scoring mode".into())),
         }
     }

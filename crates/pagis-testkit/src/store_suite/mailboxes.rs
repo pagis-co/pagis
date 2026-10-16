@@ -494,6 +494,14 @@ pub async fn workspace_mailbox_record_and_ledger(backend: &Backend) {
             .await
             .unwrap()
     );
+    store
+        .set_spam_mode(&ws.id, pagis_core::MailScoringMode::MoveToJunk)
+        .await
+        .unwrap();
+    assert_eq!(
+        store.get(&ws.id).await.unwrap().unwrap().spam_mode,
+        pagis_core::MailScoringMode::MoveToJunk
+    );
     for _ in 0..20 {
         assert!(store.reserve_send(&ws.id, 1).await.unwrap());
     }
@@ -565,6 +573,7 @@ pub async fn mail_assessment_roundtrip(backend: &Backend) {
     let other = backend.seeded_workspace().await;
     let store = &backend.stores().mail_assessments;
     let assessment = pagis_core::MailAssessment {
+        junk: false,
         verdict: pagis_core::SpamVerdict {
             opinion: Some(pagis_core::MailOpinion {
                 label: pagis_core::MailOpinionLabel::Spam,
@@ -616,6 +625,7 @@ pub async fn mail_assessment_roundtrip(backend: &Backend) {
             .is_none()
     );
     let changed = pagis_core::MailAssessment {
+        junk: false,
         trust_tier: pagis_core::TrustTier::Trusted,
         ..assessment
     };
@@ -652,6 +662,8 @@ pub async fn mail_assessment_survives_a_folder_move(backend: &Backend) {
     );
     let context = pagis_mail::MailReadContext {
         intake: Arc::new(pagis_mail::MailIntake {
+            workspace_mailboxes: stores.workspace_mailboxes.clone(),
+            junk: stores.junk.clone(),
             opinions: std::sync::Arc::new(pagis_mail::fake::FakeMailOpinions::default()),
             workspaces: stores.workspaces.clone(),
             agents: stores.agents.clone(),
@@ -712,6 +724,7 @@ macro_rules! store_suite_mailboxes {
         $emit!(
             mailboxes,
             workspace_mailbox_record_and_ledger,
+            junk_decisions_and_quarantine_release,
             mail_assessment_roundtrip,
             mail_assessment_survives_a_folder_move,
             allow_rules_are_added_once_and_keep_their_order,
@@ -733,4 +746,182 @@ macro_rules! store_suite_mailboxes {
             only_live_mailboxes_hold_a_connection,
         );
     };
+}
+
+/// Message decisions keep their scope, and release and audit commit together.
+pub async fn junk_decisions_and_quarantine_release(backend: &Backend) {
+    use pagis_core::{
+        AuditEntry, AuditEntryId, Author, JunkMessage, MailLists, OrgJunkPolicy, OrgSensitivity,
+    };
+    let workspace = backend.seeded_workspace().await;
+    let stores = backend.stores();
+    let org = stores.orgs.list().await.unwrap().remove(0);
+    let policy = OrgJunkPolicy {
+        sensitivity: OrgSensitivity::High,
+        lists: MailLists {
+            block: vec!["example.com".into()],
+            allow: vec![],
+        },
+    };
+    stores.junk.set_org_policy(&policy).await.unwrap();
+    assert_eq!(stores.junk.org_policy().await.unwrap(), policy);
+    stores
+        .junk
+        .set_workspace_lists(&workspace.id, &policy.lists)
+        .await
+        .unwrap();
+    assert_eq!(
+        stores.junk.workspace_lists(&workspace.id).await.unwrap(),
+        policy.lists
+    );
+    assert_eq!(
+        stores
+            .junk
+            .workspace_lists(&WorkspaceId::generate())
+            .await
+            .unwrap(),
+        MailLists::default()
+    );
+    let mut message = JunkMessage {
+        workspace_id: workspace.id.clone(),
+        mailbox: "person@example.com".into(),
+        message_key: "<unsafe@example.com>".into(),
+        host_id: "INBOX:1".into(),
+        from: "sender@example.com".into(),
+        subject: "Unsafe".into(),
+        reasons: vec!["CLAM_VIRUS 20".into()],
+        person_mark: None,
+        quarantined: true,
+        released: false,
+    };
+    let mut ordinary = message.clone();
+    ordinary.message_key = "<ordinary@example.com>".into();
+    ordinary.quarantined = false;
+    stores.junk.observe(&ordinary).await.unwrap();
+    assert!(
+        stores
+            .junk
+            .message(&workspace.id, &ordinary.mailbox, &ordinary.message_key)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    stores.junk.relocate("missing", &ordinary).await.unwrap();
+    stores.junk.mark(&ordinary, true).await.unwrap();
+    stores.junk.observe(&ordinary).await.unwrap();
+    let saved = stores
+        .junk
+        .message(&workspace.id, &ordinary.mailbox, &ordinary.message_key)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(saved.person_mark, Some(true));
+    assert_eq!(saved.subject, ordinary.subject);
+    stores.junk.observe(&message).await.unwrap();
+    stores.junk.mark(&message, false).await.unwrap();
+    message.host_id = "Junk:2".into();
+    message.quarantined = false;
+    message.reasons = vec!["clean".into()];
+    stores.junk.observe(&message).await.unwrap();
+    assert!(
+        stores
+            .junk
+            .message(
+                &WorkspaceId::generate(),
+                &message.mailbox,
+                &message.message_key
+            )
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        stores
+            .junk
+            .message(&workspace.id, "other@example.com", &message.message_key)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    let saved = stores
+        .junk
+        .message(&workspace.id, &message.mailbox, &message.message_key)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(saved.person_mark, Some(false));
+    assert_eq!(saved.host_id, "Junk:2");
+    assert!(saved.quarantined);
+    assert_eq!(saved.reasons, ["CLAM_VIRUS 20"]);
+    let old_key = std::mem::replace(&mut message.message_key, "Junk:2".into());
+    stores.junk.relocate(&old_key, &message).await.unwrap();
+    assert!(
+        stores
+            .junk
+            .message(&workspace.id, &message.mailbox, &old_key)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        stores
+            .junk
+            .message(&workspace.id, &message.mailbox, &message.message_key)
+            .await
+            .unwrap()
+            .unwrap()
+            .person_mark,
+        Some(false)
+    );
+    let mut audit = AuditEntry {
+        id: AuditEntryId::generate(),
+        org_workspace_id: org.workspace_id.clone(),
+        actor: Author::Person(workspace.user_id.unwrap()),
+        action: "mail.quarantine_released".into(),
+        subject_workspace_id: workspace.id.clone(),
+        reason: Some(message.message_key.clone()),
+        at: now_ms(),
+    };
+    stores.audit.append(&audit).await.unwrap();
+    assert!(
+        stores
+            .junk
+            .release(&message.mailbox, &message.message_key, &audit)
+            .await
+            .is_err()
+    );
+    assert_eq!(stores.junk.quarantine().await.unwrap().len(), 1);
+    audit.id = AuditEntryId::generate();
+    stores
+        .junk
+        .release(&message.mailbox, &message.message_key, &audit)
+        .await
+        .unwrap();
+    assert!(stores.junk.quarantine().await.unwrap().is_empty());
+    stores.junk.observe(&message).await.unwrap();
+    assert!(
+        stores
+            .junk
+            .message(&workspace.id, &message.mailbox, &message.message_key)
+            .await
+            .unwrap()
+            .unwrap()
+            .released
+    );
+    assert_eq!(
+        stores
+            .audit
+            .list(&org.workspace_id, 0, 10)
+            .await
+            .unwrap()
+            .len(),
+        2
+    );
+    assert!(
+        stores
+            .junk
+            .release(&message.mailbox, &message.message_key, &audit)
+            .await
+            .is_err()
+    );
 }

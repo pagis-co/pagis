@@ -207,7 +207,8 @@ async fn the_user_answer_gives_only_an_administrator_the_offered_sections_and_li
             "sessions",
             "resources",
             "plugins",
-            "health"
+            "health",
+            "junk"
         ])
     );
     assert_eq!(
