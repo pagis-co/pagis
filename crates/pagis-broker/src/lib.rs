@@ -3,6 +3,8 @@
 mod call;
 mod coding_session;
 pub mod credentials;
+pub mod workspace_mail;
+pub use workspace_mail::WorkspaceMailTool;
 pub mod fake;
 mod harness_policy;
 pub mod host_sessions;
@@ -452,6 +454,9 @@ pub enum ToolRoute {
     Mailbox {
         tool: MailTool,
     },
+    WorkspaceMailbox {
+        tool: WorkspaceMailTool,
+    },
 }
 
 impl ToolRoute {
@@ -476,7 +481,8 @@ impl ToolRoute {
             ToolRoute::Connection { .. }
             | ToolRoute::Software { .. }
             | ToolRoute::Plugin { .. }
-            | ToolRoute::Mailbox { .. } => true,
+            | ToolRoute::Mailbox { .. }
+            | ToolRoute::WorkspaceMailbox { .. } => true,
             ToolRoute::Core { tool } => {
                 matches!(tool, CoreTool::HostShell | CoreTool::ComputerShell)
             }
@@ -739,6 +745,7 @@ impl Registry {
             call::call_manifest(),
             coding_session::coding_session_manifest(),
             mail::mail_manifest(),
+            workspace_mail::workspace_mail_manifest(),
             ui_manifest(),
         ] {
             registry
@@ -1018,6 +1025,18 @@ pub struct AuthorizedCall {
 
 #[async_trait]
 pub trait ToolExecutor: Send + Sync {
+    /// Resolve trusted action fields before the broker checks Allow Rules
+    /// and shows an Approval. This operation has no external write effect.
+    async fn prepare(
+        &self,
+        _workspace: &WorkspaceId,
+        _agent: &AgentId,
+        _route: &ToolRoute,
+        arguments: serde_json::Value,
+    ) -> Result<serde_json::Value, ToolResult> {
+        Ok(arguments)
+    }
+
     async fn execute(&self, call: AuthorizedCall) -> ToolResult;
 }
 
@@ -1577,6 +1596,14 @@ impl Broker {
                         // Agent's own identity. One of the Person's
                         // accounts is a Connection, and it needs the
                         // capability that tool acts with (ADR-0019).
+                        ToolRoute::WorkspaceMailbox { .. } => grants
+                            .iter()
+                            .filter(|grant| {
+                                grant.resource_kind == Grant::WORKSPACE_MAILBOX_KIND
+                                    && grant.resource_id.as_deref() == Some(workspace_id.as_str())
+                            })
+                            .map(GrantBinding::from)
+                            .collect(),
                         ToolRoute::Mailbox { tool } => connection_bindings(
                             &grants,
                             &connections,
@@ -1612,6 +1639,7 @@ impl Broker {
                         tool.route,
                         ToolRoute::Connection { .. }
                             | ToolRoute::Plugin { .. }
+                            | ToolRoute::WorkspaceMailbox { .. }
                             | ToolRoute::Core {
                                 tool: CoreTool::PhoneCall
                             }
@@ -1943,6 +1971,24 @@ impl Broker {
         if live_binding.is_some() {
             context.selected_grant = live_binding;
         }
+        context.arguments = match self
+            .deps
+            .executor
+            .prepare(
+                &context.workspace_id,
+                &context.agent_id,
+                &context.entry.manifest.route,
+                context.arguments.clone(),
+            )
+            .await
+        {
+            Ok(arguments) => arguments,
+            Err(result) => {
+                self.audit(&context, "rejected", "rejected", &result)
+                    .await?;
+                return Ok(InvokeOutcome::Rejected(result));
+            }
+        };
         // A call in the Agent's own mailbox reads that record now,
         // before the card and before the executor: a mailbox that
         // cannot work, and a send past the Outgoing Cap, are answers
@@ -2012,6 +2058,19 @@ impl Broker {
     /// action reaches it once its machine is settled, so the card it
     /// mints names that machine.
     async fn gate(&self, mut context: CallContext) -> Result<InvokeOutcome, BrokerError> {
+        if matches!(
+            context.entry.manifest.route,
+            ToolRoute::WorkspaceMailbox { .. }
+        ) {
+            match self.authorize(&context).await? {
+                Ok(binding) => context.selected_grant = binding,
+                Err(result) => {
+                    self.audit(&context, "revoked", "rejected", &result).await?;
+                    return Ok(InvokeOutcome::Rejected(result));
+                }
+            }
+        }
+
         if !context.entry.manifest.effect.requires_approval()
             || is_wake_only_subject_schedule(&context)
             || is_schedule_control_without_revision(&context)
@@ -2521,6 +2580,50 @@ impl Broker {
     ) -> Result<Result<Option<GrantBinding>, ToolResult>, BrokerError> {
         if matches!(
             context.entry.manifest.route,
+            ToolRoute::WorkspaceMailbox { .. }
+        ) {
+            let grants = self
+                .deps
+                .grants
+                .list_live_for_agent(&context.workspace_id, &context.agent_id)
+                .await?;
+            let candidates: Vec<_> = grants
+                .iter()
+                .filter_map(|grant| {
+                    let binding = context
+                        .entry
+                        .grants
+                        .iter()
+                        .find(|binding| binding.id == grant.id)?;
+                    (grant.resource_kind == Grant::WORKSPACE_MAILBOX_KIND
+                        && grant.resource_id.as_deref() == Some(context.workspace_id.as_str()))
+                    .then_some((grant, binding))
+                })
+                .collect();
+            let chosen = candidates
+                .iter()
+                .find(|(grant, _)| {
+                    mail::recipients_allowed(&context.arguments, &grant.allow_rules())
+                })
+                .or_else(|| {
+                    candidates.iter().find(|(grant, _)| {
+                        context
+                            .selected_grant
+                            .as_ref()
+                            .is_some_and(|binding| binding.id == grant.id)
+                    })
+                })
+                .or_else(|| candidates.first());
+            return Ok(match chosen {
+                Some((grant, binding)) => Ok(Some(GrantBinding::refreshed(grant, binding))),
+                None => Err(ToolResult::error(
+                    "permission_revoked",
+                    "no live Workspace Mailbox Grant",
+                )),
+            });
+        }
+        if matches!(
+            context.entry.manifest.route,
             ToolRoute::Core {
                 tool: CoreTool::PhoneCall
             }
@@ -2739,6 +2842,23 @@ impl Broker {
                     .is_some_and(|grant| grant.allow_rules().iter().any(|rule| rule == name)))
             }
             Some(AllowRuleBuilder::MailRecipientDomain) => {
+                if matches!(
+                    context.entry.manifest.route,
+                    ToolRoute::WorkspaceMailbox { .. }
+                ) {
+                    let Some(binding) = &context.selected_grant else {
+                        return Ok(false);
+                    };
+                    return Ok(self
+                        .deps
+                        .grants
+                        .get(&context.workspace_id, &binding.id)
+                        .await?
+                        .filter(|grant| grant.revoked_at.is_none())
+                        .is_some_and(|grant| {
+                            mail::recipients_allowed(&context.arguments, &grant.allow_rules())
+                        }));
+                }
                 Ok(context.mailbox.as_ref().is_some_and(|mailbox| {
                     mail::recipients_allowed(&context.arguments, &mailbox.allow_rules)
                 }))
@@ -2857,6 +2977,15 @@ impl Broker {
             }
             None => {}
         }
+        if matches!(
+            context.entry.manifest.route,
+            ToolRoute::WorkspaceMailbox { .. }
+        ) {
+            presentation.action_title = format!(
+                "Send an email from {}",
+                context.arguments["from"].as_str().unwrap_or_default()
+            );
+        }
         // A vault action is its own request kind: the card and
         // the grant it writes read the Credential record, not the call.
         if let (Some(AllowRuleBuilder::CredentialDomain), Some(action)) =
@@ -2969,6 +3098,8 @@ impl Broker {
                 // The record an `always` writes its rules onto. A mail
                 // rule lives on the mailbox, because the Agent holds
                 // that mailbox with no Grant (ADR-0019).
+                "workspace_mailbox_grant_id": matches!(context.entry.manifest.route, ToolRoute::WorkspaceMailbox { .. })
+                    .then(|| context.selected_grant.as_ref().map(|grant| grant.id.as_str())),
                 "mailbox_id": context.mailbox.as_ref().map(|mailbox| mailbox.id.as_str()),
                 "mailbox_address": context.mailbox.as_ref().map(|mailbox| mailbox.address.as_str()),
                 // The machine a host Grant is written for, and the name

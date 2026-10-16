@@ -17,6 +17,7 @@ import {
 } from '../../queries'
 import { CONNECTION_CAPABILITIES } from '../ConnectionCapabilities'
 import { NavBar } from '../phone/TopBar'
+import { GrantRow, WorkspaceMailboxAccess } from '../GrantsSettings'
 import { CodingSessionAccessPhone } from './CodingSessionAccessPhone'
 
 function capabilityLabels(names: string[]) {
@@ -201,6 +202,12 @@ export function AgentAccessPhone({
                 capabilities, and you can revoke it at any time.
               </p>
             </div>
+            <section className="phone-section">
+              <WorkspaceMailboxAccess api={api} agent={agent} />
+              {own.filter((row) => row.resource_kind === 'workspace_mailbox').map((row) => (
+                <GrantRow key={row.id} api={api} grant={row} />
+              ))}
+            </section>
             {number && (
               <section className="phone-section">
                 <SectionLabel>Workspace Number: {number.e164}</SectionLabel>

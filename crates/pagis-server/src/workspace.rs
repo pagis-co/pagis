@@ -136,12 +136,17 @@ pub async fn active_agents_oldest_first(
 pub async fn designate(
     workspaces: &dyn pagis_core::WorkspaceStore,
     bus: &dyn pagis_core::EventBus,
+    mailbox_desk: &pagis_mail::MailboxDesk,
     tenant: &Tenant,
     agent_id: Option<&AgentId>,
 ) -> Result<(), ApiError> {
     workspaces
         .set_chief_of_staff(&tenant.workspace_id, agent_id)
         .await?;
+    mailbox_desk
+        .reconcile_workspace_grants(&tenant.workspace_id)
+        .await
+        .map_err(crate::mailboxes::mailbox_error)?;
     bus.publish(NewEvent {
         workspace_id: tenant.workspace_id.clone(),
         event_type: "workspace.updated".to_string(),
@@ -202,6 +207,7 @@ pub async fn set_chief_of_staff(
     designate(
         state.workspaces.as_ref(),
         state.bus.as_ref(),
+        state.mailbox_desk.as_ref(),
         &tenant,
         Some(&agent.id),
     )

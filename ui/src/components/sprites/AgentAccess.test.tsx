@@ -52,3 +52,19 @@ it('shows no Workspace Number switch when the Workspace has no number', async ()
   await waitFor(() => expect(api.GET).toHaveBeenCalledWith('/api/v1/workspace/number'))
   expect(screen.queryByRole('switch', { name: 'Call from the Workspace Number' })).toBeNull()
 })
+
+it('grants Workspace Mailbox access to an Agent', async () => {
+  const api = {
+    GET: vi.fn(async (path: string) => ({ data: path === '/api/v1/workspace/mailbox'
+      ? { mailbox: { address: 'team@example.com' }, offers: [] }
+      : path === '/api/v1/workspace/number' ? { number: null } : { items: [] } })),
+    POST: vi.fn(async () => ({ data: {} })),
+  }
+  render(
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <AgentAccess api={api as unknown as ApiClient} agent={{ id: 'ag1', name: 'Sage' } as AgentDto} />
+    </QueryClientProvider>,
+  )
+  await userEvent.click(await screen.findByRole('button', { name: 'Grant Workspace Mailbox to Sage' }))
+  await waitFor(() => expect(api.POST).toHaveBeenCalledWith('/api/v1/grants/workspace-mailbox', { body: { agent_id: 'ag1' } }))
+})

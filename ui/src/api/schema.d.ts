@@ -1342,6 +1342,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/grants/workspace-mailbox": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["create_workspace_mailbox_grant"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/grants/workspace-number": {
         parameters: {
             query?: never;
@@ -4642,6 +4658,9 @@ export interface components {
             name: string;
             root_message_id?: string | null;
         };
+        CreateWorkspaceMailboxGrantRequest: {
+            agent_id: string;
+        };
         CreateWorkspaceNumberGrantRequest: {
             agent_id: string;
             number_id: string;
@@ -4946,7 +4965,7 @@ export interface components {
             agent_name: string;
             /**
              * @description The allow rules — command prefixes on a host grant, registrable
-             *     domains on a credential grant. Empty is per-action mode.
+             *     domains on a Credential or Workspace Mailbox Grant. Empty is per-action mode.
              */
             allow: string[];
             /** @description Named capabilities on a Connection grant. */
@@ -4955,12 +4974,14 @@ export interface components {
             created_at: number;
             created_by: components["schemas"]["AuthorDto"];
             id: string;
+            /** @description The System default Grant for the Chief of Staff. */
+            is_default: boolean;
             /**
-             * @description The Connection, Plugin, Host or Workspace Number the Grant reaches.
+             * @description The Connection, Plugin, Host, Workspace Number or Workspace Mailbox record.
              *     A credential Grant names none.
              */
             resource_id?: string | null;
-            /** @description The resource kind, including `workspace_number`. */
+            /** @description The resource kind, including `workspace_number` and `workspace_mailbox`. */
             resource_kind: string;
             /** Format: int64 */
             revision: number;
@@ -11697,6 +11718,61 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["CreateConnectionGrantRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GrantDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    create_workspace_mailbox_grant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateWorkspaceMailboxGrantRequest"];
             };
         };
         responses: {

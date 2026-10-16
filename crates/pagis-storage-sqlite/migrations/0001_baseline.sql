@@ -681,7 +681,7 @@ CREATE TABLE grants (
     workspace_id TEXT NOT NULL REFERENCES workspaces (id),
     agent_id TEXT NOT NULL REFERENCES agents (id),
     resource_kind TEXT NOT NULL
-        CHECK (resource_kind IN ('connection', 'credential', 'host', 'plugin', 'workspace_number')),
+        CHECK (resource_kind IN ('connection', 'credential', 'host', 'plugin', 'workspace_number', 'workspace_mailbox')),
     resource_id TEXT,
     scope TEXT NOT NULL,
     revision INTEGER NOT NULL DEFAULT 1,
@@ -693,7 +693,10 @@ CREATE TABLE grants (
 );
 CREATE UNIQUE INDEX idx_grants_live_unique
     ON grants (workspace_id, agent_id, resource_kind, resource_id)
-    WHERE revoked_at IS NULL;
+    WHERE revoked_at IS NULL AND resource_kind <> 'workspace_mailbox';
+CREATE UNIQUE INDEX idx_grants_live_mailbox_unique
+    ON grants (workspace_id, agent_id, resource_id, COALESCE(json_extract(scope, '$.default'), 0))
+    WHERE revoked_at IS NULL AND resource_kind = 'workspace_mailbox';
 -- A host grant names the machine it reaches: one live grant for each
 -- of the person's machines, and no two for one machine (ADR-0015).
 CREATE UNIQUE INDEX idx_grants_live_host_unique

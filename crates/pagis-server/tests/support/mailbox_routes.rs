@@ -349,3 +349,285 @@ async fn workspace_mailbox_reads_through_the_product_api_and_isolates_workspaces
     );
     assert_eq!(transport.logins().len(), transport.logouts().len());
 }
+
+async fn workspace_provider(embedder: &Embedder) -> ConnectionId {
+    let connection = provider(embedder).await;
+    let org = &embedder.routers.state.org_workspace_id;
+    let mut record = embedder
+        .stores
+        .connections
+        .get(org, &connection)
+        .await
+        .unwrap()
+        .unwrap();
+    record.config["imap_host"] = json!("imap.test");
+    record.config["imap_port"] = json!(993);
+    record.config["smtp_host"] = json!("smtp.test");
+    record.config["smtp_port"] = json!(465);
+    embedder
+        .stores
+        .connections
+        .set_config(org, &connection, &record.config)
+        .await
+        .unwrap();
+    connection
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+async fn workspace_mailbox_grants_move_with_designation_and_keep_manual_access() {
+    let embedder = Embedder::new().await;
+    let connection = workspace_provider(&embedder).await;
+    let chief = embedder.agent(&embedder.workspace, "Chief").await;
+    let other = embedder.agent(&embedder.workspace, "Other").await;
+    assert_eq!(
+        response(
+            &embedder,
+            "PUT",
+            "/api/v1/workspace/chief-of-staff",
+            json!({"agent_id":chief.id})
+        )
+        .await
+        .0,
+        200
+    );
+    assert_eq!(
+        response(
+            &embedder,
+            "POST",
+            "/api/v1/workspace/mailbox",
+            json!({"connection_id":connection,"local_part":"person"})
+        )
+        .await
+        .0,
+        201
+    );
+    let (_, page) = response(&embedder, "GET", "/api/v1/grants", Value::Null).await;
+    let original = &page["items"][0];
+    assert_eq!(original["resource_kind"], "workspace_mailbox");
+    assert_eq!(original["agent_id"], chief.id.as_str());
+    assert_eq!(original["is_default"], true);
+    let (status, manual) = response(
+        &embedder,
+        "POST",
+        "/api/v1/grants/workspace-mailbox",
+        json!({"agent_id":other.id}),
+    )
+    .await;
+    assert_eq!(status, 201, "{manual}");
+    assert_eq!(manual["is_default"], false);
+    let path = format!("/api/v1/grants/{}/rules", manual["id"].as_str().unwrap());
+    let (status, changed) = response(
+        &embedder,
+        "PUT",
+        &path,
+        json!({"allow":[" Mail.Example.COM "]}),
+    )
+    .await;
+    assert_eq!(status, 200, "{changed}");
+    assert_eq!(changed["allow"], json!(["example.com"]));
+    assert_eq!(
+        response(
+            &embedder,
+            "PUT",
+            &path,
+            json!({"allow":["https://example.com"]})
+        )
+        .await
+        .0,
+        422
+    );
+    assert_eq!(
+        response(
+            &embedder,
+            "PUT",
+            "/api/v1/workspace/chief-of-staff",
+            json!({"agent_id":other.id})
+        )
+        .await
+        .0,
+        200
+    );
+    let (_, page) = response(&embedder, "GET", "/api/v1/grants", Value::Null).await;
+    let grants = page["items"].as_array().unwrap();
+    assert_eq!(grants.len(), 2);
+    assert!(grants.iter().all(|g| g["agent_id"] == other.id.as_str()));
+    assert!(grants.iter().any(|g| g["id"] == manual["id"]));
+    assert_eq!(
+        response(
+            &embedder,
+            "POST",
+            &format!("/api/v1/agents/{}/archive", other.id),
+            json!({})
+        )
+        .await
+        .0,
+        200
+    );
+    let (_, page) = response(&embedder, "GET", "/api/v1/grants", Value::Null).await;
+    let default = page["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|g| g["is_default"] == true)
+        .unwrap();
+    assert_eq!(default["agent_id"], chief.id.as_str());
+    let foreign = embedder.agent(&embedder.other_workspace, "Foreign").await;
+    assert_eq!(
+        response(
+            &embedder,
+            "POST",
+            "/api/v1/grants/workspace-mailbox",
+            json!({"agent_id":foreign.id})
+        )
+        .await
+        .0,
+        404
+    );
+    assert_eq!(
+        response(
+            &embedder,
+            "POST",
+            "/api/v1/grants/workspace-mailbox",
+            json!({"agent_id":other.id})
+        )
+        .await
+        .0,
+        404
+    );
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+async fn workspace_mailbox_shared_grants_need_a_manager_and_always_allow_edits_the_same_grant() {
+    let embedder = Embedder::new().await;
+    let connection = workspace_provider(&embedder).await;
+    let person = embedder
+        .stores
+        .workspaces
+        .get(&embedder.workspace)
+        .await
+        .unwrap()
+        .unwrap()
+        .user_id
+        .unwrap();
+    let responder = embedder
+        .stores
+        .workspaces
+        .get(&embedder.other_workspace)
+        .await
+        .unwrap()
+        .unwrap()
+        .user_id
+        .unwrap();
+    let member = WorkspaceMember {
+        workspace_id: WorkspaceId::generate(),
+        person_id: person.clone(),
+        role: WorkspaceRole::Manager,
+        author: Author::System,
+    };
+    let shared = pagis_server::provisioning::WorkspaceSeed::from(&embedder.stores)
+        .shared(
+            &member,
+            "Team",
+            "UTC",
+            now_ms(),
+            embedder.stores.workspace_members.as_ref(),
+        )
+        .await
+        .unwrap();
+    embedder
+        .stores
+        .workspace_members
+        .add(&WorkspaceMember {
+            workspace_id: shared.id.clone(),
+            person_id: responder,
+            role: WorkspaceRole::Responder,
+            author: Author::System,
+        })
+        .await
+        .unwrap();
+    let prefix = format!("/api/v1/workspaces/{}", shared.id);
+    let (status, mailbox) = response(
+        &embedder,
+        "POST",
+        &format!("{prefix}/workspace/mailbox"),
+        json!({"connection_id":connection,"local_part":"team"}),
+    )
+    .await;
+    assert_eq!(status, 201, "{mailbox}");
+    let chief = shared.chief_of_staff_agent_id.unwrap();
+    let grant = embedder
+        .stores
+        .grants
+        .list_live(&shared.id)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|g| g.agent_id == chief)
+        .unwrap();
+    assert_eq!(grant.created_by, Author::System);
+    assert_eq!(grant.scope["default"], true);
+    let other = embedder.agent(&shared.id, "Other").await;
+    let path = format!("{prefix}/grants/workspace-mailbox");
+    let (status, _) = super::response(
+        &embedder,
+        "POST",
+        &path,
+        json!({"agent_id":other.id}),
+        Some(&embedder.other_cookie),
+    )
+    .await;
+    assert_eq!(status, 403);
+    assert_eq!(
+        response(&embedder, "POST", &path, json!({"agent_id":other.id}))
+            .await
+            .0,
+        201
+    );
+    let request = pagis_core::Request {
+        id: RequestId::generate(),
+        workspace_id: shared.id.clone(),
+        agent_id: chief,
+        run_id: None,
+        kind: pagis_core::Request::TOOL_ACTION_KIND.into(),
+        payload: json!({"tool_name":"workspace_mail_send","workspace_mailbox_grant_id":grant.id,"proposed_rules":["example.com"]}),
+        state: RequestState::Pending,
+        values: None,
+        decided_by: None,
+        decided_at: None,
+        created_at: now_ms(),
+    };
+    embedder.stores.requests.create(&request).await.unwrap();
+    let path = format!("{prefix}/requests/{}/decision", request.id);
+    let (status, _) = super::response(
+        &embedder,
+        "POST",
+        &path,
+        json!({"decision":"approved","scope":"always"}),
+        Some(&embedder.other_cookie),
+    )
+    .await;
+    assert_eq!(status, 403);
+    assert_eq!(
+        response(
+            &embedder,
+            "POST",
+            &path,
+            json!({"decision":"approved","scope":"always"})
+        )
+        .await
+        .0,
+        200
+    );
+    let changed = embedder
+        .stores
+        .grants
+        .get(&shared.id, &grant.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(changed.allow_rules(), vec!["example.com"]);
+    assert_eq!(changed.scope["default"], true);
+    assert_eq!(changed.revision, 2);
+}

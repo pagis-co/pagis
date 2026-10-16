@@ -57,3 +57,77 @@ impl std::str::FromStr for MailScoringMode {
         }
     }
 }
+
+/// Keep the System's default Grant with the active Chief of Staff.
+/// Manual Grants are independent and stay when the designation changes.
+/// The caller publishes the returned Grant events through its event sink.
+pub async fn reconcile_workspace_mailbox_grants(
+    workspace: &WorkspaceId,
+    workspaces: &dyn crate::WorkspaceStore,
+    agents: &dyn crate::AgentStore,
+    mailboxes: &dyn WorkspaceMailboxRecordStore,
+    grants: &dyn crate::GrantStore,
+) -> Result<Vec<crate::NewEvent>, StoreError> {
+    use crate::{AgentStatus, Author, Grant, GrantId, now_ms};
+    let mailbox = mailboxes.get(workspace).await?;
+    let chief = match workspaces
+        .get(workspace)
+        .await?
+        .and_then(|w| w.chief_of_staff_agent_id)
+    {
+        Some(id) if mailbox.is_some() => agents
+            .get(workspace, &id)
+            .await?
+            .filter(|agent| agent.status == AgentStatus::Active)
+            .map(|agent| agent.id),
+        _ => None,
+    };
+    let mut events = Vec::new();
+    let mut held = false;
+    for mut grant in grants.list_live(workspace).await? {
+        if grant.resource_kind != Grant::WORKSPACE_MAILBOX_KIND
+            || grant.created_by != Author::System
+            || grant.scope["default"] != true
+        {
+            continue;
+        }
+        if chief.as_ref() == Some(&grant.agent_id)
+            && grant.resource_id.as_deref() == Some(workspace.as_str())
+            && !held
+        {
+            held = true;
+        } else if grants.revoke(workspace, &grant.id, now_ms()).await? {
+            grant.revoked_at = Some(now_ms());
+            events.push(workspace_mailbox_grant_event(&grant, "grant.revoked"));
+        }
+    }
+    if !held && let Some(agent_id) = chief {
+        let grant = Grant {
+            created_by: Author::System,
+            id: GrantId::generate(),
+            workspace_id: workspace.clone(),
+            agent_id,
+            resource_kind: Grant::WORKSPACE_MAILBOX_KIND.into(),
+            resource_id: Some(workspace.to_string()),
+            scope: serde_json::json!({"default":true,"allow":[]}),
+            revision: 1,
+            created_at: now_ms(),
+            revoked_at: None,
+        };
+        grants.create(&grant).await?;
+        events.push(workspace_mailbox_grant_event(&grant, "grant.created"));
+    }
+    Ok(events)
+}
+
+fn workspace_mailbox_grant_event(grant: &crate::Grant, kind: &str) -> crate::NewEvent {
+    crate::NewEvent {
+        workspace_id: grant.workspace_id.clone(),
+        event_type: kind.into(),
+        agent_id: Some(grant.agent_id.clone()),
+        run_id: None,
+        channel_id: None,
+        payload: serde_json::json!({"grant_id":grant.id,"resource_kind":grant.resource_kind,
+            "resource_id":grant.resource_id,"allow":grant.allow_rules(),"revision":grant.revision}),
+    }
+}

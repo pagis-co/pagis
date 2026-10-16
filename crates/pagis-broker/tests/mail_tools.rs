@@ -789,3 +789,195 @@ async fn a_mailbox_name_the_agent_does_not_hold_is_a_schema_error(pool: SqlitePo
     assert_eq!(error_code(&outcome).as_deref(), Some("invalid_request"));
     assert!(world.executor.calls.lock().unwrap().is_empty());
 }
+
+impl World {
+    async fn grant_workspace_mailbox(&self, allow: &[&str]) -> Grant {
+        let grant = Grant {
+            created_by: pagis_core::Author::System,
+            id: GrantId::generate(),
+            workspace_id: self.workspace_id.clone(),
+            agent_id: self.agent_id.clone(),
+            resource_kind: Grant::WORKSPACE_MAILBOX_KIND.into(),
+            resource_id: Some(self.workspace_id.to_string()),
+            scope: Grant::allow_scope(&allow.iter().map(|s| s.to_string()).collect::<Vec<_>>()),
+            revision: 1,
+            created_at: now_ms(),
+            revoked_at: None,
+        };
+        SqliteGrantStore::new(self.pool.clone())
+            .create(&grant)
+            .await
+            .unwrap();
+        grant
+    }
+
+    async fn invoke_workspace(&self, name: &str, arguments: serde_json::Value) -> InvokeOutcome {
+        self.broker
+            .invoke(
+                &self.workspace_id,
+                &self.run_id,
+                &self.snapshot().await.id,
+                ToolCall::new(name, arguments.to_string()),
+            )
+            .await
+            .unwrap()
+    }
+}
+
+#[sqlx::test(migrations = "./../pagis-storage-sqlite/migrations")]
+async fn workspace_mailbox_tools_need_a_grant_and_revocation_stops_an_existing_snapshot(
+    pool: SqlitePool,
+) {
+    let world = World::build(pool.clone()).await;
+    let grant = world.grant_workspace_mailbox(&[]).await;
+    let tools = world.snapshot().await.tools;
+    assert_eq!(
+        tools
+            .iter()
+            .filter(|t| t.name.starts_with("workspace_mail_"))
+            .count(),
+        5
+    );
+    SqliteGrantStore::new(pool)
+        .revoke(&world.workspace_id, &grant.id, now_ms())
+        .await
+        .unwrap();
+    let outcome = world
+        .invoke_workspace("workspace_mail_search", serde_json::json!({"query":""}))
+        .await;
+    let InvokeOutcome::Rejected(error) = outcome else {
+        panic!("the Grant is revoked");
+    };
+    assert!(error.content.contains("permission_revoked"));
+    assert!(world.executor.calls.lock().unwrap().is_empty());
+}
+
+#[sqlx::test(migrations = "./../pagis-storage-sqlite/migrations")]
+async fn workspace_mailbox_tools_are_absent_without_a_grant(pool: SqlitePool) {
+    let world = World::build(pool).await;
+    assert!(
+        !world
+            .snapshot()
+            .await
+            .tools
+            .iter()
+            .any(|t| t.name.starts_with("workspace_mail_"))
+    );
+}
+
+#[sqlx::test(migrations = "./../pagis-storage-sqlite/migrations")]
+async fn workspace_mailbox_send_uses_the_approval_gate_and_rechecks_the_grant_on_resume(
+    pool: SqlitePool,
+) {
+    let world = World::build(pool.clone()).await;
+    let grant = world.grant_workspace_mailbox(&[]).await;
+    let arguments = serde_json::json!({"to":["recipient@other.test"],"cc":["copy@other.test"],"subject":"Invoice","body":"Paid"});
+    let outcome = world
+        .invoke_workspace("workspace_mail_send", arguments.clone())
+        .await;
+    let request = card(&outcome);
+    assert_eq!(request.kind, Request::TOOL_ACTION_KIND);
+    assert_eq!(request.payload["arguments"], arguments);
+    assert_eq!(
+        request.payload["workspace_mailbox_grant_id"],
+        grant.id.as_str()
+    );
+    assert!(world.executor.calls.lock().unwrap().is_empty());
+    SqliteGrantStore::new(pool)
+        .revoke(&world.workspace_id, &grant.id, now_ms())
+        .await
+        .unwrap();
+    let outcome = world
+        .broker
+        .resolve(&request.id, RequestState::Approved)
+        .await
+        .unwrap();
+    assert!(matches!(outcome, InvokeOutcome::Rejected(_)));
+    assert!(world.executor.calls.lock().unwrap().is_empty());
+}
+
+#[sqlx::test(migrations = "./../pagis-storage-sqlite/migrations")]
+async fn workspace_mailbox_allow_rules_cover_every_to_cc_and_bcc_domain(pool: SqlitePool) {
+    let world = World::build(pool).await;
+    world.grant_workspace_mailbox(&["other.test"]).await;
+    let send =
+        serde_json::json!({"to":["recipient@mail.other.test"],"subject":"Invoice","body":"Paid"});
+    assert!(matches!(
+        world
+            .invoke_workspace("workspace_mail_send", send.clone())
+            .await,
+        InvokeOutcome::Completed(_)
+    ));
+    for field in ["to", "cc", "bcc"] {
+        let mut outside = send.clone();
+        outside[field] = serde_json::json!(["outsider@elsewhere.test"]);
+        assert!(matches!(
+            world.invoke_workspace("workspace_mail_send", outside).await,
+            InvokeOutcome::Waiting(_)
+        ));
+    }
+}
+
+#[sqlx::test(migrations = "./../pagis-storage-sqlite/migrations")]
+async fn workspace_mailbox_manual_grant_survives_default_revocation_and_is_the_send_authority(
+    pool: SqlitePool,
+) {
+    let world = World::build(pool.clone()).await;
+    let grants = SqliteGrantStore::new(pool);
+    let default = world.grant_workspace_mailbox(&[]).await;
+    grants
+        .set_scope(
+            &world.workspace_id,
+            &default.id,
+            &serde_json::json!({"default":true,"allow":[]}),
+        )
+        .await
+        .unwrap();
+    let manual = world.grant_workspace_mailbox(&["other.test"]).await;
+    world.snapshot().await;
+    grants
+        .revoke(&world.workspace_id, &default.id, now_ms())
+        .await
+        .unwrap();
+    assert!(matches!(
+        world
+            .invoke_workspace("workspace_mail_search", serde_json::json!({"query":""}))
+            .await,
+        InvokeOutcome::Completed(_)
+    ));
+    let outcome = world
+        .invoke_workspace(
+            "workspace_mail_send",
+            serde_json::json!({"to":["recipient@other.test"],"subject":"Invoice","body":"Paid"}),
+        )
+        .await;
+    assert!(matches!(outcome, InvokeOutcome::Completed(_)));
+    let calls = world.executor.calls.lock().unwrap();
+    assert_eq!(calls.last().unwrap().grant_id.as_ref(), Some(&manual.id));
+    assert!(calls.last().unwrap().approved_by_rule);
+}
+
+#[sqlx::test(migrations = "./../pagis-storage-sqlite/migrations")]
+async fn workspace_mailbox_approval_sends_once_and_the_next_message_needs_approval(
+    pool: SqlitePool,
+) {
+    let world = World::build(pool).await;
+    world.grant_workspace_mailbox(&[]).await;
+    let arguments =
+        serde_json::json!({"to":["recipient@other.test"],"subject":"Invoice","body":"Paid"});
+    let first = world
+        .invoke_workspace("workspace_mail_send", arguments.clone())
+        .await;
+    let outcome = world
+        .broker
+        .resolve(&card(&first).id, RequestState::Approved)
+        .await
+        .unwrap();
+    assert!(matches!(outcome, InvokeOutcome::Completed(_)));
+    assert_eq!(world.executor.calls.lock().unwrap().len(), 1);
+    let second = world
+        .invoke_workspace("workspace_mail_send", arguments)
+        .await;
+    assert!(matches!(second, InvokeOutcome::Waiting(_)));
+    assert_eq!(world.executor.calls.lock().unwrap().len(), 1);
+}

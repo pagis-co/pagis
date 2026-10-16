@@ -1397,7 +1397,9 @@ impl ToolExecutor for CoreToolRuntime {
             // The daemon routes a Software call to the Software
             // runtime, which owns the version store, and a
             // Mailbox call to the mail runtime.
-            ToolRoute::Software { .. } | ToolRoute::Mailbox { .. } => ToolResult::error(
+            ToolRoute::Software { .. }
+            | ToolRoute::Mailbox { .. }
+            | ToolRoute::WorkspaceMailbox { .. } => ToolResult::error(
                 "temporarily_unavailable",
                 "that tool runtime is not registered",
             ),

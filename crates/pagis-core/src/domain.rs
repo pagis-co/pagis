@@ -1308,6 +1308,8 @@ impl Request {
 /// rules and the widest Session Approval Mode. A connection grant names
 /// one connection and holds capabilities. A Plugin grant names one
 /// Plugin. A Workspace Number Grant names one number and has an empty scope.
+/// A Workspace Mailbox Grant names the mailbox record and holds recipient
+/// registrable domains as Allow Rules. Its System default has `scope.default`.
 /// The off switch is `revoked_at`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Grant {
@@ -1325,6 +1327,9 @@ pub struct Grant {
 }
 
 impl Grant {
+    /// Access to the Workspace Mailbox, with recipient-domain Allow Rules.
+    pub const WORKSPACE_MAILBOX_KIND: &'static str = "workspace_mailbox";
+
     /// A Grant to place outbound Calls from the Workspace Number.
     pub const WORKSPACE_NUMBER_KIND: &'static str = "workspace_number";
 

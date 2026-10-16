@@ -133,6 +133,7 @@ impl World {
         let transport = Arc::new(transport);
         let verdicts = Arc::new(pagis_mail::fake::FakeSpamVerdicts::default());
         let desk = Arc::new(MailboxDesk::new(MailboxDeskDeps {
+            grants: Arc::new(pagis_storage_sqlite::SqliteGrantStore::new(pool.clone())),
             intake: Arc::new(pagis_mail::MailIntake {
                 workspaces: Arc::new(pagis_storage_sqlite::SqliteWorkspaceStore::new(
                     pool.clone(),
@@ -1746,6 +1747,46 @@ async fn workspace_mail_uses_the_current_active_chief_of_staff_trust_list(pool: 
         let summary = store.message(&id).await.unwrap().message.summary;
         assert_eq!(summary.assessment.unwrap().trust_tier, expected);
     }
+    // A Grant reader uses its own Trust List, separate from the Chief.
+    use pagis_core::GrantStore;
+    workspaces
+        .set_chief_of_staff(&world.workspace_id, Some(&world.agent_id))
+        .await
+        .unwrap();
+    let grants = pagis_storage_sqlite::SqliteGrantStore::new(pool.clone());
+    grants
+        .create(&pagis_core::Grant {
+            created_by: Author::System,
+            id: pagis_core::GrantId::generate(),
+            workspace_id: world.workspace_id.clone(),
+            agent_id: world.other_agent_id.clone(),
+            resource_kind: pagis_core::Grant::WORKSPACE_MAILBOX_KIND.into(),
+            resource_id: Some(world.workspace_id.to_string()),
+            scope: pagis_core::Grant::allow_scope(&[]),
+            revision: 1,
+            created_at: now_ms(),
+            revoked_at: None,
+        })
+        .await
+        .unwrap();
+    let mut granted = world
+        .desk
+        .open_workspace_for_agent(&world.workspace_id, &world.other_agent_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        granted
+            .message(&id)
+            .await
+            .unwrap()
+            .message
+            .summary
+            .assessment
+            .unwrap()
+            .trust_tier,
+        TrustTier::Owner
+    );
+    granted.close().await.unwrap();
     let agents = SqliteAgentStore::new(pool);
     let mut archived = agents
         .get(&world.workspace_id, &world.other_agent_id)

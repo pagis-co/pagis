@@ -158,6 +158,7 @@ impl World {
         let transport = Arc::new(FakeMailTransport::default());
         let standing_rule = Arc::new(FakeStandingRule::default());
         let desk = Arc::new(MailboxDesk::new(MailboxDeskDeps {
+            grants: Arc::new(pagis_storage_sqlite::SqliteGrantStore::new(pool.clone())),
             intake: Arc::new(pagis_mail::MailIntake {
                 workspaces: Arc::new(pagis_storage_sqlite::SqliteWorkspaceStore::new(
                     pool.clone(),
@@ -1313,4 +1314,133 @@ async fn workspace_mailbox_host_refusal_releases_both_reservations(pool: SqliteP
         .provision_workspace(&world.workspace_id, world.hosted("person"))
         .await
         .unwrap();
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn workspace_mailbox_default_grant_reconciles_and_keeps_manual_grants(pool: SqlitePool) {
+    use pagis_core::{Author, Grant, GrantId, GrantStore};
+    let world = World::new(pool.clone()).await;
+    let workspaces = SqliteWorkspaceStore::new(pool.clone());
+    let grants = pagis_storage_sqlite::SqliteGrantStore::new(pool);
+    workspaces
+        .set_chief_of_staff(&world.workspace_id, Some(&world.agent_id))
+        .await
+        .unwrap();
+    world
+        .desk
+        .provision_workspace(&world.workspace_id, world.hosted("person"))
+        .await
+        .unwrap();
+    let original = grants.list_live(&world.workspace_id).await.unwrap();
+    assert_eq!(original.len(), 1);
+    assert_eq!(original[0].created_by, Author::System);
+    assert_eq!(original[0].scope["default"], true);
+    assert_eq!(original[0].agent_id, world.agent_id);
+    world
+        .desk
+        .reconcile_workspace_grants(&world.workspace_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        grants.list_live(&world.workspace_id).await.unwrap(),
+        original
+    );
+    let manual = Grant {
+        created_by: Author::System,
+        id: GrantId::generate(),
+        workspace_id: world.workspace_id.clone(),
+        agent_id: world.other_agent_id.clone(),
+        resource_kind: Grant::WORKSPACE_MAILBOX_KIND.into(),
+        resource_id: Some(world.workspace_id.to_string()),
+        scope: Grant::allow_scope(&["example.com".into()]),
+        revision: 1,
+        created_at: now_ms(),
+        revoked_at: None,
+    };
+    grants.create(&manual).await.unwrap();
+    workspaces
+        .set_chief_of_staff(&world.workspace_id, Some(&world.other_agent_id))
+        .await
+        .unwrap();
+    world
+        .desk
+        .reconcile_workspace_grants(&world.workspace_id)
+        .await
+        .unwrap();
+    let moved = grants.list_live(&world.workspace_id).await.unwrap();
+    assert_eq!(moved.len(), 2);
+    assert!(moved.iter().all(|g| g.agent_id == world.other_agent_id));
+    assert!(moved.contains(&manual));
+    workspaces
+        .set_chief_of_staff(&world.workspace_id, None)
+        .await
+        .unwrap();
+    world
+        .desk
+        .reconcile_workspace_grants(&world.workspace_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        grants.list_live(&world.workspace_id).await.unwrap(),
+        vec![manual]
+    );
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn workspace_mailbox_an_agent_needs_a_live_grant_and_must_be_active(pool: SqlitePool) {
+    use pagis_core::{Author, Grant, GrantId, GrantStore};
+    let world = World::new(pool.clone()).await;
+    world
+        .desk
+        .provision_workspace(&world.workspace_id, world.hosted("person"))
+        .await
+        .unwrap();
+    assert!(
+        world
+            .desk
+            .open_workspace_for_agent(&world.workspace_id, &world.other_agent_id)
+            .await
+            .is_err()
+    );
+    let grants = pagis_storage_sqlite::SqliteGrantStore::new(pool);
+    let mut grant = Grant {
+        created_by: Author::System,
+        id: GrantId::generate(),
+        workspace_id: world.workspace_id.clone(),
+        agent_id: world.other_agent_id.clone(),
+        resource_kind: Grant::WORKSPACE_MAILBOX_KIND.into(),
+        resource_id: Some(world.workspace_id.to_string()),
+        scope: Grant::allow_scope(&[]),
+        revision: 1,
+        created_at: now_ms(),
+        revoked_at: None,
+    };
+    grants.create(&grant).await.unwrap();
+    let mut store = world
+        .desk
+        .open_workspace_for_agent(&world.workspace_id, &world.other_agent_id)
+        .await
+        .unwrap();
+    store.close().await.unwrap();
+    grants
+        .revoke(&world.workspace_id, &grant.id, now_ms())
+        .await
+        .unwrap();
+    assert!(
+        world
+            .desk
+            .open_workspace_for_agent(&world.workspace_id, &world.other_agent_id)
+            .await
+            .is_err()
+    );
+    grant.id = GrantId::generate();
+    grant.agent_id = world.archived_agent_id.clone();
+    grants.create(&grant).await.unwrap();
+    assert!(
+        world
+            .desk
+            .open_workspace_for_agent(&world.workspace_id, &world.archived_agent_id)
+            .await
+            .is_err()
+    );
 }

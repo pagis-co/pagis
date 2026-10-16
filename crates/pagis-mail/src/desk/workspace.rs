@@ -4,6 +4,58 @@ use crate::{ImapWorkspaceMailStore, WorkspaceMailStore};
 use pagis_core::WorkspaceMailbox;
 
 impl MailboxDesk {
+    pub fn workspace_mailbox_records(&self) -> &dyn pagis_core::WorkspaceMailboxRecordStore {
+        self.workspace_mailboxes.as_ref()
+    }
+
+    pub async fn reconcile_workspace_grants(
+        &self,
+        workspace: &WorkspaceId,
+    ) -> Result<(), MailboxError> {
+        for event in pagis_core::reconcile_workspace_mailbox_grants(
+            workspace,
+            self.intake.workspaces.as_ref(),
+            self.agents.as_ref(),
+            self.workspace_mailboxes.as_ref(),
+            self.grants.as_ref(),
+        )
+        .await?
+        {
+            self.bus.publish(event).await?;
+        }
+        Ok(())
+    }
+
+    /// An Agent reads the Workspace Mailbox only under a live Grant.
+    pub async fn require_workspace_grant(
+        &self,
+        workspace: &WorkspaceId,
+        agent: &AgentId,
+    ) -> Result<(), MailboxError> {
+        let active = self
+            .agents
+            .get(workspace, agent)
+            .await?
+            .is_some_and(|a| a.status == pagis_core::AgentStatus::Active);
+        if !active
+            || self
+                .grants
+                .live_for_resource(
+                    workspace,
+                    agent,
+                    pagis_core::Grant::WORKSPACE_MAILBOX_KIND,
+                    workspace.as_str(),
+                )
+                .await?
+                .is_none()
+        {
+            return Err(MailboxError::Conflict(
+                "no live Workspace Mailbox Grant".into(),
+            ));
+        }
+        Ok(())
+    }
+
     pub async fn workspace_mailbox(
         &self,
         workspace: &WorkspaceId,
@@ -89,6 +141,7 @@ impl MailboxDesk {
                 payload: serde_json::json!({"address": mailbox.address}),
             })
             .await?;
+        self.reconcile_workspace_grants(workspace).await?;
         Ok(mailbox)
     }
 
@@ -126,6 +179,24 @@ impl MailboxDesk {
         &self,
         workspace: &WorkspaceId,
     ) -> Result<Box<dyn WorkspaceMailStore>, MailboxError> {
+        self.open_workspace_for(workspace, None).await
+    }
+
+    pub async fn open_workspace_for_agent(
+        &self,
+        workspace: &WorkspaceId,
+        agent: &AgentId,
+    ) -> Result<Box<dyn WorkspaceMailStore>, MailboxError> {
+        self.require_workspace_grant(workspace, agent).await?;
+        self.open_workspace_for(workspace, Some(agent.clone()))
+            .await
+    }
+
+    async fn open_workspace_for(
+        &self,
+        workspace: &WorkspaceId,
+        agent: Option<AgentId>,
+    ) -> Result<Box<dyn WorkspaceMailStore>, MailboxError> {
         let mailbox = self
             .workspace_mailboxes
             .get(workspace)
@@ -149,7 +220,7 @@ impl MailboxDesk {
             intake: self.intake.clone(),
             workspace: workspace.clone(),
             address: mailbox.address.clone(),
-            agent: None,
+            agent,
             authserv_ids: crate::authserv_ids(&connection.provider)
                 .iter()
                 .map(|s| s.to_string())

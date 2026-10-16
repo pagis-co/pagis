@@ -510,6 +510,7 @@ pub async fn archive_agent(
         crate::workspace::designate(
             state.workspaces.as_ref(),
             state.bus.as_ref(),
+            state.mailbox_desk.as_ref(),
             &tenant,
             successor.as_ref(),
         )

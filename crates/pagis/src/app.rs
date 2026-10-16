@@ -820,6 +820,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     let standing_call_rule = Arc::new(crate::call_events::DeferredStandingCallRule::default());
     let call_events = Arc::new(crate::call_events::DeferredCallEvents::default());
     let mailbox_desk = Arc::new(pagis_mail::MailboxDesk::new(pagis_mail::MailboxDeskDeps {
+        grants: stores.grants.clone(),
         intake: Arc::new(pagis_mail::MailIntake {
             workspaces: stores.workspaces.clone(),
             agents: stores.agents.clone(),
@@ -944,6 +945,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     // The mail tool route for runs that pass the broker's authority and
     // effect reservation checks.
     let mail_tools = Arc::new(pagis_mail::MailToolRuntime::new(pagis_mail::MailToolDeps {
+        workspace: mailbox_desk.clone(),
         mailboxes: Arc::clone(&mailbox_desk) as _,
         records: Arc::clone(&mailbox_store) as _,
         runs: Arc::clone(&runs) as _,

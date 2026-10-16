@@ -45,8 +45,10 @@ Workspace Number. Routing reads the designation and grants no outbound
 authority (ADR-0041). The designation grants no access to the Workspace
 Mailbox (ADR-0040).
 Outbound Calls need a Workspace Number Grant (ADR-0041).
-Not built: outbound texts from the Workspace Number, and the
-default Grants of the Workspace Mailbox and the Workspace Number.
+The daemon gives the active Chief of Staff a System default Workspace
+Mailbox Grant. A designation change moves that default Grant and keeps
+manual Grants. The Grant supplies access; the designation itself does not.
+Not built: outbound texts and the default Grant of the Workspace Number.
 
 The sidebar lists the Private Workspace and each Shared Workspace the
 Person can enter. A selection changes the current Workspace. Query keys

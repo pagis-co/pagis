@@ -1,8 +1,9 @@
 //! A Person creates and reads their Workspace Mailbox through the Product API.
 use pagis_mail::fake::{FakeMailTransport, FakeMailboxHost};
-use pagis_testkit::{TestDaemon, TestDaemonOptions};
+use pagis_testkit::{Script, ScriptedBrain, TestDaemon, TestDaemonOptions};
 use serde_json::{Value, json};
 use std::sync::Arc;
+use std::time::Duration;
 
 struct MailboxApp {
     daemon: TestDaemon,
@@ -10,13 +11,16 @@ struct MailboxApp {
     transport: Arc<FakeMailTransport>,
     connection_id: String,
     client: reqwest::Client,
+    brain: Arc<ScriptedBrain>,
 }
 
 impl MailboxApp {
     async fn start() -> Self {
         let host = Arc::new(FakeMailboxHost::default());
         let transport = Arc::new(FakeMailTransport::default());
+        let brain = Arc::new(ScriptedBrain::default());
         let daemon = TestDaemon::start_with(TestDaemonOptions {
+            brain: brain.clone(),
             mail_host: host.clone(),
             mail_transport: transport.clone(),
             ..TestDaemonOptions::default()
@@ -36,6 +40,7 @@ impl MailboxApp {
             transport,
             connection_id,
             client: reqwest::Client::new(),
+            brain,
         }
     }
 
@@ -446,4 +451,401 @@ async fn workspace_mailbox_stores_verdicts_without_moving_mail() {
         ))
         .await;
     assert_eq!(message["spam_verdict"], item["spam_verdict"]);
+}
+
+#[tokio::test]
+async fn workspace_mailbox_default_grant_moves_with_the_chief_and_keeps_manual_grants() {
+    let app = MailboxApp::with_mailbox().await;
+    let grants = app.get("/api/v1/grants").await;
+    let default = grants["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|grant| grant["resource_kind"] == "workspace_mailbox")
+        .expect("the seeded Chief holds a default Workspace Mailbox Grant");
+    assert_eq!(default["agent_id"], app.daemon.agent_id.as_str());
+    assert_eq!(default["is_default"], true);
+    let response = app
+        .client
+        .post(format!("{}/api/v1/agents", app.daemon.base_url))
+        .header("cookie", app.daemon.cookie())
+        .json(&json!({"name":"Sage", "job":"Mail"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 201);
+    let agent: Value = response.json().await.unwrap();
+    let response = app
+        .client
+        .post(format!(
+            "{}/api/v1/grants/workspace-mailbox",
+            app.daemon.base_url
+        ))
+        .header("cookie", app.daemon.cookie())
+        .json(&json!({"agent_id":agent["id"]}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 201);
+    let manual: Value = response.json().await.unwrap();
+    assert_eq!(manual["is_default"], false);
+    let response = app
+        .client
+        .put(format!(
+            "{}/api/v1/workspace/chief-of-staff",
+            app.daemon.base_url
+        ))
+        .header("cookie", app.daemon.cookie())
+        .json(&json!({"agent_id":agent["id"]}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let grants = app.get("/api/v1/grants").await;
+    let mailbox_grants: Vec<_> = grants["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|grant| grant["resource_kind"] == "workspace_mailbox")
+        .collect();
+    assert_eq!(mailbox_grants.len(), 2);
+    assert!(
+        mailbox_grants
+            .iter()
+            .all(|grant| grant["agent_id"] == agent["id"])
+    );
+    assert!(
+        mailbox_grants
+            .iter()
+            .any(|grant| grant["id"] == manual["id"])
+    );
+    let response = app
+        .client
+        .put(format!(
+            "{}/api/v1/grants/{}/rules",
+            app.daemon.base_url,
+            manual["id"].as_str().unwrap()
+        ))
+        .header("cookie", app.daemon.cookie())
+        .json(&json!({"allow":[" Mail.Example.COM "]}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let changed: Value = response.json().await.unwrap();
+    assert_eq!(changed["allow"], json!(["example.com"]));
+    let response = app
+        .client
+        .post(format!(
+            "{}/api/v1/agents/{}/archive",
+            app.daemon.base_url,
+            agent["id"].as_str().unwrap()
+        ))
+        .header("cookie", app.daemon.cookie())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let grants = app.get("/api/v1/grants").await;
+    let default = grants["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|g| g["is_default"] == true)
+        .unwrap();
+    assert_eq!(default["agent_id"], app.daemon.agent_id.as_str());
+}
+
+impl MailboxApp {
+    async fn request(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        body: Option<serde_json::Value>,
+    ) -> (reqwest::StatusCode, serde_json::Value) {
+        let mut request = reqwest::Client::new()
+            .request(method, format!("{}{path}", self.daemon.base_url))
+            .header("cookie", self.daemon.cookie());
+        if let Some(body) = body {
+            request = request.json(&body);
+        }
+        let response = request.send().await.unwrap();
+        let status = response.status();
+        (
+            status,
+            response.json().await.unwrap_or(serde_json::json!({})),
+        )
+    }
+
+    async fn post(
+        &self,
+        path: &str,
+        body: serde_json::Value,
+    ) -> (reqwest::StatusCode, serde_json::Value) {
+        self.request(reqwest::Method::POST, path, Some(body)).await
+    }
+
+    async fn ask(&self, pending_id: &str, text: &str) -> Option<serde_json::Value> {
+        self.ask_in(&self.daemon.dm_channel_id, pending_id, text)
+            .await
+    }
+
+    async fn ask_in(
+        &self,
+        channel: &str,
+        pending_id: &str,
+        text: &str,
+    ) -> Option<serde_json::Value> {
+        let completed = self.completed_runs().await;
+        let (status, body) = self
+            .post(
+                &format!("/api/v1/channels/{channel}/messages"),
+                serde_json::json!({"pending_id": pending_id, "text": text}),
+            )
+            .await;
+        assert_eq!(status, 201, "{body}");
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let page = self.get("/api/v1/requests?state=pending").await;
+                if let Some(request) = page["items"].as_array().and_then(|items| items.first()) {
+                    return Some(request.clone());
+                }
+                if self.completed_runs().await > completed {
+                    return None;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("the run parks or the message leaves")
+    }
+
+    async fn decide(&self, request_id: &str, scope: &str) {
+        let (status, body) = self
+            .post(
+                &format!("/api/v1/requests/{request_id}/decision"),
+                serde_json::json!({"decision": "approved", "scope": scope}),
+            )
+            .await;
+        assert_eq!(status, 200, "{body}");
+    }
+
+    /// How many Runs that a message started have completed.
+    async fn completed_runs(&self) -> usize {
+        let page = self.get("/api/v1/runs").await;
+        page["items"].as_array().map_or(0, |runs| {
+            runs.iter()
+                .filter(|run| run["trigger_kind"] == "message" && run["state"] == "completed")
+                .count()
+        })
+    }
+
+    /// Wait until `count` Runs that a message started have completed.
+    async fn wait_for_completed_runs(&self, count: usize) {
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while self.completed_runs().await < count {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .unwrap_or_else(|_| panic!("{count} Runs complete"));
+    }
+}
+
+#[tokio::test]
+async fn workspace_mailbox_send_waits_for_approval_and_a_standing_grant_sends_at_once() {
+    let app = MailboxApp::with_mailbox().await;
+    let arguments = json!({"to":["recipient@other.test"],"cc":["copy@other.test"],"subject":"Invoice","body":"Paid"});
+    app.brain.push(Script::tool_call(
+        &[],
+        "workspace_mail_send",
+        arguments.clone(),
+    ));
+    app.brain.push(Script::reply(&["Sent."]));
+    let card = app
+        .ask("send-1", "Send the invoice")
+        .await
+        .expect("an Approval");
+    assert_eq!(card["kind"], "tool_action");
+    assert_eq!(card["payload"]["arguments"]["from"], "person@example.com");
+    assert_eq!(card["payload"]["arguments"]["cc"], arguments["cc"]);
+    assert_eq!(card["payload"]["arguments"]["body"], "Paid");
+    assert!(app.transport.sent().is_empty());
+    app.decide(card["id"].as_str().unwrap(), "once").await;
+    app.wait_for_completed_runs(1).await;
+    assert_eq!(app.transport.sent().len(), 1);
+    let grants = app.get("/api/v1/grants").await;
+    let id = grants["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|g| g["resource_kind"] == "workspace_mailbox")
+        .unwrap()["id"]
+        .as_str()
+        .unwrap();
+    let (status, _) = app
+        .request(
+            reqwest::Method::PUT,
+            &format!("/api/v1/grants/{id}/rules"),
+            Some(json!({"allow":["other.test"]})),
+        )
+        .await;
+    assert_eq!(status, 200);
+    app.brain
+        .push(Script::tool_call(&[], "workspace_mail_send", arguments));
+    app.brain.push(Script::reply(&["Sent."]));
+    assert!(app.ask("send-2", "Send another invoice").await.is_none());
+    assert_eq!(app.transport.sent().len(), 2);
+}
+
+#[tokio::test]
+async fn workspace_mailbox_agent_reply_keeps_the_thread_and_copies_the_person() {
+    let app = MailboxApp::with_mailbox().await;
+    let (status, _) = app
+        .post(
+            &format!("/api/v1/agents/{}/mailbox", app.daemon.agent_id),
+            json!({"connection_id":app.connection_id,"local_part":"pixie"}),
+        )
+        .await;
+    assert_eq!(status, 201);
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let mailbox = app
+                .get(&format!("/api/v1/agents/{}/mailbox", app.daemon.agent_id))
+                .await;
+            if mailbox["mailbox"]["state"] == "active" {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    app.transport.deliver_raw(b"Message-ID: <question@other.test>\r\nReferences: <root@other.test>\r\nFrom: sender@other.test\r\nTo: person@example.com\r\nSubject: Question\r\n\r\nHello");
+    let id = app.transport.summaries("INBOX")[0].id.to_string();
+    app.brain.push(Script::tool_call(&[], "mail__send", json!({"mailbox":"own", "to":["sender@other.test"], "subject":"Ignored", "body":"Answer", "reply_to_workspace_message_id":id})));
+    app.brain.push(Script::reply(&["Sent."]));
+    let card = app
+        .ask("reply-1", "Answer from your mailbox")
+        .await
+        .expect("the Agent Mailbox send rules apply");
+    assert_eq!(
+        card["payload"]["arguments"]["cc"],
+        json!(["person@example.com"])
+    );
+    assert_eq!(card["payload"]["arguments"]["subject"], "Re: Question");
+    app.decide(card["id"].as_str().unwrap(), "once").await;
+    app.wait_for_completed_runs(1).await;
+    let sent = app.transport.sent();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].cc, ["person@example.com"]);
+    assert_eq!(
+        sent[0].in_reply_to.as_deref(),
+        Some("<question@other.test>")
+    );
+    assert_eq!(
+        sent[0].references,
+        ["<root@other.test>", "<question@other.test>"]
+    );
+    assert_eq!(sent[0].subject, "Re: Question");
+}
+
+#[tokio::test]
+async fn workspace_mailbox_read_needs_a_grant_and_revocation_stops_dispatch() {
+    let app = MailboxApp::with_mailbox().await;
+    app.deliver_thread();
+    let (status, agent) = app
+        .post("/api/v1/agents", json!({"name":"Sage", "job":"Mail"}))
+        .await;
+    assert_eq!(status, 201);
+    let stores = app.daemon.stores();
+    let workspace = stores
+        .workspaces
+        .for_user(&app.daemon.user_id)
+        .await
+        .unwrap()
+        .unwrap();
+    let agent_id = pagis_core::AgentId::from(agent["id"].as_str().unwrap().to_string());
+    let channel = stores
+        .channels
+        .find_user_dm(&workspace.id, &agent_id)
+        .await
+        .unwrap()
+        .unwrap();
+    app.brain
+        .push(Script::reply(&["I have no Workspace Mailbox Grant."]));
+    assert!(
+        app.ask_in(channel.id.as_str(), "read-1", "Read the Workspace Mailbox")
+            .await
+            .is_none()
+    );
+    assert!(
+        !app.brain
+            .requests()
+            .iter()
+            .flat_map(|r| &r.tools)
+            .any(|t| t.name.starts_with("workspace_mail_"))
+    );
+
+    assert!(
+        stores
+            .grants
+            .list_live_for_agent(&workspace.id, &agent_id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    let (status, grant) = app
+        .post(
+            "/api/v1/grants/workspace-mailbox",
+            json!({"agent_id":agent_id}),
+        )
+        .await;
+    assert_eq!(status, 201);
+    assert_eq!(grant["resource_id"], workspace.id.as_str());
+    app.brain.push(Script::tool_call(
+        &[],
+        "workspace_mail_search",
+        json!({"query":"invoice"}),
+    ));
+    app.brain.push(Script::reply(&["I read the invoices."]));
+    assert!(
+        app.ask_in(channel.id.as_str(), "read-2", "Read the invoices")
+            .await
+            .is_none()
+    );
+    assert!(
+        app.brain
+            .requests()
+            .iter()
+            .flat_map(|r| &r.tools)
+            .any(|t| t.name == "workspace_mail_search")
+    );
+    let summary = stores
+        .mail_assessments
+        .get(
+            &workspace.id,
+            "person@example.com",
+            &app.transport.summaries("INBOX")[0].message_id,
+        )
+        .await
+        .unwrap();
+    assert!(summary.is_some());
+
+    let (status, _) = app
+        .request(
+            reqwest::Method::DELETE,
+            &format!("/api/v1/grants/{}", grant["id"].as_str().unwrap()),
+            None,
+        )
+        .await;
+    assert_eq!(status, 204);
+    assert!(
+        stores
+            .grants
+            .list_live_for_agent(&workspace.id, &agent_id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
 }

@@ -235,7 +235,7 @@ async fn connection_capabilities_cannot_be_replaced_with_allow_rules() {
     let error: serde_json::Value = response.json().await.unwrap();
     assert_eq!(
         error["error"]["message"],
-        "only host and credential grants have allow rules"
+        "only Host, Credential and Workspace Mailbox Grants have Allow Rules"
     );
 
     let listed: serde_json::Value = reqwest::Client::new()

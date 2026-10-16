@@ -357,7 +357,11 @@ impl TwoTenants {
                 .unwrap_or_default();
             for method in route.methods {
                 let url = format!("{}{path}{query}", self.daemon.base_url);
-                let body = serde_json::json!({});
+                let body = if route.path == "/api/v1/grants/workspace-mailbox" {
+                    serde_json::json!({"agent_id":self.a_id("agent_id")})
+                } else {
+                    serde_json::json!({})
+                };
                 let request = match *method {
                     "get" => client.get(&url),
                     "post" => client.post(&url).json(&body),
@@ -423,6 +427,11 @@ impl TwoTenants {
     /// `None` when the path names no record of A's and a cross-tenant
     /// read is therefore not expressible through it.
     fn fill(&self, path: &'static str) -> Option<String> {
+        // This Grant route names its Agent in the body. The harness uses
+        // A's seeded Agent to check the same tenant boundary as an id route.
+        if path == "/api/v1/grants/workspace-mailbox" {
+            return Some(path.into());
+        }
         let names: Vec<&str> = parameters(path).collect();
         if names.is_empty() || !names.iter().any(|name| self.owned.contains_key(name)) {
             return None;

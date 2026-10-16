@@ -34,7 +34,7 @@ export function ApprovalSheet({
   requestId: string
   onClose: () => void
 }) {
-  const { canRespond } = useWorkspaceAccess()
+  const { canRespond, canManage } = useWorkspaceAccess()
   const request = useRequest(api, requestId)
   const decide = useDecideRequest(api, requestId)
   const agents = useAgents(api)
@@ -54,7 +54,7 @@ export function ApprovalSheet({
   const credential = row?.kind === 'credential_action'
   const mail = typeof args.subject === 'string' && args.to != null
   const pending = row?.state === 'pending'
-  const alwaysWords = alwaysAllowWords(payload)
+  const alwaysWords = payload?.workspace_mailbox_grant_id && !canManage ? null : alwaysAllowWords(payload)
   const reach = alwaysAllowReach(row?.kind, payload)
   const run = transcript.data?.run
   const runChannel = channels.data?.find((channel) => channel.id === run?.channel_id)
@@ -166,6 +166,7 @@ export function ApprovalSheet({
             <Frame>
               {mail ? (
                 <>
+                  {typeof args.from === 'string' && <Row value={args.from}>From</Row>}
                   <Row>
                     <span className="approval-phone-field phone-hint">To</span>
                     <span>{Array.isArray(args.to) ? args.to.join(', ') : String(args.to)}</span>
