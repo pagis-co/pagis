@@ -143,6 +143,7 @@ async fn world(pool: SqlitePool) -> World {
 
 async fn workspace(pool: &SqlitePool, user_id: pagis_core::UserId) -> WorkspaceId {
     let workspace = Workspace {
+        delegate_everything: false,
         legal_hold: None,
         monthly_spend_cap_usd: None,
         id: WorkspaceId::generate(),
@@ -194,6 +195,8 @@ impl World {
     /// A Run in the Thread of a new message of the Person.
     async fn run_in_thread(&self) -> (RunId, MessageId) {
         let message = Message {
+            for_person_only: false,
+            author_workspace_id: None,
             id: MessageId::generate(),
             workspace_id: self.workspace_id.clone(),
             channel_id: self.channel_id.clone(),

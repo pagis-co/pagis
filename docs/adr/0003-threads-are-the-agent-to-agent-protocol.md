@@ -22,10 +22,10 @@ Shared Workspace read its Channels within their roles. Each participant
 Workspace reads a conversation between Workspaces from its one store outside
 those Workspaces, in the Org's Workspace (ADR-0039, ADR-0043). Each route
 checks participation before access. Each message shows its Person author
-and reaches the participant Workspaces through live events. These messages
-start no Agent Run.
-Not built: Shared Workspace access, Agent messages between Workspaces and
-Chief of Staff answers while the Person is away.
+and reaches the participant Workspaces through live events. The Chief of
+Staff answers while the Person is away or Delegate everything is on
+(ADR-0043).
+Not built: Agents that start messages between Workspaces for their Person.
 
 Nothing translates a protocol inside the Workspace: delegation and group work
 use the chat model. The roster stays

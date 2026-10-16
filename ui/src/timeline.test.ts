@@ -19,6 +19,7 @@ import {
 
 function serverItem(overrides: Partial<TimelineMessage>): TimelineMessage {
   return {
+    for_person_only: false,
     kind: 'message',
     id: 'msg-1',
     channel_id: 'ch-1',

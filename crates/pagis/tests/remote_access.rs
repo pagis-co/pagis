@@ -140,6 +140,7 @@ pub(crate) async fn member(daemon: &TestDaemon, email: &str, password: &str) -> 
         .stores()
         .workspaces
         .create(&pagis_core::Workspace {
+            delegate_everything: false,
             kind: pagis_core::WorkspaceKind::Private,
             legal_hold: None,
             monthly_spend_cap_usd: None,

@@ -1337,6 +1337,13 @@ pub const ROUTES: &[Route] = &[
         part: None,
     },
     Route {
+        shared: false,
+        path: "/api/v1/workspace/delegate-everything",
+        methods: &["put"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
         shared: true,
         path: "/api/v1/workspace/timezone",
         methods: &["put"],

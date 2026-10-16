@@ -8,7 +8,7 @@ use sqlx::{Row, SqlitePool};
 use crate::db_err;
 
 const COLUMNS: &str = "id, workspace_id, channel_id, parent_message_id, author_kind, author_person_id, \
-     author_agent_id, run_id, status, blocks, text_content, pending_id, created_at, completed_at";
+     author_agent_id, run_id, status, blocks, text_content, pending_id, created_at, completed_at, for_person_only, author_workspace_id";
 
 /// A message that is not a derived progress row, for the rows of
 /// `table`. A progress row carries that one block, so its first block
@@ -72,8 +72,8 @@ async fn insert_row(
     let result = sqlx::query(
         "INSERT INTO messages (id, workspace_id, channel_id, parent_message_id, \
          author_person_id, author_kind, author_agent_id, run_id, status, blocks, text_content, \
-         pending_id, created_at, completed_at) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
+         pending_id, created_at, completed_at, for_person_only, author_workspace_id) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
          ON CONFLICT (channel_id, pending_id) WHERE pending_id IS NOT NULL DO NOTHING",
     )
     .bind(message.id.as_str())
@@ -95,6 +95,13 @@ async fn insert_row(
     .bind(&message.pending_id)
     .bind(message.created_at)
     .bind(message.completed_at)
+    .bind(message.for_person_only)
+    .bind(
+        message
+            .author_workspace_id
+            .as_ref()
+            .map(WorkspaceId::as_str),
+    )
     .execute(connection)
     .await
     .map_err(db_err)?;
@@ -175,6 +182,10 @@ fn row_to_message(row: &sqlx::sqlite::SqliteRow) -> Result<Message, StoreError> 
     let author_kind: String = row.get("author_kind");
     let status: String = row.get("status");
     Ok(Message {
+        for_person_only: row.get("for_person_only"),
+        author_workspace_id: row
+            .get::<Option<String>, _>("author_workspace_id")
+            .map(WorkspaceId::from),
         id: MessageId::from(row.get::<String, _>("id")),
         workspace_id: WorkspaceId::from(row.get::<String, _>("workspace_id")),
         channel_id: ChannelId::from(row.get::<String, _>("channel_id")),

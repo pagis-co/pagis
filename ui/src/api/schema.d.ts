@@ -3356,6 +3356,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspace/delegate-everything": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["put_delegate_everything"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspace/mail/audit": {
         parameters: {
             query?: never;
@@ -4650,6 +4666,7 @@ export interface components {
             participants: components["schemas"]["ColleagueDto"][];
         };
         ConversationMessageRequest: {
+            for_person_only?: boolean;
             pending_id: string;
             text: string;
         };
@@ -4828,6 +4845,9 @@ export interface components {
              *     field schema on the row.
              */
             values?: unknown;
+        };
+        DelegateEverythingRequest: {
+            enabled: boolean;
         };
         /**
          * @description The address, typed back. A delete takes the host's mail with it, so
@@ -5991,6 +6011,7 @@ export interface components {
             completed_at?: number | null;
             /** Format: int64 */
             created_at: number;
+            for_person_only: boolean;
             id: string;
             parent_message_id?: string | null;
             /** @description The client-generated send dedup key; present on user sends. */
@@ -7823,6 +7844,7 @@ export interface components {
             completed_at?: number | null;
             /** Format: int64 */
             created_at: number;
+            for_person_only: boolean;
             id: string;
             parent_message_id?: string | null;
             /** @description The client-generated send dedup key; present on user sends. */
@@ -7891,7 +7913,7 @@ export interface components {
          *     the Keypad Code proves.
          * @enum {string}
          */
-        TrustTier: "unknown" | "trusted" | "team" | "owner";
+        TrustTier: "unknown" | "trusted" | "colleague" | "team" | "owner";
         /** @description A turn-on that waits for Tailscale. */
         TurningOnDto: {
             /**
@@ -8156,6 +8178,7 @@ export interface components {
         WorkspaceDto: {
             /** @description The Chief of Staff; `null` when no Agent is active. */
             chief_of_staff_agent_id?: string | null;
+            delegate_everything: boolean;
             id: string;
             name: string;
             /** @description The Schedule that writes the Report for Home (ADR-0022). */
@@ -17111,6 +17134,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    put_delegate_everything: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DelegateEverythingRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceDto"];
                 };
             };
             422: {

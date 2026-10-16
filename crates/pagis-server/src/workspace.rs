@@ -21,6 +21,7 @@ use crate::error::ApiError;
 /// The Workspace the shell reads once at start.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct WorkspaceDto {
+    pub delegate_everything: bool,
     pub id: String,
     pub name: String,
     /// The IANA timezone new wall-clock schedules copy.
@@ -96,6 +97,7 @@ pub(crate) async fn take_first_timezone(
 
 fn workspace_dto(workspace: Workspace) -> WorkspaceDto {
     WorkspaceDto {
+        delegate_everything: workspace.delegate_everything,
         id: workspace.id.as_str().to_string(),
         name: workspace.name,
         timezone: workspace.timezone,
@@ -395,4 +397,40 @@ pub(crate) async fn read_role(
             .await?
             .map(|m| m.role),
     })
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct DelegateEverythingRequest {
+    pub enabled: bool,
+}
+
+#[utoipa::path(put, path = "/api/v1/workspace/delegate-everything", request_body = DelegateEverythingRequest,
+    responses((status = 200, body = WorkspaceDto), (status = 422, body = crate::error::ErrorBody)))]
+pub async fn put_delegate_everything(
+    State(state): State<Arc<AppState>>,
+    tenant: Tenant,
+    Json(request): Json<DelegateEverythingRequest>,
+) -> Result<Json<WorkspaceDto>, ApiError> {
+    let workspace = load(&state, &tenant).await?;
+    if workspace.kind != pagis_core::WorkspaceKind::Private {
+        return Err(ApiError::validation(
+            "Delegate everything needs a Private Workspace",
+        ));
+    }
+    state
+        .workspaces
+        .set_delegate_everything(&tenant.workspace_id, request.enabled)
+        .await?;
+    state
+        .bus
+        .publish(NewEvent {
+            workspace_id: tenant.workspace_id.clone(),
+            event_type: "workspace.updated".into(),
+            agent_id: None,
+            run_id: None,
+            channel_id: None,
+            payload: serde_json::json!({"delegate_everything": request.enabled}),
+        })
+        .await?;
+    Ok(Json(workspace_dto(load(&state, &tenant).await?)))
 }

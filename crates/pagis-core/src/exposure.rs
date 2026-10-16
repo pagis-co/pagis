@@ -38,7 +38,13 @@ pub async fn message_source_is_live(
         return Ok(false);
     };
     let live = grants
-        .list_live_for_agent(&message.workspace_id, author)
+        .list_live_for_agent(
+            message
+                .author_workspace_id
+                .as_ref()
+                .unwrap_or(&message.workspace_id),
+            author,
+        )
         .await?;
     Ok(exposures.iter().all(|exposure| {
         live.iter()

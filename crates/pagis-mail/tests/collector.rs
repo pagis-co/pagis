@@ -92,6 +92,7 @@ impl World {
                 .await
                 .unwrap();
         let workspace = Workspace {
+            delegate_everything: false,
             kind: pagis_core::WorkspaceKind::Private,
             legal_hold: None,
             monthly_spend_cap_usd: None,
@@ -190,6 +191,8 @@ impl World {
         channels.create(&channel).await.unwrap();
         let messages = SqliteMessageStore::new(pool.clone());
         let root = Message {
+            for_person_only: false,
+            author_workspace_id: None,
             id: MessageId::generate(),
             workspace_id: workspace.id.clone(),
             channel_id: channel.id.clone(),
@@ -276,6 +279,7 @@ impl World {
             .await
             .unwrap();
         let workspace = Workspace {
+            delegate_everything: false,
             kind: pagis_core::WorkspaceKind::Private,
             legal_hold: None,
             monthly_spend_cap_usd: None,

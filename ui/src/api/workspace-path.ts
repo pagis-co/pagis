@@ -19,6 +19,7 @@ export function workspacePath(path: string, id = sharedWorkspaceId, method = 'GE
   const resource = relative.split('/')[0]
   if (!workspaceResources.has(resource)) return path
   if (/^settings\/(onboarding|system|sessions|sign-in-links|models|mailbox-offers|phone-numbers)(\/|$)/.test(relative)) return path
+  if (relative === 'workspace/delegate-everything') return path
   if (resource === 'plugins') {
     if (relative === 'plugins') return path
     if (/^plugins\/[^/]+$/.test(relative) && method.toLowerCase() !== 'get') return path
