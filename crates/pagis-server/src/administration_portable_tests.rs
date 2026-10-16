@@ -37,6 +37,7 @@ async fn sections_name_neither_settings_nor_restart() {
             "spend",
             "people",
             "workspaces",
+            "person-defaults",
             "sessions",
             "resources",
             "providers",

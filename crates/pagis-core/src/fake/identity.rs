@@ -156,6 +156,33 @@ impl OrgStore for FakeOrgStore {
     async fn list(&self) -> Result<Vec<Org>, StoreError> {
         Ok(self.0.lock().unwrap().orgs.values().cloned().collect())
     }
+    async fn person_defaults(&self, id: &OrgId) -> Result<crate::PersonDefaults, StoreError> {
+        Ok(self
+            .0
+            .lock()
+            .unwrap()
+            .person_defaults
+            .get(id)
+            .cloned()
+            .unwrap_or_default())
+    }
+    async fn set_person_defaults(
+        &self,
+        id: &OrgId,
+        defaults: &crate::PersonDefaults,
+        entry: &crate::AuditEntry,
+    ) -> Result<(), StoreError> {
+        let mut data = self.0.lock().unwrap();
+        if !data.orgs.contains_key(id) {
+            return Err(StoreError::Conflict("Org is missing".into()));
+        }
+        if data.audit.contains_key(&entry.id) {
+            return Err(conflict("The Audit Entry exists."));
+        }
+        data.person_defaults.insert(id.clone(), defaults.clone());
+        data.audit.insert(entry.id.clone(), entry.clone());
+        Ok(())
+    }
     async fn set_google_client_id(
         &self,
         id: &OrgId,

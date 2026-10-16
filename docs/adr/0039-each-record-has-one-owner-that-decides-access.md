@@ -140,7 +140,8 @@ Manager names each Shared Workspace the guest can enter. A new Person gets a
 Private Workspace, Chief of Staff, Workspace Mailbox by the Org address rule,
 and access to the Org's default Shared Workspaces. A Workspace Number is
 made only on request.
-Not built: these joining, departure and guest rules.
+Joining uses the Org Address Rule and default Shared Workspace roles
+(ADR-0048). Not built: departure and guest rules.
 
 ## Consequences
 

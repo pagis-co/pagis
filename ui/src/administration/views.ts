@@ -3,6 +3,7 @@ export type AdministrationView =
   | 'spend'
   | 'people'
   | 'workspaces'
+  | 'person-defaults'
   | 'sessions'
   | 'resources'
   | 'providers'
@@ -14,6 +15,7 @@ export const ADMINISTRATION_VIEWS: { value: AdministrationView; label: string }[
   { value: 'spend', label: 'Spend' },
   { value: 'people', label: 'People' },
   { value: 'workspaces', label: 'Workspaces' },
+  { value: 'person-defaults', label: 'New People' },
   { value: 'sessions', label: 'Sessions' },
   { value: 'resources', label: 'Resources' },
   { value: 'providers', label: 'Providers' },

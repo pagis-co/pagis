@@ -446,6 +446,7 @@ pub async fn workspace_mailbox_record_and_ledger(backend: &Backend) {
     let (ws, agent, _) = seed(backend).await;
     let store = &backend.stores().workspace_mailboxes;
     let record = pagis_core::WorkspaceMailbox {
+        author: pagis_core::Author::System,
         workspace_id: ws.id.clone(),
         connection_id: ConnectionId::generate(),
         address: "person@example.com".into(),
@@ -466,6 +467,7 @@ pub async fn workspace_mailbox_record_and_ledger(backend: &Backend) {
     let other = backend.seeded_workspace().await;
     assert!(store.get(&other.id).await.unwrap().is_none());
     let second = pagis_core::WorkspaceMailbox {
+        author: pagis_core::Author::System,
         address: "second@example.com".into(),
         ..record.clone()
     };
@@ -489,6 +491,7 @@ pub async fn workspace_mailbox_record_and_ledger(backend: &Backend) {
     assert!(matches!(
         store
             .create(&pagis_core::WorkspaceMailbox {
+                author: pagis_core::Author::System,
                 workspace_id: other.id.clone(),
                 ..record.clone()
             })

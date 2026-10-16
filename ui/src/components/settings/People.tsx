@@ -79,6 +79,7 @@ function NewAccount({ api }: { api: ApiClient }) {
   const create = useCreateAccount(api)
   const [email, setEmail] = useState('')
   const [name, setName] = useState('')
+  const [mailboxAddress, setMailboxAddress] = useState('')
   const [password, setPassword] = useState('')
   const [invited, setInvited] = useState<{ person: PersonDto; invite: SignInLinkDto } | null>(
     null,
@@ -110,6 +111,12 @@ function NewAccount({ api }: { api: ApiClient }) {
           value={password}
           onChange={(event) => setPassword(event.target.value)}
         />
+        <Input
+          aria-label="Workspace Mailbox address"
+          placeholder="Workspace Mailbox address (optional)"
+          value={mailboxAddress}
+          onChange={(event) => setMailboxAddress(event.target.value)}
+        />
         <Button
           variant="primary"
           disabled={!complete || create.isPending}
@@ -119,12 +126,14 @@ function NewAccount({ api }: { api: ApiClient }) {
                 email: email.trim(),
                 name: name.trim(),
                 ...(password === '' ? {} : { password }),
+                ...(mailboxAddress.trim() === '' ? {} : { mailbox_address: mailboxAddress.trim() }),
               },
               {
                 onSuccess: (created) => {
                   setEmail('')
                   setName('')
                   setPassword('')
+                  setMailboxAddress('')
                   setInvited(created)
                 },
               },

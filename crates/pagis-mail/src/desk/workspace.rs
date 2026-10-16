@@ -1,7 +1,17 @@
-//! Workspace Mailbox provisioning and access use the supplied store.
+//! Workspace Mailbox provisioning and access use the supplied host.
 use super::*;
 use crate::WorkspaceMailStore;
 use pagis_core::WorkspaceMailbox;
+
+/// A checked Workspace Mailbox request. The gate holds its address free
+/// from other provisioning in this Desk until the request is used or dropped.
+pub struct PreparedWorkspaceMailbox {
+    connection: Connection,
+    request: NewMailbox,
+    address: String,
+    outgoing_cap: u32,
+    _provisioning: tokio::sync::OwnedMutexGuard<()>,
+}
 
 impl MailboxDesk {
     pub fn workspace_mailbox_records(&self) -> &dyn pagis_core::WorkspaceMailboxRecordStore {
@@ -63,35 +73,71 @@ impl MailboxDesk {
         Ok(self.workspace_mailboxes.get(workspace).await?)
     }
 
+    /// Check the mailbox before the caller creates a Person or Workspace.
+    pub async fn prepare_workspace(
+        &self,
+        request: NewMailbox,
+    ) -> Result<PreparedWorkspaceMailbox, MailboxError> {
+        let gate = self.provisioning.clone().lock_owned().await;
+        let (connection, settings) = self.connected_provider(&request.connection_id).await?;
+        let local = validate_local_part(&request.local_part).map_err(validation)?;
+        let address = mailbox_address(&local, &settings.domain);
+        let outgoing_cap = self.outgoing_cap(request.outgoing_cap)?;
+        let request = NewMailbox {
+            local_part: local.clone(),
+            ..request
+        };
+        let held = self.workspace_mail.check(&connection, &request).await?;
+        if self.mailboxes.address_taken(&address).await?
+            || held
+                .iter()
+                .any(|mailbox| mailbox.address.eq_ignore_ascii_case(&address))
+        {
+            return Err(MailboxError::Conflict(
+                self.conflict_message(&local, &settings.domain, &held)
+                    .await?,
+            ));
+        }
+        Ok(PreparedWorkspaceMailbox {
+            connection,
+            request,
+            address,
+            outgoing_cap,
+            _provisioning: gate,
+        })
+    }
+
+    pub fn supports_automatic_workspace_mail(&self, connection: &Connection) -> bool {
+        self.workspace_mail
+            .supports_automatic_provisioning(connection)
+    }
+
     pub async fn provision_workspace(
         &self,
         workspace: &WorkspaceId,
-        request: NewMailbox,
+        prepared: PreparedWorkspaceMailbox,
+        author: pagis_core::Author,
     ) -> Result<WorkspaceMailbox, MailboxError> {
         if self.workspace_mailboxes.get(workspace).await?.is_some() {
             return Err(MailboxError::Conflict(
                 "this Workspace already has a Workspace Mailbox".into(),
             ));
         }
-        let (connection, settings) = self.connected_provider(&request.connection_id).await?;
-        let local_part = validate_local_part(&request.local_part).map_err(validation)?;
-        let address = mailbox_address(&local_part, &settings.domain);
-        if self.mailboxes.address_taken(&address).await? {
-            return Err(MailboxError::Conflict(format!(
-                "{address} is in the address ledger. Choose another name."
-            )));
-        }
+        let PreparedWorkspaceMailbox {
+            connection,
+            request,
+            address,
+            outgoing_cap,
+            _provisioning,
+        } = prepared;
         let mailbox = WorkspaceMailbox {
+            author,
             workspace_id: workspace.clone(),
             connection_id: connection.id.clone(),
             address,
             spam_mode: pagis_core::MailScoringMode::ScoreOnly,
-            outgoing_cap: self.outgoing_cap(request.outgoing_cap)?,
+            outgoing_cap,
             created_at: now_ms(),
-        };
-        let request = NewMailbox {
-            local_part,
-            ..request
         };
         let context = self.workspace_read_context(&mailbox, &connection, None);
         let mut store = self
@@ -112,7 +158,7 @@ impl MailboxDesk {
                 agent_id: None,
                 run_id: None,
                 channel_id: None,
-                payload: serde_json::json!({"address": mailbox.address}),
+                payload: serde_json::json!({"address": mailbox.address, "author": mailbox.author}),
             })
             .await?;
         self.reconcile_workspace_grants(workspace).await?;

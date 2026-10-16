@@ -953,6 +953,97 @@
         }
       }
     },
+    "/api/v1/administration/person-defaults": {
+      "get": {
+        "tags": [
+          "crate::person_defaults"
+        ],
+        "operationId": "get_person_defaults",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonDefaultsPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "crate::person_defaults"
+        ],
+        "operationId": "set_person_defaults",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PersonDefaults"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/administration/providers": {
       "get": {
         "tags": [
@@ -13612,6 +13703,14 @@
           }
         }
       },
+      "AddressRule": {
+        "type": "string",
+        "enum": [
+          "first_name",
+          "first_last",
+          "first_initial_last"
+        ]
+      },
       "AdministrationAddress": {
         "type": "object",
         "description": "Where a browser reaches the Administration Interface (ADR-0024).",
@@ -16249,6 +16348,13 @@
           "email": {
             "type": "string"
           },
+          "mailbox_address": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "An explicit address on the Org mail domain."
+          },
           "name": {
             "type": "string",
             "description": "What the agents call the person."
@@ -16648,6 +16754,21 @@
           },
           "values": {
             "description": "What a `form` or a `choice` submits, validated against the\nfield schema on the row."
+          }
+        }
+      },
+      "DefaultSharedWorkspace": {
+        "type": "object",
+        "required": [
+          "workspace_id",
+          "role"
+        ],
+        "properties": {
+          "role": {
+            "$ref": "#/components/schemas/WorkspaceRole"
+          },
+          "workspace_id": {
+            "type": "string"
           }
         }
       },
@@ -20684,6 +20805,54 @@
           "permission",
           "question"
         ]
+      },
+      "PersonDefaults": {
+        "type": "object",
+        "required": [
+          "shared_workspaces"
+        ],
+        "properties": {
+          "address_rule": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AddressRule"
+              }
+            ]
+          },
+          "mailbox_connection_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "shared_workspaces": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DefaultSharedWorkspace"
+            }
+          }
+        }
+      },
+      "PersonDefaultsPage": {
+        "type": "object",
+        "required": [
+          "defaults",
+          "mailbox_offers"
+        ],
+        "properties": {
+          "defaults": {
+            "$ref": "#/components/schemas/PersonDefaults"
+          },
+          "mailbox_offers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MailboxOfferDto"
+            }
+          }
+        }
       },
       "PersonDto": {
         "type": "object",

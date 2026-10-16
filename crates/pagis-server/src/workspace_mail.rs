@@ -185,9 +185,18 @@ pub async fn create_workspace_mailbox(
     tenant: Tenant,
     Json(request): Json<NewMailboxRequest>,
 ) -> Result<(StatusCode, Json<WorkspaceMailboxDto>), ApiError> {
+    let prepared = state
+        .mailbox_desk
+        .prepare_workspace(request.into())
+        .await
+        .map_err(mailbox_error)?;
     let mailbox = state
         .mailbox_desk
-        .provision_workspace(&tenant.workspace_id, request.into())
+        .provision_workspace(
+            &tenant.workspace_id,
+            prepared,
+            pagis_core::Author::Person(tenant.user_id.clone()),
+        )
         .await
         .map_err(mailbox_error)?;
     if let Some(agent) = state

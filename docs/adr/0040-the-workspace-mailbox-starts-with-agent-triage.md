@@ -39,7 +39,9 @@ over IMAP on an external mail host through the transport of ADR-0019. It
 uses the same sessions as Agent Mailboxes. The suite runs with the fake
 transport and with the opt-in GreenMail tests. The daemon is not a mail
 server. An Embedder supplies `WorkspaceMailHost` to the mailbox desk. Its
-provision and open operations return `WorkspaceMailStore`. Provisioning
+check operation validates a request and lists the addresses the host holds.
+It declares whether it can create a mailbox without a supplied password.
+Its provision and open operations return `WorkspaceMailStore`. Provisioning
 reserves the Workspace Mailbox record before it creates the mailbox and
 releases the reservation when a failed create leaves the address free.
 `ImapWorkspaceMailHost` supplies the daemon's implementation and holds the

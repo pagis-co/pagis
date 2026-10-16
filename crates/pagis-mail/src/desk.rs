@@ -14,6 +14,7 @@
 //! keeps it, so an address is never given out a second time.
 
 mod workspace;
+pub use workspace::PreparedWorkspaceMailbox;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -171,6 +172,7 @@ pub struct MailboxDeskDeps {
 }
 
 pub struct MailboxDesk {
+    provisioning: Arc<tokio::sync::Mutex<()>>,
     grants: Arc<dyn pagis_core::GrantStore>,
     intake: Arc<crate::MailIntake>,
     workspaces: Arc<dyn pagis_core::WorkspaceStore>,
@@ -198,6 +200,7 @@ impl MailboxDesk {
             intake: deps.intake,
             workspaces: deps.workspaces,
             workspace_mail: deps.workspace_mail,
+            provisioning: Arc::new(tokio::sync::Mutex::new(())),
             workspace_mailboxes: deps.workspace_mailboxes,
             mailboxes: deps.mailboxes,
             connections: deps.connections,
@@ -299,6 +302,7 @@ impl MailboxDesk {
         agent_id: &AgentId,
         request: NewMailbox,
     ) -> Result<AgentMailbox, MailboxError> {
+        let _provisioning = self.provisioning.clone().lock_owned().await;
         self.active_agent(workspace_id, agent_id).await?;
         if self
             .mailboxes
@@ -752,9 +756,10 @@ impl MailboxDesk {
         let local_part = validate_local_part(&request.local_part).map_err(validation)?;
         let address = mailbox_address(&local_part, &settings.domain);
         if self.mailboxes.address_taken(&address).await? {
-            return Err(MailboxError::Conflict(format!(
-                "{address} is in the address ledger. Choose another name."
-            )));
+            return Err(MailboxError::Conflict(
+                self.conflict_message(&local_part, &settings.domain, &[])
+                    .await?,
+            ));
         }
         let outgoing_cap = self.outgoing_cap(request.outgoing_cap)?;
         let password = checked_password(&settings, request)?;
@@ -766,6 +771,30 @@ impl MailboxDesk {
             outgoing_cap,
             password,
         })
+    }
+
+    async fn conflict_message(
+        &self,
+        local: &str,
+        domain: &str,
+        held: &[crate::HostedMailbox],
+    ) -> Result<String, MailboxError> {
+        let address = mailbox_address(local, domain);
+        for suffix in 2..=u32::MAX {
+            let alternative = mailbox_address(&with_suffix(local, suffix), domain);
+            if !held
+                .iter()
+                .any(|mailbox| mailbox.address.eq_ignore_ascii_case(&alternative))
+                && !self.mailboxes.address_taken(&alternative).await?
+            {
+                return Ok(format!(
+                    "{address} is taken. Try {alternative}. Enter an address to confirm your choice."
+                ));
+            }
+        }
+        Err(MailboxError::Validation(
+            "No free address is available. Change the Address Rule.".into(),
+        ))
     }
 
     /// The name the form fills in: the Agent's name as a local part,

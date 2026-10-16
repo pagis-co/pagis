@@ -4,6 +4,7 @@ use async_trait::async_trait;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkspaceMailbox {
+    pub author: crate::Author,
     pub workspace_id: WorkspaceId,
     pub connection_id: ConnectionId,
     pub address: String,

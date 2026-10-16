@@ -68,3 +68,4 @@ built. Read the records that touch an area before you change it.
 - [0045](0045-search-sends-the-query-to-each-workspace.md): Search sends the query to each Workspace
 - [0046](0046-a-model-gives-a-second-opinion-on-uncertain-mail.md): A model gives a second opinion on uncertain mail
 - [0047](0047-shared-workspace-limits-bound-agent-configuration.md): Shared Workspace Limits bound Agent configuration
+- [0048](0048-a-new-person-receives-the-org-defaults.md): A new Person receives the Org defaults

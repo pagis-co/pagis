@@ -809,6 +809,83 @@ pub async fn concurrent_role_changes_keep_an_enabled_administrator(backend: &Bac
     );
 }
 
+pub async fn person_defaults_and_audit_are_stored_together(backend: &Backend) {
+    use pagis_core::{AddressRule, AuditEntry, AuditEntryId, Author, PersonDefaults};
+    let person = seed_org_and_administrator(
+        backend.stores().orgs.as_ref(),
+        backend.stores().users.as_ref(),
+        "Org",
+        1,
+    )
+    .await
+    .unwrap();
+    let org = backend.stores().orgs.list().await.unwrap().remove(0);
+    assert_eq!(
+        backend
+            .stores()
+            .orgs
+            .person_defaults(&org.id)
+            .await
+            .unwrap(),
+        PersonDefaults::default()
+    );
+    let defaults = PersonDefaults {
+        address_rule: Some(AddressRule::FirstLast),
+        mailbox_connection_id: Some(pagis_core::ConnectionId::generate()),
+        shared_workspaces: vec![],
+    };
+    let entry = AuditEntry {
+        id: AuditEntryId::generate(),
+        org_workspace_id: org.workspace_id.clone(),
+        actor: Author::Person(person.id),
+        action: "person_defaults.changed".into(),
+        subject_workspace_id: org.workspace_id.clone(),
+        reason: None,
+        at: 2,
+    };
+    backend
+        .stores()
+        .orgs
+        .set_person_defaults(&org.id, &defaults, &entry)
+        .await
+        .unwrap();
+    assert_eq!(
+        backend
+            .stores()
+            .orgs
+            .person_defaults(&org.id)
+            .await
+            .unwrap(),
+        defaults
+    );
+    assert_eq!(
+        backend
+            .stores()
+            .audit
+            .list(&org.workspace_id, 0, 100)
+            .await
+            .unwrap(),
+        vec![entry.clone()]
+    );
+    assert!(
+        backend
+            .stores()
+            .orgs
+            .set_person_defaults(&org.id, &PersonDefaults::default(), &entry)
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        backend
+            .stores()
+            .orgs
+            .person_defaults(&org.id)
+            .await
+            .unwrap(),
+        defaults
+    );
+}
+
 /// Every body of this module. [`crate::store_suite!`] turns each one
 /// into a SQLite test and a Postgres test.
 #[macro_export]
@@ -834,6 +911,7 @@ macro_rules! store_suite_installation {
             no_claim_wins_once_somebody_can_sign_in,
             a_missing_person_refuses_every_administrator_write,
             two_people_of_one_org_keep_their_own_role,
+            person_defaults_and_audit_are_stored_together,
             every_live_session_is_listed_newest_first,
             a_live_session_is_found_by_its_id,
         );

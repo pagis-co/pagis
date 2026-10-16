@@ -3247,7 +3247,7 @@ function invalidatePeople(queryClient: QueryClient) {
 export function useCreateAccount(api: ApiClient) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (body: { email: string; name: string; password?: string }) =>
+    mutationFn: (body: { email: string; name: string; password?: string; mailbox_address?: string }) =>
       unwrap(api.POST("/api/v1/administration/people", { body })),
     onSuccess: () => invalidatePeople(queryClient),
   });

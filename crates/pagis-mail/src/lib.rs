@@ -169,3 +169,5 @@ pub use spam::{HostSpamVerdicts, MailOpinionSource, SpamVerdictSource, parse_spa
 
 mod intake;
 pub use intake::{MailIntake, MailReadContext};
+
+pub use desk::PreparedWorkspaceMailbox;

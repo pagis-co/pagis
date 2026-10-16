@@ -17,6 +17,8 @@ impl PostgresWorkspaceMailboxStore {
 }
 fn record(row: &sqlx::postgres::PgRow) -> Result<WorkspaceMailbox, StoreError> {
     Ok(WorkspaceMailbox {
+        author: serde_json::from_str(row.get::<String, _>("author").as_str())
+            .map_err(|error| StoreError::Corrupt(error.to_string()))?,
         workspace_id: WorkspaceId::from(row.get::<String, _>("workspace_id")),
         connection_id: ConnectionId::from(row.get::<String, _>("connection_id")),
         address: row.get("address"),
@@ -41,13 +43,13 @@ impl WorkspaceMailboxRecordStore for PostgresWorkspaceMailboxStore {
         &self,
         workspace_id: &WorkspaceId,
     ) -> Result<Option<WorkspaceMailbox>, StoreError> {
-        let row = sqlx::query("SELECT workspace_id, connection_id, address, outgoing_cap, spam_mode, created_at FROM workspace_mailboxes WHERE workspace_id = $1")
+        let row = sqlx::query("SELECT author, workspace_id, connection_id, address, outgoing_cap, spam_mode, created_at FROM workspace_mailboxes WHERE workspace_id = $1")
             .bind(workspace_id.as_str()).fetch_optional(&self.pool).await.map_err(db_err)?;
         row.as_ref().map(record).transpose()
     }
     async fn create(&self, mailbox: &WorkspaceMailbox) -> Result<(), StoreError> {
-        sqlx::query("INSERT INTO workspace_mailboxes (workspace_id, connection_id, address, created_at, outgoing_cap, spam_mode) VALUES ($1, $2, $3, $4, $5, $6)")
-            .bind(mailbox.workspace_id.as_str()).bind(mailbox.connection_id.as_str())
+        sqlx::query("INSERT INTO workspace_mailboxes (author, workspace_id, connection_id, address, created_at, outgoing_cap, spam_mode) VALUES ($1, $2, $3, $4, $5, $6, $7)")
+            .bind(serde_json::to_string(&mailbox.author).map_err(|error| StoreError::Corrupt(error.to_string()))?).bind(mailbox.workspace_id.as_str()).bind(mailbox.connection_id.as_str())
             .bind(&mailbox.address).bind(mailbox.created_at).bind(i64::from(mailbox.outgoing_cap)).bind(mailbox.spam_mode.as_str())
             .execute(&self.pool).await.map_err(|error| if unique_violation(&error) {
                 StoreError::Conflict("that Workspace or address already has a mailbox".into())

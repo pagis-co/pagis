@@ -253,6 +253,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/administration/person-defaults": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_person_defaults"];
+        put: operations["set_person_defaults"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/administration/providers": {
         parameters: {
             query?: never;
@@ -3691,6 +3707,8 @@ export interface components {
             person_id: string;
             role: components["schemas"]["WorkspaceRole"];
         };
+        /** @enum {string} */
+        AddressRule: "first_name" | "first_last" | "first_initial_last";
         /** @description Where a browser reaches the Administration Interface (ADR-0024). */
         AdministrationAddress: {
             /** @description The links the Server configuration names, in navigation order. */
@@ -4589,6 +4607,8 @@ export interface components {
         };
         CreateAccountRequest: {
             email: string;
+            /** @description An explicit address on the Org mail domain. */
+            mailbox_address?: string | null;
             /** @description What the agents call the person. */
             name: string;
             /**
@@ -4755,6 +4775,10 @@ export interface components {
              *     field schema on the row.
              */
             values?: unknown;
+        };
+        DefaultSharedWorkspace: {
+            role: components["schemas"]["WorkspaceRole"];
+            workspace_id: string;
         };
         /**
          * @description The address, typed back. A delete takes the host's mail with it, so
@@ -6273,6 +6297,15 @@ export interface components {
          * @enum {string}
          */
         PendingDecisionKind: "permission" | "question";
+        PersonDefaults: {
+            address_rule?: null | components["schemas"]["AddressRule"];
+            mailbox_connection_id?: string | null;
+            shared_workspaces: components["schemas"]["DefaultSharedWorkspace"][];
+        };
+        PersonDefaultsPage: {
+            defaults: components["schemas"]["PersonDefaults"];
+            mailbox_offers: components["schemas"]["MailboxOfferDto"][];
+        };
         /** @description One Person on the roster, with what an Administrator manages. */
         PersonDto: {
             /** Format: int64 */
@@ -8850,6 +8883,86 @@ export interface operations {
                 };
             };
             /** @description The account is disabled */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_person_defaults: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonDefaultsPage"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    set_person_defaults: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PersonDefaults"];
+            };
+        };
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
             422: {
                 headers: {
                     [name: string]: unknown;

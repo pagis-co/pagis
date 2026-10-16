@@ -359,3 +359,19 @@ describe('a roster row on a narrow screen', () => {
     expect(css).toMatch(/\.people-line\s*\{[^}]*flex-wrap:\s*wrap/)
   })
 })
+
+
+it('shows the taken address and sends the explicit address on retry', async () => {
+  const api = stubApi()
+  api.POST.mockResolvedValueOnce({ error: { error: { code: 'conflict', message: 'ada@example.com is taken. Try ada2@example.com.' } } } as never)
+  mount(api)
+  fireEvent.change(screen.getByLabelText('Email address'), { target: { value: 'ada@example.com' } })
+  fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Ada Lovelace' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Create account' }))
+  expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'ada@example.com is taken. Try ada2@example.com.')
+  fireEvent.change(screen.getByLabelText('Workspace Mailbox address'), { target: { value: 'ada2@example.com' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Create account' }))
+  await waitFor(() => expect(api.POST).toHaveBeenLastCalledWith('/api/v1/administration/people', {
+    body: { email: 'ada@example.com', name: 'Ada Lovelace', mailbox_address: 'ada2@example.com' },
+  }))
+})

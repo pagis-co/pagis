@@ -860,12 +860,17 @@ async fn workspace_mailbox_reply_resolves_headers_and_cc_before_approval(pool: S
         .desk
         .provision_workspace(
             &world.workspace_id,
-            NewMailbox {
-                connection_id: world.connection_id.clone(),
-                local_part: "person".into(),
-                outgoing_cap: Some(1),
-                password: None,
-            },
+            world
+                .desk
+                .prepare_workspace(NewMailbox {
+                    connection_id: world.connection_id.clone(),
+                    local_part: "person".into(),
+                    outgoing_cap: Some(1),
+                    password: None,
+                })
+                .await
+                .unwrap(),
+            pagis_core::Author::System,
         )
         .await
         .unwrap();
@@ -943,12 +948,17 @@ async fn workspace_mailbox_tools_read_and_send_with_the_outgoing_cap(pool: Sqlit
         .desk
         .provision_workspace(
             &world.workspace_id,
-            NewMailbox {
-                connection_id: world.connection_id.clone(),
-                local_part: "person".into(),
-                outgoing_cap: Some(1),
-                password: None,
-            },
+            world
+                .desk
+                .prepare_workspace(NewMailbox {
+                    connection_id: world.connection_id.clone(),
+                    local_part: "person".into(),
+                    outgoing_cap: Some(1),
+                    password: None,
+                })
+                .await
+                .unwrap(),
+            pagis_core::Author::System,
         )
         .await
         .unwrap();
