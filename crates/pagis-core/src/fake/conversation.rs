@@ -2,6 +2,61 @@ use super::*;
 
 #[async_trait::async_trait]
 impl ChannelStore for FakeChannelStore {
+    async fn get_or_create_conversation(
+        &self,
+        workspace_id: &WorkspaceId,
+        participants: &[WorkspaceId],
+    ) -> Result<Channel, StoreError> {
+        let ids: std::collections::BTreeSet<_> = participants.iter().cloned().collect();
+        if ids.len() < 2 {
+            return Err(conflict("a conversation needs two Workspaces"));
+        }
+        let mut data = self.0.lock().unwrap();
+        if let Some(channel) = data
+            .channels
+            .rows(workspace_id)
+            .find(|c| {
+                c.kind == ChannelKind::Conversation
+                    && data
+                        .participants
+                        .rows(workspace_id)
+                        .filter(|p| p.channel_id == c.id)
+                        .filter_map(|p| p.participant_workspace_id.clone())
+                        .collect::<std::collections::BTreeSet<_>>()
+                        == ids
+            })
+            .cloned()
+        {
+            return Ok(channel);
+        }
+        let now = now_ms();
+        let channel = Channel {
+            id: ChannelId::generate(),
+            workspace_id: workspace_id.clone(),
+            kind: ChannelKind::Conversation,
+            title: None,
+            created_at: now,
+            updated_at: now,
+        };
+        data.channels
+            .insert(workspace_id, channel.id.clone(), channel.clone())?;
+        for id in ids {
+            let participant = ChannelParticipant {
+                id: ParticipantId::generate(),
+                workspace_id: workspace_id.clone(),
+                channel_id: channel.id.clone(),
+                kind: ParticipantKind::Workspace,
+                participant_workspace_id: Some(id),
+                person_id: None,
+                agent_id: None,
+                joined_at: now,
+            };
+            data.participants
+                .insert(workspace_id, participant.id.clone(), participant)?;
+        }
+        Ok(channel)
+    }
+
     async fn create(&self, channel: &Channel) -> Result<(), StoreError> {
         self.0.lock().unwrap().channels.insert(
             &channel.workspace_id,

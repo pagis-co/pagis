@@ -734,6 +734,14 @@ pub trait TrustListStore: Send + Sync {
 
 #[async_trait]
 pub trait ChannelStore: Send + Sync {
+    /// Atomically open the conversation for this set of Workspaces.
+    /// The owning Workspace stores one Channel and its participants.
+    async fn get_or_create_conversation(
+        &self,
+        workspace_id: &WorkspaceId,
+        participants: &[WorkspaceId],
+    ) -> Result<Channel, StoreError>;
+
     async fn create(&self, channel: &Channel) -> Result<(), StoreError>;
     async fn get(
         &self,

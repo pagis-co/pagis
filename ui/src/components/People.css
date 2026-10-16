@@ -1,0 +1,38 @@
+/* People and their shared conversation history. */
+.people-page {
+  padding: var(--space-6);
+  overflow: hidden auto;
+}
+
+.people-page fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0 0 var(--space-4);
+}
+
+.people-colleague {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+}
+
+.person-presence {
+  width: var(--space-2);
+  height: var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--muted);
+}
+
+.person-presence-active { background: var(--working); }
+
+.workspace-conversation {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.workspace-conversation-messages {
+  flex: 1;
+  overflow: hidden auto;
+}

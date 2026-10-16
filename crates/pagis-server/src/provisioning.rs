@@ -197,6 +197,7 @@ impl WorkspaceSeed<'_> {
                     workspace_id: workspace.id.clone(),
                     channel_id: channel.id.clone(),
                     kind,
+                    participant_workspace_id: None,
                     agent_id,
                     joined_at: now,
                 })

@@ -31,9 +31,9 @@ function row(overrides: Partial<TimelineRow> = {}): TimelineRow {
     lastReplyAt,
     replyAuthors: [
       { authorKind: 'agent',
-      authorName: 'Clown', agentId: 'ag-2' },
+      authorName: 'Clown', authorId: 'ag-2' },
       { authorKind: 'person',
-      authorName: 'Ajay', agentId: null },
+      authorName: 'Ajay', authorId: 'alice' },
     ],
     ...overrides,
   }
@@ -42,7 +42,7 @@ function row(overrides: Partial<TimelineRow> = {}): TimelineRow {
 function stubApi(userName: string | null = null) {
   return {
     GET: vi.fn(async (path: string) => {
-      if (path === '/api/v1/user') return { data: { name: userName } }
+      if (path === '/api/v1/user') return { data: { id: 'alice', name: userName } }
       return { data: { items: [{ id: 'ag-2', name: 'Clown', avatar: { sprite: 'pixie', preset: 'lavender', colors: {}, accessories: {} } }] } }
     }),
   } as unknown as ApiClient
@@ -65,6 +65,21 @@ const time = new Date(lastReplyAt).toLocaleTimeString(undefined, {
 })
 
 describe('RepliesChip', () => {
+  it('keeps different Persons as separate reply authors', async () => {
+    const { container } = mount(row({
+      replyAuthors: [
+        { authorKind: 'person', authorName: 'Alice', authorId: 'alice' },
+        { authorKind: 'person', authorName: 'Bob', authorId: 'bob' },
+      ],
+    }))
+    await waitFor(() => expect(container.querySelectorAll('.ui-avatar-owner')).toHaveLength(1))
+    const faces = container.querySelectorAll('.ui-avatar')
+    expect(faces[0].textContent).toBe('A')
+    expect(faces[0].classList.contains('ui-avatar-owner')).toBe(true)
+    expect(faces[1].textContent).toBe('B')
+    expect(faces[1].classList.contains('ui-avatar-owner')).toBe(false)
+  })
+
   it('names the count, the authors and the last reply time', async () => {
     mount(row())
 
@@ -85,7 +100,7 @@ describe('RepliesChip', () => {
 
   it('says one reply in the singular', async () => {
     mount(row({ replyCount: 1, replyAuthors: [{ authorKind: 'person',
-      authorName: 'Ajay', agentId: null }] }))
+      authorName: 'Ajay', authorId: 'alice' }] }))
 
     expect(
       await screen.findByRole('button', { name: `1 reply · Ajay · ${time}` }),
@@ -101,7 +116,7 @@ describe('RepliesChip', () => {
     expect(onOpen).toHaveBeenCalledOnce()
   })
 
-  it('draws the user with the owner face, not one of the Agent hues', () => {
+  it('draws the user with the owner face, not one of the Agent hues', async () => {
     const api = stubApi()
     render(
       <QueryClientProvider client={new QueryClient()}>
@@ -109,10 +124,8 @@ describe('RepliesChip', () => {
       </QueryClientProvider>,
     )
 
-    const faces = document.querySelectorAll('.ui-avatar')
-    const owner = [...faces].find((face) =>
-      face.classList.contains('ui-avatar-owner'),
-    )
+    await waitFor(() => expect(document.querySelector('.ui-avatar-owner')).toBeTruthy())
+    const owner = document.querySelector('.ui-avatar-owner')
     // The chip's ground is `--accent-soft`, which is also hue 0. A face
     // on a hue that matches its ground disappears, so the user takes
     // none of them.

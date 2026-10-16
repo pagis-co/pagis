@@ -5,11 +5,16 @@
 // it, and the hover tools carry the four acts on one message.
 
 import { Link } from '@tanstack/react-router'
-import { Copy, MessageSquare, SquareArrowOutUpRight, Volume2 } from 'lucide-react'
+import {
+  Copy,
+  MessageSquare,
+  SquareArrowOutUpRight,
+  Volume2,
+} from 'lucide-react'
 import { useState } from 'react'
 
 import type { ApiClient } from '../api/client'
-import { Button, IconButton } from '../primitives'
+import { Button, IconButton, PersonAvatar } from '../primitives'
 import { Avatar } from '../avatars/Avatar'
 import { Blocks } from '../blocks/BlockView'
 import { useSpeaking } from '../state/stores'
@@ -54,6 +59,7 @@ function copyText(text: string): void {
 export function MessageRow({
   api,
   row,
+  personId,
   authorName,
   authorAppearance,
   grouped = false,
@@ -65,6 +71,7 @@ export function MessageRow({
 }: {
   api: ApiClient
   row: TimelineRow
+  personId: string | undefined
   /** The name for a pending send or a live stream. */
   authorName?: string
   authorAppearance?: import('../avatars/catalog').SpriteAppearance
@@ -81,13 +88,20 @@ export function MessageRow({
   /** Scrolls the Desk panel to the screen one step took. */
   onShowScreenshot?: (screenshotId: string) => void
 }) {
-  const mine = row.authorKind === 'person'
+  const mine =
+    row.authorKind === 'person' &&
+    row.authorId !== null &&
+    row.authorId === personId
   const streaming = row.status === 'streaming'
   const canOpenThread = onOpenThread !== undefined && row.sendState === 'sent'
   // The small mark that says a reply was spoken; the audio
   // itself is never kept.
   const spoken = useSpeaking((state) => state.spoken[row.key] === true)
-  const name = row.authorName || authorName || AUTHOR_LABEL[row.authorKind] || row.authorKind
+  const name =
+    row.authorName ||
+    authorName ||
+    AUTHOR_LABEL[row.authorKind] ||
+    row.authorKind
   const time = formatClock(row.createdAt)
   // The arrival fade. The row asks once, when it mounts: a row
   // written moments ago arrived while the reader watched, so it fades
@@ -184,15 +198,18 @@ export function MessageRow({
       data-testid="message-row"
       data-grouped={grouped}
     >
-      {!grouped && (
-        <Avatar
-          id={row.authorId ?? row.authorKind}
-          name={name}
-          appearance={authorAppearance}
-          size="md"
-          className="message-face"
-        />
-      )}
+      {!grouped &&
+        (row.authorKind === 'person' ? (
+          <PersonAvatar name={name} size="md" className="message-face" />
+        ) : (
+          <Avatar
+            id={row.authorId ?? row.authorKind}
+            name={name}
+            appearance={authorAppearance}
+            size="md"
+            className="message-face"
+          />
+        ))}
       <div className="message-body">
         {!grouped && (
           <div className="message-name">
@@ -203,12 +220,20 @@ export function MessageRow({
         )}
         <div className="message-prose">
           <Blocks blocks={row.blocks} api={api} />
-          {streaming && <span className="message-streaming-cursor" aria-hidden />}
+          {streaming && (
+            <span className="message-streaming-cursor" aria-hidden />
+          )}
         </div>
         {work !== null && (
-          <WorkRecord api={api} work={work} onShowScreenshot={onShowScreenshot} />
+          <WorkRecord
+            api={api}
+            work={work}
+            onShowScreenshot={onShowScreenshot}
+          />
         )}
-        {row.runId !== null && <LearnedLine api={api} messageId={row.key} authorName={name} />}
+        {row.runId !== null && (
+          <LearnedLine api={api} messageId={row.key} authorName={name} />
+        )}
         {replies}
       </div>
       {tools}

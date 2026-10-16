@@ -56,6 +56,8 @@ import { SpriteRoster } from './components/sprites/SpriteRoster'
 import { Software } from './components/Software'
 import { ThreadHeader } from './components/ThreadHeader'
 import { Timeline } from './components/Timeline'
+import { People } from './components/People'
+import { WorkspaceConversation } from './components/people/WorkspaceConversation'
 import {
   errorCode,
   useAgents,
@@ -769,7 +771,26 @@ const googleStartRoute = createRoute({
     typeof search.state === 'string' && search.state !== '' ? { state: search.state } : {},
 })
 
+const peopleRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/people',
+  component: function PeoplePage() {
+    const navigate = useNavigate()
+    return <People api={useApi()} onOpen={(id) => void navigate({ to: '/conversations/$conversationId', params: { conversationId: id } })} />
+  },
+})
+const workspaceConversationRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/conversations/$conversationId',
+  component: function ConversationPage() {
+    const { conversationId } = workspaceConversationRoute.useParams()
+    return <WorkspaceConversation key={conversationId} api={useApi()} conversationId={conversationId} />
+  },
+})
+
 const routeTree = rootRoute.addChildren([
+  peopleRoute,
+  workspaceConversationRoute,
   indexRoute,
   phoneConversationsRoute,
   youRoute,

@@ -24,6 +24,72 @@ use crate::fixture::{
 
 use super::Backend;
 
+pub async fn conversations_have_workspace_participants_and_one_history(backend: &Backend) {
+    let a = backend.seeded_workspace().await;
+    let b = backend.seeded_workspace().await;
+    let stores = backend.stores();
+    let ids = [a.id.clone(), b.id.clone()];
+    let first = stores
+        .channels
+        .get_or_create_conversation(&a.id, &ids)
+        .await
+        .unwrap();
+    let again = stores
+        .channels
+        .get_or_create_conversation(&a.id, &[b.id.clone(), a.id.clone(), b.id.clone()])
+        .await
+        .unwrap();
+    assert_eq!(first.id, again.id);
+    assert_eq!(first.kind, pagis_core::ChannelKind::Conversation);
+    let participants = stores
+        .participants
+        .list_for_channel(&a.id, &first.id)
+        .await
+        .unwrap();
+    assert_eq!(participants.len(), 2);
+    for participant in participants {
+        assert_eq!(participant.kind, pagis_core::ParticipantKind::Workspace);
+        assert!(ids.contains(&participant.participant_workspace_id.unwrap()));
+        assert!(participant.person_id.is_none());
+        assert!(participant.agent_id.is_none());
+    }
+    let message = person_message(&a.id, &a.user_id, &first.id, "Hello");
+    stores.messages.insert(&message).await.unwrap();
+    assert_eq!(
+        stores
+            .messages
+            .list_top_level(&a.id, &again.id, None, 10)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(
+        stores
+            .messages
+            .list_top_level(&b.id, &first.id, None, 10)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    let (left, right) = tokio::join!(
+        stores.channels.get_or_create_conversation(&a.id, &ids),
+        stores.channels.get_or_create_conversation(&a.id, &ids),
+    );
+    assert_eq!(left.unwrap().id, right.unwrap().id);
+    let other = stores
+        .channels
+        .get_or_create_conversation(&b.id, &ids)
+        .await
+        .unwrap();
+    assert_ne!(first.id, other.id);
+    let single = stores
+        .channels
+        .get_or_create_conversation(&a.id, std::slice::from_ref(&a.id))
+        .await;
+    assert!(single.is_err());
+}
+
 pub async fn authored_records_keep_person_agent_and_system(backend: &Backend) {
     let ws = backend.seeded_workspace().await;
     let stores = backend.stores();
@@ -1135,11 +1201,30 @@ pub async fn participants_list_for_channel_returns_all_kinds(backend: &Backend) 
     store.create(&user).await.unwrap();
     store.create(&agent_row).await.unwrap();
 
+    let workspace_row = pagis_core::ChannelParticipant {
+        id: pagis_core::ParticipantId::generate(),
+        workspace_id: ws.id.clone(),
+        channel_id: dm.id.clone(),
+        kind: pagis_core::ParticipantKind::Workspace,
+        participant_workspace_id: Some(ws.id.clone()),
+        person_id: None,
+        agent_id: None,
+        joined_at: pagis_core::now_ms(),
+    };
+    store.create(&workspace_row).await.unwrap();
+    let invalid = pagis_core::ChannelParticipant {
+        id: pagis_core::ParticipantId::generate(),
+        person_id: Some(ws.user_id.clone()),
+        ..workspace_row.clone()
+    };
+    assert!(store.create(&invalid).await.is_err());
+
     let listed = store.list_for_channel(&ws.id, &dm.id).await.unwrap();
 
-    assert_eq!(listed.len(), 2);
+    assert_eq!(listed.len(), 3);
     assert!(listed.contains(&user));
     assert!(listed.contains(&agent_row));
+    assert!(listed.contains(&workspace_row));
 }
 
 pub async fn agent_messages_elsewhere_page_newest_first_and_exclude_the_dm_and_progress(
@@ -2792,6 +2877,7 @@ macro_rules! store_suite_stores {
     ($emit:path) => {
         $emit!(
             stores,
+            conversations_have_workspace_participants_and_one_history,
             authored_records_keep_person_agent_and_system,
             a_google_connection_holds_its_sealed_refresh_token,
             the_org_holds_the_google_web_client_id,

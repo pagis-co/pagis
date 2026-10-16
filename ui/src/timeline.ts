@@ -74,11 +74,11 @@ export interface TimelineRow {
   replyAuthors: ReplyAuthor[]
 }
 
-/** One author of a thread's replies: the user, or one Agent. */
+/** One Person or Agent who writes a reply. */
 export interface ReplyAuthor {
   authorName: string
   authorKind: string
-  agentId: string | null
+  authorId: string | null
 }
 
 /**
@@ -111,6 +111,7 @@ export function mergeTimeline(
   pendingSends: PendingSend[],
   liveStreams: Record<string, LiveStream> = {},
   runProgress: Record<string, RunProgress> = {},
+  person?: MessageDto['author'],
 ): TimelineRow[] {
   const messages = serverItems.filter(
     (item): item is TimelineMessage => item.kind !== 'pointer',
@@ -171,7 +172,7 @@ export function mergeTimeline(
         replyAuthors: (item.reply_authors ?? []).map((author) => ({
           authorKind: author.author.kind,
           authorName: author.author.name,
-          agentId: author.author.kind === 'agent' ? author.author.id ?? null : null,
+          authorId: author.author.id ?? null,
         })),
       }
     })
@@ -183,8 +184,8 @@ export function mergeTimeline(
       key: send.pending_id,
       kind: 'message',
       authorKind: 'person',
-      authorName: '',
-      authorId: null,
+      authorName: person?.name ?? '',
+      authorId: person?.id ?? null,
       createdAt: send.created_at,
       sendState: send.state,
       status: 'complete',

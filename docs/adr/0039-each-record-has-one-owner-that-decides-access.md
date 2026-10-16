@@ -24,7 +24,9 @@ rules of ADR-0003.
 
 Each record has exactly one owning Workspace or conversation. Its owner
 decides access. A conversation between Workspaces lives once outside its
-participant Workspaces (ADR-0043). It is not copied to each reader.
+participant Workspaces, in the Org's Workspace (ADR-0043). It is not copied
+to each reader. A conversation route checks that the Session's Private
+Workspace is a participant before it reads or writes content.
 
 Each record names its author, a Person or Agent. The daemon names itself
 on its own records. Messages, Request decisions,
@@ -35,8 +37,9 @@ present. An Agent introduces itself with its name and the Shared Workspace
 name when it acts for a Shared Workspace.
 
 Authorship on messages, Request decisions, Credentials, Grants, Schedules and
-Event Subscriptions is built. Not built: ownership through a conversation,
-Shared Workspace Agent versioning and auditing. Files are built. Not built:
+Event Subscriptions is built. Conversation messages live once under their
+Channel and record their Person author. Files are built.
+Not built: Shared Workspace Agent versioning and auditing, and
 collaborative Artifacts, which are documents, sheets, slide decks or sites. An
 Artifact belongs to one Workspace, can be stored apart from it, and is shared
 by an access grant, never by a copy. Text from outside its Workspace is
@@ -54,7 +57,7 @@ Persons in it have one of three roles:
 | --- | --- |
 | Reader | Read within the visibility level |
 | Responder | Read, send as the Shared Workspace and decide Requests |
-| Manager | All Responder access, plus manage People, roles, Agents and settings |
+| Manager | Responder access; manage People, roles, Agents and settings |
 
 An Administrator creates a Shared Workspace and names its first Manager.
 The Administrator sets the Spend Cap, permitted Plugins and Connections,
@@ -67,7 +70,8 @@ requests. A tier decides authority, not access (ADR-0021).
 
 Not built: Shared Workspaces, these roles and the Team trust tier. The Org's
 Workspace stays the scope for Installation Connections and installed Plugins
-(ADR-0023). Not built: its use as an Org-wide Shared Workspace with every
+(ADR-0023).
+Not built: its use as an Org-wide Shared Workspace with every
 Person in it.
 
 ### A Session stays with the Person's Private Workspace
@@ -80,7 +84,8 @@ finer rule adds its own check.
 
 The Product App lists the Private Workspace and each Shared Workspace the
 Person can enter. Query keys and routes name the Workspace. One sign-in
-serves them all. Not built: Shared Workspace routing and role checks.
+serves them all.
+Not built: Shared Workspace routing and role checks.
 
 ### Personal resources stay private and spend follows the Workspace
 
@@ -88,7 +93,8 @@ Hosts, the Home Exit, personal Connections and the Keypad Code exist only in
 a Private Workspace. Shared accounts connect to a Shared Workspace. The
 Spend Cap belongs to a Workspace. A Run checks the cap of the Workspace it
 runs in. An Administrator sets the cap for each Workspace. Spend is counted
-for each Workspace. Not built: Shared Workspace resource rules.
+for each Workspace.
+Not built: Shared Workspace resource rules.
 
 ### Departure and guests do not open a Private Workspace
 
@@ -102,7 +108,8 @@ A guest is a login with the Org role guest. It has no Private Workspace. A
 Manager names each Shared Workspace the guest can enter. A new Person gets a
 Private Workspace, Chief of Staff, Workspace Mailbox by the Org address rule,
 and access to the Org's default Shared Workspaces. A Workspace Number is
-made only on request. Not built: these joining, departure and guest rules.
+made only on request.
+Not built: these joining, departure and guest rules.
 
 ## Consequences
 

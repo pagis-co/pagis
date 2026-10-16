@@ -3622,6 +3622,26 @@
         }
       }
     },
+    "/api/v1/colleagues": {
+      "get": {
+        "tags": [
+          "conversations"
+        ],
+        "operationId": "list_colleagues",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ColleaguePage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/computers/disk": {
       "get": {
         "tags": [
@@ -3856,6 +3876,178 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/FilterPreview"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/conversations": {
+      "get": {
+        "tags": [
+          "conversations"
+        ],
+        "operationId": "list_conversations",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationPage"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "conversations"
+        ],
+        "operationId": "start_conversation",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartConversationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/conversations/{conversation_id}/messages": {
+      "get": {
+        "tags": [
+          "conversations"
+        ],
+        "operationId": "list_conversation_messages",
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "description": "Exclusive ULID cursor: only messages older than this id.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page size, default 50, max 200.",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationMessages"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "conversations"
+        ],
+        "operationId": "send_conversation_message",
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConversationMessageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageDto"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
                 }
               }
             }
@@ -12979,6 +13171,44 @@
           }
         }
       },
+      "ColleagueDto": {
+        "type": "object",
+        "required": [
+          "person_id",
+          "workspace_id",
+          "name",
+          "presence"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "person_id": {
+            "type": "string"
+          },
+          "presence": {
+            "type": "string",
+            "description": "`active` or `away`, from the Private Workspace's client input."
+          },
+          "workspace_id": {
+            "type": "string"
+          }
+        }
+      },
+      "ColleaguePage": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ColleagueDto"
+            }
+          }
+        }
+      },
       "CompleteOnboardingRequest": {
         "type": "object",
         "description": "The optional onboarding extras: the user's name seeds shared\nmemory so every agent knows what to call them.",
@@ -13553,6 +13783,83 @@
           },
           "summary": {
             "type": "string"
+          }
+        }
+      },
+      "ConversationDto": {
+        "type": "object",
+        "required": [
+          "id",
+          "participants"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "last_message": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/MessageDto"
+              }
+            ]
+          },
+          "participants": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ColleagueDto"
+            }
+          }
+        }
+      },
+      "ConversationMessageRequest": {
+        "type": "object",
+        "required": [
+          "pending_id",
+          "text"
+        ],
+        "properties": {
+          "pending_id": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        }
+      },
+      "ConversationMessages": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MessageDto"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ConversationPage": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConversationDto"
+            }
           }
         }
       },
@@ -20717,6 +21024,20 @@
           },
           "workspace_id": {
             "type": "string"
+          }
+        }
+      },
+      "StartConversationRequest": {
+        "type": "object",
+        "required": [
+          "workspace_ids"
+        ],
+        "properties": {
+          "workspace_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },

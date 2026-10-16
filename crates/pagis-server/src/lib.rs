@@ -17,6 +17,7 @@ mod coding_sessions;
 mod connections;
 #[cfg(all(test, not(feature = "native")))]
 mod connections_portable_tests;
+mod conversations;
 mod cors;
 mod cross_origin;
 pub mod error;
@@ -506,6 +507,16 @@ fn product_router(state: Arc<AppState>) -> Router {
         .route(
             "/api/v1/mail/{mailbox}/{message_id}",
             get(mail::get_mail_message),
+        )
+        .route("/api/v1/colleagues", get(conversations::list_colleagues))
+        .route(
+            "/api/v1/conversations",
+            get(conversations::list_conversations).post(conversations::start_conversation),
+        )
+        .route(
+            "/api/v1/conversations/{conversation_id}/messages",
+            get(conversations::list_conversation_messages)
+                .post(conversations::send_conversation_message),
         )
         .route(
             "/api/v1/channels",

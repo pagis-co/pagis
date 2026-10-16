@@ -34,6 +34,7 @@ import { Sidebar } from './components/sidebar/Sidebar'
 import type { PlaceId } from './components/sidebar/places'
 import { ThreadPane } from './components/ThreadPane'
 import {
+  conversationsKey,
   agentsKey,
   callKey,
   codingSessionEventsKey,
@@ -215,6 +216,7 @@ export function AppShell() {
   // main pane and none of them opens the inspector.
   const goToPlace = (place: PlaceId) => {
     if (place === 'home') return void navigate({ to: '/' })
+    if (place === 'people') return void navigate({ to: '/people' })
     if (place === 'sprites') return void navigate({ to: '/sprites' })
     if (place === 'memory') return void navigate({ to: '/memory', search: {} })
     if (place === 'mail') return void navigate({ to: '/mail' })
@@ -252,6 +254,9 @@ export function AppShell() {
       handlers: {
         onEvent: (frame: ServerFrame) => {
           const event = frame.payload as EventRow
+          if (frame.type === 'conversation.message') {
+            void queryClient.invalidateQueries({ queryKey: conversationsKey })
+          }
           const presenceBefore = usePresence.getState()
           const reaction = reactions.accept(event, { replay: frame.replay === true,
             channelId: document.hidden ? null : presenceBefore.selectedChannelId,

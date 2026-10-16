@@ -72,6 +72,7 @@ async fn user_channel(world: &World) -> ChannelId {
             .stores
             .participants
             .create(&ChannelParticipant {
+                participant_workspace_id: None,
                 person_id: if kind == ParticipantKind::Person {
                     Some(
                         world

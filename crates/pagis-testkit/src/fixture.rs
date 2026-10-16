@@ -198,6 +198,7 @@ pub fn agent_participant(
         workspace_id: workspace_id.clone(),
         channel_id: channel_id.clone(),
         kind: ParticipantKind::Agent,
+        participant_workspace_id: None,
         agent_id: Some(agent_id.clone()),
         joined_at: now_ms(),
     }
@@ -215,6 +216,7 @@ pub fn person_participant(
         workspace_id: workspace_id.clone(),
         channel_id: channel_id.clone(),
         kind: ParticipantKind::Person,
+        participant_workspace_id: None,
         agent_id: None,
         joined_at: now_ms(),
     }

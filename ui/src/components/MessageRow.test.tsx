@@ -25,7 +25,7 @@ function row(overrides: Partial<TimelineRow>): TimelineRow {
     kind: 'message',
     authorKind: 'person',
     authorName: 'Ajay',
-    authorId: null,
+    authorId: 'alice',
     createdAt: Date.parse('2026-09-05T14:58:00Z'),
     sendState: 'sent',
     status: 'complete',
@@ -44,7 +44,7 @@ function mount(
   r: TimelineRow,
   props: Partial<Parameters<typeof MessageRow>[0]> = {},
 ) {
-  return render(<MessageRow api={api} row={r} onRetry={() => {}} {...props} />)
+  return render(<MessageRow api={api} personId="alice" row={r} onRetry={() => {}} {...props} />)
 }
 
 /** A reply from a Run reads the memory feed, so it needs a query client. */
@@ -57,6 +57,28 @@ const agentRow = (overrides: Partial<TimelineRow> = {}) =>
       authorName: 'Scout', authorId: 'ag-1', ...overrides })
 
 describe('MessageRow', () => {
+  it('puts only the signed-in Person on the right', () => {
+    render(<>
+      <MessageRow api={api} personId="alice" row={row({ key: 'mine', authorId: 'alice', authorName: 'Alice' })} onRetry={() => {}} />
+      <MessageRow api={api} personId="alice" row={row({ key: 'theirs', authorId: 'bob', authorName: 'Bob' })} onRetry={() => {}} />
+    </>)
+    const [mine, theirs] = screen.getAllByTestId('message-row')
+    expect(mine.className).toContain('message-mine')
+    expect(theirs.className).toContain('message-said')
+    expect(theirs.querySelector('.message-face')?.textContent).toBe('B')
+    expect(theirs.querySelector('.message-author')?.textContent).toBe('Bob')
+  })
+
+  it('keeps a Person and Agent DM on their own sides', () => {
+    render(<>
+      <MessageRow api={api} personId="alice" row={row({ authorId: 'alice' })} onRetry={() => {}} />
+      <MessageRow api={api} personId="alice" row={agentRow()} onRetry={() => {}} />
+    </>)
+    const [mine, agent] = screen.getAllByTestId('message-row')
+    expect(mine.className).toContain('message-mine')
+    expect(agent.className).toContain('message-said')
+  })
+
   it('omits the Person name on a grouped row', () => {
     mount(row({ authorName: 'Mira' }), { grouped: true })
     expect(screen.queryByText('Mira')).toBeNull()
@@ -149,6 +171,7 @@ describe('MessageRow', () => {
     renderInRouter(
       <QueryClientProvider client={new QueryClient()}>
         <MessageRow
+          personId="alice"
           api={client as unknown as ApiClient}
           row={agentRow({ runId: 'run-1', authorName: 'Sage' })}
           work={{ runId: 'run-1', startedAt: 0, endedAt: 9_000, outcome: 'Done' }}
@@ -187,6 +210,7 @@ describe('MessageRow', () => {
     renderInRouter(
       withQueries(
         <MessageRow
+          personId="alice"
           api={client as unknown as ApiClient}
           row={agentRow({ runId: 'run-1', authorName: 'Sage' })}
           authorName="Sage"
@@ -226,13 +250,14 @@ describe('MessageRow', () => {
     renderInRouter(
       withQueries(
         <MessageRow
+          personId="alice"
           api={client as unknown as ApiClient}
           row={agentRow({
             runId: 'run-1',
             replyCount: 2,
             lastReplyAt: 5000,
             replyAuthors: [{ authorKind: 'person',
-      authorName: 'Ajay', agentId: null }],
+      authorName: 'Ajay', authorId: 'alice' }],
           })}
           authorName="Sage"
           onRetry={() => {}}
@@ -257,7 +282,7 @@ describe('MessageRow', () => {
     })
     Object.defineProperty(document, 'execCommand', { configurable: true, value: execCommand })
     renderInRouter(
-      withQueries(<MessageRow api={api} row={agentRow({ runId: 'run-1', authorName: 'Sage' })} onRetry={() => {}} />),
+      withQueries(<MessageRow api={api} personId="alice" row={agentRow({ runId: 'run-1', authorName: 'Sage' })} onRetry={() => {}} />),
     )
 
     fireEvent.click(await screen.findByLabelText('Copy'))
@@ -277,6 +302,7 @@ describe('MessageRow', () => {
     renderInRouter(
       withQueries(
         <MessageRow
+          personId="alice"
           api={api}
           row={agentRow({ runId: 'run-1', authorName: 'Sage' })}
           onRetry={() => {}}
@@ -306,7 +332,7 @@ describe('MessageRow', () => {
   it('opens the Run through the router, without a full load', async () => {
     const history = renderInRouter(
       withQueries(
-        <MessageRow api={api} row={agentRow({ runId: 'run-1', authorName: 'Sage' })} onRetry={() => {}} />,
+        <MessageRow api={api} personId="alice" row={agentRow({ runId: 'run-1', authorName: 'Sage' })} onRetry={() => {}} />,
       ),
     )
     const link = await screen.findByLabelText('Open the Run')
@@ -355,7 +381,7 @@ describe('MessageRow arrival', () => {
 // so its rows show none.
 describe('MessageRow replies', () => {
   const replied = { replyCount: 2, lastReplyAt: 5000, replyAuthors: [{ authorKind: 'person',
-      authorName: 'Ajay', agentId: null }] }
+      authorName: 'Ajay', authorId: 'alice' }] }
   const api = {
     GET: vi.fn(async () => ({ data: { items: [] } })),
   } as unknown as ApiClient
@@ -368,8 +394,8 @@ describe('MessageRow replies', () => {
     const onOpenThread = vi.fn()
     withQueries(
       <>
-        <MessageRow api={api} row={agentRow(replied)} onRetry={() => {}} onOpenThread={onOpenThread} />
-        <MessageRow api={api} row={row({ key: 'msg-2', ...replied })} onRetry={() => {}} onOpenThread={onOpenThread} />
+        <MessageRow api={api} personId="alice" row={agentRow(replied)} onRetry={() => {}} onOpenThread={onOpenThread} />
+        <MessageRow api={api} personId="alice" row={row({ key: 'msg-2', ...replied })} onRetry={() => {}} onOpenThread={onOpenThread} />
       </>,
     )
 
@@ -382,8 +408,8 @@ describe('MessageRow replies', () => {
   it('shows no chip without replies or without a thread to open', () => {
     withQueries(
       <>
-        <MessageRow api={api} row={agentRow()} onRetry={() => {}} onOpenThread={vi.fn()} />
-        <MessageRow api={api} row={agentRow({ key: 'msg-2', ...replied })} onRetry={() => {}} />
+        <MessageRow api={api} personId="alice" row={agentRow()} onRetry={() => {}} onOpenThread={vi.fn()} />
+        <MessageRow api={api} personId="alice" row={agentRow({ key: 'msg-2', ...replied })} onRetry={() => {}} />
       </>,
     )
 

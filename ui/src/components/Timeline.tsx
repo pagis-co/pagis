@@ -66,19 +66,32 @@ function dayLabel(at: number): string {
 
 /** The items a search keeps: the messages that carry the words. The
  *  dividers and the live rows say nothing a reader searches for. */
-function searchItems(items: ConversationItem[], query: string): ConversationItem[] {
+function searchItems(
+  items: ConversationItem[],
+  query: string,
+): ConversationItem[] {
   const words = query.trim().toLowerCase()
   if (words === '') return items
   return items.filter(
-    (item) => item.kind === 'message' && item.row.text.toLowerCase().includes(words),
+    (item) =>
+      item.kind === 'message' && item.row.text.toLowerCase().includes(words),
   )
 }
 
 /** The question a Run answered: your last message above the item. */
-function questionBefore(items: ConversationItem[], index: number): string | null {
+function questionBefore(
+  items: ConversationItem[],
+  index: number,
+  personId: string | undefined,
+): string | null {
   for (let at = index - 1; at >= 0; at -= 1) {
     const item = items[at]
-    if (item.kind === 'message' && item.row.authorKind === 'person') return item.row.text
+    if (
+      item.kind === 'message' &&
+      item.row.authorKind === 'person' &&
+      item.row.authorId === personId
+    )
+      return item.row.text
   }
   return null
 }
@@ -119,8 +132,13 @@ export function Timeline({
   const [atBottom, setAtBottom] = useState(true)
 
   const rows = useMemo(
-    () => mergeTimeline(timeline.data ?? [], pending, live, progress),
-    [timeline.data, pending, live, progress],
+    () =>
+      mergeTimeline(timeline.data ?? [], pending, live, progress, {
+        kind: 'person',
+        id: person?.id,
+        name: personName,
+      }),
+    [timeline.data, pending, live, progress, person?.id, personName],
   )
 
   // The read point of this visit: what the channel already held when it
@@ -141,7 +159,10 @@ export function Timeline({
     () => buildConversation(rows, { lastReadAt: readMark.current.at }),
     [rows],
   )
-  const items = useMemo(() => searchItems(conversation, query), [conversation, query])
+  const items = useMemo(
+    () => searchItems(conversation, query),
+    [conversation, query],
+  )
 
   // Speech on demand: the hover tools read one reply aloud.
   const speaker = useMemo(
@@ -160,12 +181,27 @@ export function Timeline({
   )
 
   if (timeline.isPending) {
-    return <div className="timeline-empty"><PageState icon={MessageSquare} title="Loading conversation…" /></div>
+    return (
+      <div className="timeline-empty">
+        <PageState icon={MessageSquare} title="Loading conversation…" />
+      </div>
+    )
   }
   if (timeline.isError) {
-    return <div className="timeline-empty"><PageState icon={MessageSquare} title="Could not load this conversation" onRetry={() => { void timeline.refetch() }}>
-      Your messages could not be retrieved. Try again when Pagis is connected.
-    </PageState></div>
+    return (
+      <div className="timeline-empty">
+        <PageState
+          icon={MessageSquare}
+          title="Could not load this conversation"
+          onRetry={() => {
+            void timeline.refetch()
+          }}
+        >
+          Your messages could not be retrieved. Try again when Pagis is
+          connected.
+        </PageState>
+      </div>
+    )
   }
   if (items.length === 0 && query.trim() !== '') {
     return (
@@ -179,9 +215,14 @@ export function Timeline({
   if (items.length === 0) {
     return (
       <div className="timeline-empty">
-        <PageState icon={MessageSquare} title={dmPartner === undefined
-          ? 'No messages yet. Say hello.'
-          : `Say hello to ${dmPartner}`}>
+        <PageState
+          icon={MessageSquare}
+          title={
+            dmPartner === undefined
+              ? 'No messages yet. Say hello.'
+              : `Say hello to ${dmPartner}`
+          }
+        >
           {channel?.kind === 'group'
             ? 'Use @mentions to ask a sprite to join the conversation.'
             : 'Start with a question, a task, or an idea.'}
@@ -205,7 +246,10 @@ export function Timeline({
     }
     if (item.kind === 'unread') {
       return (
-        <div className="timeline-divider timeline-divider-new" data-testid="unread-marker">
+        <div
+          className="timeline-divider timeline-divider-new"
+          data-testid="unread-marker"
+        >
           New
         </div>
       )
@@ -229,7 +273,7 @@ export function Timeline({
       )
     }
     if (item.kind === 'outcome') {
-      const question = questionBefore(items, index)
+      const question = questionBefore(items, index, person?.id)
       return (
         <OutcomeLine
           api={api}
@@ -249,15 +293,15 @@ export function Timeline({
       <MessageRow
         api={api}
         row={item.row}
+        personId={person?.id}
         grouped={item.grouped}
         work={item.work}
         authorAppearance={agentAppearance(item.row.authorId)}
         authorName={
-          item.row.authorKind === 'person'
+          item.row.authorName ||
+          (item.row.authorId === person?.id
             ? personName
-            : item.row.authorId === null
-            ? undefined
-            : agentNames[item.row.authorId]
+            : agentName(item.row.authorId))
         }
         onRetry={(pendingId, text) => send.mutate({ pendingId, text })}
         onOpenThread={onOpenThread}

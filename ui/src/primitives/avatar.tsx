@@ -12,6 +12,31 @@ export function avatarInitial(name: string): string {
   return first === undefined ? '?' : first.toUpperCase()
 }
 
+/** A Person's initial, with no Agent appearance. */
+export function PersonAvatar({
+  name,
+  size = 'md',
+  className,
+}: {
+  name: string
+  size?: AvatarSize
+  className?: string
+}) {
+  return (
+    <span
+      className={cx(
+        'ui-avatar',
+        `ui-avatar-${size}`,
+        'ui-avatar-person',
+        className,
+      )}
+      aria-hidden
+    >
+      {avatarInitial(name)}
+    </span>
+  )
+}
+
 /** The user's own face. The user is not an Agent, so it takes none of
  *  the Agent hues: a hashed hue can land on the ground it is drawn on
  *  and disappear, and the owner reads as one person in every place
@@ -30,18 +55,15 @@ export function OwnerAvatar({
   outlined?: boolean
 }) {
   return (
-    <span
+    <PersonAvatar
+      name={name}
+      size={size}
       className={cx(
-        'ui-avatar',
-        `ui-avatar-${size}`,
         'ui-avatar-owner',
         outlined && 'ui-avatar-owner-outlined',
         className,
       )}
-      aria-hidden
-    >
-      {avatarInitial(name)}
-    </span>
+    />
   )
 }
 

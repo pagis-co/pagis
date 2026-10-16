@@ -971,6 +971,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/colleagues": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_colleagues"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/computers/disk": {
         parameters: {
             query?: never;
@@ -1095,6 +1111,38 @@ export interface paths {
          *     editor. One rule alone in the body gives the rule editor its line.
          */
         post: operations["preview_filter"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/conversations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_conversations"];
+        put?: never;
+        post: operations["start_conversation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/conversations/{conversation_id}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_conversation_messages"];
+        put?: never;
+        post: operations["send_conversation_message"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3844,6 +3892,16 @@ export interface components {
             /** @description The ISO 4217 code of `cost_amount`. */
             cost_currency?: string | null;
         };
+        ColleagueDto: {
+            name: string;
+            person_id: string;
+            /** @description `active` or `away`, from the Private Workspace's client input. */
+            presence: string;
+            workspace_id: string;
+        };
+        ColleaguePage: {
+            items: components["schemas"]["ColleagueDto"][];
+        };
         /**
          * @description The optional onboarding extras: the user's name seeds shared
          *     memory so every agent knows what to call them.
@@ -4067,6 +4125,22 @@ export interface components {
             /** @description `open`, `merged`, or `declined`. */
             status: string;
             summary: string;
+        };
+        ConversationDto: {
+            id: string;
+            last_message?: null | components["schemas"]["MessageDto"];
+            participants: components["schemas"]["ColleagueDto"][];
+        };
+        ConversationMessageRequest: {
+            pending_id: string;
+            text: string;
+        };
+        ConversationMessages: {
+            items: components["schemas"]["MessageDto"][];
+            next_cursor?: string | null;
+        };
+        ConversationPage: {
+            items: components["schemas"]["ConversationDto"][];
         };
         CreateAccountRequest: {
             email: string;
@@ -6789,6 +6863,9 @@ export interface components {
             connection_id: string;
             resource: string;
             workspace_id: string;
+        };
+        StartConversationRequest: {
+            workspace_ids: string[];
         };
         StartSignInRequest: {
             method: components["schemas"]["HarnessSignInMethod"];
@@ -10111,6 +10188,25 @@ export interface operations {
             };
         };
     };
+    list_colleagues: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ColleaguePage"];
+                };
+            };
+        };
+    };
     computer_disk: {
         parameters: {
             query?: never;
@@ -10282,6 +10378,123 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FilterPreview"];
+                };
+            };
+        };
+    };
+    list_conversations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationPage"];
+                };
+            };
+        };
+    };
+    start_conversation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartConversationRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationDto"];
+                };
+            };
+        };
+    };
+    list_conversation_messages: {
+        parameters: {
+            query?: {
+                /** @description Exclusive ULID cursor: only messages older than this id. */
+                before?: string | null;
+                /** @description Page size, default 50, max 200. */
+                limit?: number | null;
+            };
+            header?: never;
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationMessages"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    send_conversation_message: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConversationMessageRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageDto"];
+                };
+            };
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageDto"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
                 };
             };
         };

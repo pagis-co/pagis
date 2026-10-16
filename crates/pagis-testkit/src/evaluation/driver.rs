@@ -478,6 +478,7 @@ impl Replay {
                     workspace_id: self.workspace.clone(),
                     channel_id: channel.id.clone(),
                     kind,
+                    participant_workspace_id: None,
                     agent_id,
                     joined_at: now,
                 })

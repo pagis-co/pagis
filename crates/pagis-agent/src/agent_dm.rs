@@ -63,6 +63,7 @@ impl AgentDm {
                     workspace_id: workspace_id.clone(),
                     channel_id: channel.id.clone(),
                     kind: ParticipantKind::Agent,
+                    participant_workspace_id: None,
                     agent_id: Some(agent_id.clone()),
                     joined_at: now,
                 })

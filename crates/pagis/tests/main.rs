@@ -30,6 +30,7 @@ mod computer;
 mod connect;
 mod connection_grants;
 mod connections;
+mod conversations;
 mod credential_grants;
 mod cross_origin;
 mod delegation;
