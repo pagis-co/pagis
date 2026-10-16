@@ -8,7 +8,8 @@ alphabetical inside each section. The decisions and their reasons are in
 
 ### Administration Interface
 What an Administrator reads and changes about the installation: the spend
-and the last sign-in of each Person, the Sessions, the Hosts, the resources
+and Spend Cap of each Workspace, the last sign-in of each Person, the
+Sessions, the Hosts, the resources
 of each Person, the provider setup, the System Settings, the Plugins, the
 restart and the health of the daemon. The Administration Port serves it.
 The server names the sections it offers. The deployment can hide the
@@ -334,9 +335,9 @@ _Avoid_: update (of an installation), migration
 
 ### Administrator
 The role that configures the installation: it manages the People, their
-passwords and Spend Caps, reads spend, and sets up the providers, the
-System Settings and the Plugins. Every Org has at least one: the seeded
-Person of a Local Installation, or the first Person of Server Setup
+passwords, sets each Workspace's Spend Cap, reads spend, and sets up the
+providers, the System Settings and the Plugins. Every Org has at least one:
+the seeded Person of a Local Installation, or the first Person of Server Setup
 (ADR-0023).
 
 ### Allow Rule
@@ -384,9 +385,10 @@ Not built: access to a Shared Workspace through its own role.
 The installation, as the People in it share it. One installation is one
 Org. It holds the provider keys, Installation OAuth Client, Installation
 Connections, installed Plugins, System Settings, People with their Org
-roles, and Awake Cap. An Administrator sets each Spend Cap (ADR-0023).
+roles, and Awake Cap. An Administrator sets a Spend Cap for each Workspace
+(ADR-0023).
 Not built: Shared Workspaces, guests and Org policy for their access and
-resources. The Spend Cap belongs to a Workspace in this model (ADR-0039).
+resources. The Spend Cap belongs to a Workspace (ADR-0039).
 
 ### Org's Workspace
 The Workspace that the Org owns and no Person owns. It holds the installed
@@ -470,13 +472,11 @@ _Avoid_: pairing code, magic link, invite token
 
 ### Spend Cap
 The most a Workspace may spend on model calls in a calendar month of its
-timezone, in US dollars. An Administrator sets it. A Run checks the cap of
-the Workspace it runs in before each model call. It stops before a call
-that exceeds the cap or uses a model with no known price. Its earlier
-replies stay, with a note that says why it stopped. No cap means no stop
-(ADR-0023, ADR-0039).
-Not built: a Spend Cap independent of a Person. The daemon sets a cap for
-each Person and counts spend for each Workspace.
+timezone, in US dollars. An Administrator sets it for each Workspace. A Run
+checks the cap of the Workspace it runs in before each model call. It stops
+before a call that exceeds the cap or uses a model with no known price. Its
+earlier replies stay, with a note that says why it stopped. No cap means no
+stop (ADR-0023, ADR-0039).
 _Avoid_: quota, spend limit
 
 ### Usage Record

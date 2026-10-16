@@ -20,7 +20,6 @@ const ADMINISTRATOR = {
   workspace_id: 'ws-1',
   disabled: false,
   last_signed_in_at: 1_700_000_000_000,
-  monthly_spend_cap_usd: null,
   created_at: 1,
 }
 
@@ -32,7 +31,6 @@ const MEMBER = {
   workspace_id: 'ws-2',
   disabled: false,
   last_signed_in_at: null,
-  monthly_spend_cap_usd: 25,
   created_at: 2,
 }
 
@@ -43,7 +41,6 @@ const MABEL = {
   email: 'mabel@example.com',
   name: 'Mabel',
   workspace_id: 'ws-3',
-  monthly_spend_cap_usd: null,
 }
 
 /** An invite as the daemon answers it: good for seven days. */
@@ -77,8 +74,8 @@ function stubApi() {
             to: 1,
             total: total(30),
             items: [
-              { person: MEMBER, total: total(26), cap_reached: true },
-              { person: ADMINISTRATOR, total: total(4), cap_reached: false },
+              { workspace: { person: MEMBER }, total: total(26), cap_reached: true },
+              { workspace: { person: ADMINISTRATOR }, total: total(4), cap_reached: false },
             ],
           },
         }
@@ -108,18 +105,13 @@ function mount(api: ReturnType<typeof stubApi>) {
 }
 
 describe('People', () => {
-  it('names every person with their role, their spend and their cap', async () => {
+  it('names every Person with their role and spend, with no cap control', async () => {
     mount(stubApi())
 
     expect(await screen.findByText('Ada')).toBeTruthy()
     const grace = (await screen.findByText('Grace')).closest('.people-row') as HTMLElement
     expect(within(grace).getByText('grace@example.com')).toBeTruthy()
-    expect(within(grace).getByText('$26.00 this month')).toBeTruthy()
-    // The roster says who is stopped.
-    expect(within(grace).getByText('At their cap')).toBeTruthy()
-    expect(
-      (within(grace).getByLabelText('Monthly spend cap for Grace') as HTMLInputElement).value,
-    ).toBe('25')
+    expect(within(grace).queryByLabelText('Monthly spend cap for Grace')).toBeNull()
 
     const ada = (screen.getByText('Ada').closest('.people-row')) as HTMLElement
     expect(within(ada).getByText('Administrator')).toBeTruthy()
@@ -266,44 +258,6 @@ describe('People', () => {
       expect(api.POST).toHaveBeenCalledWith(
         '/api/v1/administration/people/{user_id}/enable',
         { params: { path: { user_id: 'u-grace' } } },
-      ),
-    )
-  })
-
-  it('saves a cap, clears one, and refuses a cap that is not an amount', async () => {
-    const api = stubApi()
-    mount(api)
-    const grace = (await screen.findByText('Grace')).closest('.people-row') as HTMLElement
-    const cap = within(grace).getByLabelText('Monthly spend cap for Grace')
-    const save = within(grace).getByRole('button', { name: 'Save the spend cap for Grace' })
-
-    await userEvent.clear(cap)
-    await userEvent.type(cap, '-5')
-    expect(save.getAttribute('disabled')).not.toBeNull()
-
-    await userEvent.clear(cap)
-    await userEvent.type(cap, '40')
-    await userEvent.click(save)
-    await waitFor(() =>
-      expect(api.PUT).toHaveBeenCalledWith(
-        '/api/v1/administration/people/{user_id}/spend-cap',
-        {
-          params: { path: { user_id: 'u-grace' } },
-          body: { monthly_spend_cap_usd: 40 },
-        },
-      ),
-    )
-
-    // An empty field is no cap at all.
-    await userEvent.clear(cap)
-    await userEvent.click(save)
-    await waitFor(() =>
-      expect(api.PUT).toHaveBeenCalledWith(
-        '/api/v1/administration/people/{user_id}/spend-cap',
-        {
-          params: { path: { user_id: 'u-grace' } },
-          body: { monthly_spend_cap_usd: null },
-        },
       ),
     )
   })

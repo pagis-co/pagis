@@ -24,6 +24,7 @@ const EVERYTHING: UsagePeriod = UsagePeriod {
 /// A second Workspace of the same Org, for the reads that cross one.
 async fn second_workspace(backend: &Backend, first: &Workspace) -> Workspace {
     let second = Workspace {
+        monthly_spend_cap_usd: None,
         id: WorkspaceId::generate(),
         ..first.clone()
     };
@@ -347,47 +348,46 @@ pub async fn a_password_is_reset_and_taken_away(backend: &Backend) {
 }
 
 pub async fn a_spend_cap_is_set_and_cleared(backend: &Backend) {
-    let person = seed_org_and_administrator(
-        backend.stores().orgs.as_ref(),
-        backend.stores().users.as_ref(),
-        "Org",
-        now_ms(),
-    )
-    .await
-    .unwrap();
-    let users = &backend.stores().users;
-    assert_eq!(person.monthly_spend_cap_usd, None);
-
-    assert!(
-        users
-            .set_monthly_spend_cap(&person.id, Some(25.5), 1_000)
-            .await
-            .unwrap()
-    );
+    let workspace = backend.seeded_workspace().await;
+    let workspaces = &backend.stores().workspaces;
+    assert_eq!(workspace.monthly_spend_cap_usd, None);
+    let other = Workspace {
+        id: WorkspaceId::generate(),
+        monthly_spend_cap_usd: Some(75.5),
+        ..workspace.clone()
+    };
+    workspaces.create(&other).await.unwrap();
+    for cap in [Some(25.5), Some(0.0), None] {
+        assert!(
+            workspaces
+                .set_monthly_spend_cap(&workspace.id, cap)
+                .await
+                .unwrap()
+        );
+        assert_eq!(
+            workspaces
+                .get(&workspace.id)
+                .await
+                .unwrap()
+                .unwrap()
+                .monthly_spend_cap_usd,
+            cap
+        );
+    }
     assert_eq!(
-        users
-            .get(&person.id)
+        workspaces
+            .get(&other.id)
             .await
             .unwrap()
             .unwrap()
             .monthly_spend_cap_usd,
-        Some(25.5)
+        Some(75.5)
     );
-
     assert!(
-        users
-            .set_monthly_spend_cap(&person.id, None, 2_000)
+        !workspaces
+            .set_monthly_spend_cap(&WorkspaceId::generate(), Some(1.0))
             .await
             .unwrap()
-    );
-    assert_eq!(
-        users
-            .get(&person.id)
-            .await
-            .unwrap()
-            .unwrap()
-            .monthly_spend_cap_usd,
-        None
     );
 }
 
@@ -518,15 +518,9 @@ pub async fn a_missing_person_refuses_every_administrator_write(backend: &Backen
             .await
             .unwrap()
     );
-    assert!(
-        !users
-            .set_monthly_spend_cap(&missing, Some(1.0), 1)
-            .await
-            .unwrap()
-    );
 }
 
-/// A second Person of the same Org keeps their own role and cap: the
+/// A second Person of the same Org keeps their own role: the
 /// role is one column with two values and nothing else keys on it.
 pub async fn two_people_of_one_org_keep_their_own_role(backend: &Backend) {
     let administrator = seed_org_and_administrator(

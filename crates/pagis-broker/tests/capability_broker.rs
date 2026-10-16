@@ -25,6 +25,7 @@ async fn workspace(pool: &SqlitePool) -> Workspace {
             .await
             .unwrap();
     Workspace {
+        monthly_spend_cap_usd: None,
         user_id: person.id,
         id: WorkspaceId::generate(),
         name: "Workspace".to_string(),
@@ -177,6 +178,7 @@ impl Harness {
 /// person never reaches another person's records.
 pub async fn second_workspace(harness: &Harness) -> Workspace {
     let workspace = Workspace {
+        monthly_spend_cap_usd: None,
         id: WorkspaceId::generate(),
         ..harness.workspace.clone()
     };
@@ -2166,6 +2168,7 @@ struct Tenant {
 
 async fn second_tenant(harness: &Harness) -> Tenant {
     let workspace = Workspace {
+        monthly_spend_cap_usd: None,
         id: WorkspaceId::generate(),
         name: "Second Workspace".to_string(),
         ..harness.workspace.clone()

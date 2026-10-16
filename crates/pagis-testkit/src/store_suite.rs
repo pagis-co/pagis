@@ -172,6 +172,7 @@ impl Backend {
         .await
         .expect("seed the Org and its administrator");
         let workspace = Workspace {
+            monthly_spend_cap_usd: None,
             id: WorkspaceId::generate(),
             user_id: person.id,
             ..crate::fixture::workspace()

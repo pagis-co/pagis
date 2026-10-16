@@ -6,7 +6,7 @@
 //! (ADR-0028), and makes a new invite when that one expired. An
 //! Administrator disables and re-enables an account, resets a password,
 //! reads the roster with the last sign-in, reads what each person spent,
-//! sets each Person's role, and sets each person's monthly Spend Cap.
+//! sets each Person's role, and sets each Workspace's monthly Spend Cap.
 //!
 //! Creating an account writes the person's Workspace through the same
 //! seed a local first run uses ([`crate::provisioning`]), so a person
@@ -48,8 +48,7 @@ use axum::response::Response;
 use axum::routing::{delete, get, post, put};
 use axum::{Json, Router, middleware};
 use pagis_core::{
-    RunState, RunUsage, UsagePeriod, UsageTotal, User, UserId, UserRole, WorkspaceId,
-    WorkspaceUsage,
+    RunState, RunUsage, UsagePeriod, UsageTotal, User, UserId, UserRole, Workspace, WorkspaceId,
 };
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
@@ -128,6 +127,7 @@ impl AdministrationSections {
         [
             ("spend", None),
             ("people", None),
+            ("workspaces", None),
             ("sessions", None),
             ("hosts", Some(Hosts)),
             ("resources", None),
@@ -205,8 +205,6 @@ pub struct PersonDto {
     pub disabled: bool,
     /// When a client last signed in as this Person.
     pub last_signed_in_at: Option<i64>,
-    /// The monthly Spend Cap in US dollars, or `null` for no cap.
-    pub monthly_spend_cap_usd: Option<f64>,
     pub created_at: i64,
 }
 
@@ -247,6 +245,56 @@ pub struct SetSpendCapRequest {
     pub monthly_spend_cap_usd: Option<f64>,
 }
 
+/// A Workspace and its owner, with the current month's spend.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AdministrationWorkspaceDto {
+    pub id: String,
+    pub name: String,
+    pub person: PersonDto,
+    pub total: UsageTotalDto,
+    pub monthly_spend_cap_usd: Option<f64>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AdministrationWorkspacesDto {
+    pub items: Vec<AdministrationWorkspaceDto>,
+}
+
+async fn workspace_dto(
+    state: &AppState,
+    workspace: &Workspace,
+) -> Result<AdministrationWorkspaceDto, ApiError> {
+    let person = person_of(state, workspace.user_id.as_str()).await?;
+    let month = UsagePeriod::calendar_month(state.clock.now_ms(), &workspace.timezone);
+    let total = state
+        .usage
+        .total_for_workspace(&workspace.id, month)
+        .await?;
+    Ok(AdministrationWorkspaceDto {
+        id: workspace.id.to_string(),
+        name: workspace.name.clone(),
+        person: person_dto(&person, Some(&workspace.id)),
+        total: total.into(),
+        monthly_spend_cap_usd: workspace.monthly_spend_cap_usd,
+    })
+}
+
+#[utoipa::path(get, path = "/api/v1/administration/workspaces", responses(
+    (status = 200, body = AdministrationWorkspacesDto),
+    (status = 401, body = crate::error::ErrorBody),
+    (status = 403, body = crate::error::ErrorBody),
+))]
+pub async fn list_workspaces(
+    State(state): State<Arc<AppState>>,
+    _administrator: Administrator,
+) -> Result<Json<AdministrationWorkspacesDto>, ApiError> {
+    let mut items = Vec::new();
+    for workspace in state.workspaces.list().await? {
+        items.push(workspace_dto(&state, &workspace).await?);
+    }
+    Ok(Json(AdministrationWorkspacesDto { items }))
+}
+
 /// The period a usage read answers for. Both ends are Unix
 /// milliseconds; leaving them out reads the calendar month the
 /// installation is in, which is the period the Spend Cap counts.
@@ -271,13 +319,13 @@ pub struct UsageTotalDto {
     pub unpriced_calls: i64,
 }
 
-/// What one Person spent over the period, for the Administrator's read.
+/// What one Workspace spent over the period, for the Administrator's read.
 #[derive(Debug, Serialize, ToSchema)]
-pub struct PersonUsageDto {
-    pub person: PersonDto,
+pub struct WorkspaceUsageDto {
+    pub workspace: AdministrationWorkspaceDto,
     pub total: UsageTotalDto,
     /// True when the period is the current month and the total has
-    /// reached the person's cap, so the roster says who is stopped.
+    /// reached the Workspace's cap.
     pub cap_reached: bool,
 }
 
@@ -285,8 +333,8 @@ pub struct PersonUsageDto {
 pub struct InstallationUsageDto {
     pub from: i64,
     pub to: i64,
-    pub items: Vec<PersonUsageDto>,
-    /// Every person's spend added up.
+    pub items: Vec<WorkspaceUsageDto>,
+    /// Every Workspace's spend added up.
     pub total: UsageTotalDto,
 }
 
@@ -300,13 +348,13 @@ pub struct RunSpendDto {
     pub last_at: i64,
 }
 
-/// What the signed-in person spent, and the cap they are under.
+/// What the current Workspace spent, and its Spend Cap.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct MyUsageDto {
     pub from: i64,
     pub to: i64,
     pub total: UsageTotalDto,
-    /// The person's monthly Spend Cap, or `null` where they have none.
+    /// The current Workspace's monthly Spend Cap, or `null` for no cap.
     pub monthly_spend_cap_usd: Option<f64>,
     pub runs: Vec<RunSpendDto>,
 }
@@ -344,7 +392,6 @@ pub(crate) fn person_dto(person: &User, workspace_id: Option<&WorkspaceId>) -> P
         workspace_id: workspace_id.map(|id| id.to_string()),
         disabled: person.is_disabled(),
         last_signed_in_at: person.last_signed_in_at,
-        monthly_spend_cap_usd: person.monthly_spend_cap_usd,
         created_at: person.created_at,
     }
 }
@@ -719,11 +766,11 @@ pub async fn reset_password(
 
 #[utoipa::path(
     put,
-    path = "/api/v1/administration/people/{user_id}/spend-cap",
-    params(("user_id" = String, Path, description = "The person")),
+    path = "/api/v1/administration/workspaces/{workspace_id}/spend-cap",
+    params(("workspace_id" = String, Path, description = "The Workspace")),
     request_body = SetSpendCapRequest,
     responses(
-        (status = 200, body = PersonDto),
+        (status = 200, body = AdministrationWorkspaceDto),
         (status = 401, body = crate::error::ErrorBody),
         (status = 403, body = crate::error::ErrorBody),
         (status = 404, body = crate::error::ErrorBody),
@@ -732,24 +779,47 @@ pub async fn reset_password(
 )]
 pub async fn set_spend_cap(
     State(state): State<Arc<AppState>>,
-    _administrator: Administrator,
-    Path(user_id): Path<String>,
+    administrator: Administrator,
+    Path(workspace_id): Path<String>,
     Json(request): Json<SetSpendCapRequest>,
-) -> Result<Json<PersonDto>, ApiError> {
-    let person = person_of(&state, &user_id).await?;
+) -> Result<Json<AdministrationWorkspaceDto>, ApiError> {
+    let workspace_id = WorkspaceId::from(workspace_id);
+    let mut workspace = state
+        .workspaces
+        .get(&workspace_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("that Workspace"))?;
     if let Some(cap) = request.monthly_spend_cap_usd
-        && !(cap.is_finite() && cap > 0.0)
+        && !(cap.is_finite() && cap >= 0.0)
     {
         return Err(ApiError::validation(
-            "a spend cap is a positive number of dollars, or null for none",
+            "a spend cap is a non-negative number of dollars, or null for none",
         ));
     }
-    let now = state.clock.now_ms();
     state
-        .users
-        .set_monthly_spend_cap(&person.id, request.monthly_spend_cap_usd, now)
+        .workspaces
+        .set_monthly_spend_cap(&workspace.id, request.monthly_spend_cap_usd)
         .await?;
-    read_person(&state, &person.id).await
+    if workspace.monthly_spend_cap_usd != request.monthly_spend_cap_usd {
+        state
+            .bus
+            .publish(pagis_core::NewEvent {
+                workspace_id: org(&state).await?.workspace_id,
+                event_type: "workspace.spend_cap_changed".to_string(),
+                agent_id: None,
+                run_id: None,
+                channel_id: None,
+                payload: serde_json::json!({
+                    "administrator_id": administrator.user_id,
+                    "workspace_id": workspace.id,
+                    "previous_monthly_spend_cap_usd": workspace.monthly_spend_cap_usd,
+                    "monthly_spend_cap_usd": request.monthly_spend_cap_usd,
+                }),
+            })
+            .await?;
+    }
+    workspace.monthly_spend_cap_usd = request.monthly_spend_cap_usd;
+    Ok(Json(workspace_dto(&state, &workspace).await?))
 }
 
 async fn read_person(state: &AppState, id: &UserId) -> Result<Json<PersonDto>, ApiError> {
@@ -765,7 +835,7 @@ async fn read_person(state: &AppState, id: &UserId) -> Result<Json<PersonDto>, A
     )))
 }
 
-/// Spend per person for a period. This is the read that answers
+/// Spend per Workspace for a period. This is the read that answers
 /// the first billing question, and it is the Administrator's alone.
 #[utoipa::path(
     get,
@@ -783,29 +853,18 @@ pub async fn installation_usage(
     Query(query): Query<PeriodQuery>,
 ) -> Result<Json<InstallationUsageDto>, ApiError> {
     let period = period(&state, &administrator, &query).await;
-    let by_workspace: std::collections::HashMap<String, UsageTotal> = state
-        .usage
-        .totals_by_workspace(period)
-        .await?
-        .into_iter()
-        .map(
-            |WorkspaceUsage {
-                 workspace_id,
-                 total,
-             }| (workspace_id.to_string(), total),
-        )
-        .collect();
-
-    let org = org(&state).await?;
     let mut items = Vec::new();
     let mut total = UsageTotal::default();
-    for person in state.users.list_by_org(&org.id).await? {
-        let workspace = state.workspaces.for_user(&person.id).await?;
-        let spent = workspace
-            .as_ref()
-            .and_then(|workspace| by_workspace.get(&workspace.id.to_string()))
-            .cloned()
-            .unwrap_or_default();
+    for workspace in state.workspaces.list().await? {
+        let month = UsagePeriod::calendar_month(state.clock.now_ms(), &workspace.timezone);
+        let workspace_period = UsagePeriod {
+            from: query.from.unwrap_or(month.from),
+            to: query.to.unwrap_or(month.to),
+        };
+        let spent = state
+            .usage
+            .total_for_workspace(&workspace.id, workspace_period)
+            .await?;
         total.input_tokens += spent.input_tokens;
         total.output_tokens += spent.output_tokens;
         total.cache_read_tokens += spent.cache_read_tokens;
@@ -813,11 +872,11 @@ pub async fn installation_usage(
         total.cost_usd += spent.cost_usd;
         total.calls += spent.calls;
         total.unpriced_calls += spent.unpriced_calls;
-        let cap_reached = person
+        let cap_reached = workspace
             .monthly_spend_cap_usd
-            .is_some_and(|cap| spent.cost_usd >= cap);
-        items.push(PersonUsageDto {
-            person: person_dto(&person, workspace.as_ref().map(|workspace| &workspace.id)),
+            .is_some_and(|cap| workspace_period == month && spent.cost_usd >= cap);
+        items.push(WorkspaceUsageDto {
+            workspace: workspace_dto(&state, &workspace).await?,
             total: spent.into(),
             cap_reached,
         });
@@ -829,7 +888,7 @@ pub async fn installation_usage(
             .total
             .cost_usd
             .total_cmp(&left.total.cost_usd)
-            .then_with(|| left.person.id.cmp(&right.person.id))
+            .then_with(|| left.workspace.id.cmp(&right.workspace.id))
     });
     Ok(Json(InstallationUsageDto {
         from: period.from,
@@ -865,10 +924,10 @@ pub async fn my_usage(
         .runs_for_workspace(&tenant.workspace_id, period, RUN_PAGE)
         .await?;
     let cap = state
-        .users
-        .get(&tenant.user_id)
+        .workspaces
+        .get(&tenant.workspace_id)
         .await?
-        .and_then(|person| person.monthly_spend_cap_usd);
+        .and_then(|workspace| workspace.monthly_spend_cap_usd);
     Ok(Json(MyUsageDto {
         from: period.from,
         to: period.to,
@@ -1241,9 +1300,10 @@ pub fn router(state: Arc<AppState>) -> Router {
             post(crate::sign_in_links::make_invite_link),
         )
         .route(
-            "/api/v1/administration/people/{user_id}/spend-cap",
+            "/api/v1/administration/workspaces/{workspace_id}/spend-cap",
             put(set_spend_cap),
         )
+        .route("/api/v1/administration/workspaces", get(list_workspaces))
         .route("/api/v1/administration/usage", get(installation_usage))
         .route("/api/v1/administration/sessions", get(list_sessions))
         .route("/api/v1/administration/health", get(installation_health))

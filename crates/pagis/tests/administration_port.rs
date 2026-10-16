@@ -20,6 +20,7 @@ const PASSWORD: &str = "correct horse battery";
 const SECTIONS: &[&str] = &[
     "spend",
     "people",
+    "workspaces",
     "sessions",
     "hosts",
     "resources",
@@ -248,6 +249,7 @@ fn path_of(route: &pagis_server::Route, user_id: &str) -> String {
     route
         .path
         .replace("{user_id}", user_id)
+        .replace("{workspace_id}", "ws_none")
         .replace("{provider}", "anthropic")
         .replace("{plugin_id}", "plg_none")
         .replace("{field}", "none")

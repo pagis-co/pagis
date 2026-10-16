@@ -2,6 +2,7 @@
 export type AdministrationView =
   | 'spend'
   | 'people'
+  | 'workspaces'
   | 'sessions'
   | 'resources'
   | 'providers'
@@ -12,6 +13,7 @@ export type AdministrationView =
 export const ADMINISTRATION_VIEWS: { value: AdministrationView; label: string }[] = [
   { value: 'spend', label: 'Spend' },
   { value: 'people', label: 'People' },
+  { value: 'workspaces', label: 'Workspaces' },
   { value: 'sessions', label: 'Sessions' },
   { value: 'resources', label: 'Resources' },
   { value: 'providers', label: 'Providers' },

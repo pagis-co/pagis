@@ -115,7 +115,6 @@ pub async fn seed_org_and_administrator(
         role: crate::identity::UserRole::Administrator,
         disabled_at: None,
         last_signed_in_at: None,
-        monthly_spend_cap_usd: None,
         created_at: now,
         updated_at: now,
     };

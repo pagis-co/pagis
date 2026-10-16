@@ -498,7 +498,6 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
             keys: Arc::clone(&keys),
             provider_base_urls: options.provider_base_urls.clone(),
             workspaces: Arc::clone(&workspaces) as _,
-            users: stores.users.clone(),
             usage: stores.usage.clone(),
             models: Arc::clone(&models),
             clock: Arc::clone(&options.clock),
@@ -1283,7 +1282,6 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         brain: Arc::clone(&brain),
         gate: Arc::new(pagis_agent::SpendCapGate {
             workspaces: Arc::clone(&workspaces) as _,
-            users: stores.users.clone(),
             usage: stores.usage.clone(),
             models: Arc::clone(&models),
             clock: Arc::clone(&options.clock),

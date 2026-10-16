@@ -776,6 +776,7 @@ mod installation_client {
             .stores()
             .workspaces
             .create(&Workspace {
+                monthly_spend_cap_usd: None,
                 id: WorkspaceId::generate(),
                 user_id: grace.id.clone(),
                 name: "Grace".to_string(),

@@ -21,6 +21,7 @@ pub async fn seeded_workspace(pool: &sqlx::SqlitePool) -> Workspace {
         .await
         .expect("seed the org and its administrator");
     Workspace {
+        monthly_spend_cap_usd: None,
         user_id: person.id,
         ..workspace()
     }
@@ -30,6 +31,7 @@ pub async fn seeded_workspace(pool: &sqlx::SqlitePool) -> Workspace {
 /// person, so this one is for a test that keeps its records in memory.
 pub fn workspace() -> Workspace {
     Workspace {
+        monthly_spend_cap_usd: None,
         id: WorkspaceId::generate(),
         user_id: UserId::generate(),
         name: "Workspace".to_string(),

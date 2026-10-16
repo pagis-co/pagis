@@ -65,6 +65,7 @@ fn subscription(
 /// one.
 async fn second_workspace(backend: &Backend, first: &Workspace) -> Workspace {
     let second = Workspace {
+        monthly_spend_cap_usd: None,
         id: WorkspaceId::generate(),
         ..first.clone()
     };

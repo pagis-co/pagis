@@ -2,6 +2,18 @@ use super::*;
 
 #[async_trait::async_trait]
 impl WorkspaceStore for FakeWorkspaceStore {
+    async fn set_monthly_spend_cap(
+        &self,
+        id: &WorkspaceId,
+        cap_usd: Option<f64>,
+    ) -> Result<bool, StoreError> {
+        let mut data = self.0.lock().unwrap();
+        let Some(row) = data.workspaces.get_mut(id) else {
+            return Ok(false);
+        };
+        row.monthly_spend_cap_usd = cap_usd;
+        Ok(true)
+    }
     async fn create(&self, workspace: &Workspace) -> Result<(), StoreError> {
         let mut data = self.0.lock().unwrap();
         if data
@@ -318,20 +330,6 @@ impl UserStore for FakeUserStore {
         let person = data.users.get_mut(id).unwrap();
         person.role = role;
         person.updated_at = at;
-        Ok(true)
-    }
-    async fn set_monthly_spend_cap(
-        &self,
-        id: &UserId,
-        cap_usd: Option<f64>,
-        at: UnixMillis,
-    ) -> Result<bool, StoreError> {
-        let mut data = self.0.lock().unwrap();
-        let Some(row) = data.users.get_mut(id) else {
-            return Ok(false);
-        };
-        row.monthly_spend_cap_usd = cap_usd;
-        row.updated_at = at;
         Ok(true)
     }
     async fn record_sign_in(&self, id: &UserId, at: UnixMillis) -> Result<(), StoreError> {

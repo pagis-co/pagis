@@ -34,7 +34,7 @@ use llm_router::{ForwardRequest, ProtocolKind, ProviderConfig, Router, RouterCon
 use pagis_agent::{CapReads, ModelCatalog};
 use pagis_core::{
     Clock, CodingSessionId, CodingSessionStore, ModelTokenOwner, Provider, ProviderKeys,
-    StoreError, UsageId, UsageRecord, UsageStore, UserStore, WorkspaceId, WorkspaceStore,
+    StoreError, UsageId, UsageRecord, UsageStore, WorkspaceId, WorkspaceStore,
 };
 use rand::RngCore;
 use serde::Deserialize;
@@ -97,7 +97,6 @@ pub struct HarnessModelDeps {
     /// Lists use. Production keeps the provider defaults.
     pub provider_base_urls: HashMap<Provider, String>,
     pub workspaces: Arc<dyn WorkspaceStore>,
-    pub users: Arc<dyn UserStore>,
     pub usage: Arc<dyn UsageStore>,
     pub models: Arc<ModelCatalog>,
     pub clock: Arc<dyn Clock>,
@@ -346,7 +345,6 @@ impl Endpoint {
         if call.costs() {
             let reads = CapReads {
                 workspaces: self.deps.workspaces.as_ref(),
-                users: self.deps.users.as_ref(),
                 usage: self.deps.usage.as_ref(),
                 models: self.deps.models.as_ref(),
                 clock: self.deps.clock.as_ref(),

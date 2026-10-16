@@ -3,7 +3,7 @@
 //! The router computes a cost per model call. These tests prove the
 //! daemon keeps it, attributes it to the Workspace and the Run, serves
 //! it to the person and to the Administrator, and stops a Run whose
-//! Person is at their monthly Spend Cap with a sentence in the
+//! Workspace is at its monthly Spend Cap with a sentence in the
 //! conversation.
 
 use std::sync::Arc;
@@ -149,10 +149,10 @@ async fn a_run_records_what_it_spent_and_the_person_reads_it() {
     );
 }
 
-/// The Administrator reads spend per person for a period, and one
+/// The Administrator reads spend per Workspace for a period, and one
 /// person's spend never lands on another's line.
 #[tokio::test]
-async fn the_administrator_reads_spend_per_person() {
+async fn the_administrator_reads_spend_per_workspace() {
     let brain = Arc::new(ScriptedBrain::default());
     brain.push(Script::reply_costing(&["Done."], usage(), 0.75));
     let daemon = TestDaemon::start_with(options(&brain)).await;
@@ -186,10 +186,13 @@ async fn the_administrator_reads_spend_per_person() {
     let items = usage["items"].as_array().expect("items");
     assert_eq!(items.len(), 2, "{usage}");
     // The biggest spender first.
-    assert_eq!(items[0]["person"]["id"], daemon.user_id.to_string());
+    assert_eq!(
+        items[0]["workspace"]["person"]["id"],
+        daemon.user_id.to_string()
+    );
     assert_eq!(items[0]["total"]["cost_usd"], 0.75);
     assert_eq!(items[0]["cap_reached"], false);
-    assert_eq!(items[1]["person"]["id"], person["id"]);
+    assert_eq!(items[1]["workspace"]["person"]["id"], person["id"]);
     assert_eq!(items[1]["total"]["cost_usd"], 0.0);
     assert_eq!(items[1]["total"]["calls"], 0);
 
@@ -203,12 +206,12 @@ async fn the_administrator_reads_spend_per_person() {
     assert_eq!(empty["total"]["cost_usd"], 0.0);
 }
 
-/// A person at their monthly Spend Cap is told so in the conversation,
+/// A Workspace at its monthly Spend Cap is told so in the conversation,
 /// and the Run ends with a failure kind a client can name. A
 /// silent stop would leave a sprite that does nothing and no reason for
 /// it.
 #[tokio::test]
-async fn a_person_at_their_spend_cap_is_told_so_in_the_conversation() {
+async fn a_workspace_at_its_spend_cap_stops_before_the_model_call() {
     let brain = Arc::new(ScriptedBrain::default());
     // The first turn spends past the cap; nothing scripts a second,
     // because the second Run must never reach a model at all.
@@ -218,8 +221,8 @@ async fn a_person_at_their_spend_cap_is_told_so_in_the_conversation() {
 
     let capped: serde_json::Value = client()
         .put(format!(
-            "{}/api/v1/administration/people/{}/spend-cap",
-            daemon.administration_base_url, daemon.user_id
+            "{}/api/v1/administration/workspaces/{}/spend-cap",
+            daemon.administration_base_url, daemon.workspace_id
         ))
         .header("cookie", daemon.cookie())
         .json(&serde_json::json!({ "monthly_spend_cap_usd": 1.0 }))
@@ -254,6 +257,13 @@ async fn a_person_at_their_spend_cap_is_told_so_in_the_conversation() {
         })
         .unwrap_or_else(|| panic!("the conversation says the cap was reached: {said:?}"));
     assert_eq!(note["run_id"], failed["id"]);
+    assert!(
+        note["text_content"]
+            .as_str()
+            .unwrap()
+            .contains("this Workspace's monthly spend cap")
+    );
+    assert_eq!(brain.requests().len(), 1);
 
     // The administrator's roster read says who is stopped.
     let usage = get(&daemon, daemon.cookie(), "/api/v1/administration/usage").await;
@@ -261,16 +271,16 @@ async fn a_person_at_their_spend_cap_is_told_so_in_the_conversation() {
         .as_array()
         .expect("items")
         .iter()
-        .find(|item| item["person"]["id"] == daemon.user_id.to_string())
+        .find(|item| item["workspace"]["person"]["id"] == daemon.user_id.to_string())
         .expect("the administrator's own line");
     assert_eq!(line["cap_reached"], true);
 }
 
-/// A cap cannot count a cost it does not know. A capped person's Run on
+/// A cap cannot count a cost it does not know. A capped Workspace's Run on
 /// a model that no layer prices stops before it asks the model, and the
 /// note names the model.
 #[tokio::test]
-async fn a_capped_person_does_not_start_on_a_model_without_a_price() {
+async fn a_capped_workspace_does_not_start_on_a_model_without_a_price() {
     let brain = Arc::new(ScriptedBrain::default());
     let daemon = TestDaemon::start_with(options(&brain)).await;
     let channel = daemon.dm_channel_id.clone();
@@ -287,8 +297,8 @@ async fn a_capped_person_does_not_start_on_a_model_without_a_price() {
     assert_eq!(routed.status(), StatusCode::OK);
     let capped = client()
         .put(format!(
-            "{}/api/v1/administration/people/{}/spend-cap",
-            daemon.administration_base_url, daemon.user_id
+            "{}/api/v1/administration/workspaces/{}/spend-cap",
+            daemon.administration_base_url, daemon.workspace_id
         ))
         .header("cookie", daemon.cookie())
         .json(&serde_json::json!({ "monthly_spend_cap_usd": 10.0 }))
@@ -331,11 +341,11 @@ async fn an_unpriced_call_reads_as_unknown_not_as_free() {
     assert_eq!(mine["total"]["cost_usd"], 0.0);
 }
 
-/// A person with no cap is never stopped, which is what a local
-/// installation holds: the one person has no cap and every run of theirs
+/// A Workspace with no cap is never stopped, which is what a local
+/// installation holds: the Workspace has no cap and every Run in it
 /// starts.
 #[tokio::test]
-async fn a_person_with_no_cap_is_never_stopped() {
+async fn a_workspace_with_no_cap_is_never_stopped() {
     let brain = Arc::new(ScriptedBrain::default());
     brain.push(Script::reply_costing(&["One."], usage(), 1_000.0));
     brain.push(Script::reply_costing(&["Two."], usage(), 1_000.0));
@@ -366,7 +376,7 @@ async fn a_person_with_no_cap_is_never_stopped() {
             .expect("items")
             .iter()
             .any(|run| run["failure_kind"] == "spend_cap_reached"),
-        "a person with no cap was stopped: {page}"
+        "a Workspace with no cap was stopped: {page}"
     );
 }
 
@@ -464,4 +474,48 @@ async fn a_refused_key_says_an_administrator_sets_up_the_providers() {
         "{text}"
     );
     assert_eq!(note["run_id"], failed["id"]);
+}
+
+/// Two Workspaces of one Person have separate caps.
+#[tokio::test]
+async fn one_workspaces_cap_does_not_stop_another_workspaces_run() {
+    let brain = Arc::new(ScriptedBrain::default());
+    brain.push(Script::reply_costing(&["Done."], usage(), 0.5));
+    let daemon = TestDaemon::start_with(options(&brain)).await;
+    let stores = daemon.stores();
+    let first = stores
+        .workspaces
+        .get(&daemon.workspace_id)
+        .await
+        .unwrap()
+        .unwrap();
+    let second = pagis_core::Workspace {
+        id: pagis_core::WorkspaceId::generate(),
+        name: "Other work".into(),
+        ..first
+    };
+    stores.workspaces.create(&second).await.unwrap();
+    let capped = client()
+        .put(format!(
+            "{}/api/v1/administration/workspaces/{}/spend-cap",
+            daemon.administration_base_url, second.id
+        ))
+        .header("cookie", daemon.cookie())
+        .json(&serde_json::json!({ "monthly_spend_cap_usd": 0.0 }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(capped.status(), StatusCode::OK);
+    say(
+        &daemon,
+        daemon.cookie(),
+        &daemon.dm_channel_id,
+        "separate-cap",
+        "Do a thing",
+    )
+    .await;
+    let spent = wait_for_usage(&daemon, daemon.cookie()).await;
+    assert_eq!(spent["total"]["cost_usd"], 0.5);
+    assert!(spent["monthly_spend_cap_usd"].is_null());
+    assert_eq!(brain.requests().len(), 1);
 }

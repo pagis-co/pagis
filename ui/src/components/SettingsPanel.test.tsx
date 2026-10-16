@@ -62,7 +62,7 @@ const ADMINISTRATOR = {
   name: 'Ada',
   email: null,
   role: 'administrator',
-  administration: { origin: 'http://127.0.0.1:4401', path_prefix: '', loopback: true, sections: ['people', 'spend'], links: [] },
+  administration: { origin: 'http://127.0.0.1:4401', path_prefix: '', loopback: true, sections: ['people', 'workspaces', 'spend'], links: [] },
 }
 
 const TRUST_LIST = {
@@ -322,6 +322,7 @@ describe('Org group', () => {
     mount(api)
     const org = within(await screen.findByRole('group', { name: 'Org' }))
     expect(org.getByRole('link', { name: 'People' }).getAttribute('href')).toBe('http://127.0.0.1:4401/people')
+    expect(org.getByRole('link', { name: 'Workspaces' }).getAttribute('href')).toBe('http://127.0.0.1:4401/workspaces')
     expect(org.getByText('ssh -L 4401:127.0.0.1:4401 you@your-server')).toBeTruthy()
     expect(api.GET.mock.calls.some(([path]) => path.startsWith('/api/v1/administration/') || path === '/api/v1/settings/system')).toBe(false)
   })

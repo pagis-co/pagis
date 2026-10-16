@@ -757,87 +757,6 @@
         }
       }
     },
-    "/api/v1/administration/people/{user_id}/spend-cap": {
-      "put": {
-        "tags": [
-          "administration"
-        ],
-        "operationId": "set_spend_cap",
-        "parameters": [
-          {
-            "name": "user_id",
-            "in": "path",
-            "description": "The person",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SetSpendCapRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PersonDto"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/administration/providers": {
       "get": {
         "tags": [
@@ -1268,7 +1187,7 @@
         "tags": [
           "administration"
         ],
-        "summary": "Spend per person for a period. This is the read that answers\nthe first billing question, and it is the Administrator's alone.",
+        "summary": "Spend per Workspace for a period. This is the read that answers\nthe first billing question, and it is the Administrator's alone.",
         "operationId": "installation_usage",
         "parameters": [
           {
@@ -1318,6 +1237,127 @@
             }
           },
           "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/administration/workspaces": {
+      "get": {
+        "tags": [
+          "administration"
+        ],
+        "operationId": "list_workspaces",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdministrationWorkspacesDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/administration/workspaces/{workspace_id}/spend-cap": {
+      "put": {
+        "tags": [
+          "administration"
+        ],
+        "operationId": "set_spend_cap",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "description": "The Workspace",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetSpendCapRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdministrationWorkspaceDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
             "description": "",
             "content": {
               "application/json": {
@@ -11401,6 +11441,51 @@
           }
         }
       },
+      "AdministrationWorkspaceDto": {
+        "type": "object",
+        "description": "A Workspace and its owner, with the current month's spend.",
+        "required": [
+          "id",
+          "name",
+          "person",
+          "total"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "monthly_spend_cap_usd": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "name": {
+            "type": "string"
+          },
+          "person": {
+            "$ref": "#/components/schemas/PersonDto"
+          },
+          "total": {
+            "$ref": "#/components/schemas/UsageTotalDto"
+          }
+        }
+      },
+      "AdministrationWorkspacesDto": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdministrationWorkspaceDto"
+            }
+          }
+        }
+      },
       "AdoptNumberRequest": {
         "type": "object",
         "description": "Adopt a number the carrier account already holds, and give\nit to an Agent when the user added it from that Agent's page.",
@@ -15007,7 +15092,7 @@
           "items": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/PersonUsageDto"
+              "$ref": "#/components/schemas/WorkspaceUsageDto"
             }
           },
           "to": {
@@ -15016,7 +15101,7 @@
           },
           "total": {
             "$ref": "#/components/schemas/UsageTotalDto",
-            "description": "Every person's spend added up."
+            "description": "Every Workspace's spend added up."
           }
         }
       },
@@ -16891,7 +16976,7 @@
       },
       "MyUsageDto": {
         "type": "object",
-        "description": "What the signed-in person spent, and the cap they are under.",
+        "description": "What the current Workspace spent, and its Spend Cap.",
         "required": [
           "from",
           "to",
@@ -16909,7 +16994,7 @@
               "null"
             ],
             "format": "double",
-            "description": "The person's monthly Spend Cap, or `null` where they have none."
+            "description": "The current Workspace's monthly Spend Cap, or `null` for no cap."
           },
           "runs": {
             "type": "array",
@@ -17597,14 +17682,6 @@
             "format": "int64",
             "description": "When a client last signed in as this Person."
           },
-          "monthly_spend_cap_usd": {
-            "type": [
-              "number",
-              "null"
-            ],
-            "format": "double",
-            "description": "The monthly Spend Cap in US dollars, or `null` for no cap."
-          },
           "name": {
             "type": [
               "string",
@@ -17711,27 +17788,6 @@
           "administrator",
           "member"
         ]
-      },
-      "PersonUsageDto": {
-        "type": "object",
-        "description": "What one Person spent over the period, for the Administrator's read.",
-        "required": [
-          "person",
-          "total",
-          "cap_reached"
-        ],
-        "properties": {
-          "cap_reached": {
-            "type": "boolean",
-            "description": "True when the period is the current month and the total has\nreached the person's cap, so the roster says who is stopped."
-          },
-          "person": {
-            "$ref": "#/components/schemas/PersonDto"
-          },
-          "total": {
-            "$ref": "#/components/schemas/UsageTotalDto"
-          }
-        }
       },
       "PhoneNumberDto": {
         "type": "object",
@@ -22467,6 +22523,27 @@
           "timezone": {
             "type": "string",
             "description": "The IANA timezone new wall-clock schedules copy."
+          }
+        }
+      },
+      "WorkspaceUsageDto": {
+        "type": "object",
+        "description": "What one Workspace spent over the period, for the Administrator's read.",
+        "required": [
+          "workspace",
+          "total",
+          "cap_reached"
+        ],
+        "properties": {
+          "cap_reached": {
+            "type": "boolean",
+            "description": "True when the period is the current month and the total has\nreached the Workspace's cap."
+          },
+          "total": {
+            "$ref": "#/components/schemas/UsageTotalDto"
+          },
+          "workspace": {
+            "$ref": "#/components/schemas/AdministrationWorkspaceDto"
           }
         }
       }

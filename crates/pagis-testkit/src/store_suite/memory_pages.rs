@@ -36,6 +36,7 @@ async fn seed(backend: &Backend) -> WorkspaceId {
 async fn seed_pair(backend: &Backend) -> (WorkspaceId, WorkspaceId) {
     let first = backend.seeded_workspace().await;
     let second = Workspace {
+        monthly_spend_cap_usd: None,
         id: WorkspaceId::generate(),
         ..first.clone()
     };

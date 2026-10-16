@@ -80,6 +80,7 @@ describe('Usage', () => {
 
     await expectMonthTotal('$5.50')
     expect(screen.getByText('of a $5.00 monthly cap')).toBeTruthy()
+    expect(screen.getByText(/this Workspace's monthly cap/)).toBeTruthy()
     expect(screen.getByText('Cap reached')).toBeTruthy()
   })
 
@@ -105,7 +106,7 @@ describe('Usage', () => {
 
   /// A cap that is not reached shows no badge, so the page does not
   /// alarm a person who is under theirs.
-  it('shows no badge while the person is under their cap', async () => {
+  it('shows no badge while the Workspace is below its cap', async () => {
     mount(body(50, 1))
 
     expect(await screen.findByText('of a $50.00 monthly cap')).toBeTruthy()

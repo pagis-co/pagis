@@ -1,12 +1,11 @@
-// Cost and token spend per person, for a period.
+// Cost and token spend per Workspace, for a period.
 //
 // This is the read that answers the first billing question: who spent
-// the budget. The biggest spender is first, and a person under a cap
-// that they reached says so.
+// the budget. The biggest spender is first, and a Workspace at its Spend Cap says so.
 
 import { useState } from 'react'
 
-import type { ApiClient, PersonUsageDto } from '../api/client'
+import type { ApiClient, WorkspaceUsageDto } from '../api/client'
 import { Badge, Frame, Row, SectionLabel, Select } from '../primitives'
 import { useInstallationUsage } from '../queries'
 import { money, personLabel } from '../components/settings/People'
@@ -32,10 +31,12 @@ function tokens(count: number): string {
   return count.toLocaleString()
 }
 
-function PersonRow({ item }: { item: PersonUsageDto }) {
+function WorkspaceRow({ item }: { item: WorkspaceUsageDto }) {
   return (
     <Row className="spend-row">
-      <span className="spend-person">{personLabel(item.person)}</span>
+      <span className="spend-person">{item.workspace.name}</span>
+      <span>{personLabel(item.workspace.person)}</span>
+      <span>{item.workspace.monthly_spend_cap_usd == null ? 'No monthly cap' : `${money(item.workspace.monthly_spend_cap_usd)} monthly cap`}</span>
       <span className="spend-tokens">
         {tokens(item.total.input_tokens)} in · {tokens(item.total.output_tokens)} out ·{' '}
         {item.total.calls} {item.total.calls === 1 ? 'call' : 'calls'}
@@ -55,7 +56,7 @@ export function Spend({ api }: { api: ApiClient }) {
     <section className="administration-section">
       <div className="administration-title">
         <h2>Spend</h2>
-        <span>What each person's sprites spent on model calls.</span>
+        <span>What each Workspace spent on model calls.</span>
       </div>
       <Frame hint="The cost is what each serving model's own price list makes of the tokens it reported. Pagis stores what a call cost and sends nobody an invoice.">
         <Row>
@@ -76,7 +77,7 @@ export function Spend({ api }: { api: ApiClient }) {
         </Row>
       </Frame>
 
-      <SectionLabel>Per person</SectionLabel>
+      <SectionLabel>Per Workspace</SectionLabel>
       <Frame>
         {items.length === 0 ? (
           <Row>
@@ -87,7 +88,7 @@ export function Spend({ api }: { api: ApiClient }) {
             </span>
           </Row>
         ) : (
-          items.map((item) => <PersonRow key={item.person.id} item={item} />)
+          items.map((item) => <WorkspaceRow key={item.workspace.id} item={item} />)
         )}
       </Frame>
     </section>

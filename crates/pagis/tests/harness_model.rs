@@ -300,12 +300,12 @@ async fn error_of(response: reqwest::Response) -> (StatusCode, Option<String>, s
     (status, retry, response.json().await.unwrap())
 }
 
-/// The Person's monthly Spend Cap, set as an Administrator sets it.
+/// The Workspace's monthly Spend Cap, set as an Administrator sets it.
 async fn cap(daemon: &TestDaemon, dollars: f64) {
     let capped = reqwest::Client::new()
         .put(format!(
-            "{}/api/v1/administration/people/{}/spend-cap",
-            daemon.administration_base_url, daemon.user_id
+            "{}/api/v1/administration/workspaces/{}/spend-cap",
+            daemon.administration_base_url, daemon.workspace_id
         ))
         .header("cookie", daemon.cookie())
         .json(&serde_json::json!({ "monthly_spend_cap_usd": dollars }))
@@ -315,7 +315,7 @@ async fn cap(daemon: &TestDaemon, dollars: f64) {
     assert_eq!(capped.status(), StatusCode::OK);
 }
 
-/// The Person's monthly Spend Cap at $1, and a spend of $5 this month.
+/// The Workspace's monthly Spend Cap at $1, and a spend of $5 this month.
 async fn spend_past_the_cap(daemon: &TestDaemon, session: &CodingSession) {
     cap(daemon, 1.0).await;
     daemon
@@ -408,7 +408,7 @@ async fn a_token_count_passes_and_is_not_recorded() {
     let provider = provider().await;
     let daemon = daemon(&provider).await;
     let (session, token) = running_session(&daemon, &daemon.workspace_id).await;
-    // A Person at the cap still counts tokens: a count costs nothing.
+    // A Workspace at the cap still counts tokens: a count costs nothing.
     spend_past_the_cap(&daemon, &session).await;
 
     let response = reqwest::Client::new()
@@ -482,7 +482,7 @@ async fn a_wrong_token_and_the_token_of_a_closed_session_are_refused() {
 }
 
 #[tokio::test]
-async fn a_person_at_the_spend_cap_is_refused_before_the_provider() {
+async fn a_workspace_at_the_spend_cap_is_refused_before_the_provider() {
     let provider = provider().await;
     let daemon = daemon(&provider).await;
     let (session, token) = running_session(&daemon, &daemon.workspace_id).await;

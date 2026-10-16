@@ -94,6 +94,7 @@ async fn person(daemon: &TestDaemon, email: &str, password: &str) -> User {
     stores
         .workspaces
         .create(&Workspace {
+            monthly_spend_cap_usd: None,
             id: WorkspaceId::generate(),
             user_id: person.id.clone(),
             name: "Grace".to_string(),

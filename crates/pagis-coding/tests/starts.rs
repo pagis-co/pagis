@@ -35,6 +35,7 @@ async fn world(pool: SqlitePool) -> World {
         .await
         .unwrap();
     let workspace = Workspace {
+        monthly_spend_cap_usd: None,
         id: WorkspaceId::generate(),
         user_id: person.id,
         name: "Workspace".to_string(),
