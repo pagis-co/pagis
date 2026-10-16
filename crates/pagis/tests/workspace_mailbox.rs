@@ -563,8 +563,14 @@ impl MailboxApp {
         path: &str,
         body: Option<serde_json::Value>,
     ) -> (reqwest::StatusCode, serde_json::Value) {
+        let base =
+            if path.starts_with("/api/v1/administration/") || path.starts_with("/api/v1/admin/") {
+                &self.daemon.administration_base_url
+            } else {
+                &self.daemon.base_url
+            };
         let mut request = reqwest::Client::new()
-            .request(method, format!("{}{path}", self.daemon.base_url))
+            .request(method, format!("{base}{path}"))
             .header("cookie", self.daemon.cookie());
         if let Some(body) = body {
             request = request.json(&body);
