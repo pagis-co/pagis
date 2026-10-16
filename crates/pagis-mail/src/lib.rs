@@ -96,7 +96,7 @@ pub use imap_mailbox::{ImapMailbox, ImapMessageId};
 pub use mailbox::{Mailbox, Mailboxes, MessageChange, MessageId, Page, PageRequest};
 pub use manual::ManualHost;
 pub use migadu::MigaduHost;
-pub use mime::{BuiltMessage, build_mime, read_mime};
+pub use mime::{BuiltMessage, build_mime, read_attachment, read_mime};
 pub use no_transport::NoMailTransport;
 pub use proof::{
     Backoff, LOGIN_PROOF_WINDOW, RECONNECT_BACKOFF_MAX, RECONNECT_BACKOFF_START, prove_login,
