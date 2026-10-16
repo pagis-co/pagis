@@ -143,7 +143,37 @@ impl CallEvents for RecordingEvents {
     }
 }
 
+/// The bus that notes, at each `call.ended`, whether the line is free.
+struct LineProbe {
+    inner: Arc<dyn pagis_core::EventBus>,
+    live: Arc<LiveCalls>,
+    number: Mutex<Option<PhoneNumberId>>,
+    free_at_end: Mutex<Vec<bool>>,
+}
+
+#[async_trait]
+impl pagis_core::EventBus for LineProbe {
+    async fn publish(&self, event: pagis_core::NewEvent) -> Result<Event, pagis_core::StoreError> {
+        if event.event_type == "call.ended"
+            && let Some(number) = self.number.lock().unwrap().as_ref()
+        {
+            let free = self.live.session_tools(number).is_none();
+            self.free_at_end.lock().unwrap().push(free);
+        }
+        self.inner.publish(event).await
+    }
+
+    async fn subscribe(
+        &self,
+        scope: pagis_core::EventScope,
+        after_seq: Option<i64>,
+    ) -> pagis_core::EventStream {
+        self.inner.subscribe(scope, after_seq).await
+    }
+}
+
 struct World {
+    probe: Arc<LineProbe>,
     calls: InboundCalls,
     standing_rule: Arc<pagis_telephony::fake::FakeStandingCallRule>,
     bridge: Arc<FakeCallBridge>,
@@ -237,10 +267,15 @@ impl World {
         });
         let numbers = Arc::new(SqlitePhoneNumberStore::new(pool.clone()));
         let events = Arc::new(SqliteEventLog::new(pool.clone()));
-        let bus: Arc<dyn pagis_core::EventBus> =
-            Arc::new(AuditEventBus::new(Arc::clone(&events) as _));
         let transport = Arc::new(FakeCallTransport::new(Arc::new(TokioClock)));
         let live = Arc::new(LiveCalls::default());
+        let probe = Arc::new(LineProbe {
+            inner: Arc::new(AuditEventBus::new(Arc::clone(&events) as _)),
+            live: Arc::clone(&live),
+            number: Mutex::new(None),
+            free_at_end: Mutex::new(Vec::new()),
+        });
+        let bus: Arc<dyn pagis_core::EventBus> = probe.clone();
         let bridge = Arc::new(bridge);
         let messages = Arc::new(SqliteMessageStore::new(pool.clone()));
         let files = Arc::new(SqliteFileStore::new(pool.clone()));
@@ -266,6 +301,7 @@ impl World {
             events: Arc::clone(&call_events) as _,
         });
         Self {
+            probe,
             calls,
             standing_rule,
             bridge,
@@ -311,6 +347,7 @@ impl World {
             .confirm_purchase(&self.workspace_id, &intent.id, &number, at)
             .await
             .unwrap();
+        *self.probe.number.lock().unwrap() = Some(number.id.clone());
         number
     }
 
@@ -463,6 +500,21 @@ async fn an_answered_call_runs_under_the_workspace_chief(pool: SqlitePool) {
     // The line is free again, and the Remote Party heard the end.
     assert!(world.live.session_tools(&number.id).is_none());
     assert!(matches!(party.state(), PartyState::Ended(_)));
+}
+
+/// A caller who rings again at once, after the end of a call, reaches
+/// the line: it is free before `call.ended` goes out.
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn the_line_is_free_when_the_call_ended_event_goes_out(pool: SqlitePool) {
+    let world = World::build(
+        pool,
+        FakeCallBridge::reporting(FakeCallBridge::answered_report("I would like a table.")),
+    )
+    .await;
+    let number = world.held_line().await;
+    let (incoming, _party, _task) = world.ring(&number).await;
+    world.calls.answer(incoming).await.expect("the call runs");
+    assert_eq!(*world.probe.free_at_end.lock().unwrap(), vec![true]);
 }
 
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]

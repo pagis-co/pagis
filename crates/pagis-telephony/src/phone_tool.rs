@@ -172,7 +172,7 @@ impl PhoneToolRuntime {
             brief,
             tools,
         };
-        let _live = self
+        let live = self
             .deps
             .live
             .begin(
@@ -201,7 +201,11 @@ impl PhoneToolRuntime {
         )
         .await;
         let tier = placed.brief.tier;
-        let report = match self.deps.bridge.place(placed, &log).await {
+        let outcome = self.deps.bridge.place(placed, &log).await;
+        // The media is over, so the line is free before the end is
+        // published.
+        drop(live);
+        let report = match outcome {
             Ok(report) => report,
             Err(error) => {
                 log.failed(&error).await.map_err(unavailable)?;
