@@ -5,6 +5,8 @@
 //! test of the mailbox lifecycle or of the collector starts no process
 //! and reaches no network.
 
+mod workspace_mail;
+pub use workspace_mail::{MemoryWorkspaceMailHost, MemoryWorkspaceMailStore};
 mod memory_mailbox;
 pub use memory_mailbox::MemoryMailbox;
 

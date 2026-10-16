@@ -77,17 +77,50 @@ pub trait WorkspaceMailStore: WorkspaceMailReader + WorkspaceMailWriter {}
 impl<T: WorkspaceMailReader + WorkspaceMailWriter> WorkspaceMailStore for T {}
 
 pub struct ImapWorkspaceMailStore {
-    session: Box<dyn MailSession>,
+    session: Option<Box<dyn MailSession>>,
+    connection: Option<(
+        std::sync::Arc<dyn crate::MailTransport>,
+        crate::MailboxCredential,
+    )>,
     intake: crate::MailReadContext,
 }
 impl ImapWorkspaceMailStore {
     pub fn new(session: Box<dyn MailSession>, intake: crate::MailReadContext) -> Self {
-        Self { session, intake }
+        Self {
+            session: Some(session),
+            connection: None,
+            intake,
+        }
+    }
+    pub(crate) fn connect(
+        transport: std::sync::Arc<dyn crate::MailTransport>,
+        credential: crate::MailboxCredential,
+        intake: crate::MailReadContext,
+    ) -> Self {
+        Self {
+            session: None,
+            connection: Some((transport, credential)),
+            intake,
+        }
+    }
+    async fn session(&mut self) -> Result<&mut Box<dyn MailSession>, TransportError> {
+        if self.session.is_none() {
+            let (transport, credential) = self
+                .connection
+                .as_ref()
+                .expect("an unopened store has a connection");
+            self.session = Some(transport.login(credential).await?);
+        }
+        Ok(self
+            .session
+            .as_mut()
+            .expect("the store has an open session"))
     }
     async fn assess(&mut self, summary: &mut MessageSummary) -> Result<(), TransportError> {
         let folder = summary.id.as_str().parse::<ImapMessageId>()?.folder;
         let in_junk = self
-            .session
+            .session()
+            .await?
             .junk_folders()
             .await?
             .iter()
@@ -108,7 +141,8 @@ impl ImapWorkspaceMailStore {
         .iter()
         .any(|s| name.eq_ignore_ascii_case(s))
             || self
-                .session
+                .session()
+                .await?
                 .system_folders()
                 .await?
                 .iter()
@@ -123,7 +157,7 @@ impl ImapWorkspaceMailStore {
         mut message: Message,
     ) -> Result<WorkspaceMailMessage, TransportError> {
         self.assess(&mut message.summary).await?;
-        let flags = self.session.metadata(&message.summary.id).await?;
+        let flags = self.session().await?.metadata(&message.summary.id).await?;
         Ok(WorkspaceMailMessage {
             labels: flags.labels.clone(),
             flags,
@@ -137,24 +171,24 @@ impl WorkspaceMailWriter for ImapWorkspaceMailStore {
         &mut self,
         message: &crate::OutgoingMessage,
     ) -> Result<crate::SentMessage, TransportError> {
-        self.session.send(message).await
+        self.session().await?.send(message).await
     }
     async fn create_folder(&mut self, name: &str) -> Result<(), TransportError> {
         valid_folder(name)?;
-        self.session.create_folder(name).await
+        self.session().await?.create_folder(name).await
     }
     async fn rename_folder(&mut self, name: &str, new_name: &str) -> Result<(), TransportError> {
         self.mutable_folder(name).await?;
         self.mutable_folder(new_name).await?;
-        self.session.rename_folder(name, new_name).await
+        self.session().await?.rename_folder(name, new_name).await
     }
     async fn delete_folder(&mut self, name: &str) -> Result<(), TransportError> {
         self.mutable_folder(name).await?;
-        self.session.delete_folder(name).await
+        self.session().await?.delete_folder(name).await
     }
     async fn move_message(&mut self, id: &MessageId, folder: &str) -> Result<(), TransportError> {
         valid_folder(folder)?;
-        self.session.move_message(id, folder).await
+        self.session().await?.move_message(id, folder).await
     }
     async fn set_label(
         &mut self,
@@ -169,7 +203,7 @@ impl WorkspaceMailWriter for ImapWorkspaceMailStore {
         {
             return Err(TransportError(TransportErrorCode::InvalidRequest));
         }
-        self.session.set_label(id, label, apply).await
+        self.session().await?.set_label(id, label, apply).await
     }
 }
 
@@ -180,10 +214,10 @@ impl WorkspaceMailReader for ImapWorkspaceMailStore {
         id: &MessageId,
         index: usize,
     ) -> Result<crate::OutgoingAttachment, TransportError> {
-        self.session.attachment(id, index).await
+        self.session().await?.attachment(id, index).await
     }
     async fn folders(&mut self) -> Result<Vec<String>, TransportError> {
-        self.session.folders().await
+        self.session().await?.folders().await
     }
     async fn messages(
         &mut self,
@@ -207,13 +241,13 @@ impl WorkspaceMailReader for ImapWorkspaceMailStore {
             return Err(invalid());
         }
         let folders = if folder.is_empty() {
-            self.session.folders().await?
+            self.session().await?.folders().await?
         } else {
             vec![folder.into()]
         };
         let mut pending = BTreeMap::new();
         for folder in folders {
-            let state = self.session.select(&folder).await?;
+            let state = self.session().await?.select(&folder).await?;
             let (validity, before) = *cursor
                 .bounds
                 .entry(folder.clone())
@@ -227,7 +261,7 @@ impl WorkspaceMailReader for ImapWorkspaceMailStore {
                 text: (!q.is_empty()).then(|| q.into()),
                 ..Default::default()
             };
-            let found = self.session.search(&query).await?;
+            let found = self.session().await?.search(&query).await?;
             pending.insert(folder, VecDeque::from(found));
         }
         let mut items = Vec::new();
@@ -252,7 +286,7 @@ impl WorkspaceMailReader for ImapWorkspaceMailStore {
                 .ok_or_else(invalid)?;
             cursor.bounds.get_mut(&folder).ok_or_else(invalid)?.1 = uid(&summary.id);
             self.assess(&mut summary).await?;
-            let flags = self.session.metadata(&summary.id).await?;
+            let flags = self.session().await?.metadata(&summary.id).await?;
             items.push(WorkspaceMailSummary {
                 labels: flags.labels.clone(),
                 flags,
@@ -268,8 +302,8 @@ impl WorkspaceMailReader for ImapWorkspaceMailStore {
     }
     async fn message(&mut self, id: &MessageId) -> Result<WorkspaceMailMessage, TransportError> {
         let folder = id.as_str().parse::<ImapMessageId>()?.folder;
-        self.session.select(&folder).await?;
-        let message = self.session.fetch(id).await?;
+        self.session().await?.select(&folder).await?;
+        let message = self.session().await?.fetch(id).await?;
         self.with_metadata(message).await
     }
     async fn thread(&mut self, id: &str) -> Result<Vec<WorkspaceMailMessage>, TransportError> {
@@ -277,9 +311,9 @@ impl WorkspaceMailReader for ImapWorkspaceMailStore {
         // Message-ID. The thread shows each Message-ID once.
         let mut messages = Vec::new();
         let mut seen = std::collections::BTreeSet::new();
-        for folder in self.session.folders().await? {
-            self.session.select(&folder).await?;
-            for message in self.session.fetch_thread(id).await? {
+        for folder in self.session().await?.folders().await? {
+            self.session().await?.select(&folder).await?;
+            for message in self.session().await?.fetch_thread(id).await? {
                 let message_id = message.summary.message_id.clone();
                 if message_id.is_empty() || seen.insert(message_id) {
                     messages.push(self.with_metadata(message).await?);
@@ -290,13 +324,17 @@ impl WorkspaceMailReader for ImapWorkspaceMailStore {
         Ok(messages)
     }
     async fn set_flags(&mut self, id: &MessageId, flags: FlagChange) -> Result<(), TransportError> {
-        self.session
+        self.session()
+            .await?
             .select(&id.as_str().parse::<ImapMessageId>()?.folder)
             .await?;
-        self.session.set_flags(id, flags).await
+        self.session().await?.set_flags(id, flags).await
     }
     async fn close(&mut self) -> Result<(), TransportError> {
-        self.session.logout().await
+        match self.session.as_mut() {
+            Some(session) => session.logout().await,
+            None => Ok(()),
+        }
     }
 }
 
@@ -313,7 +351,7 @@ fn uid(id: &MessageId) -> u32 {
         .unwrap_or(0)
 }
 
-fn valid_folder(name: &str) -> Result<(), TransportError> {
+pub(crate) fn valid_folder(name: &str) -> Result<(), TransportError> {
     if name.trim().is_empty() || name.chars().any(char::is_control) {
         return Err(TransportError(TransportErrorCode::InvalidRequest));
     }

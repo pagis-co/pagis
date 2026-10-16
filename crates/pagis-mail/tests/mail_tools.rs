@@ -125,6 +125,11 @@ impl World {
             transport.refuse_login_with(Some(pagis_mail::TransportErrorCode::Unreachable));
         }
         let desk = Arc::new(MailboxDesk::new(MailboxDeskDeps {
+            workspace_mail: Arc::new(pagis_mail::ImapWorkspaceMailHost::new(
+                Arc::clone(&host) as _,
+                Arc::clone(&transport) as _,
+                Arc::clone(&secrets) as _,
+            )),
             grants: Arc::new(pagis_storage_sqlite::SqliteGrantStore::new(pool.clone())),
             intake: Arc::new(pagis_mail::MailIntake {
                 workspaces: Arc::new(pagis_storage_sqlite::SqliteWorkspaceStore::new(

@@ -158,6 +158,11 @@ impl World {
         let transport = Arc::new(FakeMailTransport::default());
         let standing_rule = Arc::new(FakeStandingRule::default());
         let desk = Arc::new(MailboxDesk::new(MailboxDeskDeps {
+            workspace_mail: Arc::new(pagis_mail::ImapWorkspaceMailHost::new(
+                host.clone(),
+                transport.clone(),
+                secrets.clone(),
+            )),
             grants: Arc::new(pagis_storage_sqlite::SqliteGrantStore::new(pool.clone())),
             intake: Arc::new(pagis_mail::MailIntake {
                 workspaces: Arc::new(pagis_storage_sqlite::SqliteWorkspaceStore::new(

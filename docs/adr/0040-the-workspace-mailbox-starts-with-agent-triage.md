@@ -38,7 +38,14 @@ conformance suite checks each operation. The daemon implements the store
 over IMAP on an external mail host through the transport of ADR-0019. It
 uses the same sessions as Agent Mailboxes. The suite runs with the fake
 transport and with the opt-in GreenMail tests. The daemon is not a mail
-server. Separate read and write interfaces keep each concern small. The
+server. An Embedder supplies `WorkspaceMailHost` to the mailbox desk. Its
+provision and open operations return `WorkspaceMailStore`. Provisioning
+reserves the Workspace Mailbox record before it creates the mailbox and
+releases the reservation when a failed create leaves the address free.
+`ImapWorkspaceMailHost` supplies the daemon's implementation and holds the
+mail host, transport and secrets. The routes and Agent tools use the store
+through the desk. They need no IMAP login from another implementation.
+Separate read and write interfaces keep each concern small. The daemon's
 write store sends through SMTP. The transport saves a Sent copy with IMAP
 APPEND unless the host already holds that Message-ID. It uses the host's
 special-use Sent folder or its Sent name. The Outgoing Cap applies to the
