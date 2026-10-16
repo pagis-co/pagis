@@ -153,6 +153,7 @@ pub struct MailboxDeskDeps {
     pub grants: Arc<dyn pagis_core::GrantStore>,
     pub intake: Arc<crate::MailIntake>,
     pub workspaces: Arc<dyn pagis_core::WorkspaceStore>,
+    pub workspace_mail: Arc<dyn crate::WorkspaceMailHost>,
     pub workspace_mailboxes: Arc<dyn pagis_core::WorkspaceMailboxRecordStore>,
     pub mailboxes: Arc<dyn AgentMailboxStore>,
     pub connections: Arc<dyn ConnectionStore>,
@@ -173,6 +174,7 @@ pub struct MailboxDesk {
     grants: Arc<dyn pagis_core::GrantStore>,
     intake: Arc<crate::MailIntake>,
     workspaces: Arc<dyn pagis_core::WorkspaceStore>,
+    workspace_mail: Arc<dyn crate::WorkspaceMailHost>,
     workspace_mailboxes: Arc<dyn pagis_core::WorkspaceMailboxRecordStore>,
     mailboxes: Arc<dyn AgentMailboxStore>,
     connections: Arc<dyn ConnectionStore>,
@@ -195,6 +197,7 @@ impl MailboxDesk {
             grants: deps.grants,
             intake: deps.intake,
             workspaces: deps.workspaces,
+            workspace_mail: deps.workspace_mail,
             workspace_mailboxes: deps.workspace_mailboxes,
             mailboxes: deps.mailboxes,
             connections: deps.connections,
@@ -754,28 +757,7 @@ impl MailboxDesk {
             )));
         }
         let outgoing_cap = self.outgoing_cap(request.outgoing_cap)?;
-        let password = match (settings.password(), request.password.as_deref()) {
-            (MailboxPasswordKind::None, None) => None,
-            (MailboxPasswordKind::None, Some(_)) => {
-                return Err(MailboxError::Validation(
-                    "this mailbox has no login".to_string(),
-                ));
-            }
-            (MailboxPasswordKind::Typed, Some(password)) if !password.trim().is_empty() => {
-                Some(MailboxPassword::new(password))
-            }
-            (MailboxPasswordKind::Typed, _) => {
-                return Err(MailboxError::Validation(
-                    "this mail host has no API, so the mailbox password is required".to_string(),
-                ));
-            }
-            (MailboxPasswordKind::Minted, Some(_)) => {
-                return Err(MailboxError::Validation(
-                    "this mail host mints the mailbox password itself".to_string(),
-                ));
-            }
-            (MailboxPasswordKind::Minted, None) => Some(MailboxPassword::new(generate_password())),
-        };
+        let password = checked_password(&settings, request)?;
         Ok(CheckedMailbox {
             connection,
             settings,
@@ -985,7 +967,7 @@ fn validation(error: LocalPartError) -> MailboxError {
 }
 
 /// A uniqueness the schema refused is a form error, not a failure.
-fn store_error(error: StoreError) -> MailboxError {
+pub(super) fn store_error(error: StoreError) -> MailboxError {
     match error {
         StoreError::Conflict(message) => MailboxError::Conflict(message),
         other => MailboxError::Store(other),
@@ -1023,4 +1005,33 @@ impl crate::Mailboxes for MailboxDesk {
             self.read_context(mailbox).await?,
         )))
     }
+}
+
+pub(super) fn checked_password(
+    settings: &MailboxProvider,
+    request: &NewMailbox,
+) -> Result<Option<MailboxPassword>, MailboxError> {
+    let password = match (settings.password(), request.password.as_deref()) {
+        (MailboxPasswordKind::None, None) => None,
+        (MailboxPasswordKind::None, Some(_)) => {
+            return Err(MailboxError::Validation(
+                "this mailbox has no login".to_string(),
+            ));
+        }
+        (MailboxPasswordKind::Typed, Some(password)) if !password.trim().is_empty() => {
+            Some(MailboxPassword::new(password))
+        }
+        (MailboxPasswordKind::Typed, _) => {
+            return Err(MailboxError::Validation(
+                "this mail host has no API, so the mailbox password is required".to_string(),
+            ));
+        }
+        (MailboxPasswordKind::Minted, Some(_)) => {
+            return Err(MailboxError::Validation(
+                "this mail host mints the mailbox password itself".to_string(),
+            ));
+        }
+        (MailboxPasswordKind::Minted, None) => Some(MailboxPassword::new(generate_password())),
+    };
+    Ok(password)
 }

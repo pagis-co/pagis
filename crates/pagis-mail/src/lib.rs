@@ -66,6 +66,8 @@ mod sender;
 mod standing;
 mod tools;
 mod transport;
+mod workspace_host;
+pub use workspace_host::{ImapWorkspaceMailHost, WorkspaceMailHost};
 mod workspace_store;
 pub use workspace_store::*;
 mod trigger;

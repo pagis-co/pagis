@@ -33,7 +33,14 @@ async fn response(
         .unwrap();
     let status = response.status();
     let bytes = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
-    (status, serde_json::from_slice(&bytes).unwrap())
+    (
+        status,
+        if bytes.is_empty() {
+            Value::Null
+        } else {
+            serde_json::from_slice(&bytes).unwrap()
+        },
+    )
 }
 
 async fn provider(embedder: &Embedder) -> ConnectionId {
@@ -630,4 +637,203 @@ async fn workspace_mailbox_shared_grants_need_a_manager_and_always_allow_edits_t
     assert_eq!(changed.allow_rules(), vec!["example.com"]);
     assert_eq!(changed.scope["default"], true);
     assert_eq!(changed.revision, 2);
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+async fn workspace_mail_routes_use_the_supplied_store_without_imap() {
+    let host = std::sync::Arc::new(pagis_mail::fake::MemoryWorkspaceMailHost::default());
+    let embedder = Embedder::with_workspace_mail(host.clone()).await;
+    let connection = provider(&embedder).await;
+    let (status, mailbox) = response(
+        &embedder,
+        "POST",
+        "/api/v1/workspace/mailbox",
+        json!({"connection_id": connection, "local_part": "person"}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{mailbox}");
+    let mail = host.store(&embedder.workspace).unwrap();
+    let id = mail.deliver("sender@example.net", "Invoice", "invoice text");
+    mail.attach(
+        &id,
+        pagis_mail::OutgoingAttachment {
+            name: "invoice.txt".into(),
+            content_type: "text/plain".into(),
+            data: b"invoice attachment".to_vec(),
+        },
+    );
+    let root = "/api/v1/workspace/mail";
+    let message = format!("{root}/messages/{id}");
+    let (status, list) = response(
+        &embedder,
+        "GET",
+        &format!("{root}/messages?q=invoice"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{list}");
+    assert_eq!(list["items"][0]["id"], id.as_str());
+    let (status, opened) = response(&embedder, "GET", &message, Value::Null).await;
+    assert_eq!(status, StatusCode::OK, "{opened}");
+    assert_eq!(opened["text"], "invoice text");
+    assert_eq!(opened["seen"], true);
+    let thread: String =
+        url::form_urlencoded::byte_serialize(opened["thread_id"].as_str().unwrap().as_bytes())
+            .collect();
+    let (_, thread) = response(
+        &embedder,
+        "GET",
+        &format!("{root}/threads/{thread}"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(thread["items"].as_array().unwrap().len(), 1);
+    for (method, path, body) in [
+        (
+            "POST",
+            format!("{root}/folders"),
+            json!({"name":"Receipts"}),
+        ),
+        (
+            "PATCH",
+            format!("{root}/folders/Receipts"),
+            json!({"name":"Invoices"}),
+        ),
+        (
+            "POST",
+            format!("{message}/labels"),
+            json!({"name":"Accounts"}),
+        ),
+    ] {
+        let (status, body) = response(&embedder, method, &path, body).await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "{path}: {body}");
+    }
+    let (_, labeled) = response(&embedder, "GET", &message, Value::Null).await;
+    assert_eq!(labeled["labels"], json!(["Accounts"]));
+    assert_eq!(
+        response(
+            &embedder,
+            "DELETE",
+            &format!("{message}/labels/Accounts"),
+            Value::Null
+        )
+        .await
+        .0,
+        StatusCode::NO_CONTENT
+    );
+    let (_, cleared) = response(&embedder, "GET", &message, Value::Null).await;
+    assert_eq!(cleared["labels"], json!([]));
+    assert_eq!(
+        response(
+            &embedder,
+            "POST",
+            &format!("{message}/move"),
+            json!({"name":"Invoices"})
+        )
+        .await
+        .0,
+        StatusCode::NO_CONTENT
+    );
+    let (_, inbox) = response(
+        &embedder,
+        "GET",
+        &format!("{root}/messages?folder=INBOX"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(inbox["items"], json!([]));
+    let (_, moved) = response(
+        &embedder,
+        "GET",
+        &format!("{root}/messages?folder=Invoices"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(moved["items"][0]["id"], id.as_str());
+    let download = embedder
+        .routers
+        .product
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("{message}/attachments/0"))
+                .extension(pagis_server::Peer("127.0.0.1:1234".parse().unwrap()))
+                .header("cookie", &embedder.cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(download.status(), StatusCode::OK);
+    assert_eq!(download.headers()["content-type"], "text/plain");
+    assert_eq!(
+        to_bytes(download.into_body(), 1024).await.unwrap(),
+        "invoice attachment"
+    );
+    assert_eq!(
+        response(
+            &embedder,
+            "POST",
+            &format!("{message}/move"),
+            json!({"name":"INBOX"})
+        )
+        .await
+        .0,
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        response(
+            &embedder,
+            "DELETE",
+            &format!("{root}/folders/Invoices"),
+            Value::Null
+        )
+        .await
+        .0,
+        StatusCode::NO_CONTENT
+    );
+    let (_, folders) = response(&embedder, "GET", &format!("{root}/folders"), Value::Null).await;
+    assert_eq!(folders["items"], json!(["INBOX"]));
+    let agent = embedder.agent(&embedder.workspace, "Reader").await;
+    let desk = &embedder.routers.state.mailbox_desk;
+    assert!(
+        desk.open_workspace_for_agent(&embedder.workspace, &agent.id)
+            .await
+            .is_err()
+    );
+    let (status, grant) = response(
+        &embedder,
+        "POST",
+        "/api/v1/grants/workspace-mailbox",
+        json!({"agent_id": agent.id}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{grant}");
+    let mut store = desk
+        .open_workspace_for_agent(&embedder.workspace, &agent.id)
+        .await
+        .unwrap();
+    assert_eq!(
+        store.message(&id).await.unwrap().message.text,
+        "invoice text"
+    );
+    store.close().await.unwrap();
+    embedder
+        .stores
+        .grants
+        .revoke(
+            &embedder.workspace,
+            &GrantId::from(grant["id"].as_str().unwrap().to_string()),
+            now_ms(),
+        )
+        .await
+        .unwrap();
+    assert!(
+        desk.open_workspace_for_agent(&embedder.workspace, &agent.id)
+            .await
+            .is_err()
+    );
+    assert!(embedder.mail_transport.logins().is_empty());
+    assert!(embedder.mailbox_host.addresses().is_empty());
 }
