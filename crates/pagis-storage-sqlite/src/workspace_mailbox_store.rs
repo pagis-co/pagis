@@ -30,6 +30,29 @@ fn record(row: &sqlx::sqlite::SqliteRow) -> Result<WorkspaceMailbox, StoreError>
 }
 #[async_trait]
 impl WorkspaceMailboxRecordStore for SqliteWorkspaceMailboxStore {
+    async fn calendar_cursor(
+        &self,
+        workspace: &WorkspaceId,
+        folder: &str,
+    ) -> Result<Option<pagis_core::MailboxCursor>, StoreError> {
+        let row = sqlx::query("SELECT uid_validity, last_uid FROM workspace_mail_calendar_cursors WHERE workspace_id = ? AND folder = ?")
+            .bind(workspace.as_str()).bind(folder).fetch_optional(&self.pool).await.map_err(db_err)?;
+        Ok(row.map(|row| pagis_core::MailboxCursor {
+            folder: folder.into(),
+            uid_validity: row.get::<i64, _>("uid_validity") as u32,
+            last_uid: row.get::<i64, _>("last_uid") as u32,
+        }))
+    }
+    async fn set_calendar_cursor(
+        &self,
+        workspace: &WorkspaceId,
+        cursor: &pagis_core::MailboxCursor,
+    ) -> Result<(), StoreError> {
+        sqlx::query("INSERT INTO workspace_mail_calendar_cursors (workspace_id, folder, uid_validity, last_uid) VALUES (?, ?, ?, ?) ON CONFLICT (workspace_id, folder) DO UPDATE SET uid_validity = excluded.uid_validity, last_uid = CASE WHEN workspace_mail_calendar_cursors.uid_validity = excluded.uid_validity THEN MAX(workspace_mail_calendar_cursors.last_uid, excluded.last_uid) ELSE excluded.last_uid END")
+            .bind(workspace.as_str()).bind(&cursor.folder).bind(i64::from(cursor.uid_validity)).bind(i64::from(cursor.last_uid))
+            .execute(&self.pool).await.map_err(db_err)?;
+        Ok(())
+    }
     async fn set_visibility(
         &self,
         workspace: &WorkspaceId,

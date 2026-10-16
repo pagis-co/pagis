@@ -8,6 +8,7 @@ mod auth;
 #[cfg(feature = "native")]
 mod axum_socket;
 mod calendar;
+mod calendar_mail;
 pub mod calls;
 mod channels;
 mod client_name;
@@ -507,6 +508,10 @@ fn product_router(state: Arc<AppState>) -> Router {
                 .delete(calendar::delete_calendar_event),
         )
         .route(
+            "/api/v1/calendar/events/{event_id}/response",
+            post(calendar_mail::answer_invitation),
+        )
+        .route(
             "/api/v1/workspace/mailbox/visibility",
             put(workspace_mail::set_workspace_mail_visibility),
         )
@@ -536,6 +541,10 @@ fn product_router(state: Arc<AppState>) -> Router {
             "/api/v1/workspace/mail/messages",
             get(workspace_mail::list_workspace_mail_messages)
                 .post(workspace_mail::send_workspace_mail),
+        )
+        .route(
+            "/api/v1/workspace/mail/messages/{message_id}/response",
+            post(workspace_mail::answer_mail_invitation),
         )
         .route(
             "/api/v1/workspace/mail/messages/{message_id}",

@@ -176,8 +176,9 @@ The mailbox stores its selected level. Each human read uses the lower of
 that level and the current Shared Workspace Limit. All mail permits every
 message. Escalations permits only messages that an Agent escalates to
 humans. Agent only hides messages and keeps mailbox settings visible.
-Lists, threads, message reads, attachments and reply preparation use the
-same message check. Assignment links use this check too.
+Lists, threads, message reads, attachments, reply preparation and invitation
+responses from Mail use the same message check. Assignment links use this
+check too.
 
 An Agent with a live Workspace Mailbox Grant marks a message as Needs you
 through the escalation tool. The store records the Agent and the stable

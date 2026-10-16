@@ -796,11 +796,33 @@ Subscription.
 
 ### Free/Busy
 The merged busy intervals of a Workspace Calendar in a half-open UTC range.
-Timed occurrences are busy. All-day Events are free. Overlapping and touching
+Timed occurrences are busy unless their Event is cancelled. All-day Events
+are free. Overlapping and touching
 intervals merge. Org members read the start and end times by a Person's
 login email or a Workspace Mailbox address. The answer holds no Event details.
 The Event editor shows attendees and the Person on an hour axis, with the
 chosen time and conflicts (ADR-0042).
+
+### iMIP invitation
+An iCalendar scheduling message that travels through the Workspace Mailbox
+between the Org and an outside attendee. REQUEST invites attendees, REPLY
+sets an attendee's PARTSTAT, and CANCEL marks the Event cancelled. UID
+identifies the Event within its Workspace. SEQUENCE orders changes from
+the organizer. The Calendar and Mail places let the Person accept, answer
+maybe or decline (ADR-0042). The sender's text is untrusted input to Agents.
+TZID resolves through IANA names, then the CLDR Windows zone mapping. The
+store and sent messages use IANA names. Unknown names are invalid. The zone
+database supplies offsets; VTIMEZONE bodies do not. DURATION supplies the end
+when DTEND is absent. A DATE start with neither lasts one day.
+
+### Invitation occurrence
+A single Event linked to an iMIP invitation series by its UID and the
+original RECURRENCE-ID, stored as a UTC time or all-day date. A moved
+occurrence excludes the original start from the series through EXDATE.
+An occurrence CANCEL excludes that start and keeps a cancelled occurrence
+record with its SEQUENCE. An occurrence REPLY is handled without a change
+to the series. A series CANCEL marks the series and its linked Events
+cancelled. A general recurrence override model is not built (ADR-0042).
 
 ## Runs and triggers
 
@@ -1779,6 +1801,13 @@ Trash folder, or the folder named Trash. It creates Trash when neither
 exists. Folder deletion refuses a folder that contains quarantined mail
 before it moves any message. Not built: automatic Agent triage,
 assignments and saved drafts.
+
+### Workspace Mailbox calendar intake cursor
+The UIDVALIDITY and highest UID already read for one Workspace Mailbox
+folder. The Workspace Mailbox record store keeps separate cursors for
+INBOX and Junk. A poll reads one bounded batch above each cursor and moves
+it after the batch is applied. A changed UIDVALIDITY starts at the folder's
+current head (ADR-0042).
 
 ### Workspace Mailbox Grant
 The Grant that gives one active Agent access to its Workspace Mailbox.

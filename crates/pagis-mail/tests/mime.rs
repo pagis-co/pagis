@@ -347,3 +347,26 @@ fn a_message_without_a_message_id_carries_none() {
     assert_eq!(message.summary.message_id, "");
     assert_eq!(message.summary.thread_id, "INBOX:7");
 }
+
+#[test]
+fn imip_mail_has_readable_text_and_a_calendar_method() {
+    let calendar = include_str!("../../pagis-core/tests/fixtures/imip/google-request.ics");
+    let outgoing = OutgoingMessage {
+        to: vec!["reader@example.com".into()],
+        subject: "Planning meeting".into(),
+        body: "Please answer this invitation.".into(),
+        attachments: vec![pagis_mail::OutgoingAttachment {
+            name: "invite.ics".into(),
+            content_type: "text/calendar; method=REQUEST; charset=utf-8".into(),
+            data: calendar.as_bytes().to_vec(),
+        }],
+        ..Default::default()
+    };
+    let built = build_mime("organizer@example.org", &outgoing, SENT_AT).unwrap();
+    let parsed = read_mime(&built.raw, MessageId::new("INBOX:1")).unwrap();
+    assert_eq!(parsed.text.trim(), outgoing.body);
+    assert_eq!(parsed.calendar.as_deref(), Some(calendar));
+    let raw = String::from_utf8(built.raw).unwrap();
+    assert!(raw.contains("multipart/"));
+    assert!(raw.contains("method=\"REQUEST\"") || raw.contains("method=REQUEST"));
+}

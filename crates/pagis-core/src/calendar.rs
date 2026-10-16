@@ -26,6 +26,31 @@ pub struct CalendarAttendee {
     pub status: ParticipationStatus,
 }
 
+/// Scheduling state received or sent through the Workspace Mailbox.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct CalendarInvitation {
+    pub organizer: String,
+    pub sequence: u32,
+    pub status: EventStatus,
+    pub occurrence: Option<InvitationOccurrence>,
+}
+
+/// A separate Event for one occurrence of an invitation series.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct InvitationOccurrence {
+    pub series_uid: String,
+    /// The original start as a UTC RFC 3339 time or an all-day date.
+    pub recurrence_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum EventStatus {
+    Confirmed,
+    Tentative,
+    Cancelled,
+}
+
 /// Local times use YYYY-MM-DDTHH:MM:SS. All-day dates use YYYY-MM-DD.
 /// The end is exclusive. EXDATE values have the same format as the start.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -44,6 +69,8 @@ pub struct CalendarEventData {
     /// Minutes before the start. This is stored data; no delivery runs.
     pub reminders: Vec<u32>,
     pub meeting_url: Option<String>,
+    #[serde(default)]
+    pub invitation: Option<CalendarInvitation>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -135,6 +162,22 @@ fn invalid(message: impl Into<String>) -> CalendarError {
 }
 
 impl CalendarEventData {
+    /// A stored invitation keeps its organizer and does not move to an older sequence.
+    pub fn can_replace(&self, previous: &Self) -> bool {
+        match (&previous.invitation, &self.invitation) {
+            (None, _) => true,
+            (Some(_), None) => false,
+            (Some(old), Some(new)) => {
+                new.organizer.eq_ignore_ascii_case(&old.organizer)
+                    && new.occurrence == old.occurrence
+                    && new.sequence >= old.sequence
+                    && !(old.status == EventStatus::Cancelled
+                        && new.sequence == old.sequence
+                        && new.status != EventStatus::Cancelled)
+            }
+        }
+    }
+
     fn zone(&self) -> Result<Tz, CalendarError> {
         self.timezone
             .parse::<chrono_tz::Tz>()
@@ -213,6 +256,22 @@ impl CalendarEventData {
             at.checked_add_signed(duration)
                 .ok_or_else(|| invalid("Invalid event end."))
         }
+    }
+
+    pub(crate) fn single_occurrence(&self, start: &str) -> Result<Self, CalendarError> {
+        let mut data = self.clone();
+        let end = self.finish(self.at(start)?)?;
+        data.start = start.into();
+        data.end = end
+            .format(if self.all_day {
+                "%Y-%m-%d"
+            } else {
+                "%Y-%m-%dT%H:%M:%S"
+            })
+            .to_string();
+        data.rrule = None;
+        data.exdates.clear();
+        Ok(data)
     }
 
     /// The envelope of the occurrences, after EXDATE. An empty Event has
@@ -303,7 +362,13 @@ fn expand(
     let mut found = Vec::new();
     for event in events {
         let data = &event.data;
-        if busy_only && data.all_day {
+        if busy_only
+            && (data.all_day
+                || data
+                    .invitation
+                    .as_ref()
+                    .is_some_and(|i| i.status == EventStatus::Cancelled))
+        {
             continue;
         }
         let start = data.at(&data.start)?;
@@ -404,6 +469,18 @@ pub fn free_busy(
 
 #[async_trait]
 pub trait CalendarStore: Send + Sync {
+    async fn linked_occurrences(
+        &self,
+        workspace_id: &WorkspaceId,
+        series_uid: &str,
+    ) -> Result<Vec<CalendarEvent>, StoreError>;
+
+    async fn get_by_uid(
+        &self,
+        workspace_id: &WorkspaceId,
+        uid: &str,
+    ) -> Result<Option<CalendarEvent>, StoreError>;
+
     /// Search stored title, description and location with a case-insensitive substring.
     /// Return at most `limit` master Events, newest first by first occurrence.
     async fn search(
@@ -425,7 +502,8 @@ pub trait CalendarStore: Send + Sync {
         workspace_id: &WorkspaceId,
         id: &CalendarEventId,
     ) -> Result<Option<CalendarEvent>, StoreError>;
-    /// Change event data. Identity, owner and author stay with the record.
+    /// Change Event data. Identity, owner and author stay with the record.
+    /// Return false if the Event is absent or its scheduling state is newer.
     async fn update(
         &self,
         workspace_id: &WorkspaceId,
@@ -462,6 +540,7 @@ mod tests {
             attendees: vec![],
             reminders: vec![15],
             meeting_url: None,
+            invitation: None,
         }
     }
     fn ms(value: &str) -> i64 {

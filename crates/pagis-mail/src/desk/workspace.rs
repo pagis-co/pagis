@@ -14,6 +14,61 @@ pub struct PreparedWorkspaceMailbox {
 }
 
 impl MailboxDesk {
+    /// Read scheduling messages through the supplied store, oldest first.
+    pub async fn poll_workspace_calendar(
+        &self,
+        workspace: &WorkspaceId,
+    ) -> Result<(), MailboxError> {
+        if self.workspace_mailboxes.get(workspace).await?.is_none() {
+            return Ok(());
+        }
+        let mut store = self.open_workspace(workspace).await?;
+        let result = async {
+            let junk = store.junk_folder().await?;
+            for folder in ["INBOX", junk.as_str()] {
+                let cursor = match self
+                    .workspace_mailboxes
+                    .calendar_cursor(workspace, folder)
+                    .await?
+                {
+                    Some(cursor) => cursor,
+                    None => crate::Cursor {
+                        last_uid: 0,
+                        ..store.folder_state(folder).await?.cursor_here()
+                    },
+                };
+                let (messages, next) = match store.messages_since(&cursor).await {
+                    Ok(batch) => batch,
+                    Err(crate::TransportError(crate::TransportErrorCode::StaleId)) => {
+                        let head = store.folder_state(folder).await?.cursor_here();
+                        self.workspace_mailboxes
+                            .set_calendar_cursor(workspace, &head)
+                            .await?;
+                        continue;
+                    }
+                    Err(error) => return Err(error.into()),
+                };
+                for id in messages {
+                    match store.message(&id).await {
+                        Ok(_) => {}
+                        // A message can move or enter quarantine after the batch read.
+                        Err(crate::TransportError(crate::TransportErrorCode::StaleId)) => {}
+                        Err(error) => return Err(error.into()),
+                    }
+                }
+                self.workspace_mailboxes
+                    .set_calendar_cursor(workspace, &next)
+                    .await?;
+            }
+            Ok::<_, MailboxError>(())
+        }
+        .await;
+        let close = store.close().await;
+        result?;
+        close?;
+        Ok(())
+    }
+
     pub async fn read_quarantine(
         &self,
         entry: &pagis_core::JunkMessage,
@@ -277,9 +332,14 @@ impl MailboxDesk {
             .ok_or(MailboxError::NotFound)?;
         let (connection, _) = self.connected_provider(&mailbox.connection_id).await?;
         let context = self.workspace_read_context(&mailbox, &connection, agent);
-        self.workspace_mail
-            .open(&connection, &mailbox, context)
-            .await
+        let inner = self
+            .workspace_mail
+            .open(&connection, &mailbox, context.clone())
+            .await?;
+        Ok(Box::new(crate::intake::CalendarMailStore {
+            inner,
+            context,
+        }))
     }
 
     fn workspace_read_context(

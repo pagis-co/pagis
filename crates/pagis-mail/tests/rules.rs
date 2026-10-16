@@ -122,6 +122,7 @@ impl World {
                 workspace_mailboxes: stores.workspace_mailboxes.clone(),
                 junk: stores.junk.clone(),
                 opinions: std::sync::Arc::new(pagis_mail::fake::FakeMailOpinions::default()),
+                calendar: stores.calendar.clone(),
                 workspaces: stores.workspaces.clone(),
                 agents: stores.agents.clone(),
                 source: Arc::new(pagis_mail::HostSpamVerdicts),

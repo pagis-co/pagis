@@ -862,6 +862,68 @@ async fn workspace_mailbox_read_needs_a_grant_and_revocation_stops_dispatch() {
 }
 
 #[tokio::test]
+async fn imip_invitations_replies_and_cancellations_through_the_product_api() {
+    let app = MailboxApp::with_mailbox().await;
+    let fixture = include_str!("../../pagis-core/tests/fixtures/imip/google-request.ics")
+        .replace("reader@example.com", "person@example.com");
+    let incoming = pagis_mail::build_mime(
+        "organizer@example.org",
+        &pagis_mail::OutgoingMessage {
+            to: vec!["person@example.com".into()],
+            body: "Please join.".into(),
+            attachments: vec![pagis_mail::OutgoingAttachment {
+                name: "invite.ics".into(),
+                content_type: "text/calendar; method=REQUEST".into(),
+                data: fixture.into_bytes(),
+            }],
+            ..Default::default()
+        },
+        0,
+    )
+    .unwrap();
+    let id = app.transport.deliver_raw(&incoming.raw);
+    let events = app
+        .get("/api/v1/calendar/events?from=1792454400000&to=1792627200000")
+        .await;
+    assert_eq!(events[0]["event"]["uid"], "meeting@example.org");
+    assert_eq!(
+        events[0]["event"]["data"]["invitation"]["status"],
+        "tentative"
+    );
+    let mail = app
+        .get(&format!("/api/v1/workspace/mail/messages/{id}"))
+        .await;
+    assert_eq!(mail["invitation"]["uid"], "meeting@example.org");
+    for status in ["accepted", "tentative", "declined"] {
+        let response = app
+            .client
+            .post(format!(
+                "{}/api/v1/calendar/events/{}/response",
+                app.daemon.base_url,
+                events[0]["event"]["id"].as_str().unwrap()
+            ))
+            .header("cookie", app.daemon.cookie())
+            .json(&json!({"status": status}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        let event: Value = response.json().await.unwrap();
+        assert_eq!(event["data"]["attendees"][0]["status"], status);
+        let sent = app.transport.sent();
+        let reply = sent.last().unwrap();
+        assert_eq!(reply.to, ["organizer@example.org"]);
+        let text = std::str::from_utf8(&reply.attachments[0].data).unwrap();
+        assert_eq!(
+            pagis_core::imip::SchedulingMessage::parse(text)
+                .unwrap()
+                .method,
+            pagis_core::imip::SchedulingMethod::Reply
+        );
+    }
+}
+
+#[tokio::test]
 async fn shared_workspace_mail_visibility_limits_reads_and_audits_searches() {
     let app = MailboxApp::start().await;
     let (status, shared) = app
@@ -1151,6 +1213,76 @@ impl MailboxApp {
             .await
             .1
     }
+}
+
+#[tokio::test]
+async fn mail_invitation_response_checks_message_visibility() {
+    let app = MailboxApp::start().await;
+    let (status, shared) = app
+        .post(
+            "/api/v1/administration/workspaces",
+            json!({"name":"Support", "manager_id":app.daemon.user_id}),
+        )
+        .await;
+    assert_eq!(status, 201);
+    let prefix = format!("/api/v1/workspaces/{}", shared["id"].as_str().unwrap());
+    assert_eq!(
+        app.post(
+            &format!("{prefix}/workspace/mailbox"),
+            json!({"connection_id":app.connection_id,"local_part":"support"})
+        )
+        .await
+        .0,
+        201
+    );
+    let fixture = include_str!("../../pagis-core/tests/fixtures/imip/google-request.ics")
+        .replace("reader@example.com", "support@example.com");
+    let incoming = pagis_mail::build_mime(
+        "organizer@example.org",
+        &pagis_mail::OutgoingMessage {
+            to: vec!["support@example.com".into()],
+            body: "Please join.".into(),
+            attachments: vec![pagis_mail::OutgoingAttachment {
+                name: "invite.ics".into(),
+                content_type: "text/calendar; method=REQUEST".into(),
+                data: fixture.into_bytes(),
+            }],
+            ..Default::default()
+        },
+        0,
+    )
+    .unwrap();
+    let id = app.transport.deliver_raw(&incoming.raw);
+    let path = format!("{prefix}/workspace/mail/messages/{id}/response");
+    for visibility in ["agent_only", "escalations", "all_mail"] {
+        assert_eq!(
+            app.request(
+                reqwest::Method::PUT,
+                &format!("{prefix}/workspace/mailbox/visibility"),
+                Some(json!({"visibility":visibility}))
+            )
+            .await
+            .0,
+            200
+        );
+        let (status, event) = app.post(&path, json!({"status":"accepted"})).await;
+        if visibility == "all_mail" {
+            assert_eq!(status, 200, "{event}");
+            assert_eq!(event["data"]["attendees"][0]["status"], "accepted");
+            assert_eq!(app.transport.sent().len(), 1);
+        } else {
+            assert_eq!(status, 404, "{event}");
+            assert!(app.transport.sent().is_empty());
+        }
+    }
+    let audit = app.get(&format!("{prefix}/workspace/mail/audit")).await;
+    assert!(
+        audit["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|entry| entry["action"] == "mail.invitation.respond")
+    );
 }
 
 #[tokio::test]

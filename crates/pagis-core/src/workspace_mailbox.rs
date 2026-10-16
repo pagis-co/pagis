@@ -16,6 +16,17 @@ pub struct WorkspaceMailbox {
 
 #[async_trait]
 pub trait WorkspaceMailboxRecordStore: Send + Sync {
+    async fn calendar_cursor(
+        &self,
+        workspace: &WorkspaceId,
+        folder: &str,
+    ) -> Result<Option<crate::MailboxCursor>, StoreError>;
+    /// Advance within one numbering; a new UIDVALIDITY replaces the cursor.
+    async fn set_calendar_cursor(
+        &self,
+        workspace: &WorkspaceId,
+        cursor: &crate::MailboxCursor,
+    ) -> Result<(), StoreError>;
     async fn set_visibility(
         &self,
         workspace: &WorkspaceId,

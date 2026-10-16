@@ -23,6 +23,7 @@ fn event(workspace_id: WorkspaceId) -> CalendarEvent {
             }],
             reminders: vec![10, 30],
             meeting_url: Some("https://meet.example.com/review".into()),
+            invitation: None,
         },
     )
 }
@@ -244,6 +245,17 @@ pub async fn calendar_range_does_not_read_unrelated_event_data(backend: &Backend
             .unwrap()
             .is_empty()
     );
+    backend
+        .rows()
+        .execute(
+            "UPDATE calendar_events SET data = ? WHERE id = ?",
+            &[
+                serde_json::to_string(&before.data).unwrap().into(),
+                before.id.as_str().into(),
+            ],
+        )
+        .await
+        .unwrap();
     before.data.start = "2026-03-15T09:00:00".into();
     before.data.end = "2026-03-15T10:00:00".into();
     store
@@ -425,11 +437,89 @@ pub async fn legal_hold_preserves_events_and_occurrences(backend: &Backend) {
     );
 }
 
+pub async fn calendar_invitation_sequence_and_uid(backend: &Backend) {
+    use pagis_core::calendar::{CalendarInvitation, EventStatus};
+    let workspace = backend.seeded_workspace().await;
+    let other = backend.seeded_workspace().await;
+    let store = &backend.stores().calendar;
+    let mut row = event(workspace.id.clone());
+    row.data.invitation = Some(CalendarInvitation {
+        organizer: "organizer@example.org".into(),
+        sequence: 1,
+        status: EventStatus::Tentative,
+        occurrence: None,
+    });
+    store.create(&row).await.unwrap();
+    assert_eq!(
+        store.get_by_uid(&workspace.id, &row.uid).await.unwrap(),
+        Some(row.clone())
+    );
+    assert!(
+        store
+            .get_by_uid(&other.id, &row.uid)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    let mut duplicate = row.clone();
+    duplicate.id = pagis_core::CalendarEventId::generate();
+    assert!(store.create(&duplicate).await.is_err());
+    let old = row.data.clone();
+    row.data.invitation.as_mut().unwrap().sequence = 2;
+    row.data.invitation.as_mut().unwrap().status = EventStatus::Cancelled;
+    assert!(
+        store
+            .update(&workspace.id, &row.id, &row.data)
+            .await
+            .unwrap()
+    );
+    assert!(!store.update(&workspace.id, &row.id, &old).await.unwrap());
+    let mut stale_response = row.data.clone();
+    stale_response.invitation.as_mut().unwrap().status = EventStatus::Confirmed;
+    assert!(
+        !store
+            .update(&workspace.id, &row.id, &stale_response)
+            .await
+            .unwrap()
+    );
+    let mut child = event(workspace.id.clone());
+    child.data.invitation = row.data.invitation.clone();
+    child.data.invitation.as_mut().unwrap().occurrence =
+        Some(pagis_core::calendar::InvitationOccurrence {
+            series_uid: row.uid.clone(),
+            recurrence_id: "2026-03-07T14:00:00+00:00".into(),
+        });
+    store.create(&child).await.unwrap();
+    assert_eq!(
+        store
+            .linked_occurrences(&workspace.id, &row.uid)
+            .await
+            .unwrap(),
+        vec![child]
+    );
+    assert!(
+        store
+            .linked_occurrences(&other.id, &row.uid)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        store
+            .linked_occurrences(&workspace.id, "unknown@example.org")
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(store.get(&workspace.id, &row.id).await.unwrap(), Some(row));
+}
+
 #[macro_export]
 macro_rules! store_suite_calendar {
     ($emit:path) => {
         $emit!(
             calendar,
+            calendar_invitation_sequence_and_uid,
             calendar_search_matches_stored_text_and_bounds_results,
             calendar_free_busy,
             legal_hold_preserves_events_and_occurrences,

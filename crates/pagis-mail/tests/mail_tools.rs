@@ -136,6 +136,7 @@ impl World {
                 workspace_mailboxes: workspace_mailboxes.clone(),
                 junk: Arc::new(pagis_storage_sqlite::SqliteJunkStore::new(pool.clone())),
                 opinions: std::sync::Arc::new(pagis_mail::fake::FakeMailOpinions::default()),
+                calendar: Arc::new(pagis_storage_sqlite::SqliteCalendarStore::new(pool.clone())),
                 workspaces: Arc::new(pagis_storage_sqlite::SqliteWorkspaceStore::new(
                     pool.clone(),
                 )),

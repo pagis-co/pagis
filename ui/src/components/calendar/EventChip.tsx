@@ -16,7 +16,7 @@ export function EventChip({ occurrence, onOpen }: {
         onClick={() => onOpen(occurrence)}
       >
         <strong>
-          {title}
+          {occurrence.event.data.invitation?.status === 'cancelled' ? `Cancelled: ${title}` : title}
         </strong>
         <span>
           {eventTime(occurrence)}

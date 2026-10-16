@@ -788,6 +788,15 @@ CREATE TABLE workspace_mailboxes (
     send_day BIGINT NOT NULL DEFAULT 0,
     created_at BIGINT NOT NULL
 );
+
+CREATE TABLE workspace_mail_calendar_cursors (
+    workspace_id TEXT COLLATE "C" NOT NULL REFERENCES workspace_mailboxes (workspace_id) ON DELETE CASCADE,
+    folder TEXT COLLATE "C" NOT NULL,
+    uid_validity BIGINT NOT NULL CHECK (uid_validity BETWEEN 1 AND 4294967295),
+    last_uid BIGINT NOT NULL CHECK (last_uid BETWEEN 0 AND 4294967295),
+    PRIMARY KEY (workspace_id, folder)
+);
+
 CREATE FUNCTION reserve_mail_address() RETURNS trigger AS $$
 BEGIN
     IF TG_OP = 'INSERT' THEN
