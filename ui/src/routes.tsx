@@ -29,6 +29,7 @@ import { CallInspector } from './components/CallInspector'
 import { CallPhone } from './components/phone/CallPhone'
 import { RunPhone } from './components/phone/RunPhone'
 import { DeskPhone } from './components/phone/DeskPhone'
+import { Mail } from './components/mail/Mail'
 import { Automations } from './components/Automations'
 import { CodingSessionPage } from './components/coding/CodingSessionPage'
 import { CodingSessions } from './components/coding/CodingSessions'
@@ -574,6 +575,13 @@ function AutomationsView() {
   )
 }
 
+const mailRoute = createRoute({
+  staticData: { phone: 'pushed' },
+  getParentRoute: () => rootRoute,
+  path: '/mail',
+  component: () => <Mail api={useApi()} />,
+})
+
 const automationsRoute = createRoute({
   staticData: { phone: 'pushed' },
   getParentRoute: () => rootRoute,
@@ -780,6 +788,7 @@ const routeTree = rootRoute.addChildren([
   agentMemoryRoute,
   agentWorkRoute,
   memoryRoute,
+  mailRoute,
   automationsRoute,
   softwareRoute,
   settingsIndexRoute,

@@ -2,6 +2,7 @@
  *  not here: the sprites have a page of their own. */
 export type SettingsSection =
   | 'workspace-number'
+  | 'mailbox'
   | 'connections'
   | 'hosts'
   | 'sessions'
@@ -26,6 +27,7 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
     label: 'Access',
     sections: [
       { value: 'workspace-number', label: 'Workspace Number' },
+      { value: 'mailbox', label: 'Workspace Mailbox' },
       { value: 'connections', label: 'Connections' },
       { value: 'hosts', label: 'Hosts' },
       { value: 'sessions', label: 'Sessions' },

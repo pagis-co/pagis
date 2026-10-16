@@ -752,6 +752,34 @@ CREATE UNIQUE INDEX idx_agent_mailboxes_agent
 CREATE INDEX idx_agent_mailboxes_connection ON agent_mailboxes (connection_id, state);
 CREATE INDEX idx_agent_mailboxes_workspace ON agent_mailboxes (workspace_id, state);
 
+
+-- Both mailbox types reserve an address in the Address Ledger.
+CREATE TABLE address_ledger (
+    address TEXT COLLATE "C" PRIMARY KEY
+);
+CREATE TABLE workspace_mailboxes (
+    workspace_id TEXT COLLATE "C" PRIMARY KEY REFERENCES workspaces (id),
+    connection_id TEXT COLLATE "C" NOT NULL,
+    address TEXT COLLATE "C" NOT NULL UNIQUE,
+    created_at BIGINT NOT NULL
+);
+CREATE FUNCTION reserve_mail_address() RETURNS trigger AS $$
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        INSERT INTO address_ledger (address) VALUES (NEW.address);
+        RETURN NEW;
+    END IF;
+    DELETE FROM address_ledger WHERE address = OLD.address;
+    RETURN OLD;
+END;
+$$ LANGUAGE plpgsql;
+CREATE TRIGGER agent_mailboxes_address
+AFTER INSERT OR DELETE ON agent_mailboxes
+FOR EACH ROW EXECUTE FUNCTION reserve_mail_address();
+CREATE TRIGGER workspace_mailboxes_address
+AFTER INSERT OR DELETE ON workspace_mailboxes
+FOR EACH ROW EXECUTE FUNCTION reserve_mail_address();
+
 CREATE TABLE plugin_tools (
     plugin_id TEXT COLLATE "C" NOT NULL REFERENCES plugins (id),
     -- `v1`, `v2` and so on.

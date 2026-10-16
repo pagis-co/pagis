@@ -176,10 +176,12 @@ pub struct Message {
 /// What a search asks for. An absent field is not a condition.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct MailQuery {
+    /// An exclusive IMAP UID bound for a cursor page.
+    pub before_uid: Option<u32>,
     pub from: Option<String>,
     pub to: Option<String>,
     pub subject: Option<String>,
-    /// Text in the body.
+    /// Text in the headers or body.
     pub text: Option<String>,
     pub since: Option<UnixMillis>,
     pub before: Option<UnixMillis>,
@@ -284,6 +286,9 @@ pub trait MailTransport: Send + Sync {
 /// seam: the selected folder is its state, and one task owns it.
 #[async_trait]
 pub trait MailSession: Send {
+    async fn folders(&mut self) -> Result<Vec<String>, TransportError>;
+    async fn metadata(&mut self, id: &MessageId) -> Result<crate::MailMetadata, TransportError>;
+
     /// Whether the logged-in server announces IDLE.
     fn idle_supported(&self) -> bool;
 

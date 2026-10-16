@@ -56,9 +56,9 @@ and its owner decides access (ADR-0039). Not built: these Workspace kinds and
 Shared Workspace access. The daemon gives each Person one Workspace.
 
 A Workspace holds Agents, memory, conversations, Connections, Grants, Vault,
-Trust List, Software List, Agent Mailboxes, a Workspace Number, Files and
-Retention Policies (ADR-0041). Not built: its Workspace Mailbox and calendar
-(ADR-0040, ADR-0042). A **tenant** is a Workspace as the unit of isolation: a
+Trust List, Software List, Agent Mailboxes, a Workspace Mailbox, a Workspace
+Number, Files and Retention Policies (ADR-0040, ADR-0041). Not built: its
+calendar (ADR-0042). A **tenant** is a Workspace as the unit of isolation: a
 Tenant Data Key seals its secrets (ADR-0013), a Tenant Network joins its
 containers (ADR-0014), and the broker keeps its manifest registry (ADR-0005).
 
@@ -105,7 +105,7 @@ alone reads or writes it, on the Administration Port (ADR-0024).
 | --- | --- |
 | The provider keys, one for each model provider | The Model Aliases each Agent thinks on |
 | The Installation OAuth Client | The Person's own Connections, their Google account above all |
-| The Installation Connections: the carrier and the mail domain | Agent Mailboxes and Workspace Number; Workspace Mailbox is not built |
+| The Installation Connections: the carrier and the mail domain | Agent Mailboxes, the Workspace Mailbox and the Workspace Number |
 | The installed Plugins and their Bindings | Which Agent holds a Grant to a Plugin |
 | The System Settings: the ports, the Docker endpoint, the log level, the data directory | The timezone |
 | The roster and each Org role | The Spend Cap |

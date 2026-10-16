@@ -549,3 +549,15 @@ Brief in Settings belongs to that Agent. Release the number in Settings to
 return it to the carrier and stop the charge.
 
 Not built: outbound Calls and outbound texts from the Workspace Number.
+
+## Mail
+
+Open **Settings > Workspace Mailbox** to choose a local part at the Org
+mail domain. An Administrator connects the mail domain first. At a manual
+host, create the mailbox at the host and enter its password in Settings.
+Each Workspace has at most one Workspace Mailbox.
+
+Open **Mail > All mail** to read your mail. Select a folder or enter text
+in **Search mail**. Open a message to read its thread. The displayed mail
+is marked as seen. **Needs you** has no items. Send and Agent triage are
+not built.

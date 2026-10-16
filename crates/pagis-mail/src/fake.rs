@@ -574,6 +574,31 @@ impl FakeMailSession {
 
 #[async_trait]
 impl MailSession for FakeMailSession {
+    async fn folders(&mut self) -> Result<Vec<String>, TransportError> {
+        self.refuse()?;
+        let mut inbox = self.shared.inbox.lock().unwrap();
+        inbox.folder("INBOX");
+        let mut folders: Vec<_> = inbox.folders.keys().cloned().collect();
+        folders.sort();
+        Ok(folders)
+    }
+    async fn metadata(&mut self, id: &MessageId) -> Result<crate::MailMetadata, TransportError> {
+        self.refuse()?;
+        let mut inbox = self.shared.inbox.lock().unwrap();
+        let flags = inbox
+            .folder(&id.as_str().parse::<ImapMessageId>()?.folder)
+            .messages
+            .iter()
+            .find(|stored| stored.message.summary.id == *id)
+            .map(|stored| stored.flags)
+            .ok_or(TransportError(TransportErrorCode::StaleId))?;
+        Ok(crate::MailMetadata {
+            seen: flags.seen,
+            flagged: flags.flagged,
+            labels: Vec::new(),
+        })
+    }
+
     fn idle_supported(&self) -> bool {
         self.idle_supported
     }
@@ -661,15 +686,26 @@ impl MailSession for FakeMailSession {
         self.refuse()?;
         let mut inbox = self.shared.inbox.lock().unwrap();
         let folder = inbox.folder(&self.selected);
-        let matches = |summary: &MessageSummary, text: &str| -> bool {
+        let matches = |message: &Message| -> bool {
+            let summary = &message.summary;
             let contains = |field: &str, wanted: &Option<String>| match wanted {
                 Some(wanted) => field.to_lowercase().contains(&wanted.to_lowercase()),
                 None => true,
             };
-            contains(&summary.from, &query.from)
+            query.before_uid.is_none_or(|before| {
+                summary
+                    .id
+                    .as_str()
+                    .parse::<ImapMessageId>()
+                    .is_ok_and(|id| id.uid < before)
+            }) && contains(&summary.from, &query.from)
                 && contains(&summary.to.join(","), &query.to)
                 && contains(&summary.subject, &query.subject)
-                && contains(text, &query.text)
+                && (contains(&message.text, &query.text)
+                    || message
+                        .headers
+                        .iter()
+                        .any(|(name, value)| contains(&format!("{name}: {value}"), &query.text)))
                 && query.since.is_none_or(|since| summary.date >= since)
                 && query.before.is_none_or(|before| summary.date < before)
         };
@@ -677,7 +713,7 @@ impl MailSession for FakeMailSession {
             .messages
             .iter()
             .rev()
-            .filter(|stored| matches(&stored.message.summary, &stored.message.text))
+            .filter(|stored| matches(&stored.message))
             .map(|stored| stored.message.summary.clone())
             .take(query.limit as usize)
             .collect();

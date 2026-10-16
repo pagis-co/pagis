@@ -46,6 +46,7 @@ use crate::user;
 use crate::voice;
 use crate::widgets;
 use crate::workspace;
+use crate::workspace_mail;
 use crate::ws::{ClientFrame, EventRow, ServerFrame};
 
 #[derive(OpenApi)]
@@ -79,6 +80,12 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         computers::screen_offer,
         computers::screen_takeover,
         computers::screen_handback,
+        workspace_mail::get_workspace_mailbox,
+        workspace_mail::create_workspace_mailbox,
+        workspace_mail::list_workspace_mail_folders,
+        workspace_mail::list_workspace_mail_messages,
+        workspace_mail::get_workspace_mail_message,
+        workspace_mail::get_workspace_mail_thread,
         mailboxes::list_mailboxes,
         mailboxes::list_mailbox_offers,
         mailboxes::check_mailbox_name,
@@ -332,6 +339,13 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         mail::MailMessageDto,
         mail::MailHeaderDto,
         mail::MailAttachmentDto,
+        workspace_mail::WorkspaceMailboxDto,
+        workspace_mail::WorkspaceMailboxPage,
+        workspace_mail::WorkspaceMailSummaryDto,
+        workspace_mail::WorkspaceMailMessageDto,
+        workspace_mail::WorkspaceMailFolders,
+        workspace_mail::WorkspaceMailMessages,
+        workspace_mail::WorkspaceMailThread,
         mailboxes::MailboxDto,
         mailboxes::MailboxPage,
         mailboxes::MailboxListPage,

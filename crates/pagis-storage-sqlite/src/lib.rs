@@ -130,6 +130,7 @@ pub async fn open(db_path: &std::path::Path) -> Result<pagis_core::Stores, sqlx:
 /// Every store of this backend, over one pool.
 pub fn stores(pool: sqlx::SqlitePool) -> pagis_core::Stores {
     pagis_core::Stores {
+        workspace_mailboxes: Arc::new(SqliteWorkspaceMailboxStore::new(pool.clone())),
         run_journal: std::sync::Arc::new(SqliteRunJournal::new(pool.clone())),
         agent_mailboxes: Arc::new(SqliteAgentMailboxStore::new(pool.clone())),
         agents: Arc::new(SqliteAgentStore::new(pool.clone())),
@@ -179,3 +180,6 @@ pub fn stores(pool: sqlx::SqlitePool) -> pagis_core::Stores {
         workspaces: Arc::new(SqliteWorkspaceStore::new(pool)),
     }
 }
+
+mod workspace_mailbox_store;
+pub use workspace_mailbox_store::SqliteWorkspaceMailboxStore;

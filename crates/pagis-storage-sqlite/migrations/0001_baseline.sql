@@ -731,6 +731,34 @@ CREATE UNIQUE INDEX idx_agent_mailboxes_agent
 CREATE INDEX idx_agent_mailboxes_connection ON agent_mailboxes (connection_id, state);
 CREATE INDEX idx_agent_mailboxes_workspace ON agent_mailboxes (workspace_id, state);
 
+
+-- Both mailbox types reserve an address in the Address Ledger.
+CREATE TABLE address_ledger (
+    address TEXT PRIMARY KEY
+);
+CREATE TABLE workspace_mailboxes (
+    workspace_id TEXT PRIMARY KEY REFERENCES workspaces (id),
+    connection_id TEXT NOT NULL,
+    address TEXT NOT NULL UNIQUE,
+    created_at INTEGER NOT NULL
+);
+CREATE TRIGGER agent_mailboxes_reserve_address AFTER INSERT ON agent_mailboxes
+BEGIN
+    INSERT INTO address_ledger (address) VALUES (NEW.address);
+END;
+CREATE TRIGGER agent_mailboxes_drop_address AFTER DELETE ON agent_mailboxes
+BEGIN
+    DELETE FROM address_ledger WHERE address = OLD.address;
+END;
+CREATE TRIGGER workspace_mailboxes_reserve_address AFTER INSERT ON workspace_mailboxes
+BEGIN
+    INSERT INTO address_ledger (address) VALUES (NEW.address);
+END;
+CREATE TRIGGER workspace_mailboxes_drop_address AFTER DELETE ON workspace_mailboxes
+BEGIN
+    DELETE FROM address_ledger WHERE address = OLD.address;
+END;
+
 CREATE TABLE plugin_tools (
     plugin_id TEXT NOT NULL REFERENCES plugins (id),
     -- `v1`, `v2` and so on.

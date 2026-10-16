@@ -466,6 +466,36 @@ pub const ADMINISTRATION_ROUTES: &[Route] = &[
 /// Every route the daemon serves.
 pub const ROUTES: &[Route] = &[
     Route {
+        path: "/api/v1/workspace/mailbox",
+        methods: &["get", "post"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
+        path: "/api/v1/workspace/mail/folders",
+        methods: &["get"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
+        path: "/api/v1/workspace/mail/messages",
+        methods: &["get"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
+        path: "/api/v1/workspace/mail/messages/{message_id}",
+        methods: &["get"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
+        path: "/api/v1/workspace/mail/threads/{thread_id}",
+        methods: &["get"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
         path: "/api/v1/knowledge/forget",
         methods: &["get", "post"],
         authenticated: true,

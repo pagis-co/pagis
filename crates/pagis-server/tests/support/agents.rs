@@ -23,6 +23,8 @@ pub struct Embedder {
     pub cookie: String,
     pub other_cookie: String,
     #[allow(dead_code)]
+    pub mail_transport: Arc<pagis_mail::fake::FakeMailTransport>,
+    #[allow(dead_code)]
     pub mailbox_host: Arc<pagis_mail::fake::FakeMailboxHost>,
     #[allow(dead_code)]
     pub mail: Arc<pagis_mail::fake::MemoryMailbox>,
@@ -270,14 +272,16 @@ impl Embedder {
             config,
         };
         let agents = AgentSystem::start(deps.clone()).await;
+        let mail_transport = Arc::new(pagis_mail::fake::FakeMailTransport::default());
         let mailbox_host = Arc::new(pagis_mail::fake::FakeMailboxHost::default());
         let mailbox_desk = Arc::new(pagis_mail::MailboxDesk::new(pagis_mail::MailboxDeskDeps {
+            workspace_mailboxes: stores.workspace_mailboxes.clone(),
             mailboxes: stores.agent_mailboxes.clone(),
             connections: stores.connections.clone(),
             org_workspace_id: org_workspace_id.clone(),
             agents: stores.agents.clone(),
             host: mailbox_host.clone(),
-            transport: Arc::new(pagis_mail::NoMailTransport),
+            transport: mail_transport.clone(),
             secrets: secrets.clone(),
             bus: bus.clone(),
             standing_rule: Arc::new(pagis_mail::fake::FakeStandingRule::default()),
@@ -457,6 +461,7 @@ impl Embedder {
             other_workspace,
             cookie,
             other_cookie,
+            mail_transport,
             mailbox_host,
             mail,
             plugin_states,

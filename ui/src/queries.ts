@@ -3525,3 +3525,72 @@ export function useWidgetView(
     staleTime: Infinity,
   });
 }
+
+export const workspaceMailKey = (workspaceId: string) =>
+  ["workspace", workspaceId, "mail"] as const;
+export const workspaceMailMessagesKey = (workspaceId: string) =>
+  [...workspaceMailKey(workspaceId), "messages"] as const;
+
+export function useWorkspaceMailbox(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
+  return useQuery({
+    queryKey: [...workspaceMailKey(workspaceId), "mailbox"],
+    queryFn: () => unwrap(api.GET("/api/v1/workspace/mailbox")),
+  });
+}
+
+export function useWorkspaceMailFolders(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
+  return useQuery({
+    queryKey: [...workspaceMailKey(workspaceId), "folders"],
+    queryFn: () => unwrap(api.GET("/api/v1/workspace/mail/folders")),
+  });
+}
+
+export function useWorkspaceMailMessages(
+  api: ApiClient,
+  query: { folder: string; q: string; cursor?: string },
+) {
+  const workspaceId = useCurrentWorkspaceId();
+  return useQuery({
+    queryKey: [...workspaceMailMessagesKey(workspaceId), query],
+    queryFn: () =>
+      unwrap(
+        api.GET("/api/v1/workspace/mail/messages", {
+          params: { query },
+        }),
+      ),
+  });
+}
+
+/** Opening mail marks it as seen. The place refreshes the list on return. */
+export function useWorkspaceMailMessage(api: ApiClient, messageId: string) {
+  const workspaceId = useCurrentWorkspaceId();
+  return useQuery({
+    queryKey: [...workspaceMailKey(workspaceId), "message", messageId],
+    queryFn: () =>
+      unwrap(
+        api.GET("/api/v1/workspace/mail/messages/{message_id}", {
+          params: { path: { message_id: messageId } },
+        }),
+      ),
+    retry: false,
+    gcTime: 0,
+  });
+}
+
+export function useWorkspaceMailThread(api: ApiClient, threadId?: string) {
+  const workspaceId = useCurrentWorkspaceId();
+  return useQuery({
+    queryKey: [...workspaceMailKey(workspaceId), "thread", threadId],
+    queryFn: () =>
+      unwrap(
+        api.GET("/api/v1/workspace/mail/threads/{thread_id}", {
+          params: { path: { thread_id: threadId! } },
+        }),
+      ),
+    enabled: threadId !== undefined,
+    retry: false,
+    gcTime: 0,
+  });
+}

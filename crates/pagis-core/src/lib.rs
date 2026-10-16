@@ -154,3 +154,6 @@ pub use computer_fill::{FieldKind, FillField};
 
 pub mod run_journal;
 pub use run_journal::{JournalCall, RunCheckpoint, RunJournal, RunJournalEntry};
+
+mod workspace_mailbox;
+pub use workspace_mailbox::{WorkspaceMailbox, WorkspaceMailboxRecordStore};

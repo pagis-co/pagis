@@ -242,6 +242,7 @@ impl FakeDatabase {
     }
     pub fn stores(&self) -> Stores {
         Stores {
+            workspace_mailboxes: Arc::new(FakeWorkspaceMailboxStore(self.0.clone())),
             agent_mailboxes: Arc::new(FakeAgentMailboxStore(self.0.clone())),
             agents: Arc::new(FakeAgentStore(self.0.clone())),
             files: Arc::new(FakeFileStore(self.0.clone())),
@@ -295,6 +296,7 @@ impl FakeDatabase {
 
 #[derive(Default)]
 struct Data {
+    workspace_mailboxes: BTreeMap<WorkspaceId, crate::WorkspaceMailbox>,
     agents: Table<AgentId, Agent>,
     model_aliases: Table<String, ModelAlias>,
     connections: Table<ConnectionId, Connection>,
@@ -408,3 +410,7 @@ fn queued_run(
         dismissed_at: None,
     }
 }
+
+/// The in-memory Workspace Mailbox records share the Address Ledger.
+#[derive(Clone, Default)]
+pub struct FakeWorkspaceMailboxStore(Shared);

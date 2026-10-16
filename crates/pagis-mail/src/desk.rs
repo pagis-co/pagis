@@ -13,6 +13,8 @@
 //! again. Every other end of a mailbox is a tombstone, and the ledger
 //! keeps it, so an address is never given out a second time.
 
+mod workspace;
+
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -148,6 +150,7 @@ struct CheckedMailbox {
 /// Everything the desk needs. Every collaborator is a seam, so a test
 /// drives the whole lifecycle with no network.
 pub struct MailboxDeskDeps {
+    pub workspace_mailboxes: Arc<dyn pagis_core::WorkspaceMailboxRecordStore>,
     pub mailboxes: Arc<dyn AgentMailboxStore>,
     pub connections: Arc<dyn ConnectionStore>,
     /// The Org's Workspace, which holds the mail domain Connections.
@@ -164,6 +167,7 @@ pub struct MailboxDeskDeps {
 }
 
 pub struct MailboxDesk {
+    workspace_mailboxes: Arc<dyn pagis_core::WorkspaceMailboxRecordStore>,
     mailboxes: Arc<dyn AgentMailboxStore>,
     connections: Arc<dyn ConnectionStore>,
     org_workspace_id: WorkspaceId,
@@ -182,6 +186,7 @@ pub struct MailboxDesk {
 impl MailboxDesk {
     pub fn new(deps: MailboxDeskDeps) -> Self {
         Self {
+            workspace_mailboxes: deps.workspace_mailboxes,
             mailboxes: deps.mailboxes,
             connections: deps.connections,
             org_workspace_id: deps.org_workspace_id,
@@ -696,10 +701,15 @@ impl MailboxDesk {
         workspace_id: &WorkspaceId,
         connection_id: &ConnectionId,
     ) -> Result<u32, MailboxError> {
-        Ok(self
+        let agents = self
             .mailboxes
             .count_live_for_connection(workspace_id, connection_id)
-            .await?)
+            .await?;
+        let workspace = self
+            .workspace_mailboxes
+            .count_for_connection(workspace_id, connection_id)
+            .await?;
+        Ok(agents + workspace)
     }
 
     /// Read one request, refuse it where it is wrong, and answer with

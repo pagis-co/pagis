@@ -149,10 +149,14 @@ impl World {
         connections.create(&manual).await.unwrap();
 
         let mailboxes = Arc::new(SqliteAgentMailboxStore::new(pool.clone()));
+        let workspace_mailboxes = Arc::new(pagis_storage_sqlite::SqliteWorkspaceMailboxStore::new(
+            pool.clone(),
+        ));
         let events = Arc::new(SqliteEventLog::new(pool));
         let transport = Arc::new(FakeMailTransport::default());
         let standing_rule = Arc::new(FakeStandingRule::default());
         let desk = Arc::new(MailboxDesk::new(MailboxDeskDeps {
+            workspace_mailboxes,
             mailboxes: Arc::clone(&mailboxes) as _,
             connections: Arc::clone(&connections) as _,
             org_workspace_id: workspace.id.clone(),
@@ -1197,4 +1201,95 @@ async fn a_host_that_needs_a_key_is_unavailable_without_its_secret(pool: SqliteP
         vec![host_api_key_secret_name(MIGADU_ALIAS)]
     );
     assert!(world.host.calls().is_empty());
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn workspace_mailbox_provision_uses_the_host_and_secret_without_a_standing_rule(
+    pool: SqlitePool,
+) {
+    let world = World::new(pool).await;
+    let mailbox = world
+        .desk
+        .provision_workspace(&world.workspace_id, world.hosted("person"))
+        .await
+        .unwrap();
+    assert_eq!(mailbox.address, "person@example.com");
+    assert!(
+        world
+            .secrets
+            .get(&mailbox_password_secret_name(
+                &world.workspace_id,
+                &mailbox.address
+            ))
+            .unwrap()
+            .is_some()
+    );
+    assert!(world.standing_rule.created().is_empty());
+    assert!(matches!(
+        world
+            .desk
+            .provision_workspace(&world.workspace_id, world.hosted("other"))
+            .await,
+        Err(MailboxError::Conflict(_))
+    ));
+    assert_eq!(world.host.addresses(), ["person@example.com"]);
+    assert!(
+        world
+            .mailboxes
+            .address_taken("person@example.com")
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        world
+            .desk
+            .connection_in_use(&world.workspace_id, &world.migadu_id)
+            .await
+            .unwrap(),
+        1
+    );
+    let mut store = world
+        .desk
+        .open_workspace(&world.workspace_id)
+        .await
+        .unwrap();
+    assert!(store.folders().await.unwrap().contains(&"INBOX".into()));
+    store.close().await.unwrap();
+    assert_eq!(world.transport.logins(), ["person@example.com"]);
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn workspace_mailbox_host_refusal_releases_both_reservations(pool: SqlitePool) {
+    let world = World::new(pool).await;
+    world
+        .host
+        .fail_with(Some(pagis_mail::HostErrorCode::CapReached));
+    assert!(matches!(
+        world
+            .desk
+            .provision_workspace(&world.workspace_id, world.hosted("person"))
+            .await,
+        Err(MailboxError::Host(_))
+    ));
+    assert!(
+        world
+            .desk
+            .workspace_mailbox(&world.workspace_id)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        !world
+            .mailboxes
+            .address_taken("person@example.com")
+            .await
+            .unwrap()
+    );
+    world.host.fail_with(None);
+    world
+        .desk
+        .provision_workspace(&world.workspace_id, world.hosted("person"))
+        .await
+        .unwrap();
 }

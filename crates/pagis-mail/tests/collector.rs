@@ -124,9 +124,13 @@ impl World {
             .unwrap();
 
         let mailboxes = Arc::new(SqliteAgentMailboxStore::new(pool.clone()));
+        let workspace_mailboxes = Arc::new(pagis_storage_sqlite::SqliteWorkspaceMailboxStore::new(
+            pool.clone(),
+        ));
         let sent = Arc::new(SqliteSentMailStore::new(pool.clone()));
         let transport = Arc::new(transport);
         let desk = Arc::new(MailboxDesk::new(MailboxDeskDeps {
+            workspace_mailboxes,
             mailboxes: Arc::clone(&mailboxes) as _,
             connections: Arc::clone(&connections) as _,
             org_workspace_id: workspace.id.clone(),

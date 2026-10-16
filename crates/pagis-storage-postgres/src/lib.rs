@@ -126,6 +126,7 @@ pub async fn open(url: &str) -> Result<pagis_core::Stores, sqlx::Error> {
 /// Every store of this backend, over one pool.
 pub fn stores(pool: PgPool) -> pagis_core::Stores {
     pagis_core::Stores {
+        workspace_mailboxes: Arc::new(PostgresWorkspaceMailboxStore::new(pool.clone())),
         run_journal: std::sync::Arc::new(PostgresRunJournal::new(pool.clone())),
         agent_mailboxes: Arc::new(PostgresAgentMailboxStore::new(pool.clone())),
         agents: Arc::new(PostgresAgentStore::new(pool.clone())),
@@ -185,3 +186,6 @@ pub(crate) fn db_err(e: sqlx::Error) -> pagis_core::StoreError {
 pub(crate) fn unique_violation(e: &sqlx::Error) -> bool {
     matches!(e, sqlx::Error::Database(error) if error.is_unique_violation())
 }
+
+mod workspace_mailbox_store;
+pub use workspace_mailbox_store::PostgresWorkspaceMailboxStore;

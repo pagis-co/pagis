@@ -1007,7 +1007,7 @@ async fn remove_connection(state: &AppState, connection: &Connection) -> Result<
             "mailboxes"
         };
         return Err(ApiError::conflict(format!(
-            "this mail domain still holds {mailboxes} agent {mailbox}. Delete them first."
+            "this mail domain still holds {mailboxes} {mailbox}. Remove them first."
         )));
     }
     if !state

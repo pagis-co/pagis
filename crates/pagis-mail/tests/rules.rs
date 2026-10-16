@@ -109,6 +109,7 @@ impl World {
             standing.clone()
         };
         let desk = Arc::new(MailboxDesk::new(MailboxDeskDeps {
+            workspace_mailboxes: stores.workspace_mailboxes.clone(),
             mailboxes: stores.agent_mailboxes.clone(),
             connections: stores.connections.clone(),
             org_workspace_id: org_workspace,

@@ -18,3 +18,5 @@ mod mime;
 mod proof;
 mod provider;
 mod sender;
+
+mod workspace_store;
