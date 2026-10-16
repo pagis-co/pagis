@@ -296,6 +296,7 @@ impl FakeDatabase {
 
 #[derive(Default)]
 struct Data {
+    workspace_mail_sends: BTreeMap<WorkspaceId, (i64, u32)>,
     workspace_mailboxes: BTreeMap<WorkspaceId, crate::WorkspaceMailbox>,
     agents: Table<AgentId, Agent>,
     model_aliases: Table<String, ModelAlias>,

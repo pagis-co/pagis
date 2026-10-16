@@ -747,6 +747,9 @@ CREATE TABLE workspace_mailboxes (
     workspace_id TEXT PRIMARY KEY REFERENCES workspaces (id),
     connection_id TEXT NOT NULL,
     address TEXT NOT NULL UNIQUE,
+    outgoing_cap BIGINT NOT NULL DEFAULT 20,
+    sends_today BIGINT NOT NULL DEFAULT 0,
+    send_day BIGINT NOT NULL DEFAULT 0,
     created_at INTEGER NOT NULL
 );
 CREATE TRIGGER agent_mailboxes_reserve_address AFTER INSERT ON agent_mailboxes

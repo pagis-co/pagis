@@ -94,7 +94,7 @@ pub mod ws;
 use std::sync::Arc;
 
 use axum::extract::{DefaultBodyLimit, Query, State};
-use axum::routing::{delete, get, post, put};
+use axum::routing::{delete, get, patch, post, put};
 use axum::{Json, Router, middleware};
 use object_store::ObjectStore;
 use pagis_agent::{AgentSystem, ProgressHub, StreamHub};
@@ -477,11 +477,13 @@ fn product_router(state: Arc<AppState>) -> Router {
         )
         .route(
             "/api/v1/workspace/mail/folders",
-            get(workspace_mail::list_workspace_mail_folders),
+            get(workspace_mail::list_workspace_mail_folders)
+                .post(workspace_mail::create_workspace_mail),
         )
         .route(
             "/api/v1/workspace/mail/messages",
-            get(workspace_mail::list_workspace_mail_messages),
+            get(workspace_mail::list_workspace_mail_messages)
+                .post(workspace_mail::send_workspace_mail),
         )
         .route(
             "/api/v1/workspace/mail/messages/{message_id}",
@@ -490,6 +492,43 @@ fn product_router(state: Arc<AppState>) -> Router {
         .route(
             "/api/v1/workspace/mail/threads/{thread_id}",
             get(workspace_mail::get_workspace_mail_thread),
+        )
+        .route(
+            "/api/v1/workspace/mail/folders/{name}",
+            patch(workspace_mail::rename_workspace_mail)
+                .delete(workspace_mail::delete_workspace_mail),
+        )
+        .route(
+            "/api/v1/workspace/mail/messages/{message_id}/reply",
+            post(workspace_mail::reply_workspace_mail),
+        )
+        .route(
+            "/api/v1/workspace/mail/messages/{message_id}/reply-all",
+            post(workspace_mail::reply_all_workspace_mail),
+        )
+        .route(
+            "/api/v1/workspace/mail/messages/{message_id}/forward",
+            post(workspace_mail::forward_workspace_mail),
+        )
+        .route(
+            "/api/v1/workspace/mail/messages/{message_id}/composer",
+            get(workspace_mail::prepare_workspace_mail),
+        )
+        .route(
+            "/api/v1/workspace/mail/messages/{message_id}/move",
+            post(workspace_mail::move_workspace_mail),
+        )
+        .route(
+            "/api/v1/workspace/mail/messages/{message_id}/labels",
+            post(workspace_mail::label_workspace_mail),
+        )
+        .route(
+            "/api/v1/workspace/mail/messages/{message_id}/labels/{label}",
+            delete(workspace_mail::unlabel_workspace_mail),
+        )
+        .route(
+            "/api/v1/workspace/mail/messages/{message_id}/attachments/{index}",
+            get(workspace_mail::download_workspace_mail_attachment),
         )
         .route("/api/v1/settings/mailboxes", get(mailboxes::list_mailboxes))
         .route(

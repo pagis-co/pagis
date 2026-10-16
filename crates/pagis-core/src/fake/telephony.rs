@@ -789,6 +789,34 @@ fn note_send(day: &mut Option<i64>, count: &mut u32, at: i64) -> u32 {
 
 #[async_trait::async_trait]
 impl crate::WorkspaceMailboxRecordStore for FakeWorkspaceMailboxStore {
+    async fn reserve_send(&self, workspace: &WorkspaceId, day: i64) -> Result<bool, StoreError> {
+        let mut data = self.0.lock().unwrap();
+        let Some(mailbox) = data.workspace_mailboxes.get(workspace) else {
+            return Ok(false);
+        };
+        let cap = mailbox.outgoing_cap;
+        let counter = data
+            .workspace_mail_sends
+            .entry(workspace.clone())
+            .or_default();
+        if counter.0 != day {
+            *counter = (day, 0);
+        }
+        if counter.1 >= cap {
+            return Ok(false);
+        }
+        counter.1 += 1;
+        Ok(true)
+    }
+    async fn release_send(&self, workspace: &WorkspaceId, day: i64) -> Result<(), StoreError> {
+        let mut data = self.0.lock().unwrap();
+        if let Some(counter) = data.workspace_mail_sends.get_mut(workspace)
+            && counter.0 == day
+        {
+            counter.1 = counter.1.saturating_sub(1);
+        }
+        Ok(())
+    }
     async fn get(
         &self,
         workspace: &WorkspaceId,
@@ -832,6 +860,7 @@ impl crate::WorkspaceMailboxRecordStore for FakeWorkspaceMailboxStore {
             .is_some_and(|m| m.address == address)
         {
             data.workspace_mailboxes.remove(workspace);
+            data.workspace_mail_sends.remove(workspace);
             return Ok(true);
         }
         Ok(false)

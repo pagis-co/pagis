@@ -1508,9 +1508,9 @@ Not built: reading readiness from the carrier, showing it and checking it
 before an outbound text (ADR-0020, ADR-0041).
 
 ### Outgoing Cap
-The most messages one Agent Mailbox or one Workspace Number may send in a
-day, whatever the host or carrier allows. The daemon refuses mail past the
-mailbox's cap. Not built: outbound texts from the Workspace Number and its
+The most messages one Agent Mailbox, Workspace Mailbox or Workspace
+Number may send in a day, whatever the host or carrier allows. The daemon
+refuses mail past the mailbox's cap. Not built: outbound texts from the Workspace Number and its
 text cap (ADR-0019, ADR-0041).
 
 ### Text Conversation
@@ -1538,11 +1538,15 @@ list recent ones. Not built (ADR-0020).
 The mailbox of a Workspace on the Org's mail domain, at most one per
 Workspace. The Person creates it in Settings and reads it in the Mail
 place: All mail, folders, messages, threads and search. Opening a message
-marks it as seen. The mail host holds the bodies, labels and flags. A read
-store uses the mail transport. Its conformance suite checks the operations
-(ADR-0040).
-Not built: spam verdicts, Junk, Agent triage, Needs you items, send,
-Grants, Shared Workspace visibility and assignments.
+marks it as seen. The Person composes, replies, replies to all and forwards
+mail with Files as attachments. A Person's send needs no Approval. Sent
+mail appears in the host's Sent folder. The Person creates, renames and
+deletes folders, moves mail and applies or removes labels. System folders
+cannot be renamed or deleted. The mail host holds bodies, labels and flags.
+The store uses the mail transport. Its conformance suite checks the
+operations (ADR-0040).
+Not built: spam verdicts, Junk handling, Agent triage, Needs you items,
+Agent Grants, Shared Workspace visibility, assignments and saved drafts.
 
 ## Messages and UI
 

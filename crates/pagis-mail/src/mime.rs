@@ -157,9 +157,28 @@ pub fn build_mime(from: &str, message: &OutgoingMessage) -> Result<BuiltMessage,
     }
     if let Some(answered) = &message.in_reply_to {
         let answered = answered.trim_matches(['<', '>']);
-        builder = builder.in_reply_to(answered).references(answered);
+        builder = builder.in_reply_to(answered);
+        if message.references.is_empty() {
+            builder = builder.references(answered);
+        }
     }
 
+    if !message.references.is_empty() {
+        builder = builder.references(
+            message
+                .references
+                .iter()
+                .map(|id| id.trim_matches(['<', '>']))
+                .collect::<Vec<_>>(),
+        );
+    }
+    for file in &message.attachments {
+        builder = builder.attachment(
+            file.content_type.as_str(),
+            file.name.as_str(),
+            file.data.as_slice(),
+        );
+    }
     let raw = builder
         .write_to_vec()
         .map_err(|_| TransportError(TransportErrorCode::Rejected))?;
@@ -203,4 +222,30 @@ fn every_address(address: &Address<'_>) -> Vec<String> {
         .filter_map(|addr| addr.address.as_ref())
         .map(|address| address.to_string())
         .collect()
+}
+
+/// Read one attachment without interpreting its bytes.
+pub fn read_attachment(
+    raw: &[u8],
+    index: usize,
+) -> Result<crate::OutgoingAttachment, TransportError> {
+    let parsed = MessageParser::default()
+        .parse(raw)
+        .ok_or(TransportError(TransportErrorCode::Unreadable))?;
+    let part = parsed
+        .attachments()
+        .nth(index)
+        .ok_or(TransportError(TransportErrorCode::StaleId))?;
+    let content_type = part
+        .content_type()
+        .map(|ct| match ct.subtype() {
+            Some(sub) => format!("{}/{sub}", ct.ctype()),
+            None => ct.ctype().to_string(),
+        })
+        .unwrap_or_else(|| "application/octet-stream".into());
+    Ok(crate::OutgoingAttachment {
+        name: part.attachment_name().unwrap_or("attachment").to_string(),
+        content_type,
+        data: part.contents().to_vec(),
+    })
 }

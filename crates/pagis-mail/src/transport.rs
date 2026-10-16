@@ -204,6 +204,8 @@ pub enum IdleOutcome {
 /// the subject from the message that is answered.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct OutgoingMessage {
+    pub references: Vec<String>,
+    pub attachments: Vec<OutgoingAttachment>,
     pub to: Vec<String>,
     pub cc: Vec<String>,
     pub bcc: Vec<String>,
@@ -216,6 +218,14 @@ pub struct OutgoingMessage {
     /// message the host accepted is the one the reservation names.
     /// `None` mints a fresh identity.
     pub message_id: Option<String>,
+}
+
+/// A File or received attachment ready for MIME encoding.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OutgoingAttachment {
+    pub name: String,
+    pub content_type: String,
+    pub data: Vec<u8>,
 }
 
 /// What the host accepted.
@@ -286,6 +296,23 @@ pub trait MailTransport: Send + Sync {
 /// seam: the selected folder is its state, and one task owns it.
 #[async_trait]
 pub trait MailSession: Send {
+    async fn create_folder(&mut self, name: &str) -> Result<(), TransportError>;
+    async fn rename_folder(&mut self, name: &str, new_name: &str) -> Result<(), TransportError>;
+    async fn delete_folder(&mut self, name: &str) -> Result<(), TransportError>;
+    async fn system_folders(&mut self) -> Result<Vec<String>, TransportError>;
+    async fn move_message(&mut self, id: &MessageId, folder: &str) -> Result<(), TransportError>;
+    async fn set_label(
+        &mut self,
+        id: &MessageId,
+        label: &str,
+        apply: bool,
+    ) -> Result<(), TransportError>;
+    async fn attachment(
+        &mut self,
+        id: &MessageId,
+        index: usize,
+    ) -> Result<OutgoingAttachment, TransportError>;
+
     async fn folders(&mut self) -> Result<Vec<String>, TransportError>;
     async fn metadata(&mut self, id: &MessageId) -> Result<crate::MailMetadata, TransportError>;
 

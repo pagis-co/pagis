@@ -588,3 +588,18 @@ async fn workspace_mail_store_greenmail_conforms() {
     let mut store = pagis_mail::ImapWorkspaceMailStore::new(session);
     crate::workspace_store::conformance(&mut store).await;
 }
+
+#[tokio::test]
+#[ignore = "needs Docker and the pinned GreenMail image"]
+async fn workspace_mail_store_greenmail_writes_conform() {
+    let server = GreenMail::start(&["person", "recipient"]).await;
+    let transport = StandardTransport::new();
+    let session = transport.login(&server.credential("person")).await.unwrap();
+    let mut store = pagis_mail::ImapWorkspaceMailStore::new(session);
+    crate::workspace_store::write_conformance(
+        &mut store,
+        &format!("person@{DOMAIN}"),
+        &format!("recipient@{DOMAIN}"),
+    )
+    .await;
+}

@@ -133,6 +133,7 @@ impl MailToolRuntime {
                 .filter(|id| !id.is_empty())
                 .map(str::to_string),
             message_id: None,
+            ..Default::default()
         };
         let sent = opened.send(&message).await.map_err(transport_error)?;
         let at = now_ms();

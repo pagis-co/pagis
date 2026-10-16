@@ -94,3 +94,13 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+.mail-composer {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.mail-composer label {
+  display: grid;
+  gap: var(--space-1);
+}

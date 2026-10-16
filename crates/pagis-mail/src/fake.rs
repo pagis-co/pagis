@@ -236,6 +236,8 @@ pub struct StoredFlags {
 }
 
 struct StoredMessage {
+    attachments: Vec<crate::OutgoingAttachment>,
+    labels: Vec<String>,
     message: Message,
     flags: StoredFlags,
 }
@@ -260,6 +262,7 @@ impl Default for Folder {
 struct Inbox {
     folders: HashMap<String, Folder>,
     sent: Vec<OutgoingMessage>,
+    submissions: Vec<crate::BuiltMessage>,
     logins: Vec<String>,
     selected_folders: Vec<String>,
 }
@@ -390,6 +393,10 @@ impl FakeMailTransport {
             let id: MessageId = ImapMessageId::new(INBOX, uid).into();
             let message = read_mime(raw, id.clone()).expect("the test message reads");
             folder.messages.push(StoredMessage {
+                attachments: (0..message.attachments.len())
+                    .map(|i| crate::mime::read_attachment(raw, i).unwrap())
+                    .collect(),
+                labels: Vec::new(),
                 message,
                 flags: StoredFlags::default(),
             });
@@ -440,6 +447,8 @@ impl FakeMailTransport {
                 headers.push(("In-Reply-To".to_string(), answered));
             }
             folder.messages.push(StoredMessage {
+                attachments: Vec::new(),
+                labels: Vec::new(),
                 message: Message {
                     summary,
                     headers,
@@ -457,6 +466,31 @@ impl FakeMailTransport {
     /// The messages this mailbox sent, in order.
     pub fn sent(&self) -> Vec<OutgoingMessage> {
         self.shared.inbox.lock().unwrap().sent.clone()
+    }
+
+    /// The SMTP submissions accepted for one recipient, decoded from MIME.
+    pub fn received(&self, address: &str) -> Vec<Message> {
+        self.shared
+            .inbox
+            .lock()
+            .unwrap()
+            .submissions
+            .iter()
+            .enumerate()
+            .filter(|(_, submission)| {
+                submission
+                    .recipients
+                    .iter()
+                    .any(|r| r.eq_ignore_ascii_case(address))
+            })
+            .map(|(index, submission)| {
+                read_mime(
+                    &submission.raw,
+                    ImapMessageId::new(INBOX, index as u32 + 1).into(),
+                )
+                .expect("a built submission reads")
+            })
+            .collect()
     }
 
     /// The addresses that logged in, in order.
@@ -574,6 +608,111 @@ impl FakeMailSession {
 
 #[async_trait]
 impl MailSession for FakeMailSession {
+    async fn system_folders(&mut self) -> Result<Vec<String>, TransportError> {
+        self.refuse()?;
+        Ok(vec!["INBOX".into(), "Sent".into(), "Archive".into()])
+    }
+    async fn create_folder(&mut self, name: &str) -> Result<(), TransportError> {
+        self.refuse()?;
+        let mut inbox = self.shared.inbox.lock().unwrap();
+        if inbox.folders.contains_key(name) {
+            return Err(TransportError(TransportErrorCode::Rejected));
+        }
+        inbox.folder(name);
+        Ok(())
+    }
+    async fn rename_folder(&mut self, name: &str, new_name: &str) -> Result<(), TransportError> {
+        self.refuse()?;
+        let mut inbox = self.shared.inbox.lock().unwrap();
+        if inbox.folders.contains_key(new_name) {
+            return Err(TransportError(TransportErrorCode::Rejected));
+        }
+        let mut folder = inbox
+            .folders
+            .remove(name)
+            .ok_or(TransportError(TransportErrorCode::MailboxGone))?;
+        for stored in &mut folder.messages {
+            let id = stored
+                .message
+                .summary
+                .id
+                .as_str()
+                .parse::<ImapMessageId>()?;
+            stored.message.summary.id = ImapMessageId::new(new_name, id.uid).into();
+        }
+        inbox.folders.insert(new_name.into(), folder);
+        Ok(())
+    }
+    async fn delete_folder(&mut self, name: &str) -> Result<(), TransportError> {
+        self.refuse()?;
+        self.shared
+            .inbox
+            .lock()
+            .unwrap()
+            .folders
+            .remove(name)
+            .ok_or(TransportError(TransportErrorCode::MailboxGone))?;
+        Ok(())
+    }
+    async fn move_message(
+        &mut self,
+        id: &MessageId,
+        destination: &str,
+    ) -> Result<(), TransportError> {
+        self.refuse()?;
+        let mut inbox = self.shared.inbox.lock().unwrap();
+        if !inbox.folders.contains_key(destination) {
+            return Err(TransportError(TransportErrorCode::MailboxGone));
+        }
+        let folder = inbox.folder(&id.as_str().parse::<ImapMessageId>()?.folder);
+        let at = folder
+            .messages
+            .iter()
+            .position(|s| s.message.summary.id == *id)
+            .ok_or(TransportError(TransportErrorCode::StaleId))?;
+        let mut stored = folder.messages.remove(at);
+        let folder = inbox.folder(destination);
+        stored.message.summary.id = ImapMessageId::new(destination, folder.next_uid).into();
+        folder.next_uid += 1;
+        folder.messages.push(stored);
+        Ok(())
+    }
+    async fn set_label(
+        &mut self,
+        id: &MessageId,
+        label: &str,
+        apply: bool,
+    ) -> Result<(), TransportError> {
+        self.refuse()?;
+        let mut inbox = self.shared.inbox.lock().unwrap();
+        let stored = inbox
+            .folder(&id.as_str().parse::<ImapMessageId>()?.folder)
+            .messages
+            .iter_mut()
+            .find(|s| s.message.summary.id == *id)
+            .ok_or(TransportError(TransportErrorCode::StaleId))?;
+        stored.labels.retain(|s| s != label);
+        if apply {
+            stored.labels.push(label.into());
+        }
+        Ok(())
+    }
+    async fn attachment(
+        &mut self,
+        id: &MessageId,
+        index: usize,
+    ) -> Result<crate::OutgoingAttachment, TransportError> {
+        self.refuse()?;
+        let mut inbox = self.shared.inbox.lock().unwrap();
+        inbox
+            .folder(&id.as_str().parse::<ImapMessageId>()?.folder)
+            .messages
+            .iter()
+            .find(|s| s.message.summary.id == *id)
+            .and_then(|s| s.attachments.get(index))
+            .cloned()
+            .ok_or(TransportError(TransportErrorCode::StaleId))
+    }
     async fn folders(&mut self) -> Result<Vec<String>, TransportError> {
         self.refuse()?;
         let mut inbox = self.shared.inbox.lock().unwrap();
@@ -590,12 +729,12 @@ impl MailSession for FakeMailSession {
             .messages
             .iter()
             .find(|stored| stored.message.summary.id == *id)
-            .map(|stored| stored.flags)
+            .map(|stored| (stored.flags, stored.labels.clone()))
             .ok_or(TransportError(TransportErrorCode::StaleId))?;
         Ok(crate::MailMetadata {
-            seen: flags.seen,
-            flagged: flags.flagged,
-            labels: Vec::new(),
+            seen: flags.0.seen,
+            flagged: flags.0.flagged,
+            labels: flags.1,
         })
     }
 
@@ -754,9 +893,23 @@ impl MailSession for FakeMailSession {
     async fn send(&mut self, message: &OutgoingMessage) -> Result<SentMessage, TransportError> {
         self.refuse()?;
         let mut inbox = self.shared.inbox.lock().unwrap();
+        let built = crate::mime::build_mime(&self.address, message)?;
         inbox.sent.push(message.clone());
+        inbox.submissions.push(built.clone());
+        let folder = inbox.folder("Sent");
+        let id = ImapMessageId::new("Sent", folder.next_uid).into();
+        folder.next_uid += 1;
+        folder.messages.push(StoredMessage {
+            message: read_mime(&built.raw, id)?,
+            flags: StoredFlags {
+                seen: true,
+                ..Default::default()
+            },
+            attachments: message.attachments.clone(),
+            labels: Vec::new(),
+        });
         Ok(SentMessage {
-            message_id: format!("<sent-{}@fake.invalid>", inbox.sent.len()),
+            message_id: built.message_id,
         })
     }
 

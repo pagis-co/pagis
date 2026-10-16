@@ -56,6 +56,16 @@ const OPAQUE: &[(&str, &str)] = &[
          the Session; the Product API test checks another Workspace \
          with no mailbox cannot read the thread",
     ),
+    (
+        "index",
+        "the position of an attachment in a Workspace Mailbox message. \
+         The message comes from the Session's own mailbox, as `thread_id`",
+    ),
+    (
+        "label",
+        "a label name on a Workspace Mailbox message, which the host \
+         holds as an IMAP keyword of the Session's own mailbox",
+    ),
     ("provider", "a provider name, the same for every Workspace"),
     (
         "alias",
@@ -340,6 +350,7 @@ impl TwoTenants {
                     "get" => client.get(&url),
                     "post" => client.post(&url).json(&body),
                     "put" => client.put(&url).json(&body),
+                    "patch" => client.patch(&url).json(&body),
                     "delete" => client.delete(&url).json(&body),
                     other => panic!("the route table names an unknown method {other}"),
                 };

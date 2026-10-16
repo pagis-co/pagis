@@ -36,6 +36,7 @@ impl MailboxDesk {
             workspace_id: workspace.clone(),
             connection_id: checked.connection.id,
             address: checked.address,
+            outgoing_cap: checked.outgoing_cap,
             created_at: now_ms(),
         };
         self.workspace_mailboxes
@@ -88,6 +89,36 @@ impl MailboxDesk {
             })
             .await?;
         Ok(mailbox)
+    }
+
+    pub async fn send_workspace(
+        &self,
+        workspace: &WorkspaceId,
+        store: &mut dyn WorkspaceMailStore,
+        message: &crate::OutgoingMessage,
+    ) -> Result<crate::SentMessage, MailboxError> {
+        let day = now_ms() / 86_400_000;
+        if !self
+            .workspace_mailboxes
+            .reserve_send(workspace, day)
+            .await?
+        {
+            return Err(MailboxError::Conflict("outgoing_cap_reached".into()));
+        }
+        let result = store.send(message).await;
+        if result.as_ref().is_err_and(|error| {
+            matches!(
+                error.0,
+                crate::TransportErrorCode::Rejected
+                    | crate::TransportErrorCode::Unauthorized
+                    | crate::TransportErrorCode::InvalidRequest
+            )
+        }) {
+            self.workspace_mailboxes
+                .release_send(workspace, day)
+                .await?;
+        }
+        Ok(result?)
     }
 
     pub async fn open_workspace(
