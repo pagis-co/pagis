@@ -73,7 +73,9 @@ async fn brain_streams_two_turns_through_the_cached_router() {
     let mut turns = Vec::new();
     for _ in 0..2 {
         let request = TurnRequest {
-            person_id: Some(UserId::from("person".to_string())),
+            caller: Some(pagis_agent::ModelCaller::Person(UserId::from(
+                "person".to_string(),
+            ))),
             model_alias: "default".to_string(),
             model_candidates: vec!["anthropic/claude-sonnet-4-6".to_string()],
             system: "system".to_string(),

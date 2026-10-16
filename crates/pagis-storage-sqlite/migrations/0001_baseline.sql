@@ -1341,13 +1341,13 @@ CREATE INDEX idx_workspaces_user ON workspaces (user_id);
 
 -- The Usage Record: one row for each model call, with the token counts
 -- of the provider and the cost the price table of the serving model
--- makes of them. It names the Workspace that spent it and the Run that
--- asked. A NULL cost is an unknown cost: no layer of the model metadata
+-- makes of them. It names the Workspace and its Run, when present.
+-- A NULL cost is an unknown cost: no layer of the model metadata
 -- prices the model.
 CREATE TABLE usage (
     id TEXT PRIMARY KEY,
     workspace_id TEXT NOT NULL REFERENCES workspaces (id),
-    run_id TEXT NOT NULL REFERENCES runs (id),
+    run_id TEXT REFERENCES runs (id),
     provider TEXT,
     model TEXT,
     input_tokens INTEGER NOT NULL,

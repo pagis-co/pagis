@@ -34,8 +34,8 @@ mod ui;
 
 pub use agent_dm::AgentDm;
 pub use brain::{
-    Brain, BrainError, JsonSchemaFormat, RouterBrain, ToolInvocation, TurnDelta, TurnEnd,
-    TurnMessage, TurnRequest, TurnRole, TurnStream, Usage,
+    Brain, BrainError, JsonSchemaFormat, ModelCaller, RouterBrain, ToolInvocation, TurnDelta,
+    TurnEnd, TurnMessage, TurnRequest, TurnRole, TurnStream, Usage,
 };
 pub use hub::{DeltaFrame, StreamHub};
 pub use mention::is_mentioned;

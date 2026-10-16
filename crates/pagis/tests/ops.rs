@@ -296,6 +296,7 @@ async fn model_aliases_support_crud_and_protect_aliases_in_use() {
             "default",
             "fast",
             "gpt-live-reasoning",
+            "mail-opinion",
             "phone",
             "phone-classifier",
             "speak",

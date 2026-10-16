@@ -98,6 +98,7 @@ async fn portable_archive_releases_credentials_sleeps_mailbox_and_reports_no_num
         )),
         grants: stores.grants.clone(),
         intake: Arc::new(pagis_mail::MailIntake {
+            opinions: std::sync::Arc::new(pagis_mail::fake::FakeMailOpinions::default()),
             workspaces: stores.workspaces.clone(),
             agents: stores.agents.clone(),
             source: Arc::new(pagis_mail::HostSpamVerdicts),

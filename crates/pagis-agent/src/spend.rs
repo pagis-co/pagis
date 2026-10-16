@@ -94,7 +94,7 @@ pub async fn record(deps: &AgentDeps, run: &Run, end: &TurnEnd) {
     let record = UsageRecord {
         id: UsageId::generate(),
         workspace_id: run.workspace_id.clone(),
-        run_id: run.id.clone(),
+        run_id: Some(run.id.clone()),
         provider: end.provider.clone(),
         model: end.model.clone(),
         input_tokens: i64::try_from(usage.input_tokens).unwrap_or(i64::MAX),

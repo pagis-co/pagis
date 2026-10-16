@@ -324,7 +324,7 @@ async fn spend_past_the_cap(daemon: &TestDaemon, session: &CodingSession) {
         .record(&UsageRecord {
             id: pagis_core::UsageId::generate(),
             workspace_id: daemon.workspace_id.clone(),
-            run_id: session.run_id.clone(),
+            run_id: Some(session.run_id.clone()),
             provider: Some("anthropic".to_string()),
             model: Some("claude-sonnet-4-5".to_string()),
             input_tokens: 1,

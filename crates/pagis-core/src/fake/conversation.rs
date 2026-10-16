@@ -644,7 +644,7 @@ impl UsageStore for FakeUsageStore {
             .usage
             .rows(workspace_id)
             .filter(|r| period.from <= r.created_at && r.created_at < period.to)
-            .map(|r| r.run_id.clone())
+            .filter_map(|r| r.run_id.clone())
             .collect();
         let mut rows: Vec<_> = ids
             .iter()
@@ -653,7 +653,8 @@ impl UsageStore for FakeUsageStore {
                     .usage
                     .rows(workspace_id)
                     .filter(|r| {
-                        &r.run_id == id && (period.from <= r.created_at && r.created_at < period.to)
+                        r.run_id.as_ref() == Some(id)
+                            && (period.from <= r.created_at && r.created_at < period.to)
                     })
                     .collect();
                 RunUsage {

@@ -930,8 +930,10 @@ async fn each_run_model_request_names_its_person(pool: SqlitePool) {
     assert!(requests.len() >= 2);
     for request in requests {
         assert_eq!(
-            request.person_id.as_ref(),
-            Some(harness.workspace.user_id.as_ref().unwrap())
+            request.caller,
+            Some(pagis_agent::ModelCaller::Person(
+                harness.workspace.user_id.clone().unwrap()
+            ))
         );
     }
 }
@@ -1184,10 +1186,10 @@ async fn a_request_above_the_target_that_fits_the_allowance_is_sent_after_compac
     next_state(&mut events, "completed").await;
     let requests = harness.brain.requests();
     assert_eq!(requests.len(), 2, "one compaction and one reply");
-    assert!(
-        requests.iter().all(|request| request.person_id.as_ref()
-            == Some(harness.workspace.user_id.as_ref().unwrap()))
-    );
+    assert!(requests.iter().all(|request| request.caller
+        == Some(pagis_agent::ModelCaller::Person(
+            harness.workspace.user_id.clone().unwrap()
+        ))));
     assert!(
         requests[1]
             .messages
@@ -2869,8 +2871,10 @@ async fn a_reflection_request_sends_the_output_reserve(pool: SqlitePool) {
     let requests = harness.brain.requests();
     assert_eq!(requests.len(), 1);
     assert_eq!(
-        requests[0].person_id.as_ref(),
-        Some(harness.workspace.user_id.as_ref().unwrap())
+        requests[0].caller,
+        Some(pagis_agent::ModelCaller::Person(
+            harness.workspace.user_id.clone().unwrap()
+        ))
     );
     assert_eq!(requests[0].max_output_tokens, Some(HAIKU_OUTPUT_RESERVE));
 }
@@ -9452,7 +9456,7 @@ async fn the_spend_cap_uses_the_workspaces_calendar_month(pool: SqlitePool) {
         &pagis_core::UsageRecord {
             id: pagis_core::UsageId::generate(),
             workspace_id: workspace.id.clone(),
-            run_id: run.id,
+            run_id: Some(run.id),
             provider: None,
             model: None,
             input_tokens: 1,

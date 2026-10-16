@@ -73,7 +73,7 @@ impl<'a> ModelCall<'a> {
             .await
             .map_err(|error| BrainError::new(error.to_string()))?
             .ok_or_else(|| BrainError::new("model request has no Person Workspace"))?;
-        request.person_id = workspace.user_id;
+        request.caller = workspace.user_id.map(crate::ModelCaller::Person);
         request.max_output_tokens =
             RequestBudget::for_candidates(&request.model_candidates, &deps.models)
                 .ok()
@@ -344,7 +344,9 @@ mod tests {
         let mut message = TurnMessage::user("look at this");
         message.images.push(PNG.to_string());
         let request = TurnRequest {
-            person_id: Some(pagis_core::UserId::from("person-one".to_string())),
+            caller: Some(crate::ModelCaller::Person(pagis_core::UserId::from(
+                "person-one".to_string(),
+            ))),
             model_alias: "default".into(),
             model_candidates: vec!["openai/gpt-6-luna".into()],
             system: "Follow your Person.".into(),

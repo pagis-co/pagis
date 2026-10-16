@@ -526,6 +526,11 @@ pub async fn mail_assessment_roundtrip(backend: &Backend) {
     let store = &backend.stores().mail_assessments;
     let assessment = pagis_core::MailAssessment {
         verdict: pagis_core::SpamVerdict {
+            opinion: Some(pagis_core::MailOpinion {
+                label: pagis_core::MailOpinionLabel::Spam,
+                confidence: 80,
+                reasons: vec!["Unwanted offer".into()],
+            }),
             score: 7200,
             action: pagis_core::SpamAction::AddHeader,
             reasons: vec!["GTUBE".into()],
@@ -607,6 +612,7 @@ pub async fn mail_assessment_survives_a_folder_move(backend: &Backend) {
     );
     let context = pagis_mail::MailReadContext {
         intake: Arc::new(pagis_mail::MailIntake {
+            opinions: std::sync::Arc::new(pagis_mail::fake::FakeMailOpinions::default()),
             workspaces: stores.workspaces.clone(),
             agents: stores.agents.clone(),
             records: stores.mail_assessments.clone(),
