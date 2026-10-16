@@ -462,6 +462,7 @@ impl MemoryStore for FakeMemoryStore {
             .map(|hit| {
                 let (path, _) = scoped(&hit.page.path);
                 MemorySearchHit {
+                    changed_at: hit.page.changed_at,
                     path: path.display(),
                     title: hit.page.title,
                     kind: hit.page.kind,

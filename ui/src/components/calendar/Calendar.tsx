@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import type { ApiClient } from '../../api/client'
 import { Button, Dialog, Input } from '../../primitives'
 import { useCalendar, type Occurrence } from './queries'
@@ -7,6 +8,7 @@ import type { CalendarView } from './dates'
 import { DayWeekGrid } from './DayWeekGrid'
 import { MonthGrid } from './MonthGrid'
 import { EventEditor } from './EventEditor'
+import { useCurrentWorkspaceId } from '../../workspace'
 import './calendar.css'
 
 interface ViewOption {
@@ -20,13 +22,25 @@ const views: ViewOption[] = [
   { id: 'month', label: 'Month' },
 ]
 
-export function Calendar({ api, initialDate }: {
+export function Calendar({ api, initialDate, eventId }: {
   api: ApiClient
+  eventId?: string
   initialDate?: string
 }) {
   const [date, setDate] = useState(initialDate ?? dateKey(new Date()))
   const [view, setView] = useState<CalendarView>('week')
   const [editing, setEditing] = useState<Occurrence | 'new' | null>(null)
+  const [linkClosed, setLinkClosed] = useState(false)
+  const linked = useQuery({
+    queryKey: ['workspace', useCurrentWorkspaceId(), 'calendar-event', eventId],
+    enabled: eventId !== undefined && !linkClosed,
+    queryFn: async () => {
+      const { data, error } = await api.GET('/api/v1/calendar/events/{event_id}', { params: { path: { event_id: eventId! } } })
+      if (data === undefined) throw error ?? new Error('Could not load Calendar Event.')
+      return data
+    },
+  })
+  const selected = editing ?? (!linkClosed && linked.data ? { event: linked.data, start: linked.data.data.start, end: linked.data.data.end } : null)
   const days = calendarDays(date, view)
   const from = midnight(days[0])
   const to = midnight(shiftDate(days[days.length - 1], 1))
@@ -43,11 +57,13 @@ export function Calendar({ api, initialDate }: {
   }
 
   function closeEditor() {
+    setLinkClosed(true)
     setEditing(null)
   }
 
   return (
     <section className="calendar-place">
+      {linked.isError && <p role="alert">Could not load Calendar Event.</p>}
       <header className="calendar-toolbar">
         <h2>
           Calendar
@@ -121,20 +137,20 @@ export function Calendar({ api, initialDate }: {
         </p>
       )}
       <Dialog
-        open={editing !== null}
+        open={selected !== null}
         onOpenChange={(open) => {
           if (!open) closeEditor()
         }}
-        title={editing === 'new' ? 'New event' : 'Edit event'}
+        title={selected === 'new' ? 'New event' : 'Edit event'}
         description="Times use the Event time zone. The end date of an all-day Event is exclusive."
       >
-        {editing !== null && (
+        {selected !== null && (
           <EventEditor
-            key={editing === 'new' ? 'new' : `${editing.event.id}-${editing.start}`}
+            key={selected === 'new' ? 'new' : `${selected.event.id}-${selected.start}`}
             api={api}
             date={date}
-            event={editing === 'new' ? undefined : editing.event}
-            occurrenceStart={editing === 'new' ? undefined : editing.start}
+            event={selected === 'new' ? undefined : selected.event}
+            occurrenceStart={selected === 'new' ? undefined : selected.start}
             onClose={closeEditor}
           />
         )}

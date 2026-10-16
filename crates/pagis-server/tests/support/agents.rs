@@ -389,6 +389,7 @@ impl Embedder {
             bus: bus.clone(),
         }));
         let state = AppState {
+            conversation_evidence: stores.conversation_evidence.clone(),
             workspace_members: stores.workspace_members.clone(),
             plugins,
             plugin_hosts,

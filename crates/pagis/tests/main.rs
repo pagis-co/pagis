@@ -80,6 +80,7 @@ mod roster;
 mod rule_targets;
 mod schedules;
 mod screen_relay;
+mod search;
 mod server_setup;
 mod session_socket;
 mod sessions;

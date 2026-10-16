@@ -92,6 +92,7 @@ import { usePresence, usePresenceSeed } from './state/presence'
 import { threadScope } from './timeline'
 import { watchActivity } from './ws/activity'
 import { PagisSocket, type ServerFrame } from './ws/socket'
+import { SearchBox } from './components/Search'
 import { PhoneShell } from './components/phone/PhoneShell'
 
 import './AppShell.css'
@@ -613,10 +614,11 @@ export function AppShell() {
     return <AvatarRoster agents={agents.data ?? []}><Onboarding api={api} /></AvatarRoster>
   }
 
-  if (phoneLayout) return <AvatarRoster agents={agents.data ?? []}><PhoneShell api={api} banner={<ConnectionBanner />} /></AvatarRoster>
+  if (phoneLayout) return <AvatarRoster agents={agents.data ?? []}><PhoneShell api={api} banner={<><ConnectionBanner /><SearchBox onSearch={q => void navigate({ to: "/search", search: { q } })} /></>} /></AvatarRoster>
 
   return <AvatarRoster agents={agents.data ?? []}><div className="app">
     <ConnectionBanner />
+    <header><SearchBox onSearch={q => void navigate({ to: "/search", search: { q } })} /></header>
     <div className="app-body">
       <Sidebar api={api} pathname={location.pathname} selectedId={selectedId}
         onSelectPlace={goToPlace} onSelectChannel={goToChannel}

@@ -27,6 +27,78 @@ fn event(workspace_id: WorkspaceId) -> CalendarEvent {
     )
 }
 
+pub async fn calendar_search_matches_stored_text_and_bounds_results(backend: &Backend) {
+    let workspace = backend.seeded_workspace().await;
+    let store = &backend.stores().calendar;
+    let row = event(workspace.id.clone());
+    store.create(&row).await.unwrap();
+    for query in ["vIeW", "THE PLAN", "fFiCe"] {
+        assert_eq!(
+            store.search(&workspace.id, query, 10).await.unwrap(),
+            vec![row.clone()]
+        );
+    }
+    for query in ["reader@example.com", "%", "_", "absent"] {
+        assert!(
+            store
+                .search(&workspace.id, query, 10)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
+    assert!(
+        store
+            .search(&WorkspaceId::generate(), "Review", 10)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        store
+            .search(&workspace.id, "Review", 0)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    let second = event(workspace.id.clone());
+    store.create(&second).await.unwrap();
+    assert_eq!(
+        store
+            .search(&workspace.id, "Review", 1)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        store
+            .search(&workspace.id, "Review", 10)
+            .await
+            .unwrap()
+            .len(),
+        2
+    );
+    let mut changed = row.data.clone();
+    changed.title = "Changed".into();
+    store
+        .update(&workspace.id, &row.id, &changed)
+        .await
+        .unwrap();
+    assert_eq!(
+        store.search(&workspace.id, "Review", 10).await.unwrap(),
+        vec![second]
+    );
+    store.delete(&workspace.id, &row.id).await.unwrap();
+    assert!(
+        store
+            .search(&workspace.id, "Changed", 10)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}
+
 pub async fn calendar_crud_and_workspace_boundary(backend: &Backend) {
     let workspace = backend.seeded_workspace().await;
     let store = &backend.stores().calendar;
@@ -308,6 +380,7 @@ macro_rules! store_suite_calendar {
     ($emit:path) => {
         $emit!(
             calendar,
+            calendar_search_matches_stored_text_and_bounds_results,
             calendar_free_busy,
             calendar_crud_and_workspace_boundary,
             calendar_recurrence_dst_exdate_and_range,

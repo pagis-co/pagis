@@ -883,6 +883,13 @@ pub const ROUTES: &[Route] = &[
     },
     Route {
         shared: false,
+        path: "/api/v1/search",
+        methods: &["get"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
+        shared: false,
         path: "/api/v1/colleagues",
         methods: &["get"],
         authenticated: true,

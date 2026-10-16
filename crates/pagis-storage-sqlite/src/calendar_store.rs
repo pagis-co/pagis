@@ -36,6 +36,16 @@ fn encode(value: &CalendarEventData) -> Result<String, StoreError> {
 }
 #[async_trait]
 impl CalendarStore for SqliteCalendarStore {
+    async fn search(
+        &self,
+        workspace: &WorkspaceId,
+        query: &str,
+        limit: u32,
+    ) -> Result<Vec<CalendarEvent>, StoreError> {
+        sqlx::query("SELECT * FROM calendar_events WHERE workspace_id = ? AND (instr(lower(json_extract(data, '$.title')), lower(?)) > 0 OR instr(lower(json_extract(data, '$.description')), lower(?)) > 0 OR instr(lower(json_extract(data, '$.location')), lower(?)) > 0) ORDER BY starts_at DESC, id LIMIT ?").bind(workspace.as_str()).bind(query).bind(query).bind(query).bind(i64::from(limit))
+            .fetch_all(&self.pool).await.map_err(db_err)?.into_iter().map(decode).collect()
+    }
+
     async fn create(&self, event: &CalendarEvent) -> Result<(), StoreError> {
         let bounds = event.data.bounds()?;
         sqlx::query("INSERT INTO calendar_events (id, workspace_id, uid, author_kind, author_person_id, author_agent_id, data, starts_at, ends_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")

@@ -60,7 +60,7 @@ pub(crate) fn memory_error(err: MemoryError) -> ApiError {
 }
 
 /// Owner controls can inspect all agent scopes, subject to current source grants.
-async fn current_access(
+pub(crate) async fn current_access(
     state: &AppState,
     tenant: &Tenant,
     agent_id: AgentId,

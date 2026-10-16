@@ -434,6 +434,20 @@ async fn memory_feed_pages_file_and_forget_preview_read_the_workspace_store() {
         workspace_id: e.workspace.clone(), event_type: "memory.committed".into(), agent_id: Some(agent.id.clone()), run_id: None, channel_id: None,
         payload: json!({"sha": sha, "message": "Read a plan", "scopes": ["shared"], "files": ["shared/plan.md"], "titles": ["Read a plan"]}),
     }).await.unwrap();
+    let found = read(&e, "/api/v1/search?q=plan").await;
+    assert_eq!(found["items"].as_array().unwrap().len(), 1, "{found}");
+    assert_eq!(found["items"][0]["kind"], "memory");
+    assert_eq!(found["items"][0]["title"], "Read a plan");
+    let found = json_response(
+        &e,
+        "GET",
+        "/api/v1/search?q=plan",
+        Value::Null,
+        &e.other_cookie,
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(found["items"], json!([]));
     let feed = read(&e, "/api/v1/memory/feed").await;
     assert_eq!(feed["revision"], sha);
     assert_eq!(feed["items"].as_array().unwrap().len(), 1);
@@ -1061,4 +1075,239 @@ async fn free_busy_resolves_private_and_shared_workspace_mailboxes() {
             json!([{"start":"2026-03-08T09:00:00Z", "end":"2026-03-08T10:00:00Z"}])
         );
     }
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+async fn search_checks_each_workspace_and_removed_membership() {
+    let e = Embedder::new().await;
+    let owner = e
+        .stores
+        .workspaces
+        .get(&e.workspace)
+        .await
+        .unwrap()
+        .unwrap();
+    let reader = e
+        .stores
+        .workspaces
+        .get(&e.other_workspace)
+        .await
+        .unwrap()
+        .unwrap()
+        .user_id
+        .unwrap();
+    let mut shared = owner.clone();
+    shared.id = WorkspaceId::generate();
+    shared.name = "Support".into();
+    shared.kind = WorkspaceKind::Shared;
+    shared.user_id = None;
+    e.stores
+        .workspace_members
+        .create_workspace(
+            &shared,
+            &WorkspaceMember {
+                workspace_id: shared.id.clone(),
+                person_id: owner.user_id.unwrap(),
+                role: WorkspaceRole::Manager,
+                author: Author::System,
+            },
+        )
+        .await
+        .unwrap();
+    e.stores
+        .workspace_members
+        .add(&WorkspaceMember {
+            workspace_id: shared.id.clone(),
+            person_id: reader.clone(),
+            role: WorkspaceRole::Reader,
+            author: Author::System,
+        })
+        .await
+        .unwrap();
+    for (workspace, title) in [
+        (&e.workspace, "Launch secret"),
+        (&shared.id, "Launch review"),
+    ] {
+        e.stores.calendar.create(&CalendarEvent::new(workspace.clone(), Author::System, serde_json::from_value(json!({
+            "title":title, "description":"Plan", "location":"Office", "start":"2026-03-08T09:00:00", "end":"2026-03-08T10:00:00",
+            "timezone":"UTC", "all_day":false, "rrule":null, "exdates":[], "attendees":[], "reminders":[], "meeting_url":null,
+        })).unwrap())).await.unwrap();
+    }
+    let found = json_response(
+        &e,
+        "GET",
+        "/api/v1/search?q=launch",
+        Value::Null,
+        &e.other_cookie,
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(found["items"].as_array().unwrap().len(), 1, "{found}");
+    assert_eq!(found["items"][0]["workspace"]["name"], "Support");
+    assert_eq!(found["items"][0]["title"], "Launch review");
+    assert_eq!(found["incomplete"], json!([]));
+    e.stores
+        .workspace_members
+        .remove(&shared.id, &reader)
+        .await
+        .unwrap();
+    let found = json_response(
+        &e,
+        "GET",
+        "/api/v1/search?q=launch",
+        Value::Null,
+        &e.other_cookie,
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(found["items"], json!([]));
+    for query in ["q=x", "q=launch&limit=0", "q=launch&limit=101"] {
+        json_response(
+            &e,
+            "GET",
+            &format!("/api/v1/search?{query}"),
+            Value::Null,
+            &e.cookie,
+            StatusCode::UNPROCESSABLE_ENTITY,
+        )
+        .await;
+    }
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+async fn search_reads_channel_threads_and_checks_conversation_participation() {
+    let e = Embedder::new().await;
+    let c = channel(&e, &[]).await;
+    let root = post(&e, &c, "root", "Searchable channel root", None).await;
+    // The reply is newer than its root, so the newest-first order is fixed.
+    e.clock.set(e.clock.now_ms() + 1_000);
+    post(
+        &e,
+        &c,
+        "reply",
+        "Searchable thread reply",
+        root["id"].as_str(),
+    )
+    .await;
+    let conversation = json_response(
+        &e,
+        "POST",
+        "/api/v1/conversations",
+        json!({"workspace_ids":[e.other_workspace]}),
+        &e.cookie,
+        StatusCode::OK,
+    )
+    .await;
+    let conversation_id = conversation["id"].as_str().unwrap();
+    json_response(
+        &e,
+        "POST",
+        &format!("/api/v1/conversations/{conversation_id}/messages"),
+        json!({"pending_id":"conversation", "text":"Searchable conversation"}),
+        &e.cookie,
+        StatusCode::CREATED,
+    )
+    .await;
+    let third = WorkspaceId::generate();
+    let mut private = e
+        .stores
+        .workspaces
+        .get(&e.workspace)
+        .await
+        .unwrap()
+        .unwrap();
+    private.id = third.clone();
+    let owner = e
+        .stores
+        .users
+        .get(private.user_id.as_ref().unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    let person = User::new(owner.org_id, UserRole::Member, now_ms());
+    e.stores.users.create(&person).await.unwrap();
+    private.user_id = Some(person.id);
+    e.stores.workspaces.create(&private).await.unwrap();
+    let org = &e.routers.state.org_workspace_id;
+    let hidden = e
+        .stores
+        .channels
+        .get_or_create_conversation(org, &[e.other_workspace.clone(), third])
+        .await
+        .unwrap();
+    for at in 1..=3 {
+        e.stores
+            .messages
+            .insert(&Message {
+                id: MessageId::generate(),
+                workspace_id: org.clone(),
+                channel_id: hidden.id.clone(),
+                parent_message_id: None,
+                author: Author::Person(private.user_id.clone().unwrap()),
+                run_id: None,
+                status: MessageStatus::Complete,
+                blocks: vec![Block::markdown("Searchable conversation hidden")],
+                text_content: "Searchable conversation hidden".into(),
+                pending_id: None,
+                created_at: now_ms() + at * 1000,
+                completed_at: Some(now_ms() + at * 1000),
+            })
+            .await
+            .unwrap();
+    }
+    let found = read(&e, "/api/v1/search?q=searchable").await;
+    let items = found["items"].as_array().unwrap();
+    assert_eq!(items.len(), 3, "{found}");
+    assert!(
+        items
+            .iter()
+            .any(|hit| hit["snippet"] == "Searchable thread reply")
+    );
+    assert!(items.iter().any(|hit| {
+        hit["url"]
+            .as_str()
+            .unwrap()
+            .starts_with(&format!("/conversations/{conversation_id}?"))
+    }));
+    assert!(
+        !items
+            .iter()
+            .any(|hit| hit["snippet"] == "Searchable conversation hidden")
+    );
+    let conversation_only = read(&e, "/api/v1/search?q=conversation&limit=1").await;
+    assert_eq!(conversation_only["items"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        conversation_only["items"][0]["snippet"],
+        "Searchable conversation"
+    );
+    let found = read(&e, "/api/v1/search?q=searchable&limit=1").await;
+    assert_eq!(found["items"].as_array().unwrap().len(), 1);
+    assert_eq!(found["items"][0], items[0]);
+    for count in [2, 200] {
+        let query = "é".repeat(count);
+        json_response(
+            &e,
+            "GET",
+            &format!(
+                "/api/v1/search?q={}",
+                url::form_urlencoded::byte_serialize(query.as_bytes()).collect::<String>()
+            ),
+            Value::Null,
+            &e.cookie,
+            StatusCode::OK,
+        )
+        .await;
+    }
+    let query = "x".repeat(201);
+    json_response(
+        &e,
+        "GET",
+        &format!("/api/v1/search?q={query}"),
+        Value::Null,
+        &e.cookie,
+        StatusCode::UNPROCESSABLE_ENTITY,
+    )
+    .await;
 }

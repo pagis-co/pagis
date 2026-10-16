@@ -37,6 +37,17 @@ pub struct ConversationEvidenceHit {
     pub complete: bool,
 }
 
+/// One live Channel message or Thread reply in a Workspace search.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkspaceMessageHit {
+    pub message_id: MessageId,
+    pub channel_id: ChannelId,
+    /// The message itself for a top-level message, or its Thread root.
+    pub root_message_id: MessageId,
+    pub snippet: String,
+    pub created_at: UnixMillis,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConversationEvidenceMessage {
     pub reference: String,
@@ -73,6 +84,19 @@ pub struct ConversationToolEvidence {
 
 #[async_trait]
 pub trait ConversationEvidenceStore: Send + Sync {
+    /// Search live messages and Thread replies in one Workspace with one
+    /// full-text query. Return at most `limit`, newest first, then id descending.
+    /// When `participant` is set, select only Channels with that Workspace
+    /// as a participant before the limit. The caller checks Workspace access
+    /// or conversation participation.
+    async fn search_workspace_messages(
+        &self,
+        workspace_id: &WorkspaceId,
+        participant: Option<&WorkspaceId>,
+        query: &str,
+        limit: u32,
+    ) -> Result<Vec<WorkspaceMessageHit>, StoreError>;
+
     /// Search permitted message text in immutable message-id order.
     async fn search(
         &self,

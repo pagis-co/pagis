@@ -3,6 +3,40 @@ use async_trait::async_trait;
 
 #[async_trait]
 impl CalendarStore for FakeCalendarStore {
+    async fn search(
+        &self,
+        workspace: &WorkspaceId,
+        query: &str,
+        limit: u32,
+    ) -> Result<Vec<CalendarEvent>, StoreError> {
+        let query = query.to_lowercase();
+        let mut events: Vec<_> = self
+            .0
+            .lock()
+            .unwrap()
+            .calendar
+            .rows(workspace)
+            .filter(|event| {
+                [
+                    &event.data.title,
+                    &event.data.description,
+                    &event.data.location,
+                ]
+                .iter()
+                .any(|text| text.to_lowercase().contains(&query))
+            })
+            .cloned()
+            .collect();
+        events.sort_by_key(|event| {
+            (
+                std::cmp::Reverse(event.data.bounds().expect("validated Event").starts_at),
+                event.id.clone(),
+            )
+        });
+        events.truncate(limit as usize);
+        Ok(events)
+    }
+
     async fn create(&self, event: &CalendarEvent) -> Result<(), StoreError> {
         event.data.bounds()?;
         self.0
