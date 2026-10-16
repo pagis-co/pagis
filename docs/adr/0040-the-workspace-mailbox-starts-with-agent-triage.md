@@ -13,8 +13,7 @@ The Person creates a Workspace Mailbox in Settings and reads it in the
 Mail place of the Product App.
 
 Not built: Agent triage, Junk handling, verdict filtering, quarantine,
-Needs you items, Shared Workspace visibility levels,
-assignments and saved drafts.
+Needs you items, assignments and saved drafts.
 
 ## Decision
 
@@ -133,10 +132,29 @@ The Agent Mailbox's existing send rules apply.
 
 A Shared Workspace Mailbox has one visibility level: All mail, Escalations
 or Agent only. The Org sets the highest level a Manager can select. Each
-human read writes an audit entry. At Escalations, a Responder can search all
-mail with a stated reason. Workspace roles still apply.
-Not built: these
-visibility rules and audited reads.
+human read writes an Org Audit Log entry with the Person, Workspace and
+message identity or search query and reason. At Escalations, each search
+needs a stated reason and returns only escalated messages. The reason
+records intent and gives no extra access. Global Search omits Escalations
+mail unless the request has a stated reason. Workspace roles
+still apply. Readers read, Responders also send, and Managers change the
+selected level. A Person send records the Person author and sent message
+identity in the Org Audit Log. A Manager reads the mailbox entries through
+the Shared Workspace route. An Administrator reads them in the Org Audit Log.
+
+The mailbox stores its selected level. Each human read uses the lower of
+that level and the current Shared Workspace Limit. All mail permits every
+message. Escalations permits only messages that an Agent escalates to
+humans. Agent only hides messages and keeps mailbox settings visible.
+Lists, threads, message reads, attachments and reply preparation use the
+same message check. Assignment links use this check too.
+
+An Agent with a live Workspace Mailbox Grant marks a message as Needs you
+through the escalation tool. The store records the Agent and the stable
+message identity, as it does for a Spam Verdict. An escalation opens only
+that message, not the rest of its thread. Agents read under their Grants
+at every visibility level. Automatic Agent triage and assignments are not
+built.
 
 ### Assignments use Delegation and keep the mail in its Workspace
 

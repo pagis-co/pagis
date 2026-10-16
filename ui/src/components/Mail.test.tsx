@@ -6,6 +6,7 @@ import type { ApiClient } from '../api/client'
 import { QueryClientProvider } from '../test/QueryClientProvider'
 import { renderInRouter } from '../test/router'
 import { Mail } from './mail/Mail'
+import { WorkspaceSelectionContext } from '../workspace'
 
 const device = vi.hoisted(() => ({ phone: false }))
 vi.mock('../primitives/useMediaQuery', async (original) => ({
@@ -16,7 +17,8 @@ beforeEach(() => {
   device.phone = false
 })
 
-function setup(mailbox: object | null = { address: 'person@example.com' }) {
+function setup(mailbox: object | null = { address: 'person@example.com' }, role: 'manager' | 'responder' | 'reader' = 'manager') {
+  const current = { id: 'team', name: 'Support', kind: 'shared' as const, role }
   const message = {
     id: 'INBOX:1',
     thread_id: '<thread@test>',
@@ -94,7 +96,9 @@ function setup(mailbox: object | null = { address: 'person@example.com' }) {
         })
       }
     >
-      <Mail api={{ GET } as unknown as ApiClient} />
+      <WorkspaceSelectionContext value={{ items: [current], current, select: () => {} }}>
+        <Mail api={{ GET } as unknown as ApiClient} />
+      </WorkspaceSelectionContext>
     </QueryClientProvider>,
   )
   return GET
@@ -192,4 +196,40 @@ it('shows the model opinion and its reasons in verdict details', async () => {
   expect(await screen.findByText('invoice first')).toBeTruthy()
   expect(screen.getAllByText(/Model opinion: spam · 80%/)).toHaveLength(2)
   expect(screen.getAllByText('Unwanted offer')).toHaveLength(2)
+})
+
+it('shows the mailbox but hides mail in Sprite only', async () => {
+  const GET = setup({ address: 'support@example.com', effective_visibility: 'agent_only' })
+  expect(await screen.findByText('Sprites work this mailbox. Mail is hidden.')).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'All mail' })).toBeNull()
+  expect(GET.mock.calls.some(([path]) => path === '/api/v1/workspace/mail/messages')).toBe(false)
+})
+
+it('requires a reason before a search at Escalations', async () => {
+  const GET = setup({ address: 'support@example.com', effective_visibility: 'escalations' })
+  fireEvent.click(await screen.findByRole('button', { name: 'Escalations' }))
+  fireEvent.change(screen.getByLabelText('Search mail'), { target: { value: 'invoice' } })
+  expect(GET.mock.calls.some(([, options]) => options?.params?.query?.q === 'invoice')).toBe(false)
+  fireEvent.change(screen.getByLabelText('Search reason'), { target: { value: 'Customer request' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Search' }))
+  await waitFor(() => expect(GET).toHaveBeenCalledWith('/api/v1/workspace/mail/messages', {
+    params: { query: { folder: '', q: 'invoice', cursor: undefined, reason: 'Customer request' } },
+  }))
+})
+
+
+it('hides send controls from a Reader', async () => {
+  setup({ address: 'support@example.com', effective_visibility: 'all_mail' }, 'reader')
+  await allMail()
+  expect(screen.queryByRole('button', { name: 'Compose' })).toBeNull()
+  fireEvent.click(await screen.findByRole('button', { name: /Invoice/ }))
+  expect(await screen.findByText('invoice first')).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Reply' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Forward' })).toBeNull()
+})
+
+it('keeps compose available to a Responder at Sprite only', async () => {
+  setup({ address: 'support@example.com', effective_visibility: 'agent_only' }, 'responder')
+  expect(await screen.findByText('Sprites work this mailbox. Mail is hidden.')).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Compose' })).toBeTruthy()
 })

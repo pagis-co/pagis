@@ -836,19 +836,30 @@ async fn workspace_mailbox_tools_need_a_grant_and_revocation_stops_an_existing_s
             .iter()
             .filter(|t| t.name.starts_with("workspace_mail_"))
             .count(),
-        5
+        6
+    );
+    assert!(
+        tools
+            .iter()
+            .any(|tool| tool.name == "workspace_mail_escalate")
     );
     SqliteGrantStore::new(pool)
         .revoke(&world.workspace_id, &grant.id, now_ms())
         .await
         .unwrap();
-    let outcome = world
-        .invoke_workspace("workspace_mail_search", serde_json::json!({"query":""}))
-        .await;
-    let InvokeOutcome::Rejected(error) = outcome else {
-        panic!("the Grant is revoked");
-    };
-    assert!(error.content.contains("permission_revoked"));
+    for (name, arguments) in [
+        ("workspace_mail_search", serde_json::json!({"query":""})),
+        (
+            "workspace_mail_escalate",
+            serde_json::json!({"message_id":"<message@example.com>"}),
+        ),
+    ] {
+        let outcome = world.invoke_workspace(name, arguments).await;
+        let InvokeOutcome::Rejected(error) = outcome else {
+            panic!("the Grant is revoked");
+        };
+        assert!(error.content.contains("permission_revoked"));
+    }
     assert!(world.executor.calls.lock().unwrap().is_empty());
 }
 

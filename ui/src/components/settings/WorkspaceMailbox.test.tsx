@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { expect, it, vi } from 'vitest'
 import type { ApiClient } from '../../api/client'
 import { QueryClientProvider } from '../../test/QueryClientProvider'
+import { WorkspaceSelectionContext } from '../../workspace'
 import { WorkspaceMailbox } from './WorkspaceMailbox'
 
 it('creates the Workspace Mailbox from the local part and Org mail domain', async () => {
@@ -26,4 +27,23 @@ it('asks for the manual mailbox password and shows a refused create', async () =
   fireEvent.click(screen.getByRole('button', { name: 'Create Workspace Mailbox' }))
   expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'The address is taken.')
   expect(POST).toHaveBeenCalledWith('/api/v1/workspace/mailbox', { body: { connection_id: 'cn1', local_part: 'person', password: 'secret' } })
+})
+
+it('lets a Manager set Mail Visibility within the Administrator limit', async () => {
+  const current = { id: 'team', name: 'Support', kind: 'shared' as const, role: 'manager' as const }
+  const GET = vi.fn(async () => ({ data: { mailbox: { address: 'support@example.com', visibility: 'all_mail', effective_visibility: 'escalations', max_visibility: 'escalations' }, offers: [] } }))
+  const PUT = vi.fn(async () => ({ data: {} }))
+  render(<QueryClientProvider client={new QueryClient()}><WorkspaceSelectionContext value={{ items: [current], current, select: () => {} }}><WorkspaceMailbox api={{ GET, PUT } as unknown as ApiClient} /></WorkspaceSelectionContext></QueryClientProvider>)
+  fireEvent.click(await screen.findByRole('combobox', { name: 'Mail Visibility' }))
+  expect(screen.getByRole('option', { name: 'All mail' }).getAttribute('aria-disabled')).toBe('true')
+  fireEvent.click(screen.getByRole('option', { name: 'Sprite only' }))
+  await waitFor(() => expect(PUT).toHaveBeenCalledWith('/api/v1/workspace/mailbox/visibility', { body: { visibility: 'agent_only' } }))
+})
+
+it('shows a Reader the level without a setting control', async () => {
+  const current = { id: 'team', name: 'Support', kind: 'shared' as const, role: 'reader' as const }
+  const GET = vi.fn(async () => ({ data: { mailbox: { address: 'support@example.com', visibility: 'all_mail', effective_visibility: 'agent_only', max_visibility: 'agent_only' }, offers: [] } }))
+  render(<QueryClientProvider client={new QueryClient()}><WorkspaceSelectionContext value={{ items: [current], current, select: () => {} }}><WorkspaceMailbox api={{ GET } as unknown as ApiClient} /></WorkspaceSelectionContext></QueryClientProvider>)
+  expect(await screen.findByText('Mail Visibility: Sprite only')).toBeTruthy()
+  expect(screen.queryByRole('combobox', { name: 'Mail Visibility' })).toBeNull()
 })
