@@ -79,6 +79,7 @@ impl From<pagis_mail::WorkspaceMailSummary> for WorkspaceMailSummaryDto {
 }
 #[derive(Debug, Serialize, ToSchema)]
 pub struct SpamVerdictDto {
+    pub opinion: Option<pagis_core::MailOpinion>,
     pub score: f64,
     pub action: String,
     pub reasons: Vec<String>,
@@ -87,6 +88,7 @@ pub struct SpamVerdictDto {
 impl From<pagis_core::SpamVerdict> for SpamVerdictDto {
     fn from(v: pagis_core::SpamVerdict) -> Self {
         Self {
+            opinion: v.opinion,
             score: f64::from(v.score) / 1000.0,
             action: v.action.as_str().into(),
             reasons: v.reasons,

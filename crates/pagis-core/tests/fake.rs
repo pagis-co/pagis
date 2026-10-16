@@ -1387,7 +1387,7 @@ async fn usage_reads_only_the_named_workspace() {
     let row = UsageRecord {
         id: "usage".to_string().into(),
         workspace_id: owner(),
-        run_id: "run".to_string().into(),
+        run_id: Some("run".to_string().into()),
         provider: None,
         model: None,
         input_tokens: 3,

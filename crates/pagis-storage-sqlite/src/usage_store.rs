@@ -51,7 +51,7 @@ impl UsageStore for SqliteUsageStore {
         )
         .bind(usage.id.as_str())
         .bind(usage.workspace_id.as_str())
-        .bind(usage.run_id.as_str())
+        .bind(usage.run_id.as_ref().map(RunId::as_str))
         .bind(usage.provider.as_deref())
         .bind(usage.model.as_deref())
         .bind(usage.input_tokens)
@@ -116,7 +116,7 @@ impl UsageStore for SqliteUsageStore {
         let rows = sqlx::query(&format!(
             "SELECT run_id, MAX(created_at) AS last_at, {TOTALS} FROM usage \
              WHERE workspace_id = ? AND created_at >= ? AND created_at < ? \
-             GROUP BY run_id ORDER BY last_at DESC, run_id LIMIT ?"
+             AND run_id IS NOT NULL GROUP BY run_id ORDER BY last_at DESC, run_id LIMIT ?"
         ))
         .bind(workspace_id.as_str())
         .bind(period.from)

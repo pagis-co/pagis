@@ -70,9 +70,9 @@ the Trust Tier is Unknown. An Agent that reads under a Workspace Mailbox
 Grant uses its own Trust List. Each tool checks for a live Grant. A
 revocation stops the next dispatch, including a send that waits for an Approval.
 The stored record uses the Message-ID header within its Workspace and mailbox,
-so a folder move or UIDVALIDITY change keeps the verdict. Mail without that
-header uses its IMAP id. The host's Rspamd result supplies its score and
-weighted symbols as reasons. Mail bodies stay at the host.
+so a folder move or UIDVALIDITY change keeps the assessment key. Mail
+without that header uses its IMAP id. The host's Rspamd result supplies its
+score and weighted symbols as reasons. Mail bodies stay at the host.
 Not built: the Chief of Staff's first read and outcome record.
 
 Junk goes to the Junk folder at the score threshold. Spam and Not spam
@@ -88,8 +88,8 @@ nothing.
 The Workspace Mailbox stores its score-only mode setting. This is the
 available mode. The API and Mail place show the stored score, action and
 reasons on each message. Score-only mode moves nothing.
-Not built: Junk moves, corrections, lists, sensitivity, quarantine and model
-second opinion.
+The model second opinion follows ADR-0046.
+Not built: Junk moves, corrections, lists, sensitivity and quarantine.
 
 ### The Chief of Staff handles mail within rules
 

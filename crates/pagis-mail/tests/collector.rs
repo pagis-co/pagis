@@ -140,6 +140,7 @@ impl World {
             )),
             grants: Arc::new(pagis_storage_sqlite::SqliteGrantStore::new(pool.clone())),
             intake: Arc::new(pagis_mail::MailIntake {
+                opinions: std::sync::Arc::new(pagis_mail::fake::FakeMailOpinions::default()),
                 workspaces: Arc::new(pagis_storage_sqlite::SqliteWorkspaceStore::new(
                     pool.clone(),
                 )),
@@ -1670,6 +1671,7 @@ async fn a_failed_verdict_holds_the_cursor_and_retries_on_the_next_poll(pool: Sq
     assert_eq!(held.cursor, before.cursor);
     assert_eq!(held.state, AgentMailboxState::Active);
     *world.verdicts.0.lock().unwrap() = Ok(pagis_core::SpamVerdict {
+        opinion: None,
         score: 7200,
         action: pagis_core::SpamAction::AddHeader,
         reasons: vec!["GTUBE".into()],

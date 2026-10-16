@@ -1070,6 +1070,7 @@ impl Default for FakeSpamVerdicts {
     fn default() -> Self {
         Self(
             std::sync::Mutex::new(Ok(pagis_core::SpamVerdict {
+                opinion: None,
                 score: 0,
                 action: pagis_core::SpamAction::NoAction,
                 reasons: Vec::new(),
@@ -1091,5 +1092,23 @@ impl crate::SpamVerdictSource for FakeSpamVerdicts {
             Ok(v) => Ok(v.clone()),
             Err(e) => Err(TransportError(e.0)),
         }
+    }
+}
+
+/// A Mail Opinion source with a call count and a fixed answer.
+#[derive(Default)]
+pub struct FakeMailOpinions {
+    pub calls: std::sync::atomic::AtomicUsize,
+    pub answer: std::sync::Mutex<Option<pagis_core::MailOpinion>>,
+}
+#[async_trait::async_trait]
+impl crate::MailOpinionSource for FakeMailOpinions {
+    async fn opinion(
+        &self,
+        _: &pagis_core::WorkspaceId,
+        _: &crate::MessageSummary,
+    ) -> Result<Option<pagis_core::MailOpinion>, crate::TransportError> {
+        self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(self.answer.lock().unwrap().clone())
     }
 }

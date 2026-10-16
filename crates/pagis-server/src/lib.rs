@@ -1049,3 +1049,4 @@ mod runtime_identity_tests {
 mod calls_portable_tests;
 
 mod legal_hold;
+pub mod mail_opinion;

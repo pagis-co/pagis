@@ -85,7 +85,7 @@ fn record(
     UsageRecord {
         id: UsageId::generate(),
         workspace_id: workspace_id.clone(),
-        run_id: run_id.clone(),
+        run_id: Some(run_id.clone()),
         provider: Some("anthropic".to_string()),
         model: Some("claude-sonnet-4-6".to_string()),
         input_tokens: 100,
@@ -95,6 +95,28 @@ fn record(
         cost_usd: cost.into(),
         created_at: at,
     }
+}
+
+pub async fn usage_without_a_run_counts_in_the_month_but_not_the_run_list(backend: &Backend) {
+    let workspace = backend.seeded_workspace().await;
+    let mut row = record(&workspace.id, &RunId::generate(), 0.25, 1_790_078_400_000);
+    row.run_id = None;
+    let usage = &backend.stores().usage;
+    usage.record(&row).await.unwrap();
+    let month = UsagePeriod::calendar_month(row.created_at, &workspace.timezone);
+    let total = usage
+        .total_for_workspace(&workspace.id, month)
+        .await
+        .unwrap();
+    assert_eq!(total.calls, 1);
+    assert_eq!(total.cost_usd, 0.25);
+    assert!(
+        usage
+            .runs_for_workspace(&workspace.id, month, 10)
+            .await
+            .unwrap()
+            .is_empty()
+    );
 }
 
 pub async fn a_usage_record_sums_per_workspace(backend: &Backend) {
@@ -797,6 +819,7 @@ macro_rules! store_suite_installation {
             role_changes_keep_an_enabled_administrator,
             concurrent_role_changes_keep_an_enabled_administrator,
             a_usage_record_sums_per_workspace,
+            usage_without_a_run_counts_in_the_month_but_not_the_run_list,
             an_unpriced_call_counts_and_adds_no_cost,
             an_empty_period_totals_to_zero,
             the_period_takes_its_start_and_leaves_its_end,

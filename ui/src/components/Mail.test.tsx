@@ -27,7 +27,10 @@ function setup(mailbox: object | null = { address: 'person@example.com' }) {
     seen: false,
     labels: [],
     flagged: false,
-    spam_verdict: { score: 7.2, action: 'add header', reasons: ['GTUBE'] },
+    spam_verdict: {
+      score: 7.2, action: 'add header', reasons: ['GTUBE'],
+      opinion: { label: 'spam', confidence: 80, reasons: ['Unwanted offer'] },
+    },
   }
   let seen = false
   const GET = vi.fn(
@@ -181,4 +184,12 @@ it('shows the Spam Verdict with reasons on each message', async () => {
   fireEvent.click(await allMail())
   expect(await screen.findAllByText('Spam score 7.2 · add header')).toHaveLength(2)
   expect(screen.getAllByText('GTUBE')).toHaveLength(2)
+})
+
+it('shows the model opinion and its reasons in verdict details', async () => {
+  setup()
+  fireEvent.click(await allMail())
+  expect(await screen.findByText('invoice first')).toBeTruthy()
+  expect(screen.getAllByText(/Model opinion: spam · 80%/)).toHaveLength(2)
+  expect(screen.getAllByText('Unwanted offer')).toHaveLength(2)
 })

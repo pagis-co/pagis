@@ -412,7 +412,7 @@ impl Endpoint {
             let record = UsageRecord {
                 id: UsageId::generate(),
                 workspace_id: owner.workspace_id,
-                run_id: owner.run_id,
+                run_id: Some(owner.run_id),
                 provider: Some(provider.to_string()),
                 // A model that no layer prices costs an unknown amount,
                 // which the record keeps as unknown.

@@ -54,7 +54,7 @@ impl UsageStore for PostgresUsageStore {
         )
         .bind(usage.id.as_str())
         .bind(usage.workspace_id.as_str())
-        .bind(usage.run_id.as_str())
+        .bind(usage.run_id.as_ref().map(RunId::as_str))
         .bind(usage.provider.as_deref())
         .bind(usage.model.as_deref())
         .bind(usage.input_tokens)
@@ -119,7 +119,7 @@ impl UsageStore for PostgresUsageStore {
         let rows = sqlx::query(&format!(
             "SELECT run_id, MAX(created_at) AS last_at, {TOTALS} FROM usage \
              WHERE workspace_id = $1 AND created_at >= $2 AND created_at < $3 \
-             GROUP BY run_id ORDER BY last_at DESC, run_id LIMIT $4"
+             AND run_id IS NOT NULL GROUP BY run_id ORDER BY last_at DESC, run_id LIMIT $4"
         ))
         .bind(workspace_id.as_str())
         .bind(period.from)
