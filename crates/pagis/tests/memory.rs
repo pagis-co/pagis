@@ -301,7 +301,10 @@ async fn the_feed_lists_commits_and_revert_makes_an_inverse_entry() {
     assert_eq!(items[0]["kind"], "reverted");
     assert_eq!(items[0]["sha"], revert_sha);
     assert_eq!(items[0]["reverted_sha"], sha.as_str());
-    assert!(items[0]["agent_name"].is_null(), "reverts are the user's");
+    assert!(
+        items[0]["agent_name"].is_null(),
+        "reverts are your Person's"
+    );
 
     // The revert removed the file again.
     let missing = api_get(&daemon, "/api/v1/memory/file?scope=shared&path=MEMORY.md").await;
@@ -437,7 +440,7 @@ async fn onboarding_seeds_the_user_name_into_shared_memory() {
     let committed = next_frame_of(&mut socket, "memory.committed").await;
     assert_eq!(
         committed["payload"]["payload"]["message"],
-        "Onboarding: recorded the user's name"
+        "Onboarding: recorded your Person's name"
     );
     let feed: serde_json::Value = api_get(&daemon, "/api/v1/memory/feed")
         .await
@@ -488,6 +491,7 @@ async fn memory_controls_hide_revoked_sources_and_reject_restore() {
         .workspace_id;
     let grants = pagis_storage_sqlite::SqliteGrantStore::new(daemon.pool().clone());
     let grant = Grant {
+        created_by: pagis_core::Author::System,
         id: GrantId::generate(),
         workspace_id: workspace_id.clone(),
         agent_id: agent_id.clone(),
@@ -796,7 +800,7 @@ async fn a_commit_diff_gives_the_lines_before_and_after() {
         &mut socket,
         "p1",
         "shared/user.md",
-        "The user likes tea.\n",
+        "Your Person likes tea.\n",
         "Remembered the tea preference",
     )
     .await;
@@ -806,7 +810,7 @@ async fn a_commit_diff_gives_the_lines_before_and_after() {
         &mut socket,
         "p2",
         "shared/user.md",
-        "The user likes coffee.\n",
+        "Your Person likes coffee.\n",
         "Corrected the drink",
     )
     .await;
@@ -825,11 +829,11 @@ async fn a_commit_diff_gives_the_lines_before_and_after() {
     assert_eq!(hunks.len(), 1);
     assert_eq!(
         hunks[0]["old_lines"],
-        serde_json::json!(["The user likes tea."])
+        serde_json::json!(["Your Person likes tea."])
     );
     assert_eq!(
         hunks[0]["new_lines"],
-        serde_json::json!(["The user likes coffee."])
+        serde_json::json!(["Your Person likes coffee."])
     );
     assert_eq!(hunks[0]["old_start"], 1);
     assert_eq!(hunks[0]["new_start"], 1);
@@ -857,7 +861,7 @@ async fn the_feed_filters_by_scope_path_and_source_kind() {
         &mut socket,
         "p1",
         "shared/user.md",
-        "The user likes tea.\n",
+        "Your Person likes tea.\n",
         "Remembered the tea preference",
     )
     .await;
@@ -990,7 +994,10 @@ async fn a_revert_lists_under_the_scope_and_files_of_the_commit_it_undoes() {
     assert_eq!(items[0]["kind"], "reverted");
     assert_eq!(items[0]["reverted_sha"], sha.as_str());
     assert_eq!(items[0]["files"], serde_json::json!(["private/craft.md"]));
-    assert!(items[0]["agent_name"].is_null(), "reverts are the user's");
+    assert!(
+        items[0]["agent_name"].is_null(),
+        "reverts are your Person's"
+    );
 
     let by_path: serde_json::Value = api_get(
         &daemon,

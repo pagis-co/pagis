@@ -20,9 +20,8 @@ use pagis_agent::{Brain, BrainError, TurnRequest, TurnStream};
 use pagis_broker::fake::FakeClientApp;
 use pagis_coding::fake::{FakeHarness, Script, Turn, acp};
 use pagis_core::{
-    AgentId, AuthorKind, ChannelId, CodingSession, CodingSessionEventKind, CodingSessionState,
-    EventSource, HostId, MessageId, RequestState, Run, RunOrigin, RunState, TriggerKind,
-    WakeupRule, harness,
+    AgentId, ChannelId, CodingSession, CodingSessionEventKind, CodingSessionState, EventSource,
+    HostId, MessageId, RequestState, Run, RunOrigin, RunState, TriggerKind, WakeupRule, harness,
 };
 use pagis_testkit::evaluation::FixtureClock;
 use pagis_testkit::{
@@ -436,7 +435,7 @@ async fn a_schedule_starts_a_coding_session_that_runs_to_its_report_with_no_pers
     let closed = replies
         .iter()
         .find(|message| {
-            message.run_id.as_ref() == Some(&woken.id) && message.author_kind == AuthorKind::Agent
+            message.run_id.as_ref() == Some(&woken.id) && message.author.agent_id().is_some()
         })
         .unwrap_or_else(|| panic!("no note in the Thread: {replies:#?}"));
     assert_eq!(closed.text_content, CLOSED);
@@ -462,7 +461,7 @@ async fn a_schedule_starts_a_coding_session_that_runs_to_its_report_with_no_pers
         .map(|entry| entry.message)
         .find(|message| message.run_id.as_ref() == Some(&reporting.id))
         .expect("the report at the top level");
-    assert_eq!(report.author_kind, AuthorKind::Agent);
+    assert!(report.author.agent_id().is_some());
     assert_eq!(report.text_content, REPORT);
     assert_eq!(report.parent_message_id, None);
     assert!(

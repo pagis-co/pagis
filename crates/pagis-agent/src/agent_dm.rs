@@ -9,9 +9,9 @@
 use std::sync::Arc;
 
 use pagis_core::{
-    Agent, AgentId, AuthorKind, Block, Channel, ChannelId, ChannelKind, ChannelParticipant,
-    ChannelStore, Clock, EventBus, Message, MessageId, MessageStatus, NewEvent, ParticipantId,
-    ParticipantKind, ParticipantStore, RunId, WorkspaceId, blocks_text,
+    Agent, Author, Block, Channel, ChannelId, ChannelKind, ChannelParticipant, ChannelStore, Clock,
+    EventBus, Message, MessageId, MessageStatus, NewEvent, ParticipantId, ParticipantKind,
+    ParticipantStore, RunId, WorkspaceId, blocks_text,
 };
 
 pub struct AgentDm {
@@ -58,6 +58,7 @@ impl AgentDm {
         for agent_id in [&sender.id, &target.id] {
             self.participants
                 .create(&ChannelParticipant {
+                    person_id: None,
                     id: ParticipantId::generate(),
                     workspace_id: workspace_id.clone(),
                     channel_id: channel.id.clone(),
@@ -88,7 +89,7 @@ impl AgentDm {
         &self,
         workspace_id: &WorkspaceId,
         channel: &Channel,
-        sender_id: &AgentId,
+        sender: &Agent,
         run_id: &RunId,
         text: &str,
         exposures: &[pagis_core::MemoryExposure],
@@ -100,8 +101,7 @@ impl AgentDm {
             workspace_id: workspace_id.clone(),
             channel_id: channel.id.clone(),
             parent_message_id: None,
-            author_kind: AuthorKind::Agent,
-            author_agent_id: Some(sender_id.clone()),
+            author: Author::Agent(sender.id.clone()),
             run_id: Some(run_id.clone()),
             status: MessageStatus::Complete,
             text_content: blocks_text(&blocks),
@@ -118,13 +118,13 @@ impl AgentDm {
             .publish(NewEvent {
                 workspace_id: workspace_id.clone(),
                 event_type: "message.completed".to_string(),
-                agent_id: Some(sender_id.clone()),
+                agent_id: Some(sender.id.clone()),
                 run_id: Some(run_id.clone()),
                 channel_id: Some(channel.id.clone()),
                 payload: serde_json::json!({
                     "message_id": message.id.as_str(),
                     "parent_message_id": serde_json::Value::Null,
-                    "author_kind": AuthorKind::Agent,
+                    "author": {"kind": "agent", "id": sender.id, "name": sender.name},
                 }),
             })
             .await

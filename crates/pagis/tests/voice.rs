@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::{SinkExt, StreamExt};
-use pagis_core::{AuthorKind, Block, MessageStore};
+use pagis_core::{Author, Block, MessageStore};
 use pagis_storage_sqlite::SqliteMessageStore;
 use pagis_testkit::fixture;
 use pagis_testkit::{TestDaemon, TestDaemonOptions, test_provider_keys};
@@ -225,7 +225,7 @@ async fn a_provider_without_a_realtime_socket_transcribes_the_clip_on_release() 
         .unwrap();
     let items = timeline["items"].as_array().unwrap();
     assert_eq!(items.len(), 1, "only the initial greeting remains");
-    assert_eq!(items[0]["author_kind"], "agent");
+    assert_eq!(items[0]["author"]["kind"], "agent");
     assert!(items[0]["run_id"].is_null());
     assert_eq!(
         items[0]["text_content"],
@@ -409,7 +409,7 @@ async fn a_thread_speaks_the_markdown_block_in_the_agent_voice_and_stores_nothin
 }
 
 #[tokio::test]
-async fn a_user_message_is_not_spoken_and_a_missing_message_is_not_found() {
+async fn a_person_message_is_not_spoken_and_a_missing_message_is_not_found() {
     let desk = Desk::start(FakeVoice::default()).await;
     let (status, sent) = desk
         .post_json(
@@ -426,7 +426,7 @@ async fn a_user_message_is_not_spoken_and_a_missing_message_is_not_found() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(stored.author_kind, AuthorKind::User);
+    assert_eq!(stored.author, Author::Person(desk.daemon.user_id.clone()));
 
     let response = desk
         .get(&format!(
@@ -766,6 +766,7 @@ async fn speech_refuses_retained_sourced_text_after_revocation_before_calling_th
         .unwrap();
     let grants = SqliteGrantStore::new(pool.clone());
     let grant = pagis_core::Grant {
+        created_by: pagis_core::Author::System,
         id: pagis_core::GrantId::generate(),
         workspace_id: agent.workspace_id.clone(),
         agent_id: agent.id.clone(),

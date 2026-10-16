@@ -142,7 +142,7 @@ async fn creates_an_agent_its_dm_participants_greeting_and_events() {
     assert_eq!(
         participants
             .iter()
-            .filter(|p| p.kind == ParticipantKind::User && p.agent_id.is_none())
+            .filter(|p| p.kind == ParticipantKind::Person && p.agent_id.is_none())
             .count(),
         1
     );
@@ -162,8 +162,8 @@ async fn creates_an_agent_its_dm_participants_greeting_and_events() {
     assert_eq!(messages.len(), 1);
     let greeting = &messages[0].message;
     assert_eq!(greeting.workspace_id, embedder.workspace);
-    assert_eq!(greeting.author_kind, AuthorKind::Agent);
-    assert_eq!(greeting.author_agent_id, Some(id.clone()));
+    assert!(greeting.author.agent_id().is_some());
+    assert_eq!(greeting.author.agent_id(), Some(&id));
     assert_eq!(
         greeting.blocks,
         [Block::markdown("Hi, I'm Ada, your Assistant.")]

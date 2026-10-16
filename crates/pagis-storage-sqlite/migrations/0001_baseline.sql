@@ -73,27 +73,34 @@ CREATE TABLE channel_participants (
     id TEXT PRIMARY KEY,
     workspace_id TEXT NOT NULL REFERENCES workspaces (id),
     channel_id TEXT NOT NULL REFERENCES channels (id),
-    participant_kind TEXT NOT NULL CHECK (participant_kind IN ('user', 'agent')),
+    participant_kind TEXT NOT NULL CHECK (participant_kind IN ('person', 'agent')),
+    person_id TEXT REFERENCES users (id),
     agent_id TEXT REFERENCES agents (id),
-    joined_at INTEGER NOT NULL
+    joined_at INTEGER NOT NULL,
+    CHECK ((participant_kind = 'person' AND person_id IS NOT NULL AND agent_id IS NULL)
+        OR (participant_kind = 'agent' AND person_id IS NULL AND agent_id IS NOT NULL))
 );
 CREATE UNIQUE INDEX idx_channel_participants_unique
-    ON channel_participants (channel_id, participant_kind, agent_id);
+    ON channel_participants (channel_id, participant_kind, COALESCE(person_id, ''), COALESCE(agent_id, ''));
 
 CREATE TABLE messages (
+    author_kind TEXT NOT NULL CHECK (author_kind IN ('person', 'agent', 'system')),
+    author_person_id TEXT REFERENCES users (id),
+    author_agent_id TEXT REFERENCES agents (id),
     id TEXT PRIMARY KEY,
     workspace_id TEXT NOT NULL REFERENCES workspaces (id),
     channel_id TEXT NOT NULL REFERENCES channels (id),
     parent_message_id TEXT REFERENCES messages (id),
-    author_kind TEXT NOT NULL CHECK (author_kind IN ('user', 'agent', 'system')),
-    author_agent_id TEXT REFERENCES agents (id),
     run_id TEXT,
     status TEXT NOT NULL CHECK (status IN ('streaming', 'complete', 'failed')),
     blocks TEXT NOT NULL,
     text_content TEXT NOT NULL,
     pending_id TEXT,
     created_at INTEGER NOT NULL,
-    completed_at INTEGER
+    completed_at INTEGER,
+    CHECK ((author_kind = 'person' AND author_person_id IS NOT NULL AND author_agent_id IS NULL)
+        OR (author_kind = 'agent' AND author_person_id IS NULL AND author_agent_id IS NOT NULL)
+        OR (author_kind = 'system' AND author_person_id IS NULL AND author_agent_id IS NULL))
 );
 CREATE INDEX idx_messages_channel ON messages (channel_id, created_at);
 CREATE INDEX idx_messages_parent ON messages (parent_message_id);
@@ -177,6 +184,9 @@ CREATE TABLE model_aliases (
 CREATE UNIQUE INDEX idx_model_aliases_unique ON model_aliases (workspace_id, alias);
 
 CREATE TABLE requests (
+    decided_by_kind TEXT NULL CHECK (decided_by_kind IN ('person', 'agent', 'system')),
+    decided_by_person_id TEXT REFERENCES users (id),
+    decided_by_agent_id TEXT REFERENCES agents (id),
     id TEXT PRIMARY KEY,
     workspace_id TEXT NOT NULL REFERENCES workspaces (id),
     agent_id TEXT NOT NULL REFERENCES agents (id),
@@ -189,7 +199,11 @@ CREATE TABLE requests (
     decided_at INTEGER,
     created_at INTEGER NOT NULL,
     -- The values a form or a choice submits with its decision.
-    submitted_values TEXT
+    submitted_values TEXT,
+    CHECK ((decided_by_kind IS NOT NULL AND ((decided_by_kind = 'person' AND decided_by_person_id IS NOT NULL AND decided_by_agent_id IS NULL)
+        OR (decided_by_kind = 'agent' AND decided_by_person_id IS NULL AND decided_by_agent_id IS NOT NULL)
+        OR (decided_by_kind = 'system' AND decided_by_person_id IS NULL AND decided_by_agent_id IS NULL)))
+        OR (decided_by_kind IS NULL AND decided_by_person_id IS NULL AND decided_by_agent_id IS NULL))
 );
 
 CREATE TABLE capability_snapshots (
@@ -205,6 +219,9 @@ CREATE TABLE run_capability_snapshots (
 );
 
 CREATE TABLE credentials (
+    created_by_kind TEXT NOT NULL CHECK (created_by_kind IN ('person', 'agent', 'system')),
+    created_by_person_id TEXT REFERENCES users (id),
+    created_by_agent_id TEXT REFERENCES agents (id),
     id TEXT PRIMARY KEY,
     workspace_id TEXT NOT NULL REFERENCES workspaces (id),
     -- The registrable domain, from the public suffix list. The
@@ -223,7 +240,10 @@ CREATE TABLE credentials (
     owner_agent_id TEXT REFERENCES agents (id),
     provenance TEXT NOT NULL CHECK (provenance IN ('user_supplied', 'agent_minted')),
     created_run_id TEXT REFERENCES runs (id),
-    created_at INTEGER NOT NULL
+    created_at INTEGER NOT NULL,
+    CHECK ((created_by_kind = 'person' AND created_by_person_id IS NOT NULL AND created_by_agent_id IS NULL)
+        OR (created_by_kind = 'agent' AND created_by_person_id IS NULL AND created_by_agent_id IS NOT NULL)
+        OR (created_by_kind = 'system' AND created_by_person_id IS NULL AND created_by_agent_id IS NULL))
 );
 CREATE INDEX idx_credentials_workspace_domain ON credentials (workspace_id, domain);
 CREATE INDEX idx_requests_state ON requests (workspace_id, state, kind);
@@ -251,6 +271,9 @@ CREATE TABLE connections (
 CREATE UNIQUE INDEX idx_connections_alias ON connections (workspace_id, alias);
 
 CREATE TABLE schedules (
+    created_by_kind TEXT NOT NULL CHECK (created_by_kind IN ('person', 'agent', 'system')),
+    created_by_person_id TEXT REFERENCES users (id),
+    created_by_agent_id TEXT REFERENCES agents (id),
     id TEXT PRIMARY KEY,
     workspace_id TEXT NOT NULL REFERENCES workspaces (id),
     agent_id TEXT NOT NULL REFERENCES agents (id),
@@ -268,7 +291,6 @@ CREATE TABLE schedules (
     state TEXT NOT NULL CHECK (state IN ('active', 'paused', 'completed', 'blocked', 'archived')),
     revision INTEGER NOT NULL,
     approved_revision INTEGER,
-    creator TEXT NOT NULL CHECK (creator IN ('user', 'agent')),
     creating_run_id TEXT REFERENCES runs (id),
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
@@ -277,7 +299,10 @@ CREATE TABLE schedules (
     -- archived and keyed as forgotten. The mark outlives the followup
     -- row that the purge deletes, so a queued run cannot start from the
     -- anchor later.
-    forgotten INTEGER NOT NULL DEFAULT 0 CHECK(forgotten IN (0,1))
+    forgotten INTEGER NOT NULL DEFAULT 0 CHECK(forgotten IN (0,1)),
+    CHECK ((created_by_kind = 'person' AND created_by_person_id IS NOT NULL AND created_by_agent_id IS NULL)
+        OR (created_by_kind = 'agent' AND created_by_person_id IS NULL AND created_by_agent_id IS NOT NULL)
+        OR (created_by_kind = 'system' AND created_by_person_id IS NULL AND created_by_agent_id IS NULL))
 );
 CREATE INDEX idx_schedules_due ON schedules (next_due_at) WHERE state = 'active';
 CREATE INDEX idx_schedules_workspace ON schedules (workspace_id, id DESC);
@@ -315,6 +340,9 @@ CREATE TABLE schedule_occurrences (
 CREATE INDEX idx_occurrences_schedule ON schedule_occurrences (schedule_id, id DESC);
 
 CREATE TABLE event_subscriptions (
+    created_by_kind TEXT NOT NULL CHECK (created_by_kind IN ('person', 'agent', 'system')),
+    created_by_person_id TEXT REFERENCES users (id),
+    created_by_agent_id TEXT REFERENCES agents (id),
     id TEXT PRIMARY KEY,
     workspace_id TEXT NOT NULL REFERENCES workspaces (id),
     agent_id TEXT NOT NULL REFERENCES agents (id),
@@ -326,7 +354,6 @@ CREATE TABLE event_subscriptions (
     channel_id TEXT NOT NULL REFERENCES channels (id),
     root_message_id TEXT REFERENCES messages (id),
     filter TEXT NOT NULL,
-    creator TEXT NOT NULL CHECK (creator IN ('user', 'agent')),
     state TEXT NOT NULL CHECK (
         state IN ('active', 'paused', 'blocked', 'archived')
     ),
@@ -338,7 +365,10 @@ CREATE TABLE event_subscriptions (
     blocked_reason TEXT,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
-    archived_at INTEGER
+    archived_at INTEGER,
+    CHECK ((created_by_kind = 'person' AND created_by_person_id IS NOT NULL AND created_by_agent_id IS NULL)
+        OR (created_by_kind = 'agent' AND created_by_person_id IS NULL AND created_by_agent_id IS NOT NULL)
+        OR (created_by_kind = 'system' AND created_by_person_id IS NULL AND created_by_agent_id IS NULL))
 );
 CREATE INDEX idx_subscriptions_workspace ON event_subscriptions (workspace_id, id DESC);
 CREATE INDEX idx_subscriptions_source ON event_subscriptions (connection_id, event_kind, state);
@@ -638,6 +668,9 @@ CREATE TABLE plugin_bindings (
 );
 
 CREATE TABLE grants (
+    created_by_kind TEXT NOT NULL CHECK (created_by_kind IN ('person', 'agent', 'system')),
+    created_by_person_id TEXT REFERENCES users (id),
+    created_by_agent_id TEXT REFERENCES agents (id),
     id TEXT PRIMARY KEY,
     workspace_id TEXT NOT NULL REFERENCES workspaces (id),
     agent_id TEXT NOT NULL REFERENCES agents (id),
@@ -647,7 +680,10 @@ CREATE TABLE grants (
     scope TEXT NOT NULL,
     revision INTEGER NOT NULL DEFAULT 1,
     created_at INTEGER NOT NULL,
-    revoked_at INTEGER
+    revoked_at INTEGER,
+    CHECK ((created_by_kind = 'person' AND created_by_person_id IS NOT NULL AND created_by_agent_id IS NULL)
+        OR (created_by_kind = 'agent' AND created_by_person_id IS NULL AND created_by_agent_id IS NOT NULL)
+        OR (created_by_kind = 'system' AND created_by_person_id IS NULL AND created_by_agent_id IS NULL))
 );
 CREATE UNIQUE INDEX idx_grants_live_unique
     ON grants (workspace_id, agent_id, resource_kind, resource_id)
@@ -1336,7 +1372,7 @@ END;
 -- The words of the user carry no source scope, so a user message gets
 -- an empty exposure set when it lands.
 CREATE TRIGGER message_exposure_set_insert AFTER INSERT ON messages
-WHEN new.author_kind = 'user' BEGIN
+WHEN new.author_kind = 'person' BEGIN
     INSERT INTO message_exposure_sets(message_id) VALUES (new.id);
 END;
 

@@ -81,6 +81,7 @@ impl Fixture {
     async fn grant(&self, plugin: &Plugin) {
         self.grants
             .create(&Grant {
+                created_by: pagis_core::Author::System,
                 id: GrantId::generate(),
                 workspace_id: self.workspace_id.clone(),
                 agent_id: self.agent_id.clone(),

@@ -11,8 +11,8 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use pagis_core::{
-    AgentId, ChannelId, ConnectionId, CreatorKind, EventSource, EventSubscriptionId,
-    IncomingEventId, MessageId, SourceBatch, WakeupId, now_ms,
+    AgentId, ChannelId, ConnectionId, EventSource, EventSubscriptionId, IncomingEventId, MessageId,
+    SourceBatch, WakeupId, now_ms,
 };
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -57,6 +57,7 @@ pub struct UpdateSubscriptionRequest {
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct SubscriptionDto {
+    pub created_by: pagis_core::AuthorDto,
     pub id: String,
     pub workspace_id: String,
     pub agent_id: String,
@@ -69,7 +70,6 @@ pub struct SubscriptionDto {
     pub channel_id: String,
     pub root_message_id: Option<String>,
     pub filter: serde_json::Value,
-    pub creator: String,
     pub state: String,
     pub revision: u32,
     pub approved_revision: Option<u32>,
@@ -92,9 +92,21 @@ fn connection_of(source: &EventSource) -> String {
         .unwrap_or_default()
 }
 
-impl From<pagis_core::EventSubscription> for SubscriptionDto {
-    fn from(value: pagis_core::EventSubscription) -> Self {
-        Self {
+impl SubscriptionDto {
+    async fn read(
+        state: &AppState,
+        value: pagis_core::EventSubscription,
+    ) -> Result<Self, ApiError> {
+        let created_by = value
+            .created_by
+            .resolve(
+                &value.workspace_id,
+                state.users.as_ref(),
+                state.agent_store.as_ref(),
+            )
+            .await?;
+        Ok(Self {
+            created_by,
             id: value.id.to_string(),
             workspace_id: value.workspace_id.to_string(),
             agent_id: value.agent_id.to_string(),
@@ -106,7 +118,6 @@ impl From<pagis_core::EventSubscription> for SubscriptionDto {
             channel_id: value.channel_id.to_string(),
             root_message_id: value.root_message_id.map(|id| id.to_string()),
             filter: value.filter,
-            creator: value.creator.as_str().to_string(),
             state: value.state.as_str().to_string(),
             revision: value.revision,
             approved_revision: value.approved_revision,
@@ -117,7 +128,7 @@ impl From<pagis_core::EventSubscription> for SubscriptionDto {
             created_at: value.created_at,
             updated_at: value.updated_at,
             archived_at: value.archived_at,
-        }
+        })
     }
 }
 
@@ -213,6 +224,7 @@ pub async fn create_subscription(
     let subscription = state
         .trigger
         .create_subscription(pagis_trigger::NewSubscription {
+            created_by: pagis_core::Author::Person(tenant.user_id.clone()),
             workspace_id: tenant.workspace_id.clone(),
             agent_id: AgentId::from(body.agent_id),
             source: EventSource::connection(ConnectionId::from(body.connection_id)),
@@ -222,12 +234,14 @@ pub async fn create_subscription(
             channel_id: ChannelId::from(body.channel_id),
             root_message_id: body.root_message_id.map(MessageId::from),
             filter: body.filter.unwrap_or_else(|| serde_json::json!({})),
-            creator: CreatorKind::User,
             now: now_ms(),
         })
         .await
         .map_err(trigger_error)?;
-    Ok((StatusCode::CREATED, Json(subscription.into())))
+    Ok((
+        StatusCode::CREATED,
+        Json(SubscriptionDto::read(&state, subscription).await?),
+    ))
 }
 
 #[utoipa::path(get, path = "/api/v1/event-subscriptions", params(PageQuery), responses(
@@ -251,8 +265,12 @@ pub async fn list_subscriptions(
         .await
         .map_err(trigger_error)?;
     let (items, next_cursor) = page(subscriptions, limit, |item| item.id.to_string());
+    let mut records = Vec::new();
+    for item in items {
+        records.push(SubscriptionDto::read(&state, item).await?);
+    }
     Ok(Json(SubscriptionPage {
-        items: items.into_iter().map(Into::into).collect(),
+        items: records,
         next_cursor,
     }))
 }
@@ -287,7 +305,7 @@ pub async fn get_subscription(
         .into_iter()
         .next();
     Ok(Json(SubscriptionDetailDto {
-        subscription: subscription.into(),
+        subscription: SubscriptionDto::read(&state, subscription).await?,
         last_collection: last.map(Into::into),
         last_successful_collection: succeeded.map(Into::into),
         last_matched_event: last_matched_event.map(Into::into),
@@ -322,7 +340,7 @@ pub async fn update_subscription(
         .update_subscription(&tenant.workspace_id, &subscription.id, action, now_ms())
         .await
         .map_err(trigger_error)?;
-    Ok(Json(updated.into()))
+    Ok(Json(SubscriptionDto::read(&state, updated).await?))
 }
 
 #[utoipa::path(get, path = "/api/v1/event-subscriptions/{subscription_id}/events", params(("subscription_id" = String, Path), PageQuery), responses(

@@ -1008,6 +1008,7 @@ mod tests {
             created_at: 1,
         };
         let grant = Grant {
+            created_by: pagis_core::Author::System,
             id: GrantId::generate(),
             workspace_id: workspace.id.clone(),
             agent_id: agent.id.clone(),

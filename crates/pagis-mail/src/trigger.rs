@@ -12,7 +12,7 @@ use crate::{
     STANDING_MAIL_RULE_NAME, StandingMailRule, StandingRuleError,
 };
 use async_trait::async_trait;
-use pagis_core::{AgentMailbox, ChannelStore, CreatorKind, IngestBatch, now_ms};
+use pagis_core::{AgentMailbox, ChannelStore, IngestBatch, now_ms};
 use pagis_trigger::{NewSubscription, Trigger};
 
 /// One Standing Mail Rule slot, filled once the Trigger module exists.
@@ -65,10 +65,11 @@ impl StandingMailRule for StandingMailRules {
             .await
             .map_err(|error| StandingRuleError(error.to_string()))?
             .ok_or_else(|| {
-                StandingRuleError("that Agent has no thread with the user".to_string())
+                StandingRuleError("that Agent has no thread with your Person".to_string())
             })?;
         self.trigger
             .create_subscription(NewSubscription {
+                created_by: pagis_core::Author::System,
                 workspace_id: mailbox.workspace_id.clone(),
                 agent_id: mailbox.agent_id.clone(),
                 source: pagis_core::EventSource::connection(mailbox.connection_id.clone()),
@@ -78,9 +79,8 @@ impl StandingMailRule for StandingMailRules {
                 channel_id: channel.id,
                 root_message_id: None,
                 filter: serde_json::json!({"mailbox": OWN_MAILBOX}),
-                // The user asked for the mailbox, so the rule is the
-                // user's. The Agent may narrow it and never delete it.
-                creator: CreatorKind::User,
+                // The daemon supplies this rule for the Person.
+                // The Agent may narrow it but cannot delete it.
                 now: now_ms(),
             })
             .await

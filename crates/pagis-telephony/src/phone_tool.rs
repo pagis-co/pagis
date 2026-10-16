@@ -12,7 +12,7 @@ use async_trait::async_trait;
 use object_store::{ObjectStore, ObjectStoreExt as _};
 use pagis_broker::{AuthorizedCall, CoreTool, ToolDef, ToolExecutor, ToolResult, ToolRoute};
 use pagis_core::{
-    AgentId, AgentStore, AuthorKind, Block, CallId, CallStore, EventBus, File, FileId, FileOutcome,
+    AgentId, AgentStore, Author, Block, CallId, CallStore, EventBus, File, FileId, FileOutcome,
     FileStore, KnownBlock, Message, MessageId, MessageStatus, MessageStore, NewEvent, PhoneNumber,
     RunId, RunStore, TrustListStore, Untrusted, WorkspaceId, blocks_text, now_ms,
     render_transcript,
@@ -320,8 +320,7 @@ pub(crate) async fn mint_strip(
         workspace_id: run.workspace_id.clone(),
         channel_id: channel_id.clone(),
         parent_message_id: run.root_message_id.clone(),
-        author_kind: AuthorKind::System,
-        author_agent_id: None,
+        author: Author::System,
         run_id: Some(run_id.clone()),
         status: MessageStatus::Complete,
         text_content: blocks_text(&blocks),
@@ -345,7 +344,7 @@ pub(crate) async fn mint_strip(
             payload: serde_json::json!({
                 "message_id": strip.id.as_str(),
                 "parent_message_id": strip.parent_message_id.as_ref().map(MessageId::as_str),
-                "author_kind": AuthorKind::System,
+                "author": {"kind": "system", "id": null, "name": "Pagis"},
             }),
         })
         .await;

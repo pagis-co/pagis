@@ -12,10 +12,10 @@
 
 use pagis_core::{
     Agent, AgentId, AgentStatus, AgentStore, Channel, ChannelId, ChannelKind, ChannelParticipant,
-    ChannelStore, CreatorKind, DEFAULT_MODEL_ALIAS, EventLog, MessageStore, ModelAlias,
-    ModelAliasId, ModelAliasStore, NewEvent, ParticipantId, ParticipantKind, ParticipantStore,
-    Schedule, ScheduleId, ScheduleKind, ScheduleState, ScheduleStore, StoreError, UnixMillis,
-    UserId, Workspace, WorkspaceId, WorkspaceStore,
+    ChannelStore, DEFAULT_MODEL_ALIAS, EventLog, MessageStore, ModelAlias, ModelAliasId,
+    ModelAliasStore, NewEvent, ParticipantId, ParticipantKind, ParticipantStore, Schedule,
+    ScheduleId, ScheduleKind, ScheduleState, ScheduleStore, StoreError, UnixMillis, UserId,
+    Workspace, WorkspaceId, WorkspaceStore,
 };
 
 /// The name a Workspace takes when nobody named it.
@@ -50,10 +50,10 @@ pub const REPORT_CRON: &str = "0 7 * * *";
 /// the work record below it.
 pub const REPORT_INSTRUCTION: &str = "\
 Write the report for Home. Answer three questions, in this order and \
-in this many words: what needs the user, what is running now, and what \
-got done since your last report. Write prose the user can act on, not \
+in this many words: what needs your Person, what is running now, and what \
+got done since your last report. Write prose your Person can act on, not \
 a list of tool names. Name an Agent when its work is what changed. \
-When nothing needs the user, say so in one sentence and stop.";
+When nothing needs your Person, say so in one sentence and stop.";
 
 /// Every alias a Workspace needs before anything can think, speak or
 /// answer a call, with its seed route: the preferred models of the first
@@ -187,11 +187,12 @@ impl WorkspaceSeed<'_> {
         };
         self.channels.create(&channel).await?;
         for (kind, agent_id) in [
-            (ParticipantKind::User, None),
+            (ParticipantKind::Person, None),
             (ParticipantKind::Agent, Some(agent.id.clone())),
         ] {
             self.participants
                 .create(&ChannelParticipant {
+                    person_id: (kind == ParticipantKind::Person).then(|| workspace.user_id.clone()),
                     id: ParticipantId::generate(),
                     workspace_id: workspace.id.clone(),
                     channel_id: channel.id.clone(),
@@ -237,13 +238,13 @@ impl WorkspaceSeed<'_> {
             NewEvent {
                 workspace_id: workspace.id.clone(),
                 event_type: "message.completed".to_string(),
-                agent_id: greeting.author_agent_id.clone(),
+                agent_id: greeting.author.agent_id().cloned(),
                 run_id: None,
                 channel_id: Some(greeting.channel_id.clone()),
                 payload: serde_json::json!({
                     "message_id": greeting.id,
                     "parent_message_id": null,
-                    "author_kind": "agent",
+                    "author": {"kind": "agent", "id": agent.id, "name": agent.name},
                 }),
             },
         ] {
@@ -304,6 +305,7 @@ impl WorkspaceSeed<'_> {
                 StoreError::Corrupt(format!("the Report cadence is unreadable: {error}"))
             })?;
         let report = Schedule {
+            created_by: pagis_core::Author::System,
             id: ScheduleId::generate(),
             workspace_id: workspace.id.clone(),
             agent_id: agent_id.clone(),
@@ -323,7 +325,6 @@ impl WorkspaceSeed<'_> {
             state: ScheduleState::Active,
             revision: 1,
             approved_revision: Some(1),
-            creator: CreatorKind::User,
             creating_run_id: None,
             created_at: now,
             updated_at: now,

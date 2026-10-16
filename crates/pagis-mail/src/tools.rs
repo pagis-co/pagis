@@ -534,7 +534,7 @@ fn transport_error(error: TransportError) -> ToolResult {
         TransportErrorCode::StaleId => (STALE_ID, "that message id is stale. Search again."),
         TransportErrorCode::Unauthorized | TransportErrorCode::MailboxGone => (
             pagis_broker::MAILBOX_UNAVAILABLE,
-            "the mail host refused the mailbox. Tell the user to reset its password.",
+            "the mail host refused the mailbox. Tell your Person to reset its password.",
         ),
         TransportErrorCode::Unreachable | TransportErrorCode::Unreadable => (
             "temporarily_unavailable",

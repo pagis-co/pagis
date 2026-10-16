@@ -3413,6 +3413,12 @@ export interface components {
         AssignNumberRequest: {
             agent_id: string;
         };
+        /** @description The author identity in the Product API. */
+        AuthorDto: {
+            id?: string | null;
+            kind: string;
+            name: string;
+        };
         /**
          * @description The capabilities the user grants this Connection. An empty
          *     list authorizes the read-only profile a new Connection starts at.
@@ -3609,8 +3615,7 @@ export interface components {
             workspace_id: string;
         };
         ChannelLastMessageDto: {
-            author_agent_id?: string | null;
-            author_kind: string;
+            author: components["schemas"]["AuthorDto"];
             /** Format: int64 */
             created_at: number;
             text_content: string;
@@ -4200,6 +4205,7 @@ export interface components {
         CredentialDto: {
             /** Format: int64 */
             created_at: number;
+            created_by: components["schemas"]["AuthorDto"];
             /** @description The site's registrable domain. */
             domain: string;
             /** @description True when the record carries a one-time code seed. */
@@ -4476,6 +4482,7 @@ export interface components {
             capabilities: string[];
             /** Format: int64 */
             created_at: number;
+            created_by: components["schemas"]["AuthorDto"];
             id: string;
             /**
              * @description What the grant reaches: the Connection, the Plugin, or the machine
@@ -5312,9 +5319,8 @@ export interface components {
             sha: string;
         };
         MessageDto: {
-            author_agent_id?: string | null;
-            /** @description `user`, `agent`, or `system`. */
-            author_kind: string;
+            /** @description The Person, Agent or daemon that writes the message. */
+            author: components["schemas"]["AuthorDto"];
             /**
              * @description The typed block array (ADR-0004). A block type this daemon does
              *     not know is served unchanged and renders as the UI fallback, so
@@ -6154,9 +6160,8 @@ export interface components {
         };
         /** @description One author of the replies in a thread. */
         ReplyAuthorDto: {
-            author_agent_id?: string | null;
-            /** @description `user` or `agent`. */
-            author_kind: string;
+            /** @description The resolved identity of a reply author. */
+            author: components["schemas"]["AuthorDto"];
         };
         /**
          * @description The Report that Home reads (ADR-0022): the newest message the Report
@@ -6180,6 +6185,7 @@ export interface components {
             created_at: number;
             /** Format: int64 */
             decided_at?: number | null;
+            decided_by?: null | components["schemas"]["AuthorDto"];
             id: string;
             /**
              * @description `tool_action`, `credential_action`, `form`, `choice`, `widget`
@@ -6419,8 +6425,8 @@ export interface components {
             channel_id: string;
             /** Format: int64 */
             created_at: number;
+            created_by: components["schemas"]["AuthorDto"];
             creating_run_id?: string | null;
-            creator: string;
             cron_expression?: string | null;
             id: string;
             instruction: string;
@@ -6882,7 +6888,7 @@ export interface components {
             connection_id: string;
             /** Format: int64 */
             created_at: number;
-            creator: string;
+            created_by: components["schemas"]["AuthorDto"];
             event_kind: string;
             filter: unknown;
             id: string;
@@ -7124,9 +7130,8 @@ export interface components {
          *     timeline query.
          */
         TimelineMessageDto: {
-            author_agent_id?: string | null;
-            /** @description `user`, `agent`, or `system`. */
-            author_kind: string;
+            /** @description The Person, Agent or daemon that writes the message. */
+            author: components["schemas"]["AuthorDto"];
             /**
              * @description The typed block array (ADR-0004). A block type this daemon does
              *     not know is served unchanged and renders as the UI fallback, so

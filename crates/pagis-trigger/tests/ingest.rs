@@ -44,6 +44,7 @@ async fn subscribe(world: &World, name: &str, senders: &[&str]) -> EventSubscrip
     world
         .trigger
         .create_subscription(NewSubscription {
+            created_by: pagis_core::Author::System,
             workspace_id: world.workspace_id.clone(),
             agent_id: world.agent_id.clone(),
             source: EventSource::connection(world.connection_id.clone()),
@@ -53,7 +54,6 @@ async fn subscribe(world: &World, name: &str, senders: &[&str]) -> EventSubscrip
             channel_id: world.channel_id.clone(),
             root_message_id: None,
             filter: serde_json::json!({"senders": senders}),
-            creator: pagis_core::CreatorKind::User,
             now: NOW,
         })
         .await
@@ -733,6 +733,7 @@ async fn a_pagis_audit_event_is_not_a_subscription_source() {
     let refused = world
         .trigger
         .create_subscription(NewSubscription {
+            created_by: pagis_core::Author::System,
             workspace_id: world.workspace_id.clone(),
             agent_id: world.agent_id.clone(),
             source: EventSource::connection(world.connection_id.clone()),
@@ -742,7 +743,6 @@ async fn a_pagis_audit_event_is_not_a_subscription_source() {
             channel_id: world.channel_id.clone(),
             root_message_id: None,
             filter: serde_json::json!({}),
-            creator: pagis_core::CreatorKind::User,
             now: NOW,
         })
         .await;
@@ -760,6 +760,7 @@ async fn a_filter_outside_the_declared_schema_is_refused() {
     let refused = world
         .trigger
         .create_subscription(NewSubscription {
+            created_by: pagis_core::Author::System,
             workspace_id: world.workspace_id.clone(),
             agent_id: world.agent_id.clone(),
             source: EventSource::connection(world.connection_id.clone()),
@@ -769,7 +770,6 @@ async fn a_filter_outside_the_declared_schema_is_refused() {
             channel_id: world.channel_id.clone(),
             root_message_id: None,
             filter: serde_json::json!({"gmail_query": "in:anywhere"}),
-            creator: pagis_core::CreatorKind::User,
             now: NOW,
         })
         .await;
@@ -956,6 +956,7 @@ async fn session_rule(
     world
         .trigger
         .create_subscription(NewSubscription {
+            created_by: pagis_core::Author::Agent(world.agent_id.clone()),
             workspace_id: world.workspace_id.clone(),
             agent_id: world.agent_id.clone(),
             source: EventSource::coding_session(session.clone()),
@@ -965,7 +966,6 @@ async fn session_rule(
             channel_id: world.channel_id.clone(),
             root_message_id: None,
             filter: serde_json::json!({}),
-            creator: pagis_core::CreatorKind::Agent,
             now: NOW,
         })
         .await

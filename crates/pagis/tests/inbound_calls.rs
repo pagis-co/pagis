@@ -240,7 +240,7 @@ async fn a_call_to_the_desk_line_runs_in_the_agents_thread_with_the_user() {
         .unwrap_or_else(|| panic!("the call block is in the Thread: {page}"));
     assert_eq!(strip["blocks"][0]["call_id"], call_id);
     assert_eq!(strip["run_id"], run_id);
-    assert_eq!(strip["author_kind"], "system");
+    assert_eq!(strip["author"]["kind"], "system");
 
     // The caller heard the end, and the line is free again.
     assert!(matches!(party.state(), PartyState::Ended(_)));
@@ -265,7 +265,7 @@ async fn a_desk_line_carries_a_standing_call_rule() {
         .unwrap_or_else(|| panic!("the line carries a standing call rule: {page}"));
     assert_eq!(rule["state"], "active");
     assert_eq!(rule["revision"], 1);
-    assert_eq!(rule["creator"], "user");
+    assert_eq!(rule["created_by"]["kind"], "system");
     assert_eq!(rule["channel_id"], desk.daemon.dm_channel_id);
     // Every caller wakes the Agent: the tier gates what the words are
     // worth, never whether it wakes (ADR-0021).

@@ -1,6 +1,6 @@
 use pagis_core::{
-    CreatorKind, Schedule, ScheduleKind, ScheduleState, cron_window, interval_window, missed_count,
-    next_after, next_cron_occurrence, schedule_window,
+    Schedule, ScheduleKind, ScheduleState, cron_window, interval_window, missed_count, next_after,
+    next_cron_occurrence, schedule_window,
 };
 
 fn millis(value: &str) -> i64 {
@@ -11,6 +11,7 @@ fn millis(value: &str) -> i64 {
 
 fn schedule(kind: ScheduleKind) -> Schedule {
     Schedule {
+        created_by: pagis_core::Author::System,
         id: "schedule".to_string().into(),
         workspace_id: "workspace".to_string().into(),
         agent_id: "agent".to_string().into(),
@@ -30,7 +31,6 @@ fn schedule(kind: ScheduleKind) -> Schedule {
         state: ScheduleState::Active,
         revision: 1,
         approved_revision: Some(1),
-        creator: CreatorKind::User,
         creating_run_id: None,
         created_at: 0,
         updated_at: 0,

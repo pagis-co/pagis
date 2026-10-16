@@ -319,6 +319,7 @@ async fn store_http_login(h: &Harness) -> String {
     let workspace_id = h.daemon.workspace_id.clone();
     let key = pagis_vault::DataKey::load(h.secrets.as_ref(), &workspace_id).unwrap();
     let credential = pagis_core::Credential {
+        created_by: pagis_core::Author::System,
         id: pagis_core::CredentialId::generate(),
         workspace_id,
         domain: "example.com".to_string(),

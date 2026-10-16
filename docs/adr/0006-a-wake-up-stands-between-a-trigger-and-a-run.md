@@ -45,7 +45,7 @@ private matchers or SQL.
 ### Source facts and delivery facts are separate
 
 A **Schedule** is a durable rule with a target Agent, an instruction, a target
-Channel and optional Thread, a timing, a creator, a revision, an approval
+Channel and optional Thread, a timing, an author, a revision, an approval
 revision, a state and a next due time.
 
 A **Schedule Occurrence** records one due instant, also when no Run starts. Its
@@ -61,7 +61,7 @@ blocks (ADR-0008).
 
 An **Event Subscription** matches one declared event kind from one source
 and gives it an Agent, an instruction, a conversation target, a typed filter,
-a creator, a revision, an approval revision and a state.
+an author, a revision, an approval revision and a state.
 
 An Incoming Event and an Event Subscription name their source: a Connection,
 or a Coding Session (ADR-0033).
@@ -160,7 +160,7 @@ cursor commit. A proactive Run never retries by itself, because it may have
 had an external effect.
 
 Event Subscription states are `active`, `paused`, `blocked` and `archived`,
-with the creator, revision, destination and approval rules of a Schedule. A
+with the author, revision, destination and approval rules of a Schedule. A
 new or resumed subscription sets an activation watermark and does not treat
 earlier data as new. A paused one does not catch up, and a collector stops
 when every subscription on its Connection is paused or blocked.
@@ -237,7 +237,7 @@ Event Subscriptions. The update tools take validated actions (pause, resume,
 skip, archive or a field change), omit the Agent id, and take conversation
 references, not database ids.
 
-REST reads return the current revision, the state, the creator, the Agent, the
+REST reads return the current revision, the state, the author, the Agent, the
 destination, the last Run result, and the paginated occurrence and Wake-up
 history. They carry no pending approval, because the gate is at the broker. A
 Schedule adds its timing and next due time. A subscription adds the source,

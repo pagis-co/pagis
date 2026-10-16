@@ -88,7 +88,7 @@ impl ChannelStore for SqliteChannelStore {
             "SELECT {COLUMNS} FROM channels c \
              WHERE c.workspace_id = ? AND c.kind = 'dm' \
              AND EXISTS (SELECT 1 FROM channel_participants p \
-                 WHERE p.channel_id = c.id AND p.participant_kind = 'user') \
+                 WHERE p.channel_id = c.id AND p.participant_kind = 'person') \
              AND EXISTS (SELECT 1 FROM channel_participants p \
                  WHERE p.channel_id = c.id AND p.agent_id = ?) \
              ORDER BY c.id LIMIT 1"
@@ -111,7 +111,7 @@ impl ChannelStore for SqliteChannelStore {
             "SELECT {COLUMNS} FROM channels c \
              WHERE c.workspace_id = ? AND c.kind = 'dm' \
              AND NOT EXISTS (SELECT 1 FROM channel_participants p \
-                 WHERE p.channel_id = c.id AND p.participant_kind = 'user') \
+                 WHERE p.channel_id = c.id AND p.participant_kind = 'person') \
              AND EXISTS (SELECT 1 FROM channel_participants p \
                  WHERE p.channel_id = c.id AND p.agent_id = ?) \
              AND EXISTS (SELECT 1 FROM channel_participants p \

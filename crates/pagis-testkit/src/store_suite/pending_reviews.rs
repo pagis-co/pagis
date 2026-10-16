@@ -45,30 +45,30 @@ async fn seeded(backend: &Backend) -> Workspace {
             vec![Bind::from(id)],
         ),
         (
-            "INSERT INTO messages(id,workspace_id,channel_id,author_kind,status,blocks,\
+            "INSERT INTO messages(id,workspace_id,channel_id,author_kind,author_person_id,status,blocks,\
              text_content,created_at) \
-             VALUES('00',?,'c2','user','complete','[]','older other conversation',1)",
-            vec![Bind::from(id)],
+             VALUES('00',?,'c2','person',(SELECT user_id FROM workspaces WHERE id=?),'complete','[]','older other conversation',1)",
+            vec![Bind::from(id), Bind::from(id)],
         ),
         (
-            "INSERT INTO messages(id,workspace_id,channel_id,author_kind,status,blocks,\
-             text_content,created_at) VALUES('01',?,'c','user','complete','[]','one',1)",
-            vec![Bind::from(id)],
+            "INSERT INTO messages(id,workspace_id,channel_id,author_kind,author_person_id,status,blocks,\
+             text_content,created_at) VALUES('01',?,'c','person',(SELECT user_id FROM workspaces WHERE id=?),'complete','[]','one',1)",
+            vec![Bind::from(id), Bind::from(id)],
         ),
         (
-            "INSERT INTO messages(id,workspace_id,channel_id,author_kind,status,blocks,\
-             text_content,created_at) VALUES('02',?,'c','user','complete','[]','two',2)",
-            vec![Bind::from(id)],
+            "INSERT INTO messages(id,workspace_id,channel_id,author_kind,author_person_id,status,blocks,\
+             text_content,created_at) VALUES('02',?,'c','person',(SELECT user_id FROM workspaces WHERE id=?),'complete','[]','two',2)",
+            vec![Bind::from(id), Bind::from(id)],
         ),
         (
-            "INSERT INTO messages(id,workspace_id,channel_id,author_kind,status,blocks,\
-             text_content,created_at) VALUES('03',?,'c','user','complete','[]','three',3)",
-            vec![Bind::from(id)],
+            "INSERT INTO messages(id,workspace_id,channel_id,author_kind,author_person_id,status,blocks,\
+             text_content,created_at) VALUES('03',?,'c','person',(SELECT user_id FROM workspaces WHERE id=?),'complete','[]','three',3)",
+            vec![Bind::from(id), Bind::from(id)],
         ),
         (
-            "INSERT INTO messages(id,workspace_id,channel_id,author_kind,status,blocks,\
-             text_content,created_at) VALUES('04',?,'c','user','complete','[]','four',4)",
-            vec![Bind::from(id)],
+            "INSERT INTO messages(id,workspace_id,channel_id,author_kind,author_person_id,status,blocks,\
+             text_content,created_at) VALUES('04',?,'c','person',(SELECT user_id FROM workspaces WHERE id=?),'complete','[]','four',4)",
+            vec![Bind::from(id), Bind::from(id)],
         ),
     ] {
         backend

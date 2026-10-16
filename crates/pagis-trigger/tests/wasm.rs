@@ -6,8 +6,8 @@ use std::sync::Arc;
 use pagis_core::fake::{FakeDatabase, FakeForgetKeys};
 use pagis_core::{
     Agent, AgentId, AgentStatus, Channel, ChannelId, ChannelKind, Connection, ConnectionId,
-    CreatorKind, EventCatalog, EventDeclaration, EventMatcher, EventSource, EventSubscriptionState,
-    IngestBatch, NormalizedEvent, WakeupState, WorkspaceId,
+    EventCatalog, EventDeclaration, EventMatcher, EventSource, EventSubscriptionState, IngestBatch,
+    NormalizedEvent, WakeupState, WorkspaceId,
 };
 use pagis_trigger::{NewSubscription, Trigger, TriggerDeps};
 use wasm_bindgen_test::wasm_bindgen_test;
@@ -96,6 +96,7 @@ async fn a_subscription_and_an_ingested_batch_create_one_wakeup() {
     });
     let rule = trigger
         .create_subscription(NewSubscription {
+            created_by: pagis_core::Author::System,
             workspace_id: workspace.clone(),
             agent_id: agent.id.clone(),
             source: EventSource::connection(connection.id),
@@ -105,7 +106,6 @@ async fn a_subscription_and_an_ingested_batch_create_one_wakeup() {
             channel_id: channel.id.clone(),
             root_message_id: None,
             filter: serde_json::json!({}),
-            creator: CreatorKind::User,
             now: 100,
         })
         .await

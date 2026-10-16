@@ -212,12 +212,18 @@ impl SqliteCredentialStore {
     }
 }
 
-const CREDENTIAL_COLUMNS: &str = "id, workspace_id, domain, username, login_url, secret, \
+const CREDENTIAL_COLUMNS: &str = "created_by_kind, created_by_person_id, created_by_agent_id, id, workspace_id, domain, username, login_url, secret, \
      totp_seed, recipe, owner_agent_id, provenance, created_run_id, created_at";
 
 fn row_to_credential(row: &sqlx::sqlite::SqliteRow) -> Result<Credential, StoreError> {
     let provenance: String = row.get("provenance");
     Ok(Credential {
+        created_by: pagis_core::Author::from_columns(
+            &row.get::<String, _>("created_by_kind"),
+            row.get("created_by_person_id"),
+            row.get("created_by_agent_id"),
+        )
+        .map_err(StoreError::Corrupt)?,
         id: CredentialId::from(row.get::<String, _>("id")),
         workspace_id: WorkspaceId::from(row.get::<String, _>("workspace_id")),
         domain: row.get("domain"),
@@ -243,10 +249,13 @@ fn row_to_credential(row: &sqlx::sqlite::SqliteRow) -> Result<Credential, StoreE
 impl CredentialStore for SqliteCredentialStore {
     async fn create(&self, credential: &Credential) -> Result<(), StoreError> {
         sqlx::query(
-            "INSERT INTO credentials (id, workspace_id, domain, username, login_url, secret, \
+            "INSERT INTO credentials (created_by_kind, created_by_person_id, created_by_agent_id, id, workspace_id, domain, username, login_url, secret, \
              totp_seed, recipe, owner_agent_id, provenance, created_run_id, created_at) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
+        .bind(credential.created_by.kind())
+        .bind(credential.created_by.person_id().map(|id| id.as_str()))
+        .bind(credential.created_by.agent_id().map(|id| id.as_str()))
         .bind(credential.id.as_str())
         .bind(credential.workspace_id.as_str())
         .bind(&credential.domain)

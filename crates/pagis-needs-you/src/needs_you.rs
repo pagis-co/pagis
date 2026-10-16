@@ -692,6 +692,7 @@ mod tests {
 
     fn request(id: &str) -> Request {
         Request {
+            decided_by: None,
             id: RequestId::from(id.to_string()),
             workspace_id: WorkspaceId::from("workspace-1".to_string()),
             agent_id: AgentId::from("agent-1".to_string()),

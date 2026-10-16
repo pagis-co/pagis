@@ -11,7 +11,7 @@ use pagis_core::{
     MessageId,
 };
 
-use crate::fixture::{agent, channel, user_message};
+use crate::fixture::{agent, channel, person_message};
 
 use super::{Backend, Bind};
 
@@ -27,11 +27,12 @@ pub async fn replacement_is_atomic_compare_and_swap_and_survives_restart(backend
         "01J00000000000000000000020",
         "01J00000000000000000000040",
     ] {
-        let mut message = user_message(&workspace.id, &channel.id, id);
+        let mut message = person_message(&workspace.id, &workspace.user_id, &channel.id, id);
         message.id = MessageId::from(id.to_string());
         messages.insert(&message).await.unwrap();
     }
     let grant = Grant {
+        created_by: pagis_core::Author::System,
         id: GrantId::from("grant-1".to_string()),
         workspace_id: workspace.id.clone(),
         agent_id: agent.id.clone(),

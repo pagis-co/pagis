@@ -370,6 +370,7 @@ async fn the_learning_feed_lists_the_pages_that_stay_after_a_forget() {
     .await
     .unwrap();
     let grant = Grant {
+        created_by: pagis_core::Author::System,
         id: GrantId::generate(),
         workspace_id: daemon.workspace_id.clone(),
         agent_id: agent_id.clone(),

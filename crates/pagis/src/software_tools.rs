@@ -64,7 +64,7 @@ impl pagis_software::AgentMessenger for DmMessenger {
             .retained_exposures(workspace_id, run_id, from)
             .await?;
         self.dm
-            .post(workspace_id, &channel, &sender.id, run_id, text, &exposures)
+            .post(workspace_id, &channel, &sender, run_id, text, &exposures)
             .await?;
         Ok(())
     }

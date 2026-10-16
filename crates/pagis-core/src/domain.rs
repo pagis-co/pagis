@@ -126,6 +126,7 @@ impl std::str::FromStr for ScheduleState {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Schedule {
+    pub created_by: Author,
     pub id: ScheduleId,
     pub workspace_id: WorkspaceId,
     pub agent_id: AgentId,
@@ -147,7 +148,6 @@ pub struct Schedule {
     pub state: ScheduleState,
     pub revision: u32,
     pub approved_revision: Option<u32>,
-    pub creator: CreatorKind,
     pub creating_run_id: Option<RunId>,
     pub created_at: UnixMillis,
     pub updated_at: UnixMillis,
@@ -391,36 +391,6 @@ pub struct EventDeclaration {
     pub source_resource: Option<String>,
 }
 
-/// Who created a proactive rule (ADR-0006). An Agent-created rule needs
-/// the user's approval before it delivers anything.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CreatorKind {
-    User,
-    Agent,
-}
-
-impl CreatorKind {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::User => "user",
-            Self::Agent => "agent",
-        }
-    }
-}
-
-impl std::str::FromStr for CreatorKind {
-    type Err = String;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value {
-            "user" => Ok(Self::User),
-            "agent" => Ok(Self::Agent),
-            other => Err(format!("unknown creator kind: {other}")),
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EventSubscriptionState {
@@ -538,6 +508,7 @@ impl std::fmt::Display for EventSource {
 /// watermark: provider data at or before it is never new.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EventSubscription {
+    pub created_by: Author,
     pub id: EventSubscriptionId,
     pub workspace_id: WorkspaceId,
     pub agent_id: AgentId,
@@ -550,7 +521,6 @@ pub struct EventSubscription {
     pub root_message_id: Option<MessageId>,
     /// The typed filter, validated against the declaration's schema.
     pub filter: serde_json::Value,
-    pub creator: CreatorKind,
     pub state: EventSubscriptionState,
     pub revision: u32,
     /// The revision the user approved. A rule delivers only when this
@@ -771,33 +741,77 @@ pub struct Channel {
     pub updated_at: UnixMillis,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum AuthorKind {
-    User,
-    Agent,
+/// The Person, Agent or daemon that writes a record.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(from = "AuthorRecord", into = "AuthorRecord")]
+pub enum Author {
+    Person(UserId),
+    Agent(AgentId),
     System,
 }
 
-impl AuthorKind {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            AuthorKind::User => "user",
-            AuthorKind::Agent => "agent",
-            AuthorKind::System => "system",
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+enum AuthorRecord {
+    Person { person_id: UserId },
+    Agent { agent_id: AgentId },
+    System {},
+}
+
+impl From<AuthorRecord> for Author {
+    fn from(record: AuthorRecord) -> Self {
+        match record {
+            AuthorRecord::Person { person_id } => Self::Person(person_id),
+            AuthorRecord::Agent { agent_id } => Self::Agent(agent_id),
+            AuthorRecord::System {} => Self::System,
         }
     }
 }
 
-impl std::str::FromStr for AuthorKind {
-    type Err = String;
+impl From<Author> for AuthorRecord {
+    fn from(author: Author) -> Self {
+        match author {
+            Author::Person(person_id) => Self::Person { person_id },
+            Author::Agent(agent_id) => Self::Agent { agent_id },
+            Author::System => Self::System {},
+        }
+    }
+}
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "user" => Ok(AuthorKind::User),
-            "agent" => Ok(AuthorKind::Agent),
-            "system" => Ok(AuthorKind::System),
-            other => Err(format!("unknown author kind: {other}")),
+impl Author {
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::Person(_) => "person",
+            Self::Agent(_) => "agent",
+            Self::System => "system",
+        }
+    }
+
+    pub fn person_id(&self) -> Option<&UserId> {
+        match self {
+            Self::Person(id) => Some(id),
+            _ => None,
+        }
+    }
+
+    pub fn agent_id(&self) -> Option<&AgentId> {
+        match self {
+            Self::Agent(id) => Some(id),
+            _ => None,
+        }
+    }
+
+    /// Read the three author columns. A malformed record fails closed.
+    pub fn from_columns(
+        kind: &str,
+        person: Option<String>,
+        agent: Option<String>,
+    ) -> Result<Self, String> {
+        match (kind, person, agent) {
+            ("person", Some(id), None) => Ok(Self::Person(id.into())),
+            ("agent", None, Some(id)) => Ok(Self::Agent(id.into())),
+            ("system", None, None) => Ok(Self::System),
+            _ => Err("invalid author columns".into()),
         }
     }
 }
@@ -833,6 +847,53 @@ impl std::str::FromStr for MessageStatus {
     }
 }
 
+/// The author identity in the Product API.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct AuthorDto {
+    pub kind: String,
+    pub id: Option<String>,
+    pub name: String,
+}
+
+impl Author {
+    /// Resolve the current name at read time.
+    pub async fn resolve(
+        &self,
+        workspace_id: &WorkspaceId,
+        users: &dyn crate::UserStore,
+        agents: &dyn crate::AgentStore,
+    ) -> Result<AuthorDto, crate::StoreError> {
+        let (id, name) =
+            match self {
+                Self::Person(id) => {
+                    let person = users.get(id).await?.ok_or_else(|| {
+                        crate::StoreError::Corrupt("author Person is absent".into())
+                    })?;
+                    (
+                        Some(id.to_string()),
+                        person
+                            .name
+                            .filter(|name| !name.trim().is_empty())
+                            .or(person.email)
+                            .unwrap_or_else(|| "Person".into()),
+                    )
+                }
+                Self::Agent(id) => {
+                    let agent = agents.get(workspace_id, id).await?.ok_or_else(|| {
+                        crate::StoreError::Corrupt("author Agent is absent".into())
+                    })?;
+                    (Some(id.to_string()), agent.name)
+                }
+                Self::System => (None, "Pagis".into()),
+            };
+        Ok(AuthorDto {
+            kind: self.kind().into(),
+            id,
+            name,
+        })
+    }
+}
+
 /// One message in a channel. `blocks` is the typed block array;
 /// `text_content` is the plain-text projection used for search and
 /// model context. `pending_id` is the client-generated send dedup key;
@@ -843,8 +904,7 @@ pub struct Message {
     pub workspace_id: WorkspaceId,
     pub channel_id: ChannelId,
     pub parent_message_id: Option<MessageId>,
-    pub author_kind: AuthorKind,
-    pub author_agent_id: Option<AgentId>,
+    pub author: Author,
     pub run_id: Option<RunId>,
     pub status: MessageStatus,
     pub blocks: Vec<Block>,
@@ -857,14 +917,14 @@ pub struct Message {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ParticipantKind {
-    User,
+    Person,
     Agent,
 }
 
 impl ParticipantKind {
     pub fn as_str(&self) -> &'static str {
         match self {
-            ParticipantKind::User => "user",
+            ParticipantKind::Person => "person",
             ParticipantKind::Agent => "agent",
         }
     }
@@ -875,7 +935,7 @@ impl std::str::FromStr for ParticipantKind {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "user" => Ok(ParticipantKind::User),
+            "person" => Ok(ParticipantKind::Person),
             "agent" => Ok(ParticipantKind::Agent),
             other => Err(format!("unknown participant kind: {other}")),
         }
@@ -890,6 +950,7 @@ pub struct ChannelParticipant {
     pub workspace_id: WorkspaceId,
     pub channel_id: ChannelId,
     pub kind: ParticipantKind,
+    pub person_id: Option<UserId>,
     pub agent_id: Option<AgentId>,
     pub joined_at: UnixMillis,
 }
@@ -1179,6 +1240,7 @@ impl std::str::FromStr for RequestState {
 ///   call, the card text and the allow-rule proposal of an `execute`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Request {
+    pub decided_by: Option<Author>,
     pub id: RequestId,
     pub workspace_id: WorkspaceId,
     pub agent_id: AgentId,
@@ -1225,6 +1287,7 @@ impl Request {
 /// Plugin. The off switch is `revoked_at`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Grant {
+    pub created_by: Author,
     pub id: GrantId,
     pub workspace_id: WorkspaceId,
     pub agent_id: AgentId,
@@ -1497,8 +1560,7 @@ impl Agent {
             workspace_id: self.workspace_id.clone(),
             channel_id,
             parent_message_id: None,
-            author_kind: AuthorKind::Agent,
-            author_agent_id: Some(self.id.clone()),
+            author: Author::Agent(self.id.clone()),
             run_id: None,
             status: MessageStatus::Complete,
             blocks: vec![Block::markdown(&text)],
@@ -1584,6 +1646,7 @@ impl Connection {
 /// before every fill, so a fill is bound to its target by the record.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Credential {
+    pub created_by: Author,
     pub id: crate::CredentialId,
     pub workspace_id: WorkspaceId,
     /// The registrable domain, from the public suffix list.
@@ -3074,6 +3137,7 @@ mod tests {
 
     fn host_grant_with_scope(scope: serde_json::Value) -> Grant {
         Grant {
+            created_by: crate::Author::System,
             id: GrantId::generate(),
             workspace_id: WorkspaceId::from("w".to_string()),
             agent_id: AgentId::from("a".to_string()),

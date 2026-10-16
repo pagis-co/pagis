@@ -73,7 +73,7 @@ async fn wait_for_agent_reply(daemon: &TestDaemon) -> serde_json::Value {
             .unwrap();
         let items = page["items"].as_array().unwrap();
         if let Some(reply) = items.iter().find(|m| {
-            m["author_kind"] == "agent" && m["status"] == "complete" && !m["run_id"].is_null()
+            m["author"]["kind"] == "agent" && m["status"] == "complete" && !m["run_id"].is_null()
         }) {
             return reply.clone();
         }
@@ -306,7 +306,7 @@ async fn an_image_attachment_reaches_the_model_as_an_image_part() {
     let user = turn.messages.last().unwrap();
     // The text is the block projection (ADR-0004): the prose, then the
     // image block's alt text.
-    assert_eq!(user.text, "User: What is in this screenshot?\n\nshot.png");
+    assert_eq!(user.text, "Person: What is in this screenshot?\n\nshot.png");
     assert_eq!(user.images.len(), 1);
     use base64::Engine as _;
     let expected = format!(

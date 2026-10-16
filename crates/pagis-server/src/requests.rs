@@ -38,6 +38,7 @@ use crate::error::ApiError;
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct RequestDto {
+    pub decided_by: Option<pagis_core::AuthorDto>,
     pub id: String,
     pub agent_id: String,
     pub run_id: Option<String>,
@@ -57,9 +58,22 @@ pub struct RequestDto {
     pub created_at: i64,
 }
 
-impl From<Request> for RequestDto {
-    fn from(request: Request) -> Self {
-        RequestDto {
+impl RequestDto {
+    async fn read(state: &AppState, request: Request) -> Result<Self, ApiError> {
+        let decided_by = match &request.decided_by {
+            Some(author) => Some(
+                author
+                    .resolve(
+                        &request.workspace_id,
+                        state.users.as_ref(),
+                        state.agent_store.as_ref(),
+                    )
+                    .await?,
+            ),
+            None => None,
+        };
+        Ok(Self {
+            decided_by,
             id: request.id.to_string(),
             agent_id: request.agent_id.to_string(),
             run_id: request.run_id.map(|r| r.to_string()),
@@ -69,7 +83,7 @@ impl From<Request> for RequestDto {
             values: request.values,
             decided_at: request.decided_at,
             created_at: request.created_at,
-        }
+        })
     }
 }
 
@@ -123,13 +137,14 @@ pub async fn list_requests(
         .unwrap_or("pending")
         .parse::<RequestState>()
         .map_err(ApiError::validation)?;
-    let items = state
+    let records = state
         .requests
         .list_by_state(&tenant.workspace_id, request_state, query.kind.as_deref())
-        .await?
-        .into_iter()
-        .map(RequestDto::from)
-        .collect();
+        .await?;
+    let mut items = Vec::new();
+    for record in records {
+        items.push(RequestDto::read(&state, record).await?);
+    }
     Ok(Json(RequestPage { items }))
 }
 
@@ -153,7 +168,7 @@ pub async fn get_request(
         .get(&tenant.workspace_id, &RequestId::from(request_id))
         .await?
         .ok_or_else(|| ApiError::not_found("request"))?;
-    Ok(Json(request.into()))
+    Ok(Json(RequestDto::read(&state, request).await?))
 }
 
 #[utoipa::path(
@@ -235,6 +250,7 @@ pub async fn decide_request(
             &request_id,
             decision,
             values,
+            pagis_core::Author::Person(tenant.user_id.clone()),
             now_ms(),
         )
         .await?
@@ -285,7 +301,7 @@ pub async fn decide_request(
                     }),
                 })
                 .await?;
-            Ok(Json(decided.into()))
+            Ok(Json(RequestDto::read(&state, decided).await?))
         }
         DecideOutcome::NotPending(decided) => Err(ApiError::conflict(format!(
             "request is already {}",
@@ -469,6 +485,10 @@ async fn write_grant(
         None if resource_id.is_some() && resource_kind != Grant::HOST_KIND => Ok(()),
         None => {
             let mut grant = Grant {
+                created_by: request
+                    .decided_by
+                    .clone()
+                    .expect("an approved Request names its author"),
                 id: GrantId::generate(),
                 workspace_id: request.workspace_id.clone(),
                 agent_id: request.agent_id.clone(),

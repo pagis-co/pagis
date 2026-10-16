@@ -76,7 +76,7 @@ impl SessionStarts for CodingSessionStarts {
                 "bad_directory",
                 format!(
                     "{directory:?} is not an absolute path. Name the directory from the root of \
-                     the file system of the user's {}.",
+                     the file system of your Person's {}.",
                     host.name
                 ),
             ));
@@ -109,8 +109,8 @@ impl SessionStarts for CodingSessionStarts {
             return Err(ToolResult::error(
                 "mode_not_allowed",
                 format!(
-                    "On the user's {}, the widest mode that you can use is {}. Start the session \
-                     in that mode or a narrower one, or ask the user to allow a wider mode.",
+                    "On your Person's {}, the widest mode that you can use is {}. Start the session \
+                     in that mode or a narrower one, or ask your Person to allow a wider mode.",
                     host.name,
                     widest.as_str()
                 ),
@@ -122,8 +122,8 @@ impl SessionStarts for CodingSessionStarts {
             return Err(ToolResult::error(
                 UNATTENDED_MODE_NOT_ALLOWED,
                 format!(
-                    "{} does not ask before it acts, so it runs only where the user allows modes \
-                     that act without asking. Ask the user to allow them for you on {}.",
+                    "{} does not ask before it acts, so it runs only where your Person allows modes \
+                     that act without asking. Ask your Person to allow them for you on {}.",
                     entry.label, host.name
                 ),
             ));
@@ -135,7 +135,7 @@ impl SessionStarts for CodingSessionStarts {
             return Err(ToolResult::error(
                 UNATTENDED_MODE_NOT_ALLOWED,
                 format!(
-                    "{} of {} acts without asking. Ask the user to allow modes that act without \
+                    "{} of {} acts without asking. Ask your Person to allow modes that act without \
                      asking for you on {}.",
                     mode.name, entry.label, host.name
                 ),

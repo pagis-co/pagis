@@ -1,13 +1,13 @@
 use async_trait::async_trait;
 use pagis_core::{
-    AgentId, AuthorKind, Block, ChannelId, Message, MessageId, MessageStatus, MessageStore,
-    REPLY_AUTHORS_MAX, ReplyAuthor, RunId, SendOutcome, StoreError, TimelineEntry, WorkspaceId,
+    AgentId, Author, Block, ChannelId, Message, MessageId, MessageStatus, MessageStore,
+    REPLY_AUTHORS_MAX, RunId, SendOutcome, StoreError, TimelineEntry, WorkspaceId,
 };
 use sqlx::{Row, SqlitePool};
 
 use crate::db_err;
 
-const COLUMNS: &str = "id, workspace_id, channel_id, parent_message_id, author_kind, \
+const COLUMNS: &str = "id, workspace_id, channel_id, parent_message_id, author_kind, author_person_id, \
      author_agent_id, run_id, status, blocks, text_content, pending_id, created_at, completed_at";
 
 /// A message that is not a derived progress row, for the rows of
@@ -71,9 +71,9 @@ async fn insert_row(
         .map_err(|e| StoreError::Corrupt(format!("message blocks: {e}")))?;
     let result = sqlx::query(
         "INSERT INTO messages (id, workspace_id, channel_id, parent_message_id, \
-         author_kind, author_agent_id, run_id, status, blocks, text_content, \
+         author_person_id, author_kind, author_agent_id, run_id, status, blocks, text_content, \
          pending_id, created_at, completed_at) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
          ON CONFLICT (channel_id, pending_id) WHERE pending_id IS NOT NULL DO NOTHING",
     )
     .bind(message.id.as_str())
@@ -85,13 +85,9 @@ async fn insert_row(
             .as_ref()
             .map(|m| m.as_str().to_owned()),
     )
-    .bind(message.author_kind.as_str())
-    .bind(
-        message
-            .author_agent_id
-            .as_ref()
-            .map(|a| a.as_str().to_owned()),
-    )
+    .bind(message.author.person_id().map(|id| id.as_str()))
+    .bind(message.author.kind())
+    .bind(message.author.agent_id().map(|a| a.as_str().to_owned()))
     .bind(message.run_id.as_ref().map(|r| r.as_str().to_owned()))
     .bind(message.status.as_str())
     .bind(&blocks)
@@ -155,25 +151,21 @@ async fn stamp_exposures(
 struct ReplyAuthorRow {
     kind: String,
     agent_id: Option<String>,
+    person_id: Option<String>,
     at: i64,
 }
 
 /// The reply authors of one timeline entry, the newest reply first.
 /// SQLite does not promise the order of `json_group_array`, so the
 /// order comes from the `at` of each author.
-fn reply_authors(json: String) -> Result<Vec<ReplyAuthor>, StoreError> {
+fn reply_authors(json: String) -> Result<Vec<Author>, StoreError> {
     let mut rows: Vec<ReplyAuthorRow> = serde_json::from_str(&json)
         .map_err(|e| StoreError::Corrupt(format!("reply_authors: {e}")))?;
     rows.sort_by_key(|row| std::cmp::Reverse(row.at));
     rows.into_iter()
         .map(|row| {
-            Ok(ReplyAuthor {
-                kind: row
-                    .kind
-                    .parse::<AuthorKind>()
-                    .map_err(StoreError::Corrupt)?,
-                agent_id: row.agent_id.map(AgentId::from),
-            })
+            Author::from_columns(&row.kind, row.person_id, row.agent_id)
+                .map_err(StoreError::Corrupt)
         })
         .collect()
 }
@@ -189,12 +181,12 @@ fn row_to_message(row: &sqlx::sqlite::SqliteRow) -> Result<Message, StoreError> 
         parent_message_id: row
             .get::<Option<String>, _>("parent_message_id")
             .map(MessageId::from),
-        author_kind: author_kind
-            .parse::<AuthorKind>()
-            .map_err(StoreError::Corrupt)?,
-        author_agent_id: row
-            .get::<Option<String>, _>("author_agent_id")
-            .map(AgentId::from),
+        author: Author::from_columns(
+            &author_kind,
+            row.get("author_person_id"),
+            row.get("author_agent_id"),
+        )
+        .map_err(StoreError::Corrupt)?,
         run_id: row.get::<Option<String>, _>("run_id").map(RunId::from),
         status: status
             .parse::<MessageStatus>()
@@ -468,12 +460,12 @@ impl MessageStore for SqliteMessageStore {
                  AND r.workspace_id = messages.workspace_id \
                  AND {not_progress}) AS last_reply_at, \
              (SELECT json_group_array(json_object('kind', a.author_kind, \
-                 'agent_id', a.author_agent_id, 'at', a.at)) \
-                 FROM (SELECT r.author_kind, r.author_agent_id, MAX(r.created_at) AS at \
+                 'person_id', a.author_person_id, 'agent_id', a.author_agent_id, 'at', a.at)) \
+                 FROM (SELECT r.author_kind, r.author_person_id, r.author_agent_id, MAX(r.created_at) AS at \
                      FROM messages r WHERE r.parent_message_id = messages.id \
                      AND r.workspace_id = messages.workspace_id \
                      AND {not_progress} \
-                     GROUP BY r.author_kind, r.author_agent_id \
+                     GROUP BY r.author_kind, r.author_person_id, r.author_agent_id \
                      ORDER BY at DESC LIMIT {REPLY_AUTHORS_MAX}) a) AS reply_authors \
              FROM messages \
              WHERE channel_id = ? AND workspace_id = ? AND parent_message_id IS NULL \

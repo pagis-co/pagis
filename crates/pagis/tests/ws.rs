@@ -162,7 +162,7 @@ async fn the_firehose_delivers_domain_events_with_the_envelope() {
     assert_eq!(completed["type"], "message.completed");
     assert_eq!(completed["payload"]["event_type"], "message.completed");
     assert_eq!(completed["payload"]["channel_id"], channel_id);
-    assert_eq!(completed["payload"]["payload"]["author_kind"], "user");
+    assert_eq!(completed["payload"]["payload"]["author"]["kind"], "person");
 }
 
 #[tokio::test]

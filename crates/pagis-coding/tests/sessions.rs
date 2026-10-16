@@ -31,7 +31,7 @@ use pagis_coding::{
     open_on_host,
 };
 use pagis_core::{
-    Agent, AgentId, AgentStatus, AgentStore, AuthorKind, Block, Channel, ChannelId, ChannelKind,
+    Agent, AgentId, AgentStatus, AgentStore, Author, Block, Channel, ChannelId, ChannelKind,
     ChannelStore, CodingSession, CodingSessionEvent, CodingSessionEventKind as Kind,
     CodingSessionId, CodingSessionPlace, CodingSessionState as State, CodingSessionStore, Event,
     EventBus, EventLog, Grant, GrantId, GrantStore, HarnessModeInfo, HarnessSetting, HostId,
@@ -196,8 +196,14 @@ impl World {
             workspace_id: self.workspace_id.clone(),
             channel_id: self.channel_id.clone(),
             parent_message_id: None,
-            author_kind: AuthorKind::User,
-            author_agent_id: None,
+            author: Author::Person(
+                SqliteWorkspaceStore::new(self.pool.clone())
+                    .get(&self.workspace_id)
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .user_id,
+            ),
             run_id: None,
             status: MessageStatus::Complete,
             blocks: vec![Block::markdown("Fix the login.")],
@@ -277,6 +283,7 @@ impl World {
     /// Session Approval Mode and Allow Rules.
     async fn host_grant(&self, mode: SessionApprovalMode, allow: &[&str]) -> Grant {
         let grant = Grant {
+            created_by: pagis_core::Author::System,
             id: GrantId::generate(),
             workspace_id: self.workspace_id.clone(),
             agent_id: self.agent_id.clone(),
@@ -1239,7 +1246,7 @@ async fn a_session_new_that_needs_a_sign_in_fails_the_session_and_reports_the_ha
     };
     assert_eq!(
         failure.to_string(),
-        "Claude Code is not signed in on your Air. Ask the user to sign in: Settings › Hosts › Air."
+        "Claude Code is not signed in on your Air. Ask your Person to sign in: Settings › Hosts › Air."
     );
     let record = world.record(session_id).await;
     assert_eq!(record.state, State::Failed);
@@ -1537,7 +1544,7 @@ async fn a_permission_that_policy_does_not_allow_asks_the_person_until_a_cancel_
         .await
         .unwrap();
     let card = thread.last().expect("the card");
-    assert_eq!(card.author_kind, AuthorKind::System);
+    assert_eq!(card.author, Author::System);
     assert_eq!(
         card.parent_message_id.as_ref(),
         Some(&session.root_message_id)
@@ -2514,7 +2521,7 @@ impl World {
             }
             assert!(
                 tokio::time::Instant::now() < deadline,
-                "no Harness Permission waits for the Person"
+                "no Harness Permission waits for your Person"
             );
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
@@ -2758,7 +2765,7 @@ async fn escalate_posts_one_card_with_the_note_and_returns_at_once(pool: SqliteP
         .await
         .unwrap()
         .into_iter()
-        .filter(|message| message.author_kind == AuthorKind::System && message.run_id.is_none())
+        .filter(|message| message.author == Author::System && message.run_id.is_none())
         .collect();
     assert_eq!(cards.len(), 1);
     assert_eq!(
@@ -2882,6 +2889,7 @@ impl World {
     /// Modes.
     async fn unattended_grant(&self, agent_id: &AgentId, host_id: &HostId) -> Grant {
         let grant = Grant {
+            created_by: pagis_core::Author::System,
             id: GrantId::generate(),
             workspace_id: self.workspace_id.clone(),
             agent_id: agent_id.clone(),
@@ -3080,8 +3088,8 @@ impl SessionPlace for NarrowingPlace {
 
 /// The message of a session that the live Grant no longer allows, at its
 /// start or its resume.
-const NOT_ALLOWED: &str = "pi acts without asking, and the user does not allow modes that act \
-                           without asking for you on Air. The session is closed. Ask the user to \
+const NOT_ALLOWED: &str = "pi acts without asking, and your Person does not allow modes that act \
+                           without asking for you on Air. The session is closed. Ask your Person to \
                            allow them.";
 
 /// Asserts that the session is `closed` with the end reason
@@ -3706,8 +3714,8 @@ async fn a_harness_that_offers_no_asking_mode_starts_only_with_the_allowance(poo
 
     assert_eq!(
         failure.to_string(),
-        "Claude Code acts without asking, and the user does not allow modes that act without \
-         asking for you on Air. The session is closed. Ask the user to allow them."
+        "Claude Code acts without asking, and your Person does not allow modes that act without \
+         asking for you on Air. The session is closed. Ask your Person to allow them."
     );
     let StartFailure::UnattendedModeNotAllowed { session_id, .. } = failure else {
         panic!("{failure:?}");

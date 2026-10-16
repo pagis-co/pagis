@@ -169,6 +169,7 @@ async fn an_http_plugin_freezes_calls_json_and_sse_and_obeys_the_deadline() {
     assert!(check_access(&plugin, &[], &[], &[]).is_err());
     let agent = AgentId::generate();
     let grant = Grant {
+        created_by: pagis_core::Author::System,
         id: GrantId::generate(),
         workspace_id: plugin.workspace_id.clone(),
         agent_id: agent.clone(),

@@ -25,7 +25,7 @@ use axum::extract::{Path, Query, State};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use futures::{SinkExt, StreamExt};
-use pagis_core::{AgentId, AuthorKind, Block, ChannelId, KnownBlock, MessageId};
+use pagis_core::{AgentId, Block, ChannelId, KnownBlock, MessageId};
 use pagis_voice::{Clip, DictationSession, SAMPLE_RATE, Transcript, VoiceError};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
@@ -355,7 +355,7 @@ pub async fn speak_block(
         .await?
         .filter(|message| message.channel_id == channel_id)
         .ok_or_else(|| ApiError::not_found("message"))?;
-    if message.author_kind != AuthorKind::Agent {
+    if message.author.agent_id().is_none() {
         return Err(ApiError::validation("only an Agent's message is spoken"));
     }
     if !crate::channels::message_is_readable(&state, &message).await? {
@@ -374,7 +374,7 @@ pub async fn speak_block(
             )));
         }
     };
-    let wanted = match &message.author_agent_id {
+    let wanted = match &message.author.agent_id() {
         Some(agent_id) => state
             .agent_store
             .get(&tenant.workspace_id, &AgentId::from(agent_id.to_string()))

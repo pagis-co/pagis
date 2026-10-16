@@ -100,7 +100,7 @@ removes it, and edits no capability. Each edit is a Grant revision.
 
 Automations is a place: a Needs-You Queue at the top, then Schedules, then
 Event Subscriptions, and a detail body with the current revision, the state,
-the creator, the Agent, the destination, the timing or filter, the next due
+the author, the Agent, the destination, the timing or filter, the next due
 time, the last occurrence, the last Run result, and the paginated occurrence
 and Wake-up history. It has no pending-approval field: an Agent-created rule
 that waits for a decision is a pending Request, shown in the Needs-You Queue

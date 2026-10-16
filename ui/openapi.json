@@ -11670,6 +11670,28 @@
           }
         }
       },
+      "AuthorDto": {
+        "type": "object",
+        "description": "The author identity in the Product API.",
+        "required": [
+          "kind",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
       "AuthorizeConnectionRequest": {
         "type": "object",
         "description": "The capabilities the user grants this Connection. An empty\nlist authorizes the read-only profile a new Connection starts at.",
@@ -12259,18 +12281,12 @@
         "type": "object",
         "required": [
           "text_content",
-          "author_kind",
+          "author",
           "created_at"
         ],
         "properties": {
-          "author_agent_id": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "author_kind": {
-            "type": "string"
+          "author": {
+            "$ref": "#/components/schemas/AuthorDto"
           },
           "created_at": {
             "type": "integer",
@@ -13805,6 +13821,7 @@
         "type": "object",
         "description": "One saved login as settings shows it. There is no secret\nhere, and no endpoint that returns one.",
         "required": [
+          "created_by",
           "id",
           "domain",
           "username",
@@ -13817,6 +13834,9 @@
           "created_at": {
             "type": "integer",
             "format": "int64"
+          },
+          "created_by": {
+            "$ref": "#/components/schemas/AuthorDto"
           },
           "domain": {
             "type": "string",
@@ -14540,6 +14560,7 @@
       "GrantDto": {
         "type": "object",
         "required": [
+          "created_by",
           "id",
           "agent_id",
           "agent_name",
@@ -14575,6 +14596,9 @@
           "created_at": {
             "type": "integer",
             "format": "int64"
+          },
+          "created_by": {
+            "$ref": "#/components/schemas/AuthorDto"
           },
           "id": {
             "type": "string"
@@ -16654,22 +16678,16 @@
         "required": [
           "id",
           "channel_id",
-          "author_kind",
+          "author",
           "status",
           "blocks",
           "text_content",
           "created_at"
         ],
         "properties": {
-          "author_agent_id": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "author_kind": {
-            "type": "string",
-            "description": "`user`, `agent`, or `system`."
+          "author": {
+            "$ref": "#/components/schemas/AuthorDto",
+            "description": "The Person, Agent or daemon that writes the message."
           },
           "blocks": {
             "type": "array",
@@ -18852,18 +18870,12 @@
         "type": "object",
         "description": "One author of the replies in a thread.",
         "required": [
-          "author_kind"
+          "author"
         ],
         "properties": {
-          "author_agent_id": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "author_kind": {
-            "type": "string",
-            "description": "`user` or `agent`."
+          "author": {
+            "$ref": "#/components/schemas/AuthorDto",
+            "description": "The resolved identity of a reply author."
           }
         }
       },
@@ -18930,6 +18942,16 @@
               "null"
             ],
             "format": "int64"
+          },
+          "decided_by": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AuthorDto"
+              }
+            ]
           },
           "id": {
             "type": "string"
@@ -19562,6 +19584,7 @@
       "ScheduleDto": {
         "type": "object",
         "required": [
+          "created_by",
           "id",
           "workspace_id",
           "agent_id",
@@ -19573,7 +19596,6 @@
           "scheduled_at",
           "state",
           "revision",
-          "creator",
           "created_at",
           "updated_at"
         ],
@@ -19610,14 +19632,14 @@
             "type": "integer",
             "format": "int64"
           },
+          "created_by": {
+            "$ref": "#/components/schemas/AuthorDto"
+          },
           "creating_run_id": {
             "type": [
               "string",
               "null"
             ]
-          },
-          "creator": {
-            "type": "string"
           },
           "cron_expression": {
             "type": [
@@ -20844,6 +20866,7 @@
       "SubscriptionDto": {
         "type": "object",
         "required": [
+          "created_by",
           "id",
           "workspace_id",
           "agent_id",
@@ -20854,7 +20877,6 @@
           "instruction",
           "channel_id",
           "filter",
-          "creator",
           "state",
           "revision",
           "created_at",
@@ -20896,8 +20918,8 @@
             "type": "integer",
             "format": "int64"
           },
-          "creator": {
-            "type": "string"
+          "created_by": {
+            "$ref": "#/components/schemas/AuthorDto"
           },
           "event_kind": {
             "type": "string"
@@ -21564,22 +21586,16 @@
             "required": [
               "id",
               "channel_id",
-              "author_kind",
+              "author",
               "status",
               "blocks",
               "text_content",
               "created_at"
             ],
             "properties": {
-              "author_agent_id": {
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "author_kind": {
-                "type": "string",
-                "description": "`user`, `agent`, or `system`."
+              "author": {
+                "$ref": "#/components/schemas/AuthorDto",
+                "description": "The Person, Agent or daemon that writes the message."
               },
               "blocks": {
                 "type": "array",

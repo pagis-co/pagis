@@ -12,10 +12,10 @@ use crate::db_err;
 // SQLite sorts NULL below every value, so a descending sort puts a
 // wake-up that did not start yet last. Postgres sorts NULL above, so
 // the clause says where NULL goes.
-pub(crate) const SCHEDULE_COLUMNS: &str = "id, workspace_id, agent_id, name, instruction, \
+pub(crate) const SCHEDULE_COLUMNS: &str = "created_by_kind, created_by_person_id, created_by_agent_id, id, workspace_id, agent_id, name, instruction, \
     (SELECT page.path FROM schedule_subject_pages page WHERE page.schedule_id = schedules.id) AS subject_page_path, channel_id, \
     root_message_id, kind, cron_expression, interval_ms, anchor_at, timezone, scheduled_at, \
-    next_due_at, state, revision, approved_revision, creator, creating_run_id, created_at, \
+    next_due_at, state, revision, approved_revision, creating_run_id, created_at, \
     updated_at, archived_at, (SELECT r.state FROM wakeups w JOIN runs r ON r.id = w.run_id \
     WHERE w.schedule_id = schedules.id ORDER BY w.started_at DESC NULLS LAST, w.id DESC LIMIT 1) AS last_result";
 const REVISION_COLUMNS: &str = "schedule_id, revision, agent_id, name, instruction, \
@@ -41,6 +41,12 @@ impl PostgresScheduleStore {
 
 pub(crate) fn row_to_schedule(row: &sqlx::postgres::PgRow) -> Result<Schedule, StoreError> {
     Ok(Schedule {
+        created_by: pagis_core::Author::from_columns(
+            &row.get::<String, _>("created_by_kind"),
+            row.get("created_by_person_id"),
+            row.get("created_by_agent_id"),
+        )
+        .map_err(StoreError::Corrupt)?,
         id: ScheduleId::from(row.get::<String, _>("id")),
         workspace_id: WorkspaceId::from(row.get::<String, _>("workspace_id")),
         agent_id: AgentId::from(row.get::<String, _>("agent_id")),
@@ -73,10 +79,6 @@ pub(crate) fn row_to_schedule(row: &sqlx::postgres::PgRow) -> Result<Schedule, S
             .map(u32::try_from)
             .transpose()
             .map_err(|error| StoreError::Corrupt(format!("approved_revision: {error}")))?,
-        creator: row
-            .get::<String, _>("creator")
-            .parse()
-            .map_err(StoreError::Corrupt)?,
         creating_run_id: row
             .get::<Option<String>, _>("creating_run_id")
             .map(RunId::from),
@@ -223,12 +225,15 @@ impl ScheduleStore for PostgresScheduleStore {
     async fn create(&self, schedule: &Schedule) -> Result<(), StoreError> {
         let mut transaction = crate::pool::begin_write(&self.pool).await.map_err(db_err)?;
         sqlx::query(
-            "INSERT INTO schedules (id, workspace_id, agent_id, name, instruction, channel_id, \
+            "INSERT INTO schedules (created_by_kind, created_by_person_id, created_by_agent_id, id, workspace_id, agent_id, name, instruction, channel_id, \
              root_message_id, kind, cron_expression, interval_ms, anchor_at, timezone, scheduled_at, \
-             next_due_at, state, revision, approved_revision, creator, creating_run_id, created_at, \
-             updated_at, archived_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, \
-             $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)",
+             next_due_at, state, revision, approved_revision, creating_run_id, created_at, \
+             updated_at, archived_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, \
+             $16, $17, $18, $19, $20, $21, $22, $23, $24)",
         )
+        .bind(schedule.created_by.kind())
+        .bind(schedule.created_by.person_id().map(|id| id.as_str()))
+        .bind(schedule.created_by.agent_id().map(|id| id.as_str()))
         .bind(schedule.id.as_str())
         .bind(schedule.workspace_id.as_str())
         .bind(schedule.agent_id.as_str())
@@ -246,7 +251,6 @@ impl ScheduleStore for PostgresScheduleStore {
         .bind(schedule.state.as_str())
         .bind(i64::from(schedule.revision))
         .bind(schedule.approved_revision.map(i64::from))
-        .bind(schedule.creator.as_str())
         .bind(schedule.creating_run_id.as_ref().map(RunId::as_str))
         .bind(schedule.created_at)
         .bind(schedule.updated_at)

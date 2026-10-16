@@ -167,8 +167,7 @@ impl World {
             workspace_id: workspace.id.clone(),
             channel_id: channel.id.clone(),
             parent_message_id: None,
-            author_kind: pagis_core::AuthorKind::User,
-            author_agent_id: None,
+            author: pagis_core::Author::Person(workspace.user_id.clone()),
             run_id: None,
             status: MessageStatus::Complete,
             blocks: Vec::new(),
@@ -607,6 +606,11 @@ async fn a_mailbox_that_refuses_to_open_answers_mailbox_unavailable(pool: Sqlite
         .await;
 
     assert_eq!(result.code.as_deref(), Some("mailbox_unavailable"));
+    assert!(
+        result
+            .content
+            .contains("Tell your Person to reset its password.")
+    );
 }
 
 #[test]

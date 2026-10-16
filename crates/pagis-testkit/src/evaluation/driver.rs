@@ -15,11 +15,11 @@ use async_trait::async_trait;
 use futures::StreamExt;
 use pagis_agent::{Brain, JsonSchemaFormat, TurnDelta, TurnMessage, TurnRequest};
 use pagis_core::{
-    AgentId, AgentStore, AuthorKind, Channel, ChannelId, ChannelKind, ChannelParticipant,
-    ChannelStore, Connection, ConnectionId, EventLog, Grant, GrantId, GrantStore, Message,
-    MessageId, MessageStatus, MessageStore, ModelAliasStore, ParticipantId, ParticipantKind,
-    ParticipantStore, PendingEvidenceStore, RequestId, RequestStore, RunId, RunState, RunStore,
-    TriggerStore, WorkspaceId, WorkspaceStore,
+    AgentId, AgentStore, Channel, ChannelId, ChannelKind, ChannelParticipant, ChannelStore,
+    Connection, ConnectionId, EventLog, Grant, GrantId, GrantStore, Message, MessageId,
+    MessageStatus, MessageStore, ModelAliasStore, ParticipantId, ParticipantKind, ParticipantStore,
+    PendingEvidenceStore, RequestId, RequestStore, RunId, RunState, RunStore, TriggerStore,
+    WorkspaceId, WorkspaceStore,
     knowledge::{KnowledgeStore, SourceKey, SyncConfig},
     now_ms,
     subject_page::repair_json,
@@ -357,6 +357,7 @@ impl Replay {
         daemon.plant_google_connection(&connection).await;
         SqliteGrantStore::new(pool.clone())
             .create(&Grant {
+                created_by: pagis_core::Author::System,
                 id: GrantId::generate(),
                 workspace_id: agent.workspace_id.clone(),
                 agent_id: agent.id.clone(),
@@ -466,11 +467,13 @@ impl Replay {
             .map_err(|error| Stall::Aborted(error.to_string()))?;
         let participants = SqliteParticipantStore::new(self.daemon.pool().clone());
         for (kind, agent_id) in [
-            (ParticipantKind::User, None),
+            (ParticipantKind::Person, None),
             (ParticipantKind::Agent, Some(self.agent.clone())),
         ] {
             participants
                 .create(&ChannelParticipant {
+                    person_id: (kind == ParticipantKind::Person)
+                        .then(|| self.daemon.user_id.clone()),
                     id: ParticipantId::generate(),
                     workspace_id: self.workspace.clone(),
                     channel_id: channel.id.clone(),
@@ -1269,7 +1272,7 @@ fn run_reply(
     run: &RunId,
 ) -> Option<Message> {
     newest_first.into_iter().find(|message| {
-        message.author_kind == AuthorKind::Agent
+        message.author.agent_id().is_some()
             && message.status == MessageStatus::Complete
             && message.run_id.as_ref() == Some(run)
             && message.id.as_str() > owner.as_str()
@@ -1277,7 +1280,7 @@ fn run_reply(
 }
 
 fn delivered_schedule_message(message: &Message, schedule_runs: &HashSet<RunId>) -> bool {
-    message.author_kind == AuthorKind::Agent
+    message.author.agent_id().is_some()
         && message.status == MessageStatus::Complete
         && message
             .run_id
@@ -1815,14 +1818,13 @@ mod tests {
 
     /// One message of the owner conversation, with the run that wrote
     /// it. `None` is help the daemon published on its own.
-    fn message(id: &str, author: AuthorKind, run: Option<&str>, text: &str) -> Message {
+    fn message(id: &str, author: pagis_core::Author, run: Option<&str>, text: &str) -> Message {
         Message {
             id: MessageId::from(id.to_string()),
             workspace_id: WorkspaceId::from("workspace".to_string()),
             channel_id: ChannelId::from("channel".to_string()),
             parent_message_id: None,
-            author_kind: author,
-            author_agent_id: None,
+            author,
             run_id: run.map(|id| RunId::from(id.to_string())),
             status: MessageStatus::Complete,
             blocks: vec![Block::markdown(text.to_string())],
@@ -1841,13 +1843,33 @@ mod tests {
         let run = RunId::from("run-2".to_string());
         // The store lists a conversation newest first.
         let conversation = vec![
-            message("05-answer", AuthorKind::Agent, Some("run-2"), "the reply"),
-            message("04-other", AuthorKind::Agent, None, "another message"),
-            message("03-progress", AuthorKind::Agent, Some("run-2"), "working"),
-            message("02-probe", AuthorKind::User, None, "the probe"),
+            message(
+                "05-answer",
+                pagis_core::Author::Agent(AgentId::from("fixture-agent".to_string())),
+                Some("run-2"),
+                "the reply",
+            ),
+            message(
+                "04-other",
+                pagis_core::Author::Agent(AgentId::from("fixture-agent".to_string())),
+                None,
+                "another message",
+            ),
+            message(
+                "03-progress",
+                pagis_core::Author::Agent(AgentId::from("fixture-agent".to_string())),
+                Some("run-2"),
+                "working",
+            ),
+            message(
+                "02-probe",
+                pagis_core::Author::Person(pagis_core::UserId::from("fixture-person".to_string())),
+                None,
+                "the probe",
+            ),
             message(
                 "01-earlier",
-                AuthorKind::Agent,
+                pagis_core::Author::Agent(AgentId::from("fixture-agent".to_string())),
                 Some("run-1"),
                 "an earlier reply",
             ),
@@ -1865,8 +1887,18 @@ mod tests {
         let owner = MessageId::from("02-probe".to_string());
         let run = RunId::from("run-2".to_string());
         let conversation = vec![
-            message("04-other", AuthorKind::Agent, None, "another message"),
-            message("02-probe", AuthorKind::User, None, "the probe"),
+            message(
+                "04-other",
+                pagis_core::Author::Agent(AgentId::from("fixture-agent".to_string())),
+                None,
+                "another message",
+            ),
+            message(
+                "02-probe",
+                pagis_core::Author::Person(pagis_core::UserId::from("fixture-person".to_string())),
+                None,
+                "the probe",
+            ),
         ];
 
         assert!(run_reply(conversation, &owner, &run).is_none());
@@ -1879,13 +1911,13 @@ mod tests {
         let schedules = std::collections::HashSet::from([RunId::from("schedule-run".to_string())]);
         let delivered = message(
             "03-scheduled-help",
-            AuthorKind::Agent,
+            pagis_core::Author::Agent(AgentId::from("fixture-agent".to_string())),
             Some("schedule-run"),
             "The appointment is tomorrow.",
         );
         let reply = message(
             "02-reply",
-            AuthorKind::Agent,
+            pagis_core::Author::Agent(AgentId::from("fixture-agent".to_string())),
             Some("message-run"),
             "Here is your answer.",
         );

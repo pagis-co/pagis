@@ -245,7 +245,7 @@ async fn agent_schedules(harness: &Harness) -> Vec<Value> {
         .as_array()
         .unwrap()
         .iter()
-        .filter(|schedule| schedule["creator"] == "agent")
+        .filter(|schedule| schedule["created_by"]["kind"] == "agent")
         .cloned()
         .collect()
 }
@@ -265,6 +265,13 @@ fn local_time_at(millis: i64) -> String {
 #[tokio::test]
 async fn owner_mail_wakes_the_agent_with_the_standing_of_the_user() {
     let harness = boot().await;
+    harness
+        .daemon
+        .stores()
+        .users
+        .set_name(&harness.daemon.user_id, "Sam", pagis_core::now_ms())
+        .await
+        .unwrap();
     harness.brain.push(Script::reply(&["I will pay it today."]));
     harness.hold_mailbox(5).await;
     let (status, entry) = harness
@@ -287,9 +294,9 @@ async fn owner_mail_wakes_the_agent_with_the_standing_of_the_user() {
     harness.wait_for_runs("event", "completed", 1).await;
     let prompt = harness.event_turn_prompt().await;
     assert!(prompt.contains("trust_tier: owner"), "{prompt}");
-    assert!(prompt.contains("Owner mail is from the user."), "{prompt}");
+    assert!(prompt.contains("Owner mail is from Sam."), "{prompt}");
     assert!(
-        prompt.contains("standing of a message the user writes to you"),
+        prompt.contains("standing of a message Sam writes to you"),
         "{prompt}"
     );
     // One Wake-up carries one tier, so no other tier line is read.
@@ -320,7 +327,7 @@ async fn an_appointment_mail_becomes_a_note_a_schedule_and_a_second_run() {
         serde_json::json!({
             "kind": "one_shot",
             "name": "Clinic appointment",
-            "instruction": "Remind the user about the clinic appointment",
+            "instruction": "Remind your Person about the clinic appointment",
             "local_time": local_time_at(due),
             "timezone": "UTC",
         }),
@@ -356,7 +363,7 @@ async fn an_appointment_mail_becomes_a_note_a_schedule_and_a_second_run() {
     assert_eq!(request["payload"]["tool_name"], "schedule_create");
     let body = request["payload"]["body"].as_str().unwrap_or_default();
     assert!(
-        body.contains("Remind the user about the clinic appointment"),
+        body.contains("Remind your Person about the clinic appointment"),
         "{request}"
     );
     // The seed gives the Workspace its Report Schedule, so the
@@ -378,7 +385,7 @@ async fn an_appointment_mail_becomes_a_note_a_schedule_and_a_second_run() {
     harness.wait_for_runs("event", "completed", 1).await;
     let schedules = agent_schedules(&harness).await;
     assert_eq!(schedules.len(), 1);
-    assert_eq!(schedules[0]["creator"], "agent");
+    assert_eq!(schedules[0]["created_by"]["kind"], "agent");
     assert_eq!(schedules[0]["state"], "active");
 
     // The note carries the sender and the subject as its source, so a
@@ -413,7 +420,7 @@ async fn an_appointment_mail_becomes_a_note_a_schedule_and_a_second_run() {
             item["run_id"] == run_id.as_str()
                 && item["text_content"] == "Your clinic appointment is on Tuesday."
         })
-        .unwrap_or_else(|| panic!("the reminder reaches the user: {timeline}"))
+        .unwrap_or_else(|| panic!("the reminder reaches your Person: {timeline}"))
         .clone();
     assert!(
         reminder["parent_message_id"].is_null(),
@@ -460,7 +467,7 @@ async fn the_outgoing_cap_refuses_a_send_before_any_card() {
             .as_array()
             .unwrap()
             .is_empty(),
-        "a refused send asks the user nothing"
+        "a refused send asks your Person nothing"
     );
     let mailbox = harness
         .get(&format!(
@@ -503,6 +510,6 @@ async fn a_dormant_mailbox_refuses_a_send() {
             .as_array()
             .unwrap()
             .is_empty(),
-        "a mailbox that cannot send asks the user nothing"
+        "a mailbox that cannot send asks your Person nothing"
     );
 }

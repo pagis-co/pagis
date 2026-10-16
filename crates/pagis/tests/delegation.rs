@@ -284,7 +284,7 @@ async fn a_delegated_answer_relays_into_the_conversation_that_waits_for_it() {
         "Scout says the launch date is May 4.",
     )
     .await;
-    assert_eq!(relay["author_agent_id"], serde_json::json!(daemon.agent_id));
+    assert_eq!(relay["author"]["id"], serde_json::json!(daemon.agent_id));
 
     // The user can watch the agent DM directly: it lists with both
     // agents, and its timeline shows the exchange.
@@ -295,7 +295,7 @@ async fn a_delegated_answer_relays_into_the_conversation_that_waits_for_it() {
     let dm_id = dm["id"].as_str().unwrap();
     await_message(|| timeline(&daemon, dm_id), "What is the launch date?").await;
     let answer = await_message(|| timeline(&daemon, dm_id), "The launch date is May 4.").await;
-    assert_eq!(answer["author_agent_id"], serde_json::json!(scout));
+    assert_eq!(answer["author"]["id"], serde_json::json!(scout));
 
     // The relay left the agent DM, so it triggered Scout no further:
     // the chain is user trigger 0, Scout 1, the relay 2, and it stops.
@@ -430,6 +430,12 @@ async fn a_relay_lands_in_the_thread_the_request_came_from() {
 async fn the_briefing_names_the_channel_and_the_waiting_conversation() {
     let brain = Arc::new(ScriptedBrain::default());
     let daemon = TestDaemon::start_with(options(&brain, 8)).await;
+    daemon
+        .stores()
+        .users
+        .set_name(&daemon.user_id, "Sam", pagis_core::now_ms())
+        .await
+        .unwrap();
     create_agent(&daemon, "Scout").await;
 
     brain.push_for(
@@ -469,8 +475,8 @@ async fn the_briefing_names_the_channel_and_the_waiting_conversation() {
         .find(|s| s.starts_with("You are Pixie,"))
         .expect("Pixie ran");
     assert!(
-        first.contains("your direct channel with the user"),
-        "the user DM briefing must name the user: {first}"
+        first.contains("your direct channel with Sam"),
+        "your Person DM briefing must name your Person: {first}"
     );
 
     // Scout answers in a channel the user is not in, on Pixie's behalf.
@@ -479,8 +485,8 @@ async fn the_briefing_names_the_channel_and_the_waiting_conversation() {
         .find(|s| s.starts_with("You are Scout,"))
         .expect("Scout ran");
     assert!(
-        scout.contains("The user is not here"),
-        "the agent DM briefing must not claim the user is present: {scout}"
+        scout.contains("Sam is not here"),
+        "the agent DM briefing must not claim your Person is present: {scout}"
     );
     assert!(
         scout.contains("Pixie asked you here"),
@@ -494,7 +500,7 @@ async fn the_briefing_names_the_channel_and_the_waiting_conversation() {
         .find(|s| s.contains("delivered to"))
         .expect("the relay run is briefed");
     assert!(
-        relay.contains("your direct channel with the user"),
+        relay.contains("your direct channel with Sam"),
         "the relay briefing must name the waiting conversation: {relay}"
     );
 }
@@ -713,7 +719,7 @@ async fn the_user_reads_an_agent_channel_and_cannot_write_in_it() {
         .await
         .into_iter()
         .find(|c| c["id"] == serde_json::json!(daemon.dm_channel_id))
-        .expect("the user's DM lists");
+        .expect("your Person's DM lists");
     assert_eq!(own["user_member"], serde_json::json!(true));
 
     let refused = client()
@@ -760,6 +766,7 @@ async fn connect(daemon: &TestDaemon, agent_id: &str) -> pagis_core::GrantId {
         .await
         .unwrap();
     let grant = pagis_core::Grant {
+        created_by: pagis_core::Author::System,
         id: pagis_core::GrantId::generate(),
         workspace_id: agent.workspace_id.clone(),
         agent_id: agent.id.clone(),

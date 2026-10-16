@@ -663,7 +663,7 @@ async fn deleting_a_manual_mailbox_says_the_user_must_finish_it(pool: SqlitePool
         .await
         .unwrap();
 
-    assert!(deleted.notice.is_some(), "the desk tells the user");
+    assert!(deleted.notice.is_some(), "the desk tells your Person");
 }
 
 // The Address Ledger.
@@ -965,7 +965,7 @@ async fn a_mailbox_whose_standing_rule_fails_is_not_made(pool: SqlitePool) {
     let world = World::new(pool).await;
     world
         .standing_rule
-        .refuse_with(Some("that Agent has no thread with the user"));
+        .refuse_with(Some("that Agent has no thread with your Person"));
 
     let refused = world
         .desk

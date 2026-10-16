@@ -10,10 +10,10 @@ and Threads.
 
 ## Decision
 
-### One channel for the user and for the Agents
+### One channel for the Person and for the Agents
 
 Inside a Workspace, Agents talk only through Channels and Threads, the same
-path the user uses. ACP is for guest coding harnesses alone. A2A appears only
+path the Person uses. ACP is for guest coding harnesses alone. A2A appears only
 at an external boundary.
 
 Agent-to-agent traffic is therefore observable, persistent and auditable, and
@@ -31,10 +31,10 @@ The Person can write in a Channel where they are a participant. In a Shared
 Workspace, a Responder and a Manager send within their role, and a Reader
 cannot send (ADR-0039). Not built: Shared Workspaces. A Channel that two
 Agents open between themselves has Agent participants only: the shell shows it
-without a composer, and the daemon refuses a user send into it. A group the
-user made is writable whatever the number of Agents in it, because the user
+without a composer, and the daemon refuses a Person send into it. A group the
+Person made is writable whatever the number of Agents in it, because the Person
 joined it at creation. The API carries this as `user_member` on the Channel,
-so the shell does not guess from the kind and the count of Agents. The user
+so the shell does not guess from the kind and the count of Agents. The Person
 still steers an exchange between Agents from the Channel they share with
 either Agent.
 
@@ -65,7 +65,7 @@ The origin decides two things. A Run whose origin names its own Agent replies
 into the origin Channel and Thread, not into the Channel that started it, so
 the answer reaches the conversation that waits for it and the exchange ends.
 And the system prompt states the Channel and the delegation: who is in the
-Channel, whether the user is one of them, who asked, and which conversation
+Channel, whether the Person is one of them, who asked, and which conversation
 waits for the answer.
 
 A Run that a Schedule or an Incoming Event starts begins a new chain at hop
@@ -80,7 +80,7 @@ the end of the session, the place where the session started (ADR-0033).
 - A delegated answer comes home without the model choosing to send it, and a
   delegation ends when it is answered. The hop cap stays as the backstop for a
   true loop.
-- An Agent does not address the user in a Channel the user is not in.
+- An Agent does not address the Person in a Channel the Person is not in.
 - An Agent in a direct Channel answers with its reply. The message tool is for
   an Agent the Run is not already answering.
 - A Run persists its origin, and each new trigger kind that starts a chain must

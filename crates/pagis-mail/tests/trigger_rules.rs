@@ -2,9 +2,9 @@
 
 use super::*;
 use pagis_core::{
-    Channel, ChannelId, ChannelKind, ChannelParticipant, CreatorKind, EventCatalog,
-    EventDeclaration, EventMatcher, EventSource, EventSubscriptionState, IngestBatch,
-    NormalizedEvent, ParticipantId, ParticipantKind,
+    Channel, ChannelId, ChannelKind, ChannelParticipant, EventCatalog, EventDeclaration,
+    EventMatcher, EventSource, EventSubscriptionState, IngestBatch, NormalizedEvent, ParticipantId,
+    ParticipantKind,
 };
 use pagis_mail::{
     DeferredStandingRule, MAIL_MATCHER, MAIL_MESSAGE_RECEIVED, MailIngest, MailMessageMatcher,
@@ -65,13 +65,27 @@ async fn user_channel(world: &World) -> ChannelId {
     };
     world.stores.channels.create(&channel).await.unwrap();
     for (kind, agent_id) in [
-        (ParticipantKind::User, None),
+        (ParticipantKind::Person, None),
         (ParticipantKind::Agent, Some(world.agent.clone())),
     ] {
         world
             .stores
             .participants
             .create(&ChannelParticipant {
+                person_id: if kind == ParticipantKind::Person {
+                    Some(
+                        world
+                            .stores
+                            .workspaces
+                            .get(&world.workspace)
+                            .await
+                            .unwrap()
+                            .unwrap()
+                            .user_id,
+                    )
+                } else {
+                    None
+                },
                 id: ParticipantId::generate(),
                 workspace_id: world.workspace.clone(),
                 channel_id: channel.id.clone(),
@@ -106,7 +120,7 @@ async fn provisioning_creates_one_user_rule_on_the_own_mailbox_in_the_user_chann
     assert_eq!(rule.filter, serde_json::json!({"mailbox": "own"}));
     assert_eq!(rule.channel_id, channel);
     assert_eq!(rule.root_message_id, None);
-    assert_eq!(rule.creator, CreatorKind::User);
+    assert_eq!(rule.created_by, pagis_core::Author::System);
     assert_eq!(rule.revision, 1);
     assert_eq!(rule.state, EventSubscriptionState::Active);
     assert_eq!(rule.name, STANDING_MAIL_RULE_NAME);
@@ -123,7 +137,7 @@ async fn an_agent_with_no_user_channel_fails_with_the_message() {
         .await
         .unwrap_err();
     assert!(
-        matches!(error, MailboxError::StandingRule(ref cause) if cause.to_string() == "that Agent has no thread with the user"),
+        matches!(error, MailboxError::StandingRule(ref cause) if cause.to_string() == "that Agent has no thread with your Person"),
         "{error}"
     );
     assert!(

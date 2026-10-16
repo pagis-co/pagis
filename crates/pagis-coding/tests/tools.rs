@@ -394,6 +394,7 @@ impl World {
     async fn host_grant(&self) {
         self.grants
             .create(&Grant {
+                created_by: pagis_core::Author::System,
                 id: GrantId::generate(),
                 workspace_id: self.workspace_id.clone(),
                 agent_id: self.agent_id.clone(),
@@ -964,6 +965,11 @@ async fn resume_with_no_live_host_grant_answers_permission_revoked(pool: SqliteP
     let refused = world.resume(&lost).await;
 
     assert_eq!(code(&refused), "permission_revoked");
+    assert!(
+        refused
+            .content
+            .contains("ask your Person to allow it again")
+    );
     assert_eq!(world.state(&lost).await, State::Interrupted);
 }
 
@@ -1043,6 +1049,7 @@ impl World {
     /// allowance of Unattended Modes.
     async fn unattended_grant(&self) {
         let mut grant = Grant {
+            created_by: pagis_core::Author::System,
             id: GrantId::generate(),
             workspace_id: self.workspace_id.clone(),
             agent_id: self.agent_id.clone(),
@@ -1113,7 +1120,7 @@ async fn set_mode_to_a_mode_that_acts_without_asking_needs_the_allowance_of_unat
     assert_eq!(code(&refused), "unattended_mode_not_allowed");
     assert!(
         refused.content.contains(
-            "Bypass permissions acts without asking. Ask the user to allow modes that act \
+            "Bypass permissions acts without asking. Ask your Person to allow modes that act \
              without asking for you on Air."
         ),
         "{refused:?}"

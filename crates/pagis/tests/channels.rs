@@ -106,7 +106,7 @@ async fn channel_list_returns_created_channels() {
         items[0]["last_message"]["text_content"],
         text.chars().take(140).collect::<String>()
     );
-    assert_eq!(items[0]["last_message"]["author_kind"], "user");
+    assert_eq!(items[0]["last_message"]["author"]["kind"], "person");
     assert!(items[0]["last_message"]["created_at"].as_i64().unwrap() > 0);
 
     let no_token = client()
@@ -166,7 +166,7 @@ async fn a_progress_row_is_not_the_last_message_of_its_channel() {
         .find(|item| item["id"] == channel["id"])
         .expect("the channel is listed");
     assert_eq!(row["last_message"]["text_content"], "Book the Austin trip");
-    assert_eq!(row["last_message"]["author_kind"], "user");
+    assert_eq!(row["last_message"]["author"]["kind"], "person");
 }
 
 #[tokio::test]
@@ -183,7 +183,7 @@ async fn send_and_read_back_through_the_timeline() {
     .await;
     assert_eq!(response.status(), StatusCode::CREATED);
     let message: serde_json::Value = response.json().await.unwrap();
-    assert_eq!(message["author_kind"], "user");
+    assert_eq!(message["author"]["kind"], "person");
     assert_eq!(message["status"], "complete");
     assert_eq!(message["text_content"], "hello");
     assert_eq!(message["blocks"][0]["type"], "markdown");
@@ -370,7 +370,7 @@ async fn replies_are_one_level_deep() {
 #[tokio::test]
 async fn sourced_chat_rereads_hide_revoked_text_in_every_projection() {
     use pagis_core::{
-        AgentId, AgentStore, AuthorKind, ConnectionStore, GrantStore, MemoryExposure, MessageStore,
+        AgentId, AgentStore, Author, ConnectionStore, GrantStore, MemoryExposure, MessageStore,
         now_ms,
     };
     use pagis_storage_sqlite::{
@@ -406,6 +406,7 @@ async fn sourced_chat_rereads_hide_revoked_text_in_every_projection() {
         .unwrap();
     let grants = SqliteGrantStore::new(pool.clone());
     let grant = pagis_core::Grant {
+        created_by: pagis_core::Author::System,
         id: pagis_core::GrantId::generate(),
         workspace_id: agent.workspace_id.clone(),
         agent_id: agent.id.clone(),
@@ -448,8 +449,7 @@ async fn sourced_chat_rereads_hide_revoked_text_in_every_projection() {
         &agent.id,
         "owner keeps these words",
     );
-    owner.author_kind = AuthorKind::User;
-    owner.author_agent_id = None;
+    owner.author = Author::Person(daemon.user_id.clone());
     messages.insert(&owner).await.unwrap();
     let ordinary = fixture::agent_message(
         &agent.workspace_id,

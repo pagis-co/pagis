@@ -183,6 +183,7 @@ impl World {
     /// the allowance of Unattended Modes.
     async fn grant_with(&self, mode: SessionApprovalMode, unattended_modes: bool) {
         let mut grant = Grant {
+            created_by: pagis_core::Author::System,
             id: GrantId::generate(),
             workspace_id: self.workspace_id.clone(),
             agent_id: self.agent_id.clone(),
@@ -348,8 +349,8 @@ fn pi_in(mode: &str) -> Value {
     arguments
 }
 
-const PI_REFUSAL: &str = "pi does not ask before it acts, so it runs only where the user allows \
-                          modes that act without asking. Ask the user to allow them for you on \
+const PI_REFUSAL: &str = "pi does not ask before it acts, so it runs only where your Person allows \
+                          modes that act without asking. Ask your Person to allow them for you on \
                           Air.";
 
 /// Pagis policy sees no action of a harness that never asks, so it starts
@@ -447,7 +448,7 @@ async fn a_harness_mode_that_acts_without_asking_needs_the_allowance_of_unattend
     assert_eq!(refused.code.as_deref(), Some("unattended_mode_not_allowed"));
     assert!(
         refused.content.contains(
-            "Bypass permissions of Claude Code acts without asking. Ask the user to allow modes \
+            "Bypass permissions of Claude Code acts without asking. Ask your Person to allow modes \
              that act without asking for you on Air."
         ),
         "{refused:?}"

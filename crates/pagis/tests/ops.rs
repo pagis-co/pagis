@@ -328,7 +328,7 @@ async fn model_aliases_support_crud_and_protect_aliases_in_use() {
 
 #[tokio::test]
 async fn deleting_connections_and_credentials_revokes_their_grants() {
-    let daemon = TestDaemon::start().await;
+    let daemon = TestDaemon::start_in_memory().await;
     let workspace = SqliteWorkspaceStore::new(daemon.pool().clone())
         .list()
         .await
@@ -347,12 +347,13 @@ async fn deleting_connections_and_credentials_revokes_their_grants() {
     .unwrap();
     sqlx::query(
         "INSERT INTO credentials (id, workspace_id, domain, username, login_url, secret, \
-         recipe, provenance, created_at) \
+         recipe, provenance, created_at, created_by_kind, created_by_person_id) \
          VALUES ('cred-1', ?, 'example.com', 'alice', 'https://example.com/login', \
-         x'00', '', 'user_supplied', ?)",
+         x'00', '', 'user_supplied', ?, 'person', ?)",
     )
     .bind(workspace.id.as_str())
     .bind(now_ms())
+    .bind(workspace.user_id.as_str())
     .execute(daemon.pool())
     .await
     .unwrap();
@@ -360,6 +361,7 @@ async fn deleting_connections_and_credentials_revokes_their_grants() {
     for (kind, id) in [("connection", "conn-1"), ("credential", "cred-1")] {
         grants
             .create(&Grant {
+                created_by: pagis_core::Author::System,
                 id: GrantId::generate(),
                 workspace_id: workspace.id.clone(),
                 agent_id: daemon.agent_id.clone().into(),
@@ -374,7 +376,7 @@ async fn deleting_connections_and_credentials_revokes_their_grants() {
             .unwrap();
     }
 
-    let client = reqwest::Client::new();
+    let client = daemon.client();
     for path in ["connections/conn-1", "credentials/cred-1"] {
         let response = client
             .delete(format!("{}/api/v1/settings/{path}", daemon.base_url))

@@ -386,6 +386,7 @@ async fn memory_feed_pages_file_and_forget_preview_read_the_workspace_store() {
     let e = Embedder::new().await;
     let agent = e.agent(&e.workspace, "Ada").await;
     let grant = Grant {
+        created_by: pagis_core::Author::System,
         id: GrantId::generate(),
         workspace_id: e.workspace.clone(),
         agent_id: agent.id.clone(),

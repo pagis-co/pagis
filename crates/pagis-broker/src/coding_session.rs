@@ -46,7 +46,7 @@ pub const SIGN_IN_REQUIRED: &str = "sign_in_required";
 /// so the Agent never asks the Person for a key or a password.
 pub fn sign_in_required_message(harness: &str, machine: &str) -> String {
     format!(
-        "{harness} is not signed in on your {machine}. Ask the user to sign in: Settings › Hosts › \
+        "{harness} is not signed in on your {machine}. Ask your Person to sign in: Settings › Hosts › \
          {machine}."
     )
 }

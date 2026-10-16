@@ -51,11 +51,11 @@ use futures::StreamExt;
 use futures::io::AsyncReadExt;
 use pagis_broker::{SIGN_IN_REQUIRED, session_allowance, sign_in_required_message};
 use pagis_core::{
-    AgentId, AuthorKind, Block, Clock, CodingSession, CodingSessionEventKind as Kind,
-    CodingSessionId, CodingSessionPlace, CodingSessionState as State, CodingSessionStore,
-    CodingSessionUsage, Event, EventBus, EventScope, Grant, GrantStore, HostId, HostStore, Message,
-    MessageId, MessageStatus, MessageStore, ModeChangedBy, NewCodingSessionEvent, NewEvent, RunId,
-    RunStore, SessionApprovalMode, StoreError, WorkspaceId, blocks_text, harness, mode_payload,
+    AgentId, Author, Block, Clock, CodingSession, CodingSessionEventKind as Kind, CodingSessionId,
+    CodingSessionPlace, CodingSessionState as State, CodingSessionStore, CodingSessionUsage, Event,
+    EventBus, EventScope, Grant, GrantStore, HostId, HostStore, Message, MessageId, MessageStatus,
+    MessageStore, ModeChangedBy, NewCodingSessionEvent, NewEvent, RunId, RunStore,
+    SessionApprovalMode, StoreError, WorkspaceId, blocks_text, harness, mode_payload,
 };
 use serde_json::{Value, json};
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
@@ -238,7 +238,7 @@ pub enum SetModeFailure {
     /// The mode acts without asking, and the live host Grant does not
     /// allow Unattended Modes. `mode` is the name of the mode.
     #[error(
-        "{mode} acts without asking. Ask the user to allow modes that act without asking for \
+        "{mode} acts without asking. Ask your Person to allow modes that act without asking for \
          you on {machine}."
     )]
     UnattendedModeNotAllowed { mode: String, machine: String },
@@ -297,8 +297,8 @@ pub(crate) const UNATTENDED_MODE_NOT_ALLOWED: &str = "unattended_mode_not_allowe
 /// allows.
 fn unattended_mode_not_allowed_message(harness: &str, machine: &str) -> String {
     format!(
-        "{harness} acts without asking, and the user does not allow modes that act without \
-         asking for you on {machine}. The session is closed. Ask the user to allow them."
+        "{harness} acts without asking, and your Person does not allow modes that act without \
+         asking for you on {machine}. The session is closed. Ask your Person to allow them."
     )
 }
 
@@ -1393,8 +1393,7 @@ impl CodingSessions {
             workspace_id: record.workspace_id.clone(),
             channel_id: record.channel_id.clone(),
             parent_message_id,
-            author_kind: AuthorKind::System,
-            author_agent_id: None,
+            author: Author::System,
             run_id: Some(record.run_id.clone()),
             status: MessageStatus::Complete,
             text_content: blocks_text(&blocks),
@@ -1417,7 +1416,7 @@ impl CodingSessions {
                 payload: json!({
                     "message_id": message.id.as_str(),
                     "parent_message_id": message.parent_message_id.as_ref().map(MessageId::as_str),
-                    "author_kind": AuthorKind::System,
+                    "author": {"kind": "system", "id": null, "name": "Pagis"},
                 }),
             })
             .await;

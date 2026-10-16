@@ -728,6 +728,7 @@ async fn an_uninstall_revokes_the_grants_and_leaves_no_files() {
             &harness.workspace_id,
             &installed.plugin.id,
             &agent_id,
+            pagis_core::Author::System,
         )
         .await
         .expect("granted");

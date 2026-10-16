@@ -34,9 +34,9 @@ pub const SESSION_RULE_INSTRUCTION: &str = "Your coding session changed. Read it
 /// wakes at the place where the session started, so its reply is the
 /// report to the user there (ADR-0033).
 pub const SESSION_END_INSTRUCTION: &str = "Your coding session ended or was interrupted. You are \
-     where the user asked for the work, and your reply goes there. Read the session with \
+     where your Person asked for the work, and your reply goes there. Read the session with \
      `coding_session_read`. When it is interrupted and the work still makes sense, resume it. \
-     Else report to the user: what changed, how you verified it, what is not done, and where \
+     Else report to your Person: what changed, how you verified it, what is not done, and where \
      the work is.";
 
 /// The name of the Session Rule of a session.

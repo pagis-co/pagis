@@ -650,6 +650,7 @@ async fn forget_during_an_in_flight_review_prevents_its_staged_write_from_commit
         .await
         .unwrap();
     let grant = Grant {
+        created_by: pagis_core::Author::System,
         id: GrantId::generate(),
         workspace_id: agent.workspace_id.clone(),
         agent_id: agent.id.clone(),
@@ -852,7 +853,7 @@ async fn an_urgent_review_starts_while_its_foreground_conversation_is_busy() {
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     let schedule: (String, String) = sqlx::query_as(
-        "SELECT s.creator,p.path FROM schedules s JOIN schedule_subject_pages p ON p.schedule_id=s.id WHERE s.name='Reservation deadline'",
+        "SELECT s.created_by_kind,p.path FROM schedules s JOIN schedule_subject_pages p ON p.schedule_id=s.id WHERE s.name='Reservation deadline'",
     )
     .fetch_one(daemon.pool())
     .await

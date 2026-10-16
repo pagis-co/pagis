@@ -113,7 +113,7 @@ async fn verified_runtime_finishes_local_setup_and_answers_the_first_message() {
             .await
             .unwrap();
         if timeline["items"].as_array().unwrap().iter().any(|message| {
-            message["author_kind"] == "agent" && message["text_content"] == "Hello from Pixie."
+            message["author"]["kind"] == "agent" && message["text_content"] == "Hello from Pixie."
         }) {
             break;
         }

@@ -410,9 +410,11 @@ impl Plugins {
         workspace_id: &WorkspaceId,
         id: &PluginId,
         agent_id: &pagis_core::AgentId,
+        created_by: pagis_core::Author,
     ) -> Result<Grant, PluginError> {
         let plugin = self.plugin(org_workspace_id, id).await?;
         let grant = Grant {
+            created_by,
             id: GrantId::generate(),
             workspace_id: workspace_id.clone(),
             agent_id: agent_id.clone(),

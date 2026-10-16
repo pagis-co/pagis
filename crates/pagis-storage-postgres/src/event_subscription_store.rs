@@ -14,9 +14,9 @@ use crate::trigger_store::{
     BATCH_COLUMNS, EVENT_COLUMNS, row_to_batch, row_to_event, row_to_source, source_column,
 };
 
-const SUBSCRIPTION_COLUMNS: &str = "id, workspace_id, agent_id, connection_id, \
+const SUBSCRIPTION_COLUMNS: &str = "created_by_kind, created_by_person_id, created_by_agent_id, id, workspace_id, agent_id, connection_id, \
     coding_session_id, event_kind, \
-    source_version, name, instruction, channel_id, root_message_id, filter, creator, state, \
+    source_version, name, instruction, channel_id, root_message_id, filter, state, \
     revision, approved_revision, watermark_at, blocked_reason, created_at, updated_at, \
     archived_at, failures, next_attempt_at";
 
@@ -33,6 +33,12 @@ impl PostgresEventSubscriptionStore {
 
 fn row_to_subscription(row: &sqlx::postgres::PgRow) -> Result<EventSubscription, StoreError> {
     Ok(EventSubscription {
+        created_by: pagis_core::Author::from_columns(
+            &row.get::<String, _>("created_by_kind"),
+            row.get("created_by_person_id"),
+            row.get("created_by_agent_id"),
+        )
+        .map_err(StoreError::Corrupt)?,
         id: EventSubscriptionId::from(row.get::<String, _>("id")),
         workspace_id: WorkspaceId::from(row.get::<String, _>("workspace_id")),
         agent_id: AgentId::from(row.get::<String, _>("agent_id")),
@@ -47,10 +53,6 @@ fn row_to_subscription(row: &sqlx::postgres::PgRow) -> Result<EventSubscription,
             .map(MessageId::from),
         filter: serde_json::from_str(&row.get::<String, _>("filter"))
             .map_err(|error| StoreError::Corrupt(format!("filter: {error}")))?,
-        creator: row
-            .get::<String, _>("creator")
-            .parse()
-            .map_err(StoreError::Corrupt)?,
         state: row
             .get::<String, _>("state")
             .parse()
@@ -116,13 +118,16 @@ async fn write_rule(
 impl EventSubscriptionStore for PostgresEventSubscriptionStore {
     async fn create(&self, subscription: &EventSubscription) -> Result<(), StoreError> {
         sqlx::query(
-            "INSERT INTO event_subscriptions (id, workspace_id, agent_id, connection_id, \
+            "INSERT INTO event_subscriptions (created_by_kind, created_by_person_id, created_by_agent_id, id, workspace_id, agent_id, connection_id, \
              coding_session_id, event_kind, source_version, name, instruction, channel_id, \
-             root_message_id, filter, creator, state, revision, approved_revision, watermark_at, \
+             root_message_id, filter, state, revision, approved_revision, watermark_at, \
              blocked_reason, created_at, updated_at, archived_at, failures, next_attempt_at) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, \
-             $18, $19, $20, $21, $22, $23)",
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, \
+             $20, $21, $22, $23, $24, $25)",
         )
+        .bind(subscription.created_by.kind())
+        .bind(subscription.created_by.person_id().map(|id| id.as_str()))
+        .bind(subscription.created_by.agent_id().map(|id| id.as_str()))
         .bind(subscription.id.as_str())
         .bind(subscription.workspace_id.as_str())
         .bind(subscription.agent_id.as_str())
@@ -145,7 +150,6 @@ impl EventSubscriptionStore for PostgresEventSubscriptionStore {
         .bind(subscription.channel_id.as_str())
         .bind(subscription.root_message_id.as_ref().map(|id| id.as_str()))
         .bind(subscription.filter.to_string())
-        .bind(subscription.creator.as_str())
         .bind(subscription.state.as_str())
         .bind(i64::from(subscription.revision))
         .bind(subscription.approved_revision.map(i64::from))

@@ -9,9 +9,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use pagis_core::{
-    AgentId, ChannelStore, CreatorKind, EventSubscriptionState, IngestBatch, PhoneNumber, now_ms,
-};
+use pagis_core::{AgentId, ChannelStore, EventSubscriptionState, IngestBatch, PhoneNumber, now_ms};
 use pagis_telephony::{
     CALL_ENDED, CallEvents, CallIngestError, STANDING_CALL_INSTRUCTION, STANDING_CALL_RULE_NAME,
     StandingCallRule, StandingRuleError,
@@ -90,10 +88,11 @@ impl StandingCallRule for StandingCallRules {
             .await
             .map_err(|error| StandingRuleError(error.to_string()))?
             .ok_or_else(|| {
-                StandingRuleError("that Agent has no thread with the user".to_string())
+                StandingRuleError("that Agent has no thread with your Person".to_string())
             })?;
         self.trigger
             .create_subscription(NewSubscription {
+                created_by: pagis_core::Author::System,
                 workspace_id: number.workspace_id.clone(),
                 agent_id: agent_id.clone(),
                 source: pagis_core::EventSource::connection(number.connection_id.clone()),
@@ -107,9 +106,8 @@ impl StandingCallRule for StandingCallRules {
                 // whether the Agent wakes (ADR-0021); a `min_trust`
                 // the user or the Agent writes is what narrows it.
                 filter: serde_json::json!({}),
-                // The user gave the Agent the line, so the rule is the
-                // user's. The Agent may narrow it and never delete it.
-                creator: CreatorKind::User,
+                // The daemon supplies this rule for the Person.
+                // The Agent may narrow it but cannot delete it.
                 now: now_ms(),
             })
             .await

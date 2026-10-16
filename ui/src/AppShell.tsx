@@ -520,7 +520,7 @@ export function AppShell() {
             const payload = event.payload as {
               message_id?: string
               parent_message_id?: string | null
-              author_kind?: string
+              author?: { kind: string; id: string | null; name: string }
             }
             if (payload.message_id != null) {
               const scope = threadScope(
@@ -533,7 +533,7 @@ export function AppShell() {
               useRunProgress.getState().settle(scope, payload.message_id)
               if (
                 frame.type === 'message.completed' &&
-                payload.author_kind === 'agent' &&
+                payload.author?.kind === 'agent' &&
                 useSpeaking.getState().byScope[scope] === true
               ) {
                 const messageId = payload.message_id

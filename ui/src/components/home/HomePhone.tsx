@@ -210,7 +210,7 @@ export function HomePhone({
   const questionOf = (item: QueueItem): string | null => {
     if (item.kind !== 'waiting') return null
     const latest = channels.find((channel) => channel.id === item.channel_id)?.last_message
-    return latest?.author_kind === 'agent' ? latest.text_content : null
+    return latest?.author.kind === 'agent' ? latest.text_content : null
   }
   const newest = items.filter((item) => item.kind === 'approval').sort((a, b) => b.at - a.at)[0]
   return (

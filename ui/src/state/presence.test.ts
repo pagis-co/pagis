@@ -136,7 +136,7 @@ describe('usePresence', () => {
 
     apply('message.completed', {
       channel_id: 'ch-1',
-      payload: { author_kind: 'agent' },
+      payload: { author: { kind: 'agent', id: 'agent-1', name: 'Scout' } },
     })
     expect(isUnread(usePresence.getState(), 'ch-1')).toBe(true)
 
@@ -149,13 +149,13 @@ describe('usePresence', () => {
 
     apply('message.completed', {
       channel_id: 'ch-1',
-      payload: { author_kind: 'agent' },
+      payload: { author: { kind: 'agent', id: 'agent-1', name: 'Scout' } },
     })
     expect(isUnread(usePresence.getState(), 'ch-1')).toBe(false)
 
     apply('message.completed', {
       channel_id: 'ch-2',
-      payload: { author_kind: 'user' },
+      payload: { author: { kind: 'person', id: 'person-1', name: 'Ajay' } },
     })
     expect(isUnread(usePresence.getState(), 'ch-2')).toBe(false)
   })

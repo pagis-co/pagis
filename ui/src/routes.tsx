@@ -320,7 +320,7 @@ function PhoneThread({ api, channelId, rootId, onOpenDesk }: { api: ApiClient; c
   const channel = useChannels(api).data?.find((row) => row.id === channelId)
   // The Desk of a Thread is the Agent that wrote its root, or else the
   // first Agent of the conversation.
-  const deskAgent = thread.data?.root.author_agent_id ?? channel?.agent_ids[0]
+  const deskAgent = (thread.data?.root.author.kind === 'agent' ? thread.data.root.author.id : null) ?? channel?.agent_ids[0]
   const back = () => void navigate({ to: '/c/$channelId', params: { channelId } })
   return <><NavBar back={{ label: 'Conversation', onBack: back }} /><ThreadPane api={api} channelId={channelId} rootId={rootId} onOpenDesk={() => { if (deskAgent) onOpenDesk(deskAgent) }} /></>
 }

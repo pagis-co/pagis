@@ -86,7 +86,7 @@ async fn stored_capture(daemon: &TestDaemon, workspace_id: &WorkspaceId, run_id:
             run_id: run_id.clone(),
             phase: "reply".into(),
             phase_request: 0,
-            request: serde_json::json!({"system": "Follow the user."}),
+            request: serde_json::json!({"system": "Follow your Person."}),
             answer: serde_json::json!({"outcome": "completed"}),
             created_at: now_ms(),
         })

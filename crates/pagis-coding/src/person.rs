@@ -13,7 +13,7 @@ use futures::StreamExt;
 use futures::future::BoxFuture;
 use pagis_broker::{Decider, HarnessToolKind, derive_rules};
 use pagis_core::{
-    AuthorKind, Block, CodingSession, CodingSessionPlace, DecideOutcome, EventBus, EventScope,
+    Author, Block, CodingSession, CodingSessionPlace, DecideOutcome, EventBus, EventScope,
     EventSource, HostStore, Message, MessageId, MessageStatus, MessageStore, NewEvent, Request,
     RequestId, RequestState, RequestStore, harness, now_ms, wrap_untrusted,
 };
@@ -82,6 +82,7 @@ impl PersonAsks {
             .subscribe(EventScope::workspace(&session.workspace_id), None)
             .await;
         let request = Request {
+            decided_by: None,
             id: RequestId::generate(),
             workspace_id: session.workspace_id.clone(),
             agent_id: session.agent_id.clone(),
@@ -125,6 +126,7 @@ impl PersonAsks {
                     &request.id,
                     RequestState::Expired,
                     None,
+                    pagis_core::Author::System,
                     now_ms(),
                 )
                 .await;
@@ -193,8 +195,7 @@ impl PersonAsks {
             workspace_id: session.workspace_id.clone(),
             channel_id: session.channel_id.clone(),
             parent_message_id: Some(session.root_message_id.clone()),
-            author_kind: AuthorKind::System,
-            author_agent_id: None,
+            author: Author::System,
             run_id: None,
             status: MessageStatus::Complete,
             blocks: vec![Block::approval_card(
@@ -221,7 +222,7 @@ impl PersonAsks {
                 payload: json!({
                     "message_id": message.id.as_str(),
                     "parent_message_id": message.parent_message_id.as_ref().map(MessageId::as_str),
-                    "author_kind": AuthorKind::System,
+                    "author": {"kind": "system", "id": null, "name": "Pagis"},
                 }),
             })
             .await;
@@ -328,6 +329,7 @@ impl Drop for Expiry {
                     &request.id,
                     RequestState::Expired,
                     None,
+            pagis_core::Author::System,
                     now_ms(),
                 )
                 .await;

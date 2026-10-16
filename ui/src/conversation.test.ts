@@ -19,7 +19,8 @@ function row(overrides: Partial<TimelineRow>): TimelineRow {
     key: 'msg-1',
     kind: 'message',
     authorKind: 'agent',
-    authorAgentId: 'sage',
+    authorName: 'Ajay',
+    authorId: 'sage',
     createdAt: Date.parse('2026-09-05T10:00:00Z'),
     sendState: 'sent',
     status: 'complete',
@@ -78,8 +79,8 @@ describe('buildConversation', () => {
       buildConversation([
         row({ key: 'm1', createdAt: at }),
         row({ key: 'm2', createdAt: at + 6 * MINUTE }),
-        row({ key: 'm3', authorAgentId: 'clown', createdAt: at + 7 * MINUTE }),
-        row({ key: 'm4', authorAgentId: 'clown', createdAt: at + 7 * MINUTE }),
+        row({ key: 'm3', authorId: 'clown', createdAt: at + 7 * MINUTE }),
+        row({ key: 'm4', authorId: 'clown', createdAt: at + 7 * MINUTE }),
       ]),
     )
 
@@ -259,7 +260,8 @@ describe('buildConversation', () => {
     const at = Date.parse('2026-09-05T10:00:00Z')
     const items = buildConversation([
       row({ key: 'm1', createdAt: at }),
-      row({ key: 's1', authorKind: 'system', authorAgentId: null, createdAt: at }),
+      row({ key: 's1', authorKind: 'system',
+      authorName: 'Ajay', authorId: null, createdAt: at }),
       row({ key: 'm2', createdAt: at }),
     ])
 

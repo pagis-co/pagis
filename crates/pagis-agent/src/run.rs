@@ -5,7 +5,7 @@
 //! a host action whose every subcommand matches the agent's live host
 //! grant executes silently, and any other writes a request row, posts
 //! an `approval_card` message, and parks the run in memory until the
-//! decision event arrives. A message the user sends in place of a
+//! decision event arrives. A message the Person sends in place of a
 //! decision also wakes the parked run: the request settles as
 //! `superseded`, the action does not run, and the next turn reads the
 //! message.
@@ -17,19 +17,18 @@ use futures::StreamExt;
 use pagis_broker::{InvokeOutcome, ToolCall};
 use pagis_core::subject_page::PAGE_KINDS;
 use pagis_core::{
-    Agent, AgentId, AuthorKind, Block, ChannelId, ChannelKind, ContinuationCheckpoint,
-    ContinuationKey, ContinuationState, EventScope, FailureKind, Grant, KnownBlock, MemoryAccess,
-    MemoryAuthor, MemoryChangeset, MemoryError, MemoryExposure, Message, MessageId, MessageStatus,
-    NewEvent, ParticipantKind, Request, RequestId, RequestState, Run, RunId, RunOrigin, RunState,
-    ScheduleId, ScopedPath, TriggerKind, TrustTier, WorkspaceId, blocks_text, now_ms,
-    wrap_untrusted,
+    Agent, AgentId, Author, Block, ChannelId, ChannelKind, ContinuationCheckpoint, ContinuationKey,
+    ContinuationState, EventScope, FailureKind, Grant, KnownBlock, MemoryAccess, MemoryAuthor,
+    MemoryChangeset, MemoryError, MemoryExposure, Message, MessageId, MessageStatus, NewEvent,
+    ParticipantKind, Request, RequestId, RequestState, Run, RunId, RunOrigin, RunState, ScheduleId,
+    ScopedPath, TriggerKind, TrustTier, WorkspaceId, blocks_text, now_ms, wrap_untrusted,
 };
 use tokio_util::sync::CancellationToken;
 
 use crate::brain::{
     BrainError, ToolInvocation, TurnDelta, TurnEnd, TurnMessage, TurnRequest, TurnRole, TurnStream,
 };
-use crate::briefing::{Briefing, Colleague, Delegation, USER_DM, mail_tier_lines};
+use crate::briefing::{Briefing, Colleague, Delegation, mail_tier_lines, person_dm};
 use crate::computer_use::{self, ComputerCtx, Vocabulary};
 use crate::context_budget::{RequestBudget, RequestEstimate, estimate_message_tokens};
 use crate::memory::MemoryOverlay;
@@ -71,19 +70,19 @@ const COMPUTER_SAFETY_TITLE: &str = "Continue on the agent's computer?";
 const DENIED_RESULT: &str = "user denied this action";
 
 /// The tool result a message in place of a decision injects.
-const SUPERSEDED_RESULT: &str = "The user did not decide on this action. They sent a message \
+const SUPERSEDED_RESULT: &str = "Your Person did not decide on this action. They sent a message \
      instead, so the action did not run. Read their message and continue.";
 
 /// The tool result a dismissed question injects.
-const UNANSWERED_RESULT: &str = "the user did not answer";
+const UNANSWERED_RESULT: &str = "your Person did not answer";
 
 /// The tool result a message in place of an answer injects.
-const SUPERSEDED_QUESTION: &str = "The user did not answer the question. They sent a message \
+const SUPERSEDED_QUESTION: &str = "Your Person did not answer the question. They sent a message \
      instead. Read their message and continue.";
 
-/// The tool result the turn's later calls get after the user replied
+/// The tool result the turn's later calls get after the Person replied
 /// to a request.
-const REDIRECTED_RESULT: &str = "This action did not run: the user replied to an earlier action \
+const REDIRECTED_RESULT: &str = "This action did not run: your Person replied to an earlier action \
      of this turn. Read their message and continue.";
 
 /// The source name of a screen the computer tool answers with.
@@ -212,8 +211,7 @@ pub(crate) async fn post_notice(deps: &AgentDeps, run: &Run, text: &str) {
         workspace_id: run.workspace_id.clone(),
         channel_id,
         parent_message_id: run.root_message_id.clone(),
-        author_kind: AuthorKind::System,
-        author_agent_id: None,
+        author: Author::System,
         run_id: Some(run.id.clone()),
         status: MessageStatus::Complete,
         text_content: blocks_text(&blocks),
@@ -238,7 +236,7 @@ pub(crate) async fn post_notice(deps: &AgentDeps, run: &Run, text: &str) {
             payload: serde_json::json!({
                 "message_id": note.id.as_str(),
                 "parent_message_id": note.parent_message_id.as_ref().map(|id| id.as_str()),
-                "author_kind": AuthorKind::System,
+                "author": {"kind": "system", "id": null, "name": "Pagis"},
             }),
         })
         .await
@@ -318,12 +316,11 @@ async fn begin_progress(deps: &AgentDeps, agent: &Agent, run: &Run, resumed: boo
         workspace_id: run.workspace_id.clone(),
         channel_id: channel_id.clone(),
         parent_message_id: run.root_message_id.clone(),
-        author_kind: if run.trigger_kind == TriggerKind::Message {
-            AuthorKind::Agent
+        author: if run.trigger_kind == TriggerKind::Message {
+            Author::Agent(agent.id.clone())
         } else {
-            AuthorKind::System
+            Author::System
         },
-        author_agent_id: (run.trigger_kind == TriggerKind::Message).then(|| agent.id.clone()),
         run_id: Some(run.id.clone()),
         status: MessageStatus::Streaming,
         text_content: blocks_text(&blocks),
@@ -507,7 +504,7 @@ pub(crate) async fn execute(
         }
     };
     // The Skills listing is fixed for the run too (ADR-0017): a
-    // plugin the user updates mid-run reaches the agent's next run.
+    // plugin the Person updates mid-run reaches the agent's next run.
     let skills =
         crate::skills::skills_section(&deps.skills.list(&run.workspace_id, &agent.id).await);
     if run.trigger_kind == TriggerKind::Review {
@@ -536,7 +533,26 @@ pub(crate) async fn execute(
     }
     // The channel briefing and the reply target are fixed for the run:
     // both come from the trigger and the run's origin.
-    let briefing = channel_briefing(&deps, &agent, &run).await;
+    let person_name = match pagis_core::honesty::person_name(
+        deps.workspaces.as_ref(),
+        deps.users.as_ref(),
+        &run.workspace_id,
+    )
+    .await
+    {
+        Ok(name) => name,
+        Err(error) => {
+            fail(
+                &deps,
+                &mut run,
+                FailureKind::ContextFailed,
+                &error.to_string(),
+            )
+            .await;
+            return RunOutcome::Failed;
+        }
+    };
+    let briefing = channel_briefing(&deps, &agent, &run, &person_name).await;
     let target = reply_target(&run);
     let mut speakers = Speakers::default();
     let restored = journal
@@ -664,7 +680,7 @@ pub(crate) async fn execute(
         match history {
             Ok(messages) => {
                 for message in messages.into_iter().filter(|message| {
-                    message.author_kind == AuthorKind::User
+                    message.author.person_id().is_some()
                         && !seen.contains(&message.id)
                         && message.created_at >= run.started_at.unwrap_or(run.created_at)
                 }) {
@@ -963,7 +979,7 @@ pub(crate) async fn execute(
                 }
                 // The screen lease: one action batch per turn,
                 // acquired before the first computer call and released
-                // when the turn's calls finish. While the user holds
+                // when the turn's calls finish. While the Person holds
                 // the input switch the run parks here.
                 if tool_calls.iter().any(|call| call.name == COMPUTER_TOOL) {
                     match acquire_lease(&deps, &agent, &mut run, &cancel, &mut computer_ctx).await {
@@ -1223,13 +1239,13 @@ fn turn_budget_note(turn: usize, max_turns: usize) -> String {
     );
     if turn >= max_turns {
         format!(
-            "{budget} The run has used all its turns. No tool runs now. Answer the user from \
+            "{budget} The run has used all its turns. No tool runs now. Answer your Person from \
              what you already found: give the results, and say what you could not finish."
         )
     } else if max_turns - turn <= WRAP_UP_TURNS {
         format!(
             "{budget} Few turns remain. Finish with the turns you have: do not start new \
-             searches, and answer the user with what you found and what is left."
+             searches, and answer your Person with what you found and what is left."
         )
     } else {
         budget
@@ -1541,11 +1557,11 @@ async fn execute_pending_review(
 
 /// The tool result the parked run resumes with after a takeover:
 /// the agent re-screenshots before it acts again.
-const TAKEOVER_NOTE: &str = "The user had control of this computer; the screen may have changed. \
+const TAKEOVER_NOTE: &str = "Your Person had control of this computer; the screen may have changed. \
      Take a new screenshot before you continue.";
 
 /// Take the turn's screen lease. While anyone else holds the
-/// input switch — the user through a takeover, or the daemon
+/// input switch — the Person through a takeover, or the daemon
 /// through a vault fill — park in `waiting_for_user` until the
 /// switch comes back, then resume with the takeover note queued as the
 /// next computer tool result.
@@ -1634,7 +1650,7 @@ enum ToolFlow {
     BrokerResult(String, Option<serde_json::Value>),
     /// A result with screenshots, as `data:` URIs.
     ResultWithImages(String, Vec<String>),
-    /// The user replied in place of the request decision: this
+    /// The Person replied in place of the request decision: this
     /// call did not run, and the turn's later calls do not run either.
     Redirected(String),
     /// The run was canceled while the call waited or executed.
@@ -1923,13 +1939,13 @@ fn with_exit(result: String, exit: Option<&str>) -> String {
 enum Decision {
     Approved,
     Denied,
-    /// The user sent a message in place of a decision.
+    /// The Person sent a message in place of a decision.
     Superseded,
 }
 
 /// The request choreography: write the request row, post
 /// the `approval_card` message, park in `waiting_for_approval` until
-/// the `request.decided` event, or until the user sends a message in
+/// the `request.decided` event, or until the Person sends a message in
 /// place of a decision. A cancellation or store failure short-circuits
 /// as a `ToolFlow`.
 async fn park_for_decision(
@@ -1980,7 +1996,7 @@ async fn park_for_decision(
     .await;
 
     // Park in memory: the decision event wakes the run, and so
-    // does a message the user sends in place of a decision.
+    // does a message the Person sends in place of a decision.
     let mut check_stored_decision = true;
     let decision = loop {
         if std::mem::take(&mut check_stored_decision) {
@@ -2023,6 +2039,7 @@ async fn park_for_decision(
                         &request.id,
                         RequestState::Superseded,
                         None,
+            pagis_core::Author::System,
                         now_ms(),
                     )
                     .await
@@ -3323,7 +3340,7 @@ async fn run_computer(
     }
 
     // OpenAI safety checks: replying to the call acknowledges
-    // them, so the user approves first. A denial cancels the run — the
+    // them, so the Person approves first. A denial cancels the run — the
     // wire offers no way to answer the call without proceeding.
     if !parsed.safety_checks.is_empty() {
         let body = parsed
@@ -3333,6 +3350,7 @@ async fn run_computer(
             .collect::<Vec<_>>()
             .join("\n");
         let request = Request {
+            decided_by: None,
             id: RequestId::generate(),
             workspace_id: run.workspace_id.clone(),
             agent_id: run.agent_id.clone(),
@@ -3385,7 +3403,7 @@ async fn run_computer(
                     ctx.deps,
                     run,
                     "tool.completed",
-                    done(false, &[], Some("the user replied instead")),
+                    done(false, &[], Some("your Person replied instead")),
                 )
                 .await;
                 return ToolFlow::Redirected(SUPERSEDED_RESULT.to_string());
@@ -3629,8 +3647,7 @@ fn request_message(
         workspace_id: run.workspace_id.clone(),
         channel_id: run.channel_id.clone().expect("message runs have a channel"),
         parent_message_id: run.root_message_id.clone(),
-        author_kind: AuthorKind::Agent,
-        author_agent_id: Some(agent.id.clone()),
+        author: Author::Agent(agent.id.clone()),
         run_id: Some(run.id.clone()),
         status: MessageStatus::Complete,
         blocks: blocks.clone(),
@@ -3715,8 +3732,9 @@ impl Reply {
                     .clone()
                     .expect("reply rows carry a run"),
                 self.template
-                    .author_agent_id
-                    .clone()
+                    .author
+                    .agent_id()
+                    .cloned()
                     .expect("reply rows carry an agent"),
                 self.template.parent_message_id.clone(),
             );
@@ -3842,10 +3860,10 @@ async fn settle_reply(
     // instead of settling unstamped.
     let author = reply
         .template
-        .author_agent_id
-        .clone()
+        .author
+        .agent_id()
         .expect("agent reply has an author");
-    let exposures = match deps.agents.get(&run.workspace_id, &author).await {
+    let exposures = match deps.agents.get(&run.workspace_id, author).await {
         Ok(Some(agent)) => {
             let overlay = deps.tool_runtime.overlay(&run.id);
             let access = overlay.lock().await.access(agent.id.clone());
@@ -5504,7 +5522,9 @@ async fn context_message(
     if m.blocks.iter().any(Block::is_progress) {
         return None;
     }
-    let speaker = speakers.speaker(deps.agents.as_ref(), agent, m).await;
+    let speaker = speakers
+        .speaker(deps.agents.as_ref(), deps.users.as_ref(), agent, m)
+        .await;
     let role = match speaker {
         None => TurnRole::Assistant,
         Some(_) => TurnRole::User,
@@ -5651,7 +5671,7 @@ fn reply_target(run: &Run) -> ReplyTarget {
 
 /// The run's channel briefing: who shares the channel, and
 /// what the run owes the delegation chain it belongs to.
-async fn channel_briefing(deps: &AgentDeps, agent: &Agent, run: &Run) -> String {
+async fn channel_briefing(deps: &AgentDeps, agent: &Agent, run: &Run, person_name: &str) -> String {
     let channel_id = run
         .channel_id
         .as_ref()
@@ -5667,7 +5687,9 @@ async fn channel_briefing(deps: &AgentDeps, agent: &Agent, run: &Run) -> String 
             Vec::new()
         }
     };
-    let user_present = participants.iter().any(|p| p.kind == ParticipantKind::User);
+    let user_present = participants
+        .iter()
+        .any(|p| p.kind == ParticipantKind::Person);
     let mut others = Vec::new();
     for participant in &participants {
         let Some(id) = &participant.agent_id else {
@@ -5685,7 +5707,7 @@ async fn channel_briefing(deps: &AgentDeps, agent: &Agent, run: &Run) -> String 
     // Relaying takes precedence: a run that owes its reply elsewhere is
     // never also answering in place.
     let relaying = match run.relay_target() {
-        Some(origin) => Some(conversation_name(deps, &run.workspace_id, origin).await),
+        Some(origin) => Some(conversation_name(deps, &run.workspace_id, origin, person_name).await),
         None => None,
     };
     let requester = match (&relaying, &run.origin) {
@@ -5698,12 +5720,18 @@ async fn channel_briefing(deps: &AgentDeps, agent: &Agent, run: &Run) -> String 
         (None, None) => None,
     };
     let channel = Briefing {
+        person_name,
         user_present,
         others,
         delegation,
     }
     .render();
-    let channel = format!("{channel}\n\n{}", sprites(deps, agent).await);
+    let channel = format!(
+        "{channel}\n\n{}",
+        sprites(deps, agent)
+            .await
+            .replace("your Person", person_name)
+    );
     if !matches!(run.trigger_kind, TriggerKind::Schedule | TriggerKind::Event) {
         return channel;
     }
@@ -5823,7 +5851,7 @@ async fn channel_briefing(deps: &AgentDeps, agent: &Agent, run: &Run) -> String 
     briefing.push_str("\n\nSender trust:\n");
     for line in mail_tier_lines(&tiers) {
         briefing.push_str("- ");
-        briefing.push_str(line);
+        briefing.push_str(&line.replace("your Person", person_name));
         briefing.push('\n');
     }
     briefing.push_str(READ_THE_BODY_WITH_A_TOOL);
@@ -5994,11 +6022,12 @@ const READ_THE_BODY_WITH_A_TOOL: &str = "\nTo read a message body or an attachme
      tools you hold.";
 
 /// How the briefing names the conversation waiting on a delegation
-/// chain: the user's own DM by role, any other channel by title.
+/// chain: the Person's own DM by role, any other channel by title.
 async fn conversation_name(
     deps: &AgentDeps,
     workspace_id: &pagis_core::WorkspaceId,
     origin: &RunOrigin,
+    person_name: &str,
 ) -> String {
     let channel = match deps.channels.get(workspace_id, &origin.channel_id).await {
         Ok(Some(channel)) => channel,
@@ -6012,10 +6041,14 @@ async fn conversation_name(
         .participants
         .list_for_channel(workspace_id, &origin.channel_id)
         .await
-        .map(|participants| participants.iter().any(|p| p.kind == ParticipantKind::User))
+        .map(|participants| {
+            participants
+                .iter()
+                .any(|p| p.kind == ParticipantKind::Person)
+        })
         .unwrap_or(false);
     match (channel.kind, user_present, channel.title) {
-        (ChannelKind::Dm, true, _) => USER_DM.to_string(),
+        (ChannelKind::Dm, true, _) => person_dm(person_name),
         (_, _, Some(title)) => format!("the {title} channel"),
         (_, _, None) => "another channel".to_string(),
     }
@@ -6030,8 +6063,8 @@ async fn trigger_author(deps: &AgentDeps, run: &Run) -> Option<String> {
         .get(&run.workspace_id, &message_id)
         .await
         .ok()??;
-    let agent_id = message.author_agent_id?;
-    let agent = deps.agents.get(&run.workspace_id, &agent_id).await.ok()??;
+    let agent_id = message.author.agent_id()?;
+    let agent = deps.agents.get(&run.workspace_id, agent_id).await.ok()??;
     Some(agent.name)
 }
 
@@ -6060,8 +6093,8 @@ async fn system_prompt(
     .await?;
     let honesty = pagis_core::honesty::render(&agent.name, &person);
     let identity = format!(
-        "You are {name}, one of the user's sprites. Your job: {job}.\n\n\
-         {honesty}\n\nYour personality: {personality}. Reply in markdown.",
+        "You are {name}, one of {person}'s sprites. Your job: {job}.\n\n\
+         Your Person is {person}.\n\n{honesty}\n\nYour personality: {personality}. Reply in markdown.",
         name = agent.name,
         job = agent.job,
         personality = agent.personality,
@@ -6135,9 +6168,13 @@ async fn system_prompt(
          ## Your private memory index (private/MEMORY.md)\n\n{private}\
          {brief}\n\n\
          {date}",
-        envelope = pagis_core::ENVELOPE_RULE,
-        consent = crate::briefing::CONSENT_RULE,
-        software = crate::briefing::software_line(software_packages),
+        envelope = pagis_core::ENVELOPE_RULE.replace("your Person", &person),
+        skills = skills.replace("your Person", &person),
+        consent = crate::briefing::CONSENT_RULE
+            .replace("your Person", &person)
+            .replace("Your Person", &person),
+        software =
+            crate::briefing::software_line(software_packages).replace("your Person", &person),
         computer =
             computer_prompt(deps.config.computer && run.trigger_kind != TriggerKind::Arrival),
         brief = if brief.is_empty() {
@@ -6328,8 +6365,7 @@ fn new_reply_row(deps: &AgentDeps, agent: &Agent, run: &Run, target: &ReplyTarge
         workspace_id: run.workspace_id.clone(),
         channel_id: target.channel_id.clone(),
         parent_message_id: target.root_message_id.clone(),
-        author_kind: AuthorKind::Agent,
-        author_agent_id: Some(agent.id.clone()),
+        author: Author::Agent(agent.id.clone()),
         run_id: Some(run.id.clone()),
         status: MessageStatus::Streaming,
         blocks: vec![Block::markdown("")],
@@ -6365,6 +6401,23 @@ async fn publish_message_row(
     message_id: &MessageId,
     parent_message_id: Option<&MessageId>,
 ) {
+    let author = match deps.messages.get(&run.workspace_id, message_id).await {
+        Ok(Some(message)) => match message
+            .author
+            .resolve(&run.workspace_id, deps.users.as_ref(), deps.agents.as_ref())
+            .await
+        {
+            Ok(author) => author,
+            Err(error) => {
+                tracing::error!(%error, %message_id, "message author read failed");
+                return;
+            }
+        },
+        result => {
+            tracing::error!(?result, %message_id, "message read for event failed");
+            return;
+        }
+    };
     let event = NewEvent {
         workspace_id: run.workspace_id.clone(),
         event_type: event_type.to_string(),
@@ -6374,7 +6427,7 @@ async fn publish_message_row(
         payload: serde_json::json!({
             "message_id": message_id.as_str(),
             "parent_message_id": parent_message_id.map(|p| p.as_str()),
-            "author_kind": AuthorKind::Agent,
+            "author": author,
         }),
     };
     if let Err(err) = deps.bus.publish(event).await {
@@ -6435,7 +6488,7 @@ mod session_briefing_tests {
     fn an_end_for_a_sign_in_names_where_the_person_signs_in() {
         assert_eq!(
             sign_in_lines(&[ended("sign_in_required")]),
-            "\nClaude Code is not signed in on your Air. Ask the user to sign in: Settings › \
+            "\nClaude Code is not signed in on your Air. Ask your Person to sign in: Settings › \
              Hosts › Air."
         );
     }
@@ -6454,6 +6507,7 @@ mod widget_block_tests {
 
     fn widget_request() -> Request {
         Request {
+            decided_by: None,
             id: pagis_core::RequestId::generate(),
             workspace_id: WorkspaceId::generate(),
             agent_id: AgentId::generate(),

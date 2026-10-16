@@ -78,6 +78,7 @@ async fn setup() -> (Arc<SqliteKnowledgeStore>, SourceKey) {
         .unwrap();
     SqliteGrantStore::new(pool.clone())
         .create(&Grant {
+            created_by: pagis_core::Author::System,
             id: GrantId::generate(),
             workspace_id: workspace.id.clone(),
             agent_id: agent.id.clone(),

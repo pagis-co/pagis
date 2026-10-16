@@ -4,7 +4,7 @@
 //! failing the message, and `text_content` is the block projection.
 
 use pagis_core::{
-    AgentId, AgentStore, AuthorKind, Block, ChannelId, ChoiceOption, FormField, FormFieldKind,
+    AgentId, AgentStore, Author, Block, ChannelId, ChoiceOption, FormField, FormFieldKind,
     KnownBlock, Message, MessageId, MessageStatus, MessageStore, TableAlign, TableCell,
     TableColumn, WorkspaceId, blocks_text, now_ms,
 };
@@ -108,8 +108,7 @@ async fn every_block_variant_survives_the_store_and_the_timeline() {
         workspace_id: workspace_id(&daemon).await,
         channel_id: ChannelId::from(daemon.dm_channel_id.clone()),
         parent_message_id: None,
-        author_kind: AuthorKind::System,
-        author_agent_id: None,
+        author: Author::System,
         run_id: None,
         status: MessageStatus::Complete,
         blocks: blocks.clone(),

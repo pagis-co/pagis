@@ -70,6 +70,7 @@ async fn the_segments_of_the_conversation_search_hold_no_word_of_a_forgotten_mes
     let channel = fixture::channel(&workspace.id);
     stores.channels.create(&channel).await.unwrap();
     let grant = Grant {
+        created_by: pagis_core::Author::System,
         id: GrantId::from("grant-mail".to_string()),
         workspace_id: workspace.id.clone(),
         agent_id: agent.id.clone(),
@@ -123,7 +124,12 @@ async fn the_segments_of_the_conversation_search_hold_no_word_of_a_forgotten_mes
         .unwrap();
     // A message that stays keeps the segments in use, so the check reads
     // a table that FTS5 still writes to and not an empty one.
-    let kept = fixture::user_message(&workspace.id, &channel.id, "The lanternfish note stays.");
+    let kept = fixture::person_message(
+        &workspace.id,
+        &workspace.user_id,
+        &channel.id,
+        "The lanternfish note stays.",
+    );
     stores.messages.insert(&kept).await.unwrap();
     assert!(
         index_holds(&pool, "conversation_message_search", REPLY_WORD).await,

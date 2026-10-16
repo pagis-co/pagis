@@ -537,15 +537,16 @@ default, says so, and the Call records the voice it used (ADR-0020).
 The part of the system prompt that tells a Run about its Channel: who
 shares it, whether the Person is in it, who asked, and which conversation
 waits for the answer (ADR-0003).
-Not built: naming the Person who asks and the Persons who are present in a
-Shared Workspace (ADR-0039).
+The Briefing names the Person who asks and the Person who is present.
+Not built: Persons in a Shared Workspace (ADR-0039).
 
 ### Channel
-The container for a conversation. Inside one Workspace it holds the Person
-and Agents, or Agents with each other. The direct Channel of the Person
-and one Agent is that Agent's **DM Channel**. The Person reads every
-Channel of their private scope. A Channel that Agents open between
-themselves is read-only to the Person (ADR-0003).
+The container for a conversation. Each participant names a Person or an
+Agent. Each message records its author and shows their name. Inside one
+Workspace it holds the Person and Agents, or Agents with each other. The
+direct Channel of the Person and one Agent is that Agent's **DM Channel**.
+The Person reads every Channel of their private scope. A Channel that
+Agents open between themselves is read-only to the Person (ADR-0003).
 Not built: Persons read a Shared Workspace's Channels within their roles.
 A Channel can also have Workspaces as participants. That conversation is
 stored once outside the participant Workspaces. Each participant Workspace

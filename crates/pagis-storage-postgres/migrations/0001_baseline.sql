@@ -89,27 +89,34 @@ CREATE TABLE channel_participants (
     id TEXT COLLATE "C" PRIMARY KEY,
     workspace_id TEXT COLLATE "C" NOT NULL REFERENCES workspaces (id),
     channel_id TEXT COLLATE "C" NOT NULL REFERENCES channels (id),
-    participant_kind TEXT COLLATE "C" NOT NULL CHECK (participant_kind IN ('user', 'agent')),
+    participant_kind TEXT COLLATE "C" NOT NULL CHECK (participant_kind IN ('person', 'agent')),
+    person_id TEXT COLLATE "C",
     agent_id TEXT COLLATE "C" REFERENCES agents (id),
-    joined_at BIGINT NOT NULL
+    joined_at BIGINT NOT NULL,
+    CHECK ((participant_kind = 'person' AND person_id IS NOT NULL AND agent_id IS NULL)
+        OR (participant_kind = 'agent' AND person_id IS NULL AND agent_id IS NOT NULL))
 );
 CREATE UNIQUE INDEX idx_channel_participants_unique
-    ON channel_participants (channel_id, participant_kind, agent_id);
+    ON channel_participants (channel_id, participant_kind, COALESCE(person_id, ''), COALESCE(agent_id, ''));
 
 CREATE TABLE messages (
+    author_kind TEXT COLLATE "C" NOT NULL CHECK (author_kind IN ('person', 'agent', 'system')),
+    author_person_id TEXT COLLATE "C",
+    author_agent_id TEXT COLLATE "C" REFERENCES agents (id),
     id TEXT COLLATE "C" PRIMARY KEY,
     workspace_id TEXT COLLATE "C" NOT NULL REFERENCES workspaces (id),
     channel_id TEXT COLLATE "C" NOT NULL REFERENCES channels (id),
     parent_message_id TEXT COLLATE "C" REFERENCES messages (id),
-    author_kind TEXT COLLATE "C" NOT NULL CHECK (author_kind IN ('user', 'agent', 'system')),
-    author_agent_id TEXT COLLATE "C" REFERENCES agents (id),
     run_id TEXT COLLATE "C",
     status TEXT COLLATE "C" NOT NULL CHECK (status IN ('streaming', 'complete', 'failed')),
     blocks TEXT COLLATE "C" NOT NULL,
     text_content TEXT COLLATE "C" NOT NULL,
     pending_id TEXT COLLATE "C",
     created_at BIGINT NOT NULL,
-    completed_at BIGINT
+    completed_at BIGINT,
+    CHECK ((author_kind = 'person' AND author_person_id IS NOT NULL AND author_agent_id IS NULL)
+        OR (author_kind = 'agent' AND author_person_id IS NULL AND author_agent_id IS NOT NULL)
+        OR (author_kind = 'system' AND author_person_id IS NULL AND author_agent_id IS NULL))
 );
 CREATE INDEX idx_messages_channel ON messages (channel_id, created_at);
 CREATE INDEX idx_messages_parent ON messages (parent_message_id);
@@ -197,6 +204,9 @@ CREATE TABLE model_aliases (
 CREATE UNIQUE INDEX idx_model_aliases_unique ON model_aliases (workspace_id, alias);
 
 CREATE TABLE requests (
+    decided_by_kind TEXT COLLATE "C" NULL CHECK (decided_by_kind IN ('person', 'agent', 'system')),
+    decided_by_person_id TEXT COLLATE "C",
+    decided_by_agent_id TEXT COLLATE "C" REFERENCES agents (id),
     id TEXT COLLATE "C" PRIMARY KEY,
     workspace_id TEXT COLLATE "C" NOT NULL REFERENCES workspaces (id),
     agent_id TEXT COLLATE "C" NOT NULL REFERENCES agents (id),
@@ -209,7 +219,11 @@ CREATE TABLE requests (
     decided_at BIGINT,
     created_at BIGINT NOT NULL,
     -- The values a form or a choice submits with its decision.
-    submitted_values TEXT COLLATE "C"
+    submitted_values TEXT COLLATE "C",
+    CHECK ((decided_by_kind IS NOT NULL AND ((decided_by_kind = 'person' AND decided_by_person_id IS NOT NULL AND decided_by_agent_id IS NULL)
+        OR (decided_by_kind = 'agent' AND decided_by_person_id IS NULL AND decided_by_agent_id IS NOT NULL)
+        OR (decided_by_kind = 'system' AND decided_by_person_id IS NULL AND decided_by_agent_id IS NULL)))
+        OR (decided_by_kind IS NULL AND decided_by_person_id IS NULL AND decided_by_agent_id IS NULL))
 );
 
 CREATE TABLE capability_snapshots (
@@ -225,6 +239,9 @@ CREATE TABLE run_capability_snapshots (
 );
 
 CREATE TABLE credentials (
+    created_by_kind TEXT COLLATE "C" NOT NULL CHECK (created_by_kind IN ('person', 'agent', 'system')),
+    created_by_person_id TEXT COLLATE "C",
+    created_by_agent_id TEXT COLLATE "C" REFERENCES agents (id),
     id TEXT COLLATE "C" PRIMARY KEY,
     workspace_id TEXT COLLATE "C" NOT NULL REFERENCES workspaces (id),
     -- The registrable domain, from the public suffix list. The
@@ -243,7 +260,10 @@ CREATE TABLE credentials (
     owner_agent_id TEXT COLLATE "C" REFERENCES agents (id),
     provenance TEXT COLLATE "C" NOT NULL CHECK (provenance IN ('user_supplied', 'agent_minted')),
     created_run_id TEXT COLLATE "C" REFERENCES runs (id),
-    created_at BIGINT NOT NULL
+    created_at BIGINT NOT NULL,
+    CHECK ((created_by_kind = 'person' AND created_by_person_id IS NOT NULL AND created_by_agent_id IS NULL)
+        OR (created_by_kind = 'agent' AND created_by_person_id IS NULL AND created_by_agent_id IS NOT NULL)
+        OR (created_by_kind = 'system' AND created_by_person_id IS NULL AND created_by_agent_id IS NULL))
 );
 CREATE INDEX idx_credentials_workspace_domain ON credentials (workspace_id, domain);
 CREATE INDEX idx_requests_state ON requests (workspace_id, state, kind);
@@ -271,6 +291,9 @@ CREATE TABLE connections (
 CREATE UNIQUE INDEX idx_connections_alias ON connections (workspace_id, alias);
 
 CREATE TABLE schedules (
+    created_by_kind TEXT COLLATE "C" NOT NULL CHECK (created_by_kind IN ('person', 'agent', 'system')),
+    created_by_person_id TEXT COLLATE "C",
+    created_by_agent_id TEXT COLLATE "C" REFERENCES agents (id),
     id TEXT COLLATE "C" PRIMARY KEY,
     workspace_id TEXT COLLATE "C" NOT NULL REFERENCES workspaces (id),
     agent_id TEXT COLLATE "C" NOT NULL REFERENCES agents (id),
@@ -288,7 +311,6 @@ CREATE TABLE schedules (
     state TEXT COLLATE "C" NOT NULL CHECK (state IN ('active', 'paused', 'completed', 'blocked', 'archived')),
     revision BIGINT NOT NULL,
     approved_revision BIGINT,
-    creator TEXT COLLATE "C" NOT NULL CHECK (creator IN ('user', 'agent')),
     creating_run_id TEXT COLLATE "C" REFERENCES runs (id),
     created_at BIGINT NOT NULL,
     updated_at BIGINT NOT NULL,
@@ -297,7 +319,10 @@ CREATE TABLE schedules (
     -- archived and keyed as forgotten. The mark outlives the followup
     -- row that the purge deletes, so a queued run cannot start from the
     -- anchor later. SQLite: INTEGER with CHECK(forgotten IN (0,1)).
-    forgotten BOOLEAN NOT NULL DEFAULT false
+    forgotten BOOLEAN NOT NULL DEFAULT false,
+    CHECK ((created_by_kind = 'person' AND created_by_person_id IS NOT NULL AND created_by_agent_id IS NULL)
+        OR (created_by_kind = 'agent' AND created_by_person_id IS NULL AND created_by_agent_id IS NOT NULL)
+        OR (created_by_kind = 'system' AND created_by_person_id IS NULL AND created_by_agent_id IS NULL))
 );
 CREATE INDEX idx_schedules_due ON schedules (next_due_at) WHERE state = 'active';
 CREATE INDEX idx_schedules_workspace ON schedules (workspace_id, id DESC);
@@ -335,6 +360,9 @@ CREATE TABLE schedule_occurrences (
 CREATE INDEX idx_occurrences_schedule ON schedule_occurrences (schedule_id, id DESC);
 
 CREATE TABLE event_subscriptions (
+    created_by_kind TEXT COLLATE "C" NOT NULL CHECK (created_by_kind IN ('person', 'agent', 'system')),
+    created_by_person_id TEXT COLLATE "C",
+    created_by_agent_id TEXT COLLATE "C" REFERENCES agents (id),
     id TEXT COLLATE "C" PRIMARY KEY,
     workspace_id TEXT COLLATE "C" NOT NULL REFERENCES workspaces (id),
     agent_id TEXT COLLATE "C" NOT NULL REFERENCES agents (id),
@@ -346,7 +374,6 @@ CREATE TABLE event_subscriptions (
     channel_id TEXT COLLATE "C" NOT NULL REFERENCES channels (id),
     root_message_id TEXT COLLATE "C" REFERENCES messages (id),
     filter TEXT COLLATE "C" NOT NULL,
-    creator TEXT COLLATE "C" NOT NULL CHECK (creator IN ('user', 'agent')),
     state TEXT COLLATE "C" NOT NULL CHECK (
         state IN ('active', 'paused', 'blocked', 'archived')
     ),
@@ -358,7 +385,10 @@ CREATE TABLE event_subscriptions (
     blocked_reason TEXT COLLATE "C",
     created_at BIGINT NOT NULL,
     updated_at BIGINT NOT NULL,
-    archived_at BIGINT
+    archived_at BIGINT,
+    CHECK ((created_by_kind = 'person' AND created_by_person_id IS NOT NULL AND created_by_agent_id IS NULL)
+        OR (created_by_kind = 'agent' AND created_by_person_id IS NULL AND created_by_agent_id IS NOT NULL)
+        OR (created_by_kind = 'system' AND created_by_person_id IS NULL AND created_by_agent_id IS NULL))
 );
 CREATE INDEX idx_subscriptions_workspace ON event_subscriptions (workspace_id, id DESC);
 CREATE INDEX idx_subscriptions_source ON event_subscriptions (connection_id, event_kind, state);
@@ -659,6 +689,9 @@ CREATE TABLE plugin_bindings (
 );
 
 CREATE TABLE grants (
+    created_by_kind TEXT COLLATE "C" NOT NULL CHECK (created_by_kind IN ('person', 'agent', 'system')),
+    created_by_person_id TEXT COLLATE "C",
+    created_by_agent_id TEXT COLLATE "C" REFERENCES agents (id),
     id TEXT COLLATE "C" PRIMARY KEY,
     workspace_id TEXT COLLATE "C" NOT NULL REFERENCES workspaces (id),
     agent_id TEXT COLLATE "C" NOT NULL REFERENCES agents (id),
@@ -668,7 +701,10 @@ CREATE TABLE grants (
     scope TEXT COLLATE "C" NOT NULL,
     revision BIGINT NOT NULL DEFAULT 1,
     created_at BIGINT NOT NULL,
-    revoked_at BIGINT
+    revoked_at BIGINT,
+    CHECK ((created_by_kind = 'person' AND created_by_person_id IS NOT NULL AND created_by_agent_id IS NULL)
+        OR (created_by_kind = 'agent' AND created_by_person_id IS NULL AND created_by_agent_id IS NOT NULL)
+        OR (created_by_kind = 'system' AND created_by_person_id IS NULL AND created_by_agent_id IS NULL))
 );
 CREATE UNIQUE INDEX idx_grants_live_unique
     ON grants (workspace_id, agent_id, resource_kind, resource_id)
@@ -1414,7 +1450,7 @@ END $$;
 CREATE TRIGGER message_exposure_set_insert
 AFTER INSERT ON messages
 FOR EACH ROW
-WHEN (new.author_kind = 'user')
+WHEN (new.author_kind = 'person')
 EXECUTE FUNCTION message_exposure_set_insert();
 
 -- A message whose exposure reaches a forgotten source is forgotten too.
@@ -1605,3 +1641,11 @@ CREATE TRIGGER continuation_checkpoint_grant_change
 AFTER UPDATE OF revision, revoked_at ON grants
 FOR EACH ROW
 EXECUTE FUNCTION continuation_checkpoint_grant_change();
+
+ALTER TABLE messages ADD FOREIGN KEY (author_person_id) REFERENCES users (id);
+ALTER TABLE requests ADD FOREIGN KEY (decided_by_person_id) REFERENCES users (id);
+ALTER TABLE credentials ADD FOREIGN KEY (created_by_person_id) REFERENCES users (id);
+ALTER TABLE grants ADD FOREIGN KEY (created_by_person_id) REFERENCES users (id);
+ALTER TABLE schedules ADD FOREIGN KEY (created_by_person_id) REFERENCES users (id);
+ALTER TABLE event_subscriptions ADD FOREIGN KEY (created_by_person_id) REFERENCES users (id);
+ALTER TABLE channel_participants ADD FOREIGN KEY (person_id) REFERENCES users (id);

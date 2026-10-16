@@ -26,8 +26,9 @@ it('writes the time in the locale clock on the phone', () => {
       row={{
         key: 'msg-1',
         kind: 'message',
-        authorKind: 'user',
-        authorAgentId: null,
+        authorKind: 'person',
+        authorName: 'Ajay',
+        authorId: null,
         createdAt,
         sendState: 'sent',
         status: 'complete',

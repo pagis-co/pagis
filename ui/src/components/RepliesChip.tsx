@@ -5,13 +5,10 @@
 import type { ApiClient } from '../api/client'
 import { AvatarGroup, Button, OwnerAvatar } from '../primitives'
 import { Avatar } from '../avatars/Avatar'
-import { useAgents, useUserName } from '../queries'
+import { useAgents } from '../queries'
 import { formatClock, type ReplyAuthor, type TimelineRow } from '../timeline'
 
 import './RepliesChip.css'
-
-/** The name of the user in the middle of a line. */
-const YOU = 'you'
 
 export function RepliesChip({
   api,
@@ -23,13 +20,12 @@ export function RepliesChip({
   onOpen: () => void
 }) {
   const agents = useAgents(api)
-  const userName = useUserName(api)
   const agentOf = (author: ReplyAuthor) =>
     author.agentId === null
       ? undefined
       : agents.data?.find((agent) => agent.id === author.agentId)
   const nameOf = (author: ReplyAuthor) =>
-    author.authorKind === 'user' ? YOU : (agentOf(author)?.name ?? 'Sprite')
+    author.authorName
 
   const count = row.replyCount === 1 ? '1 reply' : `${row.replyCount} replies`
   const names = row.replyAuthors.map(nameOf).join(', ')
@@ -41,8 +37,8 @@ export function RepliesChip({
       {row.replyAuthors.length > 0 && (
         <AvatarGroup>
           {row.replyAuthors.map((author) =>
-            author.authorKind === 'user' ? (
-              <OwnerAvatar key="user" name={userName} size="sm" />
+            author.authorKind === 'person' ? (
+              <OwnerAvatar key="user" name={nameOf(author)} size="sm" />
             ) : (
               <Avatar
                 key={author.agentId ?? author.authorKind}

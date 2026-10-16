@@ -115,6 +115,7 @@ pub struct MintRequest {
 /// What settings hands the vault to save a login the user already has.
 #[derive(Debug, Clone)]
 pub struct NewCredential {
+    pub created_by: pagis_core::Author,
     pub workspace_id: WorkspaceId,
     pub domain: String,
     pub username: String,
@@ -127,6 +128,7 @@ pub struct NewCredential {
 /// no secret here and no way to ask for one.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct CredentialView {
+    pub created_by: pagis_core::Author,
     pub id: String,
     pub domain: String,
     pub username: String,
@@ -142,6 +144,7 @@ pub struct CredentialView {
 impl From<&Credential> for CredentialView {
     fn from(credential: &Credential) -> Self {
         Self {
+            created_by: credential.created_by.clone(),
             id: credential.id.to_string(),
             domain: credential.domain.clone(),
             username: credential.username.clone(),
@@ -209,6 +212,7 @@ impl Vault {
             _ => None,
         };
         let credential = Credential {
+            created_by: new.created_by,
             id: CredentialId::generate(),
             workspace_id: new.workspace_id,
             domain,
@@ -241,6 +245,7 @@ impl Vault {
         let (secret, applied) = recipe::mint_for(request.rules.as_deref())?;
         let key = self.keys.of(&request.workspace_id)?;
         let credential = Credential {
+            created_by: pagis_core::Author::Agent(request.agent_id.clone()),
             id: CredentialId::generate(),
             workspace_id: request.workspace_id,
             domain,

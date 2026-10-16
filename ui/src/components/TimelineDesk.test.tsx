@@ -40,8 +40,7 @@ function message(id: string, overrides: Record<string, unknown> = {}) {
   return {
     id,
     channel_id: 'ch-1',
-    author_kind: 'agent',
-    author_agent_id: 'agent-2',
+    author: { kind: 'agent', id: 'agent-2', name: 'Scout' },
     status: 'complete',
     blocks: [{ type: 'markdown', text: `line ${id}` }],
     text_content: `line ${id}`,

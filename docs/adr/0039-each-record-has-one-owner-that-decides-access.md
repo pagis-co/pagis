@@ -13,10 +13,10 @@ Established team products separate Org roles from roles in a shared scope.
 Access follows the scope that owns the record. Shared content keeps one
 history, with an author for each change.
 
-Not built: Private and Shared Workspace kinds, Shared Workspace roles,
-authorship on each record, guests and offboarding. The daemon gives each
-Person one Workspace. This decision replaces the single-Person Workspace
-rules of ADR-0023 and the Channel read rules of ADR-0003.
+Not built: Private and Shared Workspace kinds, Shared Workspace roles, guests
+and offboarding. The daemon gives each Person one Workspace. This decision
+replaces the single-Person Workspace rules of ADR-0023 and the Channel read
+rules of ADR-0003.
 
 ## Decision
 
@@ -26,18 +26,21 @@ Each record has exactly one owning Workspace or conversation. Its owner
 decides access. A conversation between Workspaces lives once outside its
 participant Workspaces (ADR-0043). It is not copied to each reader.
 
-Each record names its author, a Person or Agent. Messages, Request decisions,
+Each record names its author, a Person or Agent. The daemon names itself
+on its own records. Messages, Request decisions,
 Credentials, Grants, Schedules and Event Subscriptions record who makes them.
 Each change keeps its author. A Shared Workspace Agent change is versioned
 and audited. The Briefing names the Person who asks and the Persons who are
 present. An Agent introduces itself with its name and the Shared Workspace
 name when it acts for a Shared Workspace.
 
-Not built: this ownership and authorship model. Files are built. Not built:
-collaborative Artifacts, which are documents, sheets, slide decks or sites.
-An Artifact belongs to one Workspace, can be stored apart from it, and is
-shared by an access grant, never by a copy. Text from outside its Workspace
-is untrusted input to Agents.
+Authorship on messages, Request decisions, Credentials, Grants, Schedules and
+Event Subscriptions is built. Not built: ownership through a conversation,
+Shared Workspace Agent versioning and auditing. Files are built. Not built:
+collaborative Artifacts, which are documents, sheets, slide decks or sites. An
+Artifact belongs to one Workspace, can be stored apart from it, and is shared
+by an access grant, never by a copy. Text from outside its Workspace is
+untrusted input to Agents.
 
 ### Private and Shared Workspaces have separate access rules
 

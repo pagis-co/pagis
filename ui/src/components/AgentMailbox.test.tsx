@@ -83,7 +83,7 @@ const standingRule = {
   name: 'Inbound mail',
   instruction: 'You received mail. Read it with `mail__get_message`.',
   state: 'active',
-  creator: 'user',
+  created_by: { kind: 'person', id: 'person-1', name: 'Ajay' },
   revision: 1,
   source_version: '1',
   created_at: 1,
