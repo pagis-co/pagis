@@ -69,6 +69,37 @@ impl OrgStore for PostgresOrgStore {
             .collect())
     }
 
+    async fn person_defaults(&self, id: &OrgId) -> Result<pagis_core::PersonDefaults, StoreError> {
+        let row = sqlx::query("SELECT person_defaults FROM orgs WHERE id = $1")
+            .bind(id.as_str())
+            .fetch_one(&self.pool)
+            .await
+            .map_err(db_err)?;
+        serde_json::from_str(row.get::<String, _>("person_defaults").as_str())
+            .map_err(|error| StoreError::Corrupt(error.to_string()))
+    }
+    async fn set_person_defaults(
+        &self,
+        id: &OrgId,
+        defaults: &pagis_core::PersonDefaults,
+        entry: &pagis_core::AuditEntry,
+    ) -> Result<(), StoreError> {
+        let mut tx = self.pool.begin().await.map_err(db_err)?;
+        let encoded = serde_json::to_string(defaults)
+            .map_err(|error| StoreError::Corrupt(error.to_string()))?;
+        let result = sqlx::query("UPDATE orgs SET person_defaults = $1 WHERE id = $2")
+            .bind(encoded)
+            .bind(id.as_str())
+            .execute(&mut *tx)
+            .await
+            .map_err(db_err)?;
+        if result.rows_affected() != 1 {
+            return Err(StoreError::Conflict("Org is missing".into()));
+        }
+        crate::audit_log::append(&mut tx, entry).await?;
+        tx.commit().await.map_err(db_err)?;
+        Ok(())
+    }
     async fn set_google_client_id(
         &self,
         id: &OrgId,

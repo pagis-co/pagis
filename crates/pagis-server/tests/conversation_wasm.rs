@@ -1028,6 +1028,7 @@ async fn free_busy_resolves_private_and_shared_workspace_mailboxes() {
         stores
             .workspace_mailboxes
             .create(&WorkspaceMailbox {
+                author: pagis_core::Author::System,
                 workspace_id: workspace.clone(),
                 connection_id: ConnectionId::generate(),
                 address: address.into(),
@@ -1059,6 +1060,7 @@ async fn free_busy_resolves_private_and_shared_workspace_mailboxes() {
     stores
         .workspace_mailboxes
         .create(&WorkspaceMailbox {
+            author: pagis_core::Author::System,
             workspace_id: outside_workspace.id,
             connection_id: ConnectionId::generate(),
             address: "other-mailbox@example.com".into(),

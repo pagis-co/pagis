@@ -57,6 +57,17 @@ impl OrgStore for MemoryOrgs {
         Ok(self.rows.lock().unwrap().clone())
     }
 
+    async fn person_defaults(&self, _: &OrgId) -> Result<pagis_core::PersonDefaults, StoreError> {
+        unimplemented!("not used by Connections")
+    }
+    async fn set_person_defaults(
+        &self,
+        _: &OrgId,
+        _: &pagis_core::PersonDefaults,
+        _: &pagis_core::AuditEntry,
+    ) -> Result<(), StoreError> {
+        unimplemented!("not used by Connections")
+    }
     async fn set_google_client_id(
         &self,
         id: &OrgId,

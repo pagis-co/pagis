@@ -231,6 +231,14 @@ pub trait OrgStore: Send + Sync {
     async fn create(&self, org: &Org) -> Result<(), StoreError>;
     /// Every Org, oldest first. There is exactly one.
     async fn list(&self) -> Result<Vec<Org>, StoreError>;
+    async fn person_defaults(&self, id: &OrgId) -> Result<crate::PersonDefaults, StoreError>;
+    /// Save the defaults and their Org Audit Log entry in one write.
+    async fn set_person_defaults(
+        &self,
+        id: &OrgId,
+        defaults: &crate::PersonDefaults,
+        entry: &crate::AuditEntry,
+    ) -> Result<(), StoreError>;
     /// Record the installation's Google Web OAuth client id, or clear
     /// it with `None`. Returns false when the Org is missing.
     async fn set_google_client_id(

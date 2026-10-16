@@ -21,6 +21,7 @@ const SECTIONS: &[&str] = &[
     "spend",
     "people",
     "workspaces",
+    "person-defaults",
     "sessions",
     "hosts",
     "resources",

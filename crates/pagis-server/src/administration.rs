@@ -128,6 +128,7 @@ impl AdministrationSections {
             ("spend", None),
             ("people", None),
             ("workspaces", None),
+            ("person-defaults", None),
             ("sessions", None),
             ("hosts", Some(Hosts)),
             ("resources", None),
@@ -215,6 +216,8 @@ pub struct RosterDto {
 
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateAccountRequest {
+    /// An explicit address on the Org mail domain.
+    pub mailbox_address: Option<String>,
     pub email: String,
     /// What the agents call the person.
     pub name: String,
@@ -598,6 +601,15 @@ pub async fn create_account(
         .map(check_password)
         .transpose()?;
     let org = org(&state).await?;
+    let defaults = state.orgs.person_defaults(&org.id).await?;
+    crate::person_defaults::validate(&state, &defaults).await?;
+    let mailbox = crate::person_defaults::mailbox_request(
+        &state,
+        &defaults,
+        &name,
+        request.mailbox_address.as_deref(),
+    )
+    .await?;
     let now = state.clock.now_ms();
 
     let person = User {
@@ -653,6 +665,29 @@ pub async fn create_account(
         now,
     )
     .await?;
+    if let Some(mailbox) = mailbox {
+        state
+            .mailbox_desk
+            .provision_workspace(
+                &workspace.id,
+                mailbox,
+                pagis_core::Author::Person(administrator.user_id.clone()),
+            )
+            .await
+            .map_err(crate::mailboxes::mailbox_error)?;
+    }
+    for member in defaults.shared_workspaces {
+        state
+            .workspace_members
+            .add(&pagis_core::WorkspaceMember {
+                workspace_id: member.workspace_id,
+                person_id: person.id.clone(),
+                role: member.role,
+                author: pagis_core::Author::Person(administrator.user_id.clone()),
+            })
+            .await
+            .map_err(crate::workspace_members::membership_error)?;
+    }
     // The person answers no model question, so their default route
     // follows the model the Administrator chose, where a key reaches it.
     let route =
@@ -1365,6 +1400,10 @@ pub fn router(state: Arc<AppState>) -> Router {
             post(crate::plugins::start_plugin),
         )
         .route("/api/v1/administration/sections", get(get_sections))
+        .route(
+            "/api/v1/administration/person-defaults",
+            get(crate::person_defaults::get).put(crate::person_defaults::set),
+        )
         .route(
             "/api/v1/administration/people",
             get(list_people).post(create_account),

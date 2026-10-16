@@ -350,6 +350,7 @@ struct Data {
 
     workspaces: BTreeMap<WorkspaceId, Workspace>,
     workspace_members: BTreeMap<(WorkspaceId, UserId), crate::WorkspaceMember>,
+    person_defaults: BTreeMap<crate::OrgId, crate::PersonDefaults>,
     orgs: BTreeMap<OrgId, Org>,
     users: BTreeMap<UserId, User>,
     sessions: BTreeMap<SessionId, Session>,

@@ -13,6 +13,17 @@ use crate::{
 /// An Embedder supplies the storage and provisioning of Workspace mail.
 #[async_trait]
 pub trait WorkspaceMailHost: Send + Sync {
+    /// Whether this host can create a mailbox without a supplied password.
+    fn supports_automatic_provisioning(&self, connection: &Connection) -> bool;
+
+    /// Validate the host request and list the addresses it already holds.
+    /// This operation creates no mailbox and reserves no address.
+    async fn check(
+        &self,
+        connection: &Connection,
+        request: &NewMailbox,
+    ) -> Result<Vec<crate::HostedMailbox>, MailboxError>;
+
     /// Reserve the record before creating the mailbox. Release the reservation
     /// if creation fails and the address is safe to use again.
     async fn provision(
@@ -50,32 +61,20 @@ impl ImapWorkspaceMailHost {
             secrets,
         }
     }
-}
-
-#[async_trait]
-impl WorkspaceMailHost for ImapWorkspaceMailHost {
-    async fn provision(
-        &self,
-        connection: &Connection,
-        mailbox: &WorkspaceMailbox,
-        request: &NewMailbox,
-        context: MailReadContext,
-        records: &dyn WorkspaceMailboxRecordStore,
-    ) -> Result<Box<dyn WorkspaceMailStore>, MailboxError> {
-        let settings = mailbox_provider(connection).ok_or(MailboxError::NoProvider)?;
-        let password = crate::desk::checked_password(&settings, request)?;
-        let (Some(imap), Some(smtp), Some(password)) = (settings.imap, settings.smtp, password)
-        else {
-            return Err(MailboxError::Validation(
-                "this Workspace Mailbox needs an IMAP login".into(),
-            ));
-        };
-        let host: &dyn MailboxHost = if connection.provider == crate::MANUAL_PROVIDER {
+    fn host_of(&self, connection: &Connection) -> &dyn MailboxHost {
+        if connection.provider == crate::MANUAL_PROVIDER {
             &crate::manual::ManualHost
         } else {
             self.host.as_ref()
-        };
-        let api_key = if host.capabilities().api_key {
+        }
+    }
+
+    fn account(
+        &self,
+        connection: &Connection,
+        settings: &crate::MailboxProvider,
+    ) -> Result<crate::HostAccount, MailboxError> {
+        let api_key = if self.host_of(connection).capabilities().api_key {
             Some(
                 self.secrets
                     .get(&host_api_key_secret_name(&connection.alias))
@@ -88,11 +87,64 @@ impl WorkspaceMailHost for ImapWorkspaceMailHost {
         } else {
             None
         };
-        let account = crate::HostAccount::new(
+        Ok(crate::HostAccount::new(
             &settings.domain,
-            settings.account.unwrap_or_default(),
+            settings.account.clone().unwrap_or_default(),
             api_key,
-        );
+        ))
+    }
+}
+
+#[async_trait]
+impl WorkspaceMailHost for ImapWorkspaceMailHost {
+    fn supports_automatic_provisioning(&self, connection: &Connection) -> bool {
+        mailbox_provider(connection).is_some_and(|settings| {
+            settings.imap.is_some()
+                && settings.smtp.is_some()
+                && settings.password() == crate::MailboxPasswordKind::Minted
+        })
+    }
+
+    async fn check(
+        &self,
+        connection: &Connection,
+        request: &NewMailbox,
+    ) -> Result<Vec<crate::HostedMailbox>, MailboxError> {
+        let settings = mailbox_provider(connection).ok_or(MailboxError::NoProvider)?;
+        if settings.imap.is_none()
+            || settings.smtp.is_none()
+            || crate::desk::checked_password(&settings, request)?.is_none()
+        {
+            return Err(MailboxError::Validation(
+                "this Workspace Mailbox needs an IMAP login".into(),
+            ));
+        }
+        let account = self.account(connection, &settings)?;
+        if settings.password() == crate::MailboxPasswordKind::Minted {
+            Ok(self.host_of(connection).list(&account).await?)
+        } else {
+            Ok(Vec::new())
+        }
+    }
+
+    async fn provision(
+        &self,
+        connection: &Connection,
+        mailbox: &WorkspaceMailbox,
+        request: &NewMailbox,
+        context: MailReadContext,
+        records: &dyn WorkspaceMailboxRecordStore,
+    ) -> Result<Box<dyn WorkspaceMailStore>, MailboxError> {
+        let settings = mailbox_provider(connection).ok_or(MailboxError::NoProvider)?;
+        let password = crate::desk::checked_password(&settings, request)?;
+        let account = self.account(connection, &settings)?;
+        let (Some(imap), Some(smtp), Some(password)) = (settings.imap, settings.smtp, password)
+        else {
+            return Err(MailboxError::Validation(
+                "this Workspace Mailbox needs an IMAP login".into(),
+            ));
+        };
+        let host = self.host_of(connection);
         records
             .create(mailbox)
             .await
