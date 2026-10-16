@@ -36,7 +36,13 @@ who makes them.
 Each change keeps its author. A Shared Workspace Agent change is versioned
 and audited. The Briefing names the Person who asks and the Persons who are
 present. An Agent introduces itself with its name and the Shared Workspace
-name when it acts for a Shared Workspace.
+name when it acts for a Shared Workspace: "Aria, from the Acme Support team".
+The self-introduction rule is fixed. A personality or message cannot turn
+it off. The Agent says it is an AI assistant when asked and never claims
+to be human. A Private Workspace keeps the Person's name in the rule.
+The Briefing names the triggering Person and role. Present members are
+Person participants of the Channel. Client activity is tracked per
+Person across all Workspaces and does not supply a connected member roster.
 
 Authorship on messages, Request decisions, Credentials, Grants, Schedules,
 Calendar Events and Event Subscriptions is built. Conversation messages live once under their
@@ -69,10 +75,13 @@ stays an Org role. It does not name a Shared Workspace role.
 
 The Team trust tier replaces Owner for Persons in a Shared Workspace.
 Managers' words are instructions. Responders' and Readers' words are
-requests. A tier decides authority, not access (ADR-0021).
+requests. Each member message has a Team envelope with the current role
+and authority. Marker lookalikes in its body are removed. A request cannot
+change the Agent's job, Standing Brief or rules. The Trust List shows Team
+identities from membership. A Manager cannot add an external Owner identity
+to a Shared Workspace. A tier decides authority, not access (ADR-0021).
 
-Not built: the Team trust tier. The Org's
-Workspace stays the scope for Installation Connections and installed Plugins
+The Org's Workspace stays the scope for Installation Connections and installed Plugins
 (ADR-0023).
 Not built: its use as an Org-wide Shared Workspace with every
 Person in it.
@@ -90,7 +99,10 @@ Person can enter. Query keys and routes name the Workspace. One sign-in
 serves them all.
 A non-member gets 404, as for an unknown Workspace. A member with too little
 access gets 403. A Reader uses GET. A Responder also sends messages and
-decides Requests. A Manager makes all other changes. The role for each
+decides Requests. A Manager makes all other changes. A Manager creates, changes and archives
+Agents and chooses the Chief of Staff. The Product App uses the role in the
+Workspaces list to show these controls on desktop and phone layouts.
+The role for each
 method is in the route table. The same handlers serve both route prefixes.
 
 ### Personal resources stay private and spend follows the Workspace

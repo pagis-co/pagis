@@ -536,8 +536,9 @@ Workspace, it introduces itself with its name and the Person's name. It
 says it is an AI assistant when asked. It never says or suggests that it
 is human. This rule is stronger than its personality and any message
 instruction. A Shared Workspace has its own Agents.
-Not built: their introduction with the Shared Workspace name, and Calls
-or texts through a Workspace Number under a Grant (ADR-0039, ADR-0041).
+A Shared Workspace Agent introduces itself as "<Agent name>, from the
+<Workspace name> team" (ADR-0039).
+Not built: Calls or texts through a Workspace Number under a Grant (ADR-0041).
 _Avoid_: sprite (in the glossary, code and ADRs), bot
 
 ### Agent Voice
@@ -549,8 +550,11 @@ default, says so, and the Call records the voice it used (ADR-0020).
 The part of the system prompt that tells a Run about its Channel: who
 shares it, whether the Person is in it, who asked, and which conversation
 waits for the answer (ADR-0003).
-The Briefing names the Person who asks and the Person who is present.
-Not built: Persons in a Shared Workspace (ADR-0039).
+The Briefing of a Shared Workspace names the triggering Person and role,
+and each member who is a Person participant of the Channel. The daemon
+tracks recent client activity for each Person across all Workspaces. It keeps
+no connected member list for each Channel, so Person participants define who
+is present (ADR-0039).
 
 ### Channel
 The container for a conversation. Each participant names a Person, an
@@ -1481,8 +1485,9 @@ needs a confirmed Trust Tier (ADR-0020, ADR-0041).
 A Workspace's list of identities for Calls, texts and mail: numbers,
 addresses or domains. It names Owner and Trusted identities. An identity
 absent from the list is Unknown (ADR-0021, ADR-0019).
-Not built: the Team trust tier in place of Owner for Persons in a Shared
-Workspace (ADR-0039).
+In a Shared Workspace, the Team tier takes the place of Owner for Persons.
+Team identities come from current membership and cannot be added as external
+identities (ADR-0039).
 
 ### Trust Tier
 What the words of a Remote Party, mail sender or text sender are worth:
@@ -1491,11 +1496,13 @@ words are data only. A mail sender's tier holds only on an aligned DMARC
 pass in the Mailbox Provider's authentication result. More than one such
 result means Unknown. A tier gates authority, never access (ADR-0021,
 ADR-0019).
-Not built: the **Team** trust tier in a Shared Workspace. A Manager's words
-are instructions. A Responder's or Reader's words are requests. Colleagues
-and their Agents in other Workspaces are trusted senders whose words are
-requests. Mail gets its tier after the spam verdict (ADR-0039, ADR-0040,
-ADR-0043).
+The **Team** tier takes the place of Owner for channel messages from Shared
+Workspace members. A Manager's words are instructions. A Responder's or
+Reader's words are requests and cannot change an Agent's rules. The daemon
+reads the role from current membership, before the Agent reads the words
+(ADR-0039).
+Not built: the trust rule for colleagues in other Workspaces and the spam
+verdict before the mail Trust Tier (ADR-0040, ADR-0043).
 
 ### Workspace Number
 The optional telephone number of a Workspace, at most one active number.
@@ -1689,14 +1696,19 @@ count, the app badge and each Notification read it. The daemon publishes
 an event when an item enters or leaves the queue. A failed Run or a
 missed Call leaves the queue when the Person acts on it or dismisses it;
 the record keeps the time of the dismissal (ADR-0022, ADR-0021,
-ADR-0030).
+ADR-0030). A Person's queue also reads pending Requests from each Shared
+Workspace where the Person is a Responder or Manager. Each Request stays
+in its owning Workspace, and each queue read checks current membership.
+A Reader's Shared Workspace queue is empty. A shared Request names its
+owning Workspace; the Product App opens that Workspace before its decision.
 
 ### Notification
 A Web Push to each Push Subscription of the Person when an item enters the
 Needs-You Queue. It waits while the Person is active in a client: a
 visible client had input in the last 120 s. Activity is kept for each Person
-across all Workspaces. One member's activity holds none of another member's
-Notifications (ADR-0030).
+across all Workspaces. Only a Person's own Needs-You Queue makes Notifications.
+A Shared Workspace makes none itself. Its Requests enter the queues of its
+Responders and Managers and notify them there (ADR-0030).
 _Avoid_: alert, push message
 
 ### Person Notice

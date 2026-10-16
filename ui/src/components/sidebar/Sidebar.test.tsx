@@ -72,6 +72,7 @@ const channels = [
 const needsYou = {
   items: ['req-1', 'req-2'].map((requestId, index) => ({
     kind: 'approval',
+    workspace_id: 'ws-1',
     id: `request:${requestId}`,
     agent_id: 'ag-1',
     line: 'Sage needs your approval',

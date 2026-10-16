@@ -173,3 +173,18 @@ async fn the_answered_call_rebinds_the_tools_of_its_negotiated_leg() {
         vec![HANG_UP]
     );
 }
+
+#[test]
+fn shared_workspace_call_introduction_names_the_team() {
+    let mut brief = a_brief();
+    brief.workspace_kind = pagis_core::WorkspaceKind::Shared;
+    brief.person_name = "Acme Support".into();
+    for instructions in [
+        brief.classify_instructions(),
+        brief.conversation_instructions(),
+    ] {
+        assert!(instructions.contains("Robin, from the Acme Support team"));
+        assert!(!instructions.contains("assistant of Acme Support"));
+        assert!(instructions.contains("say that you are an AI assistant"));
+    }
+}

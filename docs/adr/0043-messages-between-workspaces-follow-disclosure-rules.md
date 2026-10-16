@@ -60,8 +60,8 @@ details. Artifacts are not built.
 
 ### Presence has no stored copy
 
-Active and away come from client activity in the Private Workspace. The
-conversation reads that state without a stored copy. Host Presence keeps
+Active and away come from client activity kept for each Person across all
+Workspaces. The conversation reads that state without a stored copy. Host Presence keeps
 its separate meaning (ADR-0015).
 
 The server reads the Private Workspace Calendar at the current time. A busy

@@ -371,7 +371,7 @@ impl InboundCalls {
         )
         .await
         .map_err(|error| InboundError(error.to_string()))?;
-        let brief = CallBrief::inbound(
+        let mut brief = CallBrief::inbound(
             agent,
             &person_name,
             number,
@@ -379,6 +379,14 @@ impl InboundCalls {
             TrustTier::Unknown,
             free_tools,
         );
+        brief.workspace_kind = self
+            .deps
+            .workspaces
+            .get(&run.workspace_id)
+            .await
+            .map_err(|error| InboundError(error.to_string()))?
+            .ok_or_else(|| InboundError("the Workspace is absent".into()))?
+            .kind;
         let tools = session_tools(&brief, self.deps.transport.capabilities(), None);
         Ok(PlacedCall {
             id: call_id.clone(),

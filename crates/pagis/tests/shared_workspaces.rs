@@ -166,6 +166,35 @@ async fn shared_workspaces_check_roles_and_keep_private_routes() {
             assert_eq!(response.status(), 404, "non-member {method} {path}");
         }
     }
+    let trust: Value = call(
+        &daemon,
+        &persons[0].1,
+        Method::GET,
+        &format!("{prefix}/settings/trust-list"),
+        Value::Null,
+    )
+    .await
+    .json()
+    .await
+    .unwrap();
+    let team = trust["team"].as_array().unwrap();
+    assert_eq!(team.len(), 3);
+    for member in team {
+        assert_eq!(member["tier"], "team");
+    }
+    assert!(trust["own_addresses"].as_array().unwrap().is_empty());
+    assert_eq!(
+        call(
+            &daemon,
+            &persons[0].1,
+            Method::POST,
+            &format!("{prefix}/settings/trust-list"),
+            json!({"value":"sam@example.com", "tier":"owner"})
+        )
+        .await
+        .status(),
+        422
+    );
     let workspace_id = pagis_core::WorkspaceId::from(id.to_string());
     let stores = daemon.stores();
     let workspace = stores.workspaces.get(&workspace_id).await.unwrap().unwrap();
@@ -181,6 +210,146 @@ async fn shared_workspaces_check_roles_and_keep_private_routes() {
     let request =
         pagis_testkit::fixture::pending_request(&workspace_id, &agent_id, &run.id, "echo hello");
     stores.requests.create(&request).await.unwrap();
+    // Each permitted Person reads the same Request through their own queue.
+    for (index, (_, cookie)) in persons.iter().enumerate() {
+        for path in [
+            "/api/v1/needs-you".to_string(),
+            format!("{prefix}/needs-you"),
+        ] {
+            let queue: Value = call(&daemon, cookie, Method::GET, &path, Value::Null)
+                .await
+                .json()
+                .await
+                .unwrap();
+            let found = queue["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|item| item["request_id"] == request.id.as_str());
+            assert_eq!(found, index != 2, "role {index}: {path}: {queue}");
+        }
+    }
+    let fields = json!({"name":"Aria", "job":"Support", "personality":"Clear",
+        "standing_brief":"Answer support requests"});
+    for (_, cookie) in &persons[1..] {
+        assert_eq!(
+            call(
+                &daemon,
+                cookie,
+                Method::POST,
+                &format!("{prefix}/agents"),
+                fields.clone()
+            )
+            .await
+            .status(),
+            403
+        );
+        for (method, path, body) in [
+            (
+                Method::PUT,
+                format!("{prefix}/agents/{agent_id}"),
+                fields.clone(),
+            ),
+            (
+                Method::POST,
+                format!("{prefix}/agents/{agent_id}/archive"),
+                Value::Null,
+            ),
+            (
+                Method::PUT,
+                format!("{prefix}/workspace/chief-of-staff"),
+                json!({"agent_id":agent_id}),
+            ),
+        ] {
+            assert_eq!(
+                call(&daemon, cookie, method, &path, body).await.status(),
+                403
+            );
+        }
+    }
+    let created = call(
+        &daemon,
+        &persons[0].1,
+        Method::POST,
+        &format!("{prefix}/agents"),
+        fields.clone(),
+    )
+    .await;
+    assert_eq!(created.status(), 201);
+    let created: Value = created.json().await.unwrap();
+    let new_id = created["id"].as_str().unwrap();
+    let changed = call(
+        &daemon,
+        &persons[0].1,
+        Method::PUT,
+        &format!("{prefix}/agents/{new_id}"),
+        json!({"name":"Aria", "job":"Team support", "personality":"Clear",
+            "standing_brief":"Follow the team rules"}),
+    )
+    .await;
+    assert_eq!(changed.status(), 200);
+    let changed: Value = changed.json().await.unwrap();
+    assert_eq!(changed["job"], "Team support");
+    assert_eq!(changed["standing_brief"], "Follow the team rules");
+    assert_eq!(
+        call(
+            &daemon,
+            &persons[0].1,
+            Method::PUT,
+            &format!("{prefix}/workspace/chief-of-staff"),
+            json!({"agent_id":new_id})
+        )
+        .await
+        .status(),
+        200
+    );
+    assert_eq!(
+        stores
+            .workspaces
+            .get(&workspace_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .chief_of_staff_agent_id
+            .unwrap()
+            .as_str(),
+        new_id
+    );
+    assert_eq!(
+        call(
+            &daemon,
+            &persons[0].1,
+            Method::POST,
+            &format!("{prefix}/agents/{new_id}/archive"),
+            Value::Null
+        )
+        .await
+        .status(),
+        200
+    );
+    assert_eq!(
+        stores
+            .agents
+            .get(
+                &workspace_id,
+                &pagis_core::AgentId::from(new_id.to_string())
+            )
+            .await
+            .unwrap()
+            .unwrap()
+            .status,
+        pagis_core::AgentStatus::Archived
+    );
+    assert_eq!(
+        stores
+            .workspaces
+            .get(&workspace_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .chief_of_staff_agent_id,
+        Some(agent_id.clone())
+    );
     let send_path = format!("{prefix}/channels/{}/messages", channel.id);
     let decide_path = format!("{prefix}/requests/{}/decision", request.id);
     for (path, body) in [

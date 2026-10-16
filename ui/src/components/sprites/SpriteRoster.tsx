@@ -1,3 +1,4 @@
+import { useWorkspaceAccess } from '../../workspace'
 // The sprite roster: every sprite you made, with a face, what it
 // is doing now, the lines it answers on, and when it last worked. A row
 // opens the profile at `/sprites/:agentId`.
@@ -7,7 +8,7 @@
 
 import type { AgentDto, ApiClient } from '../../api/client'
 import { ChevronRight, Plus, Users } from 'lucide-react'
-import { Badge, Button, Frame, IconButton, Row } from '../../primitives'
+import { Badge, Button, Frame, Row } from '../../primitives'
 import { Avatar } from '../../avatars/Avatar'
 import { useAgents, useRuns, useWorkspace } from '../../queries'
 import { agentPresence, usePresence } from '../../state/presence'
@@ -90,6 +91,7 @@ export function SpriteRoster({
   /** Creation opens the new agent's DM. */
   onOpenChannel: (channelId: string) => void
 }) {
+  const { canManage } = useWorkspaceAccess()
   const phone = useIsMobile()
   const agents = useAgents(api)
   const runs = useRuns(api, '', '', '')
@@ -97,20 +99,30 @@ export function SpriteRoster({
   const roster = (agents.data ?? []).filter((agent) => agent.status !== 'archived')
 
   return (
-    <section className={`sprite-roster${phone ? " sprite-roster-phone" : ""}`} data-testid="sprite-roster">
-      {phone ? <LargeTitle title="Sprites" hint="Meet the sprites on your team." actions={<IconButton icon={Plus} label="New sprite" variant="link" onClick={() => onCreating(true)} />} /> : <header className="sprite-header">
-        <div>
-          <h2>Sprites</h2>
-          <p className="page-intro">Meet the sprites on your team.</p>
-        </div>
-        {!creating && (
-          <Button variant="primary" onClick={() => onCreating(true)}><Plus size={16} aria-hidden />New sprite</Button>
-        )}
-      </header>}
+    <section
+      className={`sprite-roster${phone ? ' sprite-roster-phone' : ''}`}
+      data-testid="sprite-roster"
+    >
+      {phone ? (
+        <LargeTitle title="Sprites" hint="Meet the sprites on your team." />
+      ) : (
+        <header className="sprite-header">
+          <div>
+            <h2>Sprites</h2>
+            <p className="page-intro">Meet the sprites on your team.</p>
+          </div>
+          {canManage && !creating && (
+            <Button variant="primary" onClick={() => onCreating(true)}>
+              <Plus size={16} aria-hidden />
+              New sprite
+            </Button>
+          )}
+        </header>
+      )}
       {!phone && <p className="sprite-description">Message a sprite directly, or use @mentions to bring it into a group conversation.</p>}
       <NewSprite
         api={api}
-        open={creating}
+        open={canManage && creating}
         onCancel={() => onCreating(false)}
         onCreated={(channelId) => {
           onCreating(false)
@@ -135,7 +147,24 @@ export function SpriteRoster({
             onOpen={() => onOpenAgent(agent.id)}
           />
         ))}
-        {phone && <Button variant="dashed" size="xl" onClick={() => onCreating(true)}><span className="phone-new-sprite-face"><Plus size={20} aria-hidden /></span><span className="phone-row-copy"><strong>New sprite</strong><span className="phone-hint">Make a sprite for one kind of work, such as travel, your inbox or bookkeeping.</span></span></Button>}
+        {phone && canManage && (
+          <Button
+            aria-label="New sprite"
+            variant="dashed"
+            size="xl"
+            onClick={() => onCreating(true)}
+          >
+            <span className="phone-new-sprite-face">
+              <Plus size={20} aria-hidden />
+            </span>
+            <span className="phone-row-copy">
+              <strong>New sprite</strong>
+              <span className="phone-hint">
+                Make a sprite for one kind of work, such as travel, your inbox or bookkeeping.
+              </span>
+            </span>
+          </Button>
+        )}
       </div>
     </section>
   )

@@ -1,18 +1,19 @@
+import { useWorkspaceAccess } from '../../workspace'
 // One sprite's profile at `/sprites/:agentId`. Six sections, each a
 // composition of what the product already has: About (the profile
 // form), Desk (the computer tile), Contact (the phone number and the
 // mailbox), Access (the grants), Memory
 // (a summary of what this Agent holds and learns from) and Work (this Agent's runs).
 
-import { useState } from "react";
-import { ChevronLeft } from "lucide-react";
+import { useState } from 'react'
+import { ChevronLeft } from 'lucide-react'
 
-import type { AgentDto, ApiClient } from "../../api/client";
-import { Badge, Button, Tabs } from "../../primitives";
-import { SpriteAvatar } from "../../avatars/SpriteAvatar";
-import { AgentAppearance } from "../../avatars/AgentAppearance";
-import { useLiveAvatarMotion } from "../../avatars/liveMotion";
-import { useConnection } from "../../state/stores";
+import type { AgentDto, ApiClient } from '../../api/client'
+import { Badge, Button, Tabs } from '../../primitives'
+import { SpriteAvatar } from '../../avatars/SpriteAvatar'
+import { AgentAppearance } from '../../avatars/AgentAppearance'
+import { useLiveAvatarMotion } from '../../avatars/liveMotion'
+import { useConnection } from '../../state/stores'
 import {
   useAgents,
   useArchiveAgent,
@@ -20,51 +21,52 @@ import {
   useSetChiefOfStaff,
   useUpdateAgent,
   useWorkspace,
-} from "../../queries";
-import { agentPresence, usePresence } from "../../state/presence";
-import { AgentMailbox } from "../AgentMailbox";
-import { AgentAccess } from "./AgentAccess";
-import { AgentDesk } from "./AgentDesk";
-import { AgentForm } from "./AgentForm";
-import { AgentMemory, type AgentMemoryProps } from "./AgentMemory";
-import { AgentWork } from "./AgentWork";
-import { activityTone, activityWord } from "../stateWords";
-import { lastActiveAt, lastActiveLabel } from "./labels";
+} from '../../queries'
+import { agentPresence, usePresence } from '../../state/presence'
+import { AgentMailbox } from '../AgentMailbox'
+import { AgentAccess } from './AgentAccess'
+import { AgentDesk } from './AgentDesk'
+import { AgentForm } from './AgentForm'
+import { AgentMemory, type AgentMemoryProps } from './AgentMemory'
+import { AgentWork } from './AgentWork'
+import { activityTone, activityWord } from '../stateWords'
+import { lastActiveAt, lastActiveLabel } from './labels'
 
-import "../agent.css";
-import "../settings.css";
-import "./sprites.css";
-import { useIsMobile } from "../../primitives/useMediaQuery";
-import { AgentProfilePhone } from "./AgentProfilePhone";
+import '../agent.css'
+import '../settings.css'
+import './sprites.css'
+import { useIsMobile } from '../../primitives/useMediaQuery'
+import { AgentProfilePhone } from './AgentProfilePhone'
 
 type Section =
-  | "appearance"
-  | "about"
-  | "desk"
-  | "contact"
-  | "access"
-  | "memory"
-  | "work";
+  | 'appearance'
+  | 'about'
+  | 'desk'
+  | 'contact'
+  | 'access'
+  | 'memory'
+  | 'work'
 
 const SECTIONS: { value: Section; label: string }[] = [
-  { value: "about", label: "About" },
-  { value: "appearance", label: "Appearance" },
-  { value: "desk", label: "Desk" },
-  { value: "contact", label: "Contact" },
-  { value: "access", label: "Access" },
-  { value: "memory", label: "Memory" },
-  { value: "work", label: "Work" },
-];
+  { value: 'about', label: 'About' },
+  { value: 'appearance', label: 'Appearance' },
+  { value: 'desk', label: 'Desk' },
+  { value: 'contact', label: 'Contact' },
+  { value: 'access', label: 'Access' },
+  { value: 'memory', label: 'Memory' },
+  { value: 'work', label: 'Work' },
+]
 
-function About({ api, agent }: { api: ApiClient; agent: AgentDto }) {
-  const update = useUpdateAgent(api);
-  const archive = useArchiveAgent(api);
-  const workspace = useWorkspace(api);
-  const designate = useSetChiefOfStaff(api);
-  const [editing, setEditing] = useState(false);
-  const chief = workspace.data?.chief_of_staff_agent_id === agent.id;
+function About({ api, agent }: { api: ApiClient, agent: AgentDto }) {
+  const { canManage } = useWorkspaceAccess()
+  const update = useUpdateAgent(api)
+  const archive = useArchiveAgent(api)
+  const workspace = useWorkspace(api)
+  const designate = useSetChiefOfStaff(api)
+  const [editing, setEditing] = useState(false)
+  const chief = workspace.data?.chief_of_staff_agent_id === agent.id
 
-  if (editing) {
+  if (canManage && editing) {
     return (
       <AgentForm
         api={api}
@@ -85,34 +87,34 @@ function About({ api, agent }: { api: ApiClient; agent: AgentDto }) {
         }
         onCancel={() => setEditing(false)}
       />
-    );
+    )
   }
 
   return (
     <section className="agent-about" aria-label={`${agent.name} about`}>
       <dl className="agent-about-facts">
         <dt>Job</dt>
-        <dd>{agent.job === "" ? "No job written yet." : agent.job}</dd>
+        <dd>{agent.job === '' ? 'No job written yet.' : agent.job}</dd>
         <dt>What to ask it for</dt>
         <dd>
-          {agent.description === ""
-            ? "No description written yet. The other sprites read this line."
+          {agent.description === ''
+            ? 'No description written yet. The other sprites read this line.'
             : agent.description}
         </dd>
         <dt>Personality</dt>
         <dd>
-          {agent.personality === ""
-            ? "No personality written yet."
+          {agent.personality === ''
+            ? 'No personality written yet.'
             : agent.personality}
         </dd>
         <dt>Voice</dt>
-        <dd>{agent.voice ?? "Provider default voice"}</dd>
+        <dd>{agent.voice ?? 'Provider default voice'}</dd>
       </dl>
-      {agent.status === "archived" ? (
+      {agent.status === 'archived' ? (
         <p className="settings-hint">
           {agent.name} is archived. It runs no more; its history stays.
         </p>
-      ) : (
+      ) : canManage && (
         <div className="settings-row-actions">
           <Button
             aria-label={`Edit ${agent.name}`}
@@ -147,7 +149,7 @@ function About({ api, agent }: { api: ApiClient; agent: AgentDto }) {
           composer on Home speaks to it.
         </p>
       ) : (
-        agent.status !== "archived" && (
+        agent.status !== 'archived' && (
           <p className="settings-hint">
             The Chief of Staff sits at the top of the sidebar and writes the
             report on Home.
@@ -159,7 +161,7 @@ function About({ api, agent }: { api: ApiClient; agent: AgentDto }) {
         stay.
       </p>
     </section>
-  );
+  )
 }
 
 export function AgentProfile({
@@ -170,22 +172,23 @@ export function AgentProfile({
   onOpenMemory,
   onOpenSyncSettings,
 }: {
-  api: ApiClient;
-  agentId: string;
-  onBack: () => void;
-  onOpenRun: (runId: string) => void;
-  onOpenMemory: AgentMemoryProps["onOpenMemory"];
-  onOpenSyncSettings: () => void;
+  api: ApiClient
+  agentId: string
+  onBack: () => void
+  onOpenRun: (runId: string) => void
+  onOpenMemory: AgentMemoryProps['onOpenMemory']
+  onOpenSyncSettings: () => void
 }) {
-  const phone = useIsMobile();
-  const agents = useAgents(api);
-  const workspace = useWorkspace(api);
-  const runs = useRuns(api, agentId, "", "");
-  const [section, setSection] = useState<Section>("about");
-  const agent = (agents.data ?? []).find((row) => row.id === agentId);
-  const presence = usePresence((state) => agentPresence(state, agentId));
-  const online = useConnection((state) => state.status === "online");
-  const motion = useLiveAvatarMotion(agentId, presence);
+  const { canManage } = useWorkspaceAccess()
+  const phone = useIsMobile()
+  const agents = useAgents(api)
+  const workspace = useWorkspace(api)
+  const runs = useRuns(api, agentId, '', '')
+  const [section, setSection] = useState<Section>('about')
+  const agent = (agents.data ?? []).find((row) => row.id === agentId)
+  const presence = usePresence((state) => agentPresence(state, agentId))
+  const online = useConnection((state) => state.status === 'online')
+  const motion = useLiveAvatarMotion(agentId, presence)
 
   if (agent === undefined) {
     return (
@@ -195,13 +198,13 @@ export function AgentProfile({
           Sprites
         </Button>
         <p className="settings-hint">
-          {agents.isPending ? "Loading…" : "That sprite is not one of yours."}
+          {agents.isPending ? 'Loading…' : 'That sprite is not one of yours.'}
         </p>
       </div>
-    );
+    )
   }
 
-  if (phone) return <AgentProfilePhone api={api} agent={agent} />;
+  if (phone) return <AgentProfilePhone api={api} agent={agent} />
 
   return (
     <div className="agent-profile" data-testid="agent-profile">
@@ -213,7 +216,7 @@ export function AgentProfile({
         <SpriteAvatar
           name={agent.name}
           {...motion}
-          animate={section !== "appearance" && online}
+          animate={section !== 'appearance' && online}
           appearance={agent.avatar}
         />
         <div className="agent-profile-identity">
@@ -232,14 +235,14 @@ export function AgentProfile({
         label={`${agent.name} profile`}
         value={section}
         onValueChange={(next) => setSection(next as Section)}
-        items={SECTIONS}
+        items={SECTIONS.filter((item) => canManage || item.value !== 'appearance')}
       >
-        {section === "appearance" && (
+        {canManage && section === 'appearance' && (
           <AgentAppearance key={agent.id} api={api} agent={agent} />
         )}
-        {section === "about" && <About api={api} agent={agent} />}
-        {section === "desk" && <AgentDesk api={api} agent={agent} />}
-        {section === "contact" && (
+        {section === 'about' && <About api={api} agent={agent} />}
+        {section === 'desk' && <AgentDesk api={api} agent={agent} />}
+        {section === 'contact' && (
           <section
             className="agent-contact"
             aria-label={`${agent.name} contact`}
@@ -247,8 +250,8 @@ export function AgentProfile({
             <AgentMailbox api={api} agent={agent} />
           </section>
         )}
-        {section === "access" && <AgentAccess api={api} agent={agent} />}
-        {section === "memory" && (
+        {section === 'access' && <AgentAccess api={api} agent={agent} />}
+        {section === 'memory' && (
           <AgentMemory
             api={api}
             agent={agent}
@@ -257,7 +260,7 @@ export function AgentProfile({
             onOpenRun={onOpenRun}
           />
         )}
-        {section === "work" && (
+        {section === 'work' && (
           <AgentWork
             api={api}
             agentId={agent.id}
@@ -267,5 +270,5 @@ export function AgentProfile({
         )}
       </Tabs>
     </div>
-  );
+  )
 }

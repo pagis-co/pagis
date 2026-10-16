@@ -391,6 +391,7 @@ impl World {
                 agent_id: self.agent.id.clone(),
                 agent_name: self.agent.name.clone(),
                 person_name: "Sam".to_string(),
+                workspace_kind: pagis_core::WorkspaceKind::Private,
                 personality: "warm".to_string(),
                 voice: self.agent.voice.clone(),
                 phone_number_id: self.number_id.clone(),

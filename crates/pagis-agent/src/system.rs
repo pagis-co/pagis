@@ -90,6 +90,7 @@ pub struct AgentDeps {
     pub forget: Arc<dyn pagis_core::ForgetStore>,
     pub workspaces: Arc<dyn WorkspaceStore>,
     pub users: Arc<dyn pagis_core::UserStore>,
+    pub workspace_members: Arc<dyn pagis_core::WorkspaceMemberStore>,
     pub agents: Arc<dyn AgentStore>,
     pub channels: Arc<dyn ChannelStore>,
     pub messages: Arc<dyn MessageStore>,

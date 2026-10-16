@@ -31,7 +31,10 @@ A Desk and a Call each open as a full-screen route on the phone.
 ### The Chief of Staff is a Workspace setting, and the shell pins it
 
 The Workspace names one active Agent as its Chief of Staff; the seed names the
-default Agent. The user moves the designation from the roster. Archiving the
+default Agent. The Person moves the designation in a Private Workspace.
+A Manager moves it in a Shared Workspace. A Manager creates, changes and
+archives the team's Agents. Responders and Readers have no Agent create,
+edit, archive or Chief of Staff controls. Archiving the
 Chief of Staff moves it to the next active Agent, oldest first, and a
 Workspace with no active Agent has none. The setting grants nothing: the roster
 stays flat, and the Chief of Staff delegates through Channels as any Agent
@@ -59,6 +62,12 @@ conversations: the Chief of Staff first with its presence and caption, then
 the other Agents, then the groups. The composer on Home addresses the Chief of
 Staff's direct Channel. On a phone the four-tab layout replaces this column
 (ADR-0034).
+
+The Person's Needs-You Queue includes pending Requests from Shared
+Workspaces where the Person is a Manager or Responder. Membership is
+checked on every read. Readers receive no shared queue items. The
+Product App opens a shared Request in its owning Workspace before it
+reads or decides it. A Shared Workspace makes no Notifications (ADR-0030).
 
 ### Home is the Report
 

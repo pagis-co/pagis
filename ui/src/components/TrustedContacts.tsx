@@ -1,4 +1,5 @@
 import { useWorkspaceAccess } from '../workspace'
+import { TeamTrust } from './TeamTrust'
 // Trusted contacts (ADR-0021, ADR-0022, ADR-0019). The section
 // follows the settings grammar: a title line with a one-sentence lead,
 // the keypad code first, then phone numbers and email senders as framed
@@ -151,6 +152,7 @@ function OwnAddressRow({ row }: { row: OwnAddress }) {
 }
 
 function AddRow({ api, table }: { api: ApiClient; table: Table }) {
+  const { isPrivate } = useWorkspaceAccess()
   const add = useAddTrustEntry(api);
   const [label, setLabel] = useState("");
   const [value, setValue] = useState("");
@@ -176,7 +178,7 @@ function AddRow({ api, table }: { api: ApiClient; table: Table }) {
         onValueChange={setTier}
         items={[
           { value: "trusted", label: "Trusted" },
-          { value: "owner", label: "Owner" },
+          ...(isPrivate ? [{ value: 'owner', label: 'Owner' }] : []),
         ]}
       />
       {add.isError && (
@@ -330,7 +332,9 @@ export function TrustedContacts({ api }: { api: ApiClient }) {
         </span>
       </div>
 
-      {isPrivate && (
+      {!isPrivate ? (
+        <TeamTrust members={list.data?.team ?? []} />
+      ) : (
         <>
           <SectionLabel data-testid="section-label">Keypad code</SectionLabel>
           <Frame>
@@ -341,7 +345,6 @@ export function TrustedContacts({ api }: { api: ApiClient }) {
           </Frame>
         </>
       )}
-
       {TABLES.map((table, index) => {
         const inTable = rows.filter((row) =>
           table.subjects.includes(row.subject),
@@ -355,7 +358,7 @@ export function TrustedContacts({ api }: { api: ApiClient }) {
             </SectionLabel>
             <Frame
               data-testid={`trust-list-${table.id}`}
-              hint={last ? TIER_EXPLAINER : undefined}
+              hint={last && isPrivate ? TIER_EXPLAINER : undefined}
             >
               {fixed.map((row) => (
                 <OwnAddressRow key={row.address} row={row} />

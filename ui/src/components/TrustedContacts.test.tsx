@@ -275,3 +275,30 @@ describe("TrustedContacts", () => {
     expect(hint.textContent).toMatch(/Unknown is read as foreign text/);
   });
 });
+
+it.each([false, true])('shows Team identities and no Keypad Code in a Shared Workspace with phone=%s', async (phone) => {
+  const { TrustedContactsPhone } = await import('./phone/TrustedContactsPhone')
+  const { renderInRouter } = await import('../test/router')
+  const { WorkspaceSelectionContext } = await import('../workspace')
+  const current = { id: 'team', name: 'Support', kind: 'shared' as const, role: 'manager' as const }
+  const api = stubApi({ GET: vi.fn(async () => ({ data: {
+    items: [], own_addresses: [], keypad_code: page.keypad_code,
+    team: [
+      { person_id: 'sam', name: 'Sam', role: 'manager', tier: 'team' },
+      { person_id: 'lee', name: 'Lee', role: 'reader', tier: 'team' },
+    ],
+  } })) })
+  renderInRouter(
+    <QueryClientProvider client={new QueryClient()}>
+      <WorkspaceSelectionContext value={{ items: [current], current, select: () => {} }}>
+        {phone ? <TrustedContactsPhone api={api as unknown as ApiClient} /> : <TrustedContacts api={api as unknown as ApiClient} />}
+      </WorkspaceSelectionContext>
+    </QueryClientProvider>,
+  )
+  expect(await screen.findByText('Sam')).toBeTruthy()
+  expect(screen.getByText('Lee')).toBeTruthy()
+  expect(screen.getByText(/Managers' words are instructions/)).toBeTruthy()
+  expect(screen.queryByTestId('keypad-code')).toBeNull()
+  expect(screen.queryByText('Owner')).toBeNull()
+  expect(screen.queryByText('Keypad code')).toBeNull()
+})

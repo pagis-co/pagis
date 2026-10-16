@@ -21,6 +21,7 @@ type Item<Kind extends NeedsYouItem['kind']> = Extract<NeedsYouItem, { kind: Kin
 function approval(fields: Partial<Item<'approval'>> = {}): Item<'approval'> {
   return {
     kind: 'approval',
+    workspace_id: 'ws-1',
     id: 'request:request-1',
     agent_id: 'agent-1',
     line: 'Sage needs your approval',

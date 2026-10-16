@@ -55,20 +55,54 @@ pub async fn run_needs_you(
             if !QUEUE_EVENTS.contains(&event.event_type.as_str()) {
                 continue;
             }
-            let workspace_id = &event.workspace_id;
-            let rule = rules
-                .entry(workspace_id.clone())
-                .or_insert_with(|| QueueChanges::empty(queue.clone(), workspace_id.clone()));
-            let changes = match rule.on_event(&event).await {
-                Ok(changes) => changes,
-                Err(error) => {
-                    tracing::error!(%error, %workspace_id, "the Needs-You Queue was not derived");
-                    continue;
+            let mut affected = vec![event.workspace_id.clone()];
+            match queue.needs_you.workspaces.get(&event.workspace_id).await {
+                Ok(Some(workspace)) if workspace.kind == pagis_core::WorkspaceKind::Shared => {
+                    match queue.needs_you.workspace_members.list(&workspace.id).await {
+                        Ok(members) => {
+                            let mut persons: Vec<_> =
+                                members.into_iter().map(|member| member.person_id).collect();
+                            // A removed or demoted Person must lose the queue item too.
+                            if let Some(id) = event
+                                .payload
+                                .get("person_id")
+                                .and_then(serde_json::Value::as_str)
+                            {
+                                persons.push(pagis_core::UserId::from(id.to_string()));
+                            }
+                            persons.sort();
+                            persons.dedup();
+                            for person in persons {
+                                match queue.needs_you.workspaces.for_user(&person).await {
+                                    Ok(Some(private)) => affected.push(private.id),
+                                    Ok(None) => {}
+                                    Err(error) => {
+                                        tracing::error!(%error, "the Person's queue Workspace was not read")
+                                    }
+                                }
+                            }
+                        }
+                        Err(error) => tracing::error!(%error, "the queue members were not read"),
+                    }
                 }
-            };
-            for change in changes {
-                if let Err(error) = bus.publish(change).await {
-                    tracing::error!(%error, %workspace_id, "a Needs-You Queue change was not published");
+                Ok(_) => {}
+                Err(error) => tracing::error!(%error, "the queue Workspace was not read"),
+            }
+            for workspace_id in affected {
+                let rule = rules
+                    .entry(workspace_id.clone())
+                    .or_insert_with(|| QueueChanges::empty(queue.clone(), workspace_id.clone()));
+                let changes = match rule.refresh().await {
+                    Ok(changes) => changes,
+                    Err(error) => {
+                        tracing::error!(%error, %workspace_id, "the Needs-You Queue was not derived");
+                        continue;
+                    }
+                };
+                for change in changes {
+                    if let Err(error) = bus.publish(change).await {
+                        tracing::error!(%error, %workspace_id, "a Needs-You Queue change was not published");
+                    }
                 }
             }
         }

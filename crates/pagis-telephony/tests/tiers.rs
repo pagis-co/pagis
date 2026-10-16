@@ -276,6 +276,7 @@ impl Guard {
                 agent_id: AgentId::generate(),
                 agent_name: "Robin".to_string(),
                 person_name: "Sam".to_string(),
+                workspace_kind: pagis_core::WorkspaceKind::Private,
                 personality: "warm".to_string(),
                 voice: None,
                 phone_number_id: PhoneNumberId::generate(),

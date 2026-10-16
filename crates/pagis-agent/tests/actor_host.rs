@@ -160,6 +160,7 @@ impl ActorHost {
             forget: self.stores.forget.clone(),
             workspaces: self.stores.workspaces.clone(),
             users: self.stores.users.clone(),
+            workspace_members: self.stores.workspace_members.clone(),
             agents: self.stores.agents.clone(),
             channels: self.stores.channels.clone(),
             messages: self.stores.messages.clone(),

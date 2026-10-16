@@ -1,4 +1,5 @@
 import { useWorkspaceAccess } from '../../workspace'
+import { TeamTrust } from '../TeamTrust'
 import { useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { PhoneHeaderAction } from './TopBar'
@@ -91,7 +92,9 @@ export function TrustedContactsPhone({ api }: { api: ApiClient }) {
       <p className="phone-hint">
         What the words of a caller or a sender are worth. Never whether Pagis answers.
       </p>
-      {isPrivate && (
+      {!isPrivate ? (
+        <TeamTrust members={list.data?.team ?? []} />
+      ) : (
         <Frame>
           <Row
             chevron
@@ -127,11 +130,13 @@ export function TrustedContactsPhone({ api }: { api: ApiClient }) {
           </Frame>
         </section>
       ))}
-      <p className="phone-hint">
-        <strong>Owner</strong> speaks as you. <strong>Trusted</strong> is believed but cannot
-        approve. <strong>Unknown</strong> is read as foreign text. Tiers apply everywhere in the
-        workspace.
-      </p>
+      {isPrivate && (
+        <p className="phone-hint">
+          <strong>Owner</strong> speaks as you. <strong>Trusted</strong> is believed but cannot
+          approve. <strong>Unknown</strong> is read as foreign text. Tiers apply everywhere in the
+          workspace.
+        </p>
+      )}
       {list.isError && (
         <p role="alert" className="phone-hint">
           Could not read trusted contacts.
@@ -172,7 +177,7 @@ export function TrustedContactsPhone({ api }: { api: ApiClient }) {
             onValueChange={setTier}
             items={[
               { value: 'trusted', label: 'Trusted' },
-              { value: 'owner', label: 'Owner' },
+              ...(isPrivate ? [{ value: 'owner', label: 'Owner' }] : []),
             ]}
           />
           {add.isError && (

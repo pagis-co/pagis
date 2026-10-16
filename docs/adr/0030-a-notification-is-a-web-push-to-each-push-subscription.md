@@ -54,6 +54,18 @@ in the Product App that answers it, and the time `at` that orders it
 inside its kind. "Today", for a missed Call and a failed Run, is the day
 of the Workspace in its time zone.
 
+A Person's queue also reads pending Requests from each Shared Workspace
+where the Person is a Manager or Responder. Each read checks the current
+role. A Reader receives no shared queue items. The Request stays in its
+owning Workspace and its queue item names that Workspace.
+
+Only a Person's own Needs-You Queue makes Notifications, through
+`needs_you.added` events of their Private Workspace. A Shared Workspace makes
+none itself and has no Notification recipients. Its Requests enter the queues
+of its Responders and Managers and notify them there. The count includes the
+complete Needs-You Queue. Shared queue items open in their owning Workspace
+before the Person decides them.
+
 The daemon publishes an event when an item enters or leaves the queue. A
 daemon-lifetime task reads the events that can change the queue: a
 Request that opens, is decided or is superseded, a Run that changes state
@@ -63,8 +75,10 @@ publish. After each one, the task derives the whole queue of that
 Workspace again and compares the item ids with the last set that it holds
 in memory. It publishes `needs_you.added` with `{item, count}` for each
 new item and `needs_you.removed` with `{item_id, count}` for each item
-that left, in the Workspace of the item, so the event socket carries them
-to each client of the Person. The task keeps no record. When the daemon
+that left, in the Workspace of the queue. The event socket carries each
+change to clients of that Workspace. A Shared Workspace Request change or
+membership change also refreshes the affected Persons' Private Workspace
+queues. The task keeps no record. When the daemon
 starts, the task derives the queue of each Workspace as its baseline and
 publishes nothing, so an item that entered while the daemon was down
 publishes no event. A "today" item that leaves at midnight leaves on the
@@ -324,11 +338,12 @@ daemon's queue.
 ### Hold while active
 
 Push Subscription rows carry the Person id and the Session id. Reads and
-writes name the Person. A Shared Workspace item goes to each current member.
-Each Person has a separate hold, keyed by Person, Workspace and item. Activity
+writes name the Person. A Shared Request notifies each current Responder and
+Manager through their own queue. Each Person has a separate hold, keyed by
+Person, Private Workspace and item. Activity
 in any Workspace counts for that Person alone. One member's activity holds
-none of another member's Notifications. The sender checks membership again
-before delivery, so a former member receives no held Notification.
+none of another member's Notifications. The daemon reads the queue again
+before a held delivery, so a former member receives no held Notification.
 
 A new item waits while the Person used any client in the last 120 s. A
 client that is visible sends an `activity` frame on the event socket after

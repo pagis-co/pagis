@@ -906,6 +906,7 @@ impl World {
                 agent_id: person.agent_id.clone(),
                 agent_name: "Robin".to_string(),
                 person_name: "Sam".to_string(),
+                workspace_kind: pagis_core::WorkspaceKind::Private,
                 personality: "warm".to_string(),
                 voice: Some("marin".to_string()),
                 phone_number_id: number.id.clone(),

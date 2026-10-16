@@ -56,6 +56,26 @@ impl NotificationSender for FakeSender {
     }
 }
 
+fn workspace_record(id: &WorkspaceId, person: Option<pagis_core::UserId>) -> pagis_core::Workspace {
+    pagis_core::Workspace {
+        id: id.clone(),
+        kind: if person.is_some() {
+            pagis_core::WorkspaceKind::Private
+        } else {
+            pagis_core::WorkspaceKind::Shared
+        },
+        user_id: person,
+        name: "Support".into(),
+        timezone: "UTC".into(),
+        created_at: 0,
+        monthly_spend_cap_usd: None,
+        onboarded_at: None,
+        chief_of_staff_agent_id: None,
+        report_schedule_id: None,
+        home_exit_host_id: None,
+    }
+}
+
 struct Embedder {
     stores: Stores,
     workspace: WorkspaceId,
@@ -111,7 +131,6 @@ impl Embedder {
             "https://pagis.example.com".into(),
             stores.push_subscriptions.clone(),
             stores.agents.clone(),
-            stores.workspace_members.clone(),
             Arc::new(NeedsYou::new(&stores)),
             clock.clone(),
         ));
@@ -488,20 +507,207 @@ async fn cancellation_stops_a_pending_retry() {
 }
 
 #[tokio::test]
-async fn shared_workspace_notifications_and_push_subscriptions_are_separate_for_each_member() {
-    use pagis_core::{
-        Author, EventBus, NewEvent, UserId, WorkspaceKind, WorkspaceMember, WorkspaceRole,
-    };
+async fn a_shared_workspace_sends_no_notification() {
     let embedder = Embedder::new().await;
+    let shared = WorkspaceId::from("shared".to_string());
+    embedder
+        .stores
+        .workspaces
+        .create(&workspace_record(&shared, None))
+        .await
+        .unwrap();
+    let mut request = embedder.request("shared-request").await;
+    request.id = RequestId::from("team-request".to_string());
+    request.workspace_id = shared.clone();
+    embedder.stores.requests.create(&request).await.unwrap();
+    embedder.subscribe(&shared, "shared-subscription").await;
+    let item = NeedsYou::new(&embedder.stores)
+        .derive(&shared, 0)
+        .await
+        .unwrap()
+        .items
+        .remove(0);
+    embedder
+        .notifications
+        .notify(
+            &shared,
+            &pagis_core::UserId::from("shared".to_string()),
+            &item,
+            1,
+            &CancellationToken::new(),
+        )
+        .await;
+    assert!(embedder.sender.sent.lock().unwrap().is_empty());
+    assert!(
+        embedder
+            .notifications
+            .queued(&shared, item.id())
+            .await
+            .is_none()
+    );
+}
+
+#[tokio::test]
+async fn shared_requests_follow_current_roles_in_each_persons_queue() {
+    use pagis_core::{Author, OrgId, User, UserId, UserRole, WorkspaceMember, WorkspaceRole};
+    let embedder = Embedder::new().await;
+    let shared = WorkspaceId::from("shared".to_string());
+    embedder
+        .stores
+        .workspaces
+        .create(&workspace_record(&shared, None))
+        .await
+        .unwrap();
+    let mut request = embedder.request("private-request").await;
+    request.id = RequestId::from("team-request".to_string());
+    request.workspace_id = shared.clone();
+    embedder.stores.requests.create(&request).await.unwrap();
+    for role in [
+        WorkspaceRole::Manager,
+        WorkspaceRole::Responder,
+        WorkspaceRole::Reader,
+    ] {
+        let person = UserId::from(role.as_str().to_string());
+        embedder
+            .stores
+            .users
+            .create(&User {
+                id: person.clone(),
+                org_id: OrgId::from("org".to_string()),
+                email: None,
+                name: Some(role.as_str().into()),
+                password_hash: None,
+                role: UserRole::Member,
+                disabled_at: None,
+                last_signed_in_at: None,
+                created_at: 0,
+                updated_at: 0,
+            })
+            .await
+            .unwrap();
+        let private = WorkspaceId::from(format!("private-{}", role.as_str()));
+        embedder
+            .stores
+            .workspaces
+            .create(&workspace_record(&private, Some(person.clone())))
+            .await
+            .unwrap();
+        embedder
+            .stores
+            .workspace_members
+            .add(&WorkspaceMember {
+                workspace_id: shared.clone(),
+                person_id: person.clone(),
+                role,
+                author: Author::System,
+            })
+            .await
+            .unwrap();
+        let queue = NeedsYou::new(&embedder.stores)
+            .derive(&private, 0)
+            .await
+            .unwrap();
+        assert_eq!(
+            queue
+                .items
+                .iter()
+                .any(|item| item.id() == "request:team-request"),
+            role != WorkspaceRole::Reader
+        );
+        // Each permitted Person receives Notifications through their own queue.
+        assert_eq!(
+            embedder
+                .notifications
+                .queued(&private, "request:team-request")
+                .await
+                .is_some(),
+            role != WorkspaceRole::Reader
+        );
+        if role == WorkspaceRole::Responder {
+            use futures::StreamExt;
+            use pagis_core::{EventBus, EventScope, NewEvent};
+            let bus = Arc::new(fake::FakeEventBus::new(fake::FakeEventLog::default()));
+            let mut events = bus
+                .subscribe(EventScope::Workspace(private.clone()), None)
+                .await;
+            let cancel = CancellationToken::new();
+            pagis_needs_you::run_needs_you(
+                Arc::new(NeedsYou::new(&embedder.stores)),
+                bus.clone(),
+                embedder.clock.clone(),
+                cancel.clone(),
+            )
+            .await
+            .unwrap();
+            embedder
+                .stores
+                .workspace_members
+                .remove(&shared, &person)
+                .await
+                .unwrap();
+            bus.publish(NewEvent {
+                workspace_id: shared.clone(),
+                event_type: "workspace.member_removed".into(),
+                agent_id: None,
+                run_id: None,
+                channel_id: None,
+                payload: json!({"person_id":person}),
+            })
+            .await
+            .unwrap();
+            let removed = tokio::time::timeout(Duration::from_secs(2), events.next())
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(removed.event_type, "needs_you.removed");
+            assert_eq!(removed.payload["item_id"], "request:team-request");
+            assert!(
+                embedder
+                    .notifications
+                    .queued(&private, "request:team-request")
+                    .await
+                    .is_none()
+            );
+            cancel.cancel();
+            assert_eq!(
+                NeedsYou::new(&embedder.stores)
+                    .derive(&private, 0)
+                    .await
+                    .unwrap()
+                    .count,
+                0
+            );
+        }
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn shared_requests_notify_each_person_through_their_own_queue_and_activity_hold() {
+    use futures::StreamExt;
+    use pagis_core::{
+        Author, EventBus, EventScope, NewEvent, UserId, WorkspaceMember, WorkspaceRole,
+    };
+
+    let embedder = Embedder::new().await;
+    let shared = WorkspaceId::from("team".to_string());
     let alice = UserId::from("alice".to_string());
     let bob = UserId::from("bob".to_string());
-    for person in [&alice, &bob] {
+    embedder
+        .stores
+        .workspaces
+        .create(&workspace_record(&shared, None))
+        .await
+        .unwrap();
+    for (person, role) in [
+        (&alice, WorkspaceRole::Manager),
+        (&bob, WorkspaceRole::Responder),
+    ] {
         embedder
             .stores
             .users
             .create(&pagis_core::User {
                 id: person.clone(),
-                org_id: pagis_core::OrgId::generate(),
+                org_id: pagis_core::OrgId::from("org".to_string()),
                 email: None,
                 name: Some(person.to_string()),
                 password_hash: None,
@@ -513,71 +719,45 @@ async fn shared_workspace_notifications_and_push_subscriptions_are_separate_for_
             })
             .await
             .unwrap();
+        let private = WorkspaceId::from(format!("private-{person}"));
+        embedder
+            .stores
+            .workspaces
+            .create(&workspace_record(&private, Some(person.clone())))
+            .await
+            .unwrap();
+        embedder
+            .stores
+            .workspace_members
+            .add(&WorkspaceMember {
+                workspace_id: shared.clone(),
+                person_id: person.clone(),
+                role,
+                author: Author::System,
+            })
+            .await
+            .unwrap();
+        embedder
+            .subscribe(
+                &WorkspaceId::from(person.to_string()),
+                &format!("{person}-phone"),
+            )
+            .await;
+        assert_eq!(
+            embedder
+                .stores
+                .push_subscriptions
+                .list(person)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
     }
-    let mut shared = embedder
-        .stores
-        .workspaces
-        .get(&embedder.workspace)
-        .await
-        .unwrap()
-        .unwrap();
-    shared.id = WorkspaceId::from("team".to_string());
-    shared.kind = WorkspaceKind::Shared;
-    shared.user_id = None;
-    embedder
-        .stores
-        .workspace_members
-        .create_workspace(
-            &shared,
-            &WorkspaceMember {
-                workspace_id: shared.id.clone(),
-                person_id: alice.clone(),
-                role: WorkspaceRole::Manager,
-                author: Author::Person(alice.clone()),
-            },
-        )
-        .await
-        .unwrap();
-    embedder
-        .stores
-        .workspace_members
-        .add(&WorkspaceMember {
-            workspace_id: shared.id.clone(),
-            person_id: bob.clone(),
-            role: WorkspaceRole::Responder,
-            author: Author::Person(alice.clone()),
-        })
-        .await
-        .unwrap();
-    embedder
-        .subscribe(&WorkspaceId::from("alice".to_string()), "alice-phone")
-        .await;
-    embedder
-        .subscribe(&WorkspaceId::from("bob".to_string()), "bob-phone")
-        .await;
-    assert_eq!(
-        embedder
-            .stores
-            .push_subscriptions
-            .list(&alice)
-            .await
-            .unwrap()
-            .len(),
-        1
-    );
-    assert_eq!(
-        embedder
-            .stores
-            .push_subscriptions
-            .list(&bob)
-            .await
-            .unwrap()
-            .len(),
-        1
-    );
     let activity = Arc::new(PersonActivity::new());
     activity.record(&alice, embedder.clock.now_ms());
-    let bus = Arc::new(pagis_core::fake::FakeDatabase::default().bus());
+    let bus = Arc::new(fake::FakeEventBus::new(fake::FakeEventLog::default()));
+    let mut events = bus.subscribe(EventScope::Installation, None).await;
     let cancel = CancellationToken::new();
     pagis_needs_you::run_notifications(
         embedder.notifications.clone(),
@@ -586,35 +766,56 @@ async fn shared_workspace_notifications_and_push_subscriptions_are_separate_for_
         cancel.clone(),
     )
     .await;
+    pagis_needs_you::run_needs_you(
+        Arc::new(NeedsYou::new(&embedder.stores)),
+        bus.clone(),
+        embedder.clock.clone(),
+        cancel.clone(),
+    )
+    .await
+    .unwrap();
+
+    let mut request = embedder.request("private-request").await;
+    request.id = RequestId::from("team-request".to_string());
+    request.workspace_id = shared.clone();
+    embedder.stores.requests.create(&request).await.unwrap();
     bus.publish(NewEvent {
-        workspace_id: shared.id,
-        event_type: NEEDS_YOU_ADDED.into(),
+        workspace_id: shared.clone(),
+        event_type: "request.created".into(),
         agent_id: None,
         run_id: None,
         channel_id: None,
-        payload: json!({"item": pagis_needs_you::NeedsYouItem::Approval(
-            pagis_needs_you::NeedsYouApproval {
-                id: "request:team".into(), agent_id: "team-agent".into(),
-                line: "Support needs your approval".into(), url: "/requests/team".into(), at: 0,
-                request_id: "team".into(), request_kind: Request::TOOL_ACTION_KIND.into(),
-                title: "Send a reply".into(), body: String::new(),
-            }
-        ), "count":1}),
+        payload: json!({}),
     })
     .await
     .unwrap();
-    tokio::time::timeout(std::time::Duration::from_secs(2), async {
-        loop {
-            if !embedder.sender.sent.lock().unwrap().is_empty() {
-                break;
-            }
-            tokio::task::yield_now().await;
+    let mut added = Vec::new();
+    while added.len() < 3 {
+        let event = events.next().await.unwrap();
+        if event.event_type == NEEDS_YOU_ADDED {
+            assert_eq!(event.payload["item"]["id"], "request:team-request");
+            added.push(event.workspace_id);
         }
-    })
-    .await
-    .unwrap();
+    }
+    added.sort();
+    let mut expected = vec![
+        shared,
+        WorkspaceId::from("private-alice".to_string()),
+        WorkspaceId::from("private-bob".to_string()),
+    ];
+    expected.sort();
+    assert_eq!(added, expected);
+    let_the_send_run().await;
+    {
+        let sent = embedder.sender.sent.lock().unwrap();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0].0.endpoint, "https://push.example.com/bob-phone");
+    }
+    *embedder.clock.0.lock().unwrap() = 120_000;
+    tokio::time::sleep(Duration::from_secs(120)).await;
+    let_the_send_run().await;
     let sent = embedder.sender.sent.lock().unwrap();
-    assert_eq!(sent.len(), 1);
-    assert_eq!(sent[0].0.endpoint, "https://push.example.com/bob-phone");
+    assert_eq!(sent.len(), 2);
+    assert_eq!(sent[1].0.endpoint, "https://push.example.com/alice-phone");
     cancel.cancel();
 }

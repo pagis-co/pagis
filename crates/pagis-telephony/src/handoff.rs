@@ -73,7 +73,7 @@ impl CallHandoffs {
                 return Err(error);
             }
         };
-        let brief = CallBrief::inbound(
+        let mut brief = CallBrief::inbound(
             &agent,
             &person,
             &number,
@@ -81,6 +81,13 @@ impl CallHandoffs {
             call.tier,
             tools,
         );
+        brief.workspace_kind = self
+            .workspaces
+            .get(workspace_id)
+            .await
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| "the Workspace is absent".to_string())?
+            .kind;
         call.agent_name = agent.name.clone();
         call.purpose = brief.purpose.clone();
         call.tools = brief.tools.iter().map(|tool| tool.name.clone()).collect();
