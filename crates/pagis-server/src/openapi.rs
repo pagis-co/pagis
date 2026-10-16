@@ -60,6 +60,10 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
     paths(
         crate::person_defaults::get,
         crate::person_defaults::set,
+        crate::disclosure::get_disclosure,
+        crate::disclosure::set_profile,
+        crate::disclosure::add_rule,
+        crate::disclosure::remove_rule,
         crate::calendar::query_free_busy,
         crate::calendar::list_calendar_events,
         crate::calendar::create_calendar_event,

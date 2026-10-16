@@ -147,6 +147,16 @@ impl World {
         let mailboxes = Arc::new(SqliteAgentMailboxStore::new(pool.clone()));
         let requests = Arc::new(SqliteRequestStore::new(pool.clone()));
         let broker = Broker::new(BrokerDeps {
+            messages: Arc::new(pagis_storage_sqlite::SqliteMessageStore::new(pool.clone())),
+            workspaces: Arc::new(pagis_storage_sqlite::SqliteWorkspaceStore::new(
+                pool.clone(),
+            )),
+            disclosure: Arc::new(pagis_storage_sqlite::SqliteDisclosureStore::new(
+                pool.clone(),
+            )),
+            participants: Arc::new(pagis_storage_sqlite::SqliteParticipantStore::new(
+                pool.clone(),
+            )),
             numbers: Arc::new(pagis_storage_sqlite::SqlitePhoneNumberStore::new(
                 pool.clone(),
             )),

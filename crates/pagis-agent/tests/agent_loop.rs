@@ -518,7 +518,11 @@ where
     // The machines of this person, and which are connected. A test
     // that drives a host command connects one.
     let host_presence = Arc::new(pagis_broker::HostPresence::new());
+    let blobs: Arc<dyn object_store::ObjectStore> = Arc::new(object_store::memory::InMemory::new());
     let tool_runtime = Arc::new(CoreToolRuntime::new(ToolRuntimeDeps {
+        files: files.clone(),
+        blobs: blobs.clone(),
+        calendar: Arc::new(pagis_storage_sqlite::SqliteCalendarStore::new(pool.clone())),
         workspaces: pagis_storage_sqlite::stores(pool.clone()).workspaces,
         presence: Arc::clone(&host_presence),
         agents: Arc::clone(&agents) as _,
@@ -541,6 +545,16 @@ where
         calls: std::sync::Mutex::new(Vec::new()),
     });
     let broker = Arc::new(pagis_broker::Broker::new(pagis_broker::BrokerDeps {
+        messages: Arc::new(pagis_storage_sqlite::SqliteMessageStore::new(pool.clone())),
+        workspaces: Arc::new(pagis_storage_sqlite::SqliteWorkspaceStore::new(
+            pool.clone(),
+        )),
+        disclosure: Arc::new(pagis_storage_sqlite::SqliteDisclosureStore::new(
+            pool.clone(),
+        )),
+        participants: Arc::new(pagis_storage_sqlite::SqliteParticipantStore::new(
+            pool.clone(),
+        )),
         numbers: Arc::new(pagis_storage_sqlite::SqlitePhoneNumberStore::new(
             pool.clone(),
         )),
@@ -570,6 +584,9 @@ where
         pagis_testkit::test_provider_keys(Vec::new()),
     ));
     let deps = AgentDeps {
+        disclosure: Arc::new(pagis_storage_sqlite::SqliteDisclosureStore::new(
+            pool.clone(),
+        )),
         person_activity: Arc::new(pagis_needs_you::PersonActivity::new()),
         run_journal: Arc::new(pagis_storage_sqlite::SqliteRunJournal::new(pool.clone())),
         forget: Arc::new(pagis_storage_sqlite::SqliteForgetStore::new(pool.clone())),
@@ -594,7 +611,7 @@ where
         grants: Arc::clone(&grants) as _,
         connections: Arc::new(SqliteConnectionStore::new(pool.clone())),
         files: Arc::clone(&files) as _,
-        blobs: Arc::new(object_store::memory::InMemory::new()),
+        blobs: blobs.clone(),
         memory: Arc::clone(&memory),
         pending_evidence: Arc::clone(&pending_evidence) as _,
         continuations: Arc::clone(&continuations) as _,
@@ -9602,4 +9619,151 @@ async fn shared_workspace_runs_name_the_asker_and_use_current_team_authority(poo
             message.text
         );
     }
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn disclosure_conversation_read_uses_shared_channel_and_rejects_private_references(
+    pool: SqlitePool,
+) {
+    use pagis_broker::ToolExecutor;
+    use pagis_core::WorkspaceId;
+    let h = boot(pool.clone(), AgentLoopConfig::default()).await;
+    let asker = WorkspaceId::generate();
+    h.workspaces
+        .create(&Workspace {
+            id: asker.clone(),
+            ..h.workspace.clone()
+        })
+        .await
+        .unwrap();
+    let storage = Workspace {
+        id: WorkspaceId::generate(),
+        ..h.workspace.clone()
+    };
+    h.workspaces.create(&storage).await.unwrap();
+    let shared = SqliteChannelStore::new(pool.clone())
+        .get_or_create_conversation(&storage.id, &[h.workspace.id.clone(), asker])
+        .await
+        .unwrap();
+    let message = pagis_testkit::fixture::person_message(
+        &storage.id,
+        h.workspace.user_id.as_ref().unwrap(),
+        &shared.id,
+        "shared-evidence-472",
+    );
+    h.messages.insert(&message).await.unwrap();
+    let private = pagis_testkit::fixture::person_message(
+        &h.workspace.id,
+        h.workspace.user_id.as_ref().unwrap(),
+        &h.dm.id,
+        "private-evidence-593",
+    );
+    h.messages.insert(&private).await.unwrap();
+    let mut run = pagis_testkit::fixture::queued_run(&h.workspace.id, &h.agent.id, &h.dm.id);
+    run.trigger_kind = pagis_core::TriggerKind::Conversation;
+    run.trigger_ref = Some(serde_json::json!({"workspace_id":storage.id,"channel_id":shared.id,"message_id":message.id,"for_person_only":false}).to_string());
+    h.runs.create(&run).await.unwrap();
+    for (id, expected) in [(message.id, true), (private.id, false)] {
+        let result = h
+            .tool_runtime
+            .execute(pagis_broker::AuthorizedCall {
+                workspace_id: h.workspace.id.clone(),
+                agent_id: h.agent.id.clone(),
+                run_id: run.id.clone(),
+                tool_name: "conversation_read".into(),
+                source_version: "test".into(),
+                route: pagis_broker::ToolRoute::Core {
+                    tool: pagis_broker::CoreTool::ConversationRead,
+                },
+                arguments: serde_json::json!({"reference":format!("message:{id}")}),
+                selected_connection: None,
+                grant_id: None,
+                grant_revision: None,
+                call_timeout: None,
+                tool_call_id: None,
+                host: None,
+                approved_by_rule: false,
+            })
+            .await;
+        assert_eq!(!result.is_error, expected);
+        assert!(!result.content.contains("private-evidence-593"));
+        if expected {
+            assert!(result.content.contains("shared-evidence-472"));
+        }
+    }
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn disclosure_file_read_returns_the_attached_file_bytes(pool: SqlitePool) {
+    use object_store::ObjectStoreExt;
+    use pagis_broker::{CoreTool, ToolExecutor, ToolRoute};
+    use pagis_core::{Block, FileStore, WorkspaceId};
+    let h = boot(pool.clone(), AgentLoopConfig::default()).await;
+    let asker = WorkspaceId::generate();
+    h.workspaces
+        .create(&Workspace {
+            id: asker.clone(),
+            ..h.workspace.clone()
+        })
+        .await
+        .unwrap();
+    let storage = Workspace {
+        id: WorkspaceId::generate(),
+        ..h.workspace.clone()
+    };
+    h.workspaces.create(&storage).await.unwrap();
+    let shared = SqliteChannelStore::new(pool)
+        .get_or_create_conversation(&storage.id, &[h.workspace.id.clone(), asker])
+        .await
+        .unwrap();
+    let file = pagis_testkit::fixture::file(&storage.id, "attached-notes");
+    h.files.insert(&file).await.unwrap();
+    h.deps
+        .blobs
+        .put(
+            &object_store::path::Path::from(file.storage_key.clone()),
+            "shared-file-content-827".as_bytes().to_vec().into(),
+        )
+        .await
+        .unwrap();
+    let mut message = pagis_testkit::fixture::person_message(
+        &storage.id,
+        h.workspace.user_id.as_ref().unwrap(),
+        &shared.id,
+        "Read the attached File",
+    );
+    message.blocks = vec![Block::file(
+        file.id.to_string(),
+        "Notes",
+        Some("text/plain".into()),
+        None,
+    )];
+    h.messages.insert(&message).await.unwrap();
+    let mut run = pagis_testkit::fixture::queued_run(&h.workspace.id, &h.agent.id, &h.dm.id);
+    run.trigger_kind = pagis_core::TriggerKind::Conversation;
+    run.trigger_ref = Some(serde_json::json!({"workspace_id":storage.id,"channel_id":shared.id,"message_id":message.id,"for_person_only":false}).to_string());
+    h.runs.create(&run).await.unwrap();
+    let result = h
+        .tool_runtime
+        .execute(pagis_broker::AuthorizedCall {
+            workspace_id: h.workspace.id.clone(),
+            agent_id: h.agent.id.clone(),
+            run_id: run.id,
+            tool_name: "file_read".into(),
+            source_version: "test".into(),
+            route: ToolRoute::Core {
+                tool: CoreTool::FileRead,
+            },
+            arguments: serde_json::json!({"file_id":file.id}),
+            selected_connection: None,
+            grant_id: None,
+            grant_revision: None,
+            call_timeout: None,
+            tool_call_id: None,
+            host: None,
+            approved_by_rule: false,
+        })
+        .await;
+    assert!(!result.is_error, "{}", result.content);
+    assert!(result.content.contains("shared-file-content-827"));
 }

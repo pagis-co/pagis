@@ -1641,3 +1641,13 @@ CREATE TABLE junk_messages (
     released INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (workspace_id, mailbox, message_key)
 );
+CREATE TABLE disclosure_profiles (
+    workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
+    profile TEXT NOT NULL
+);
+CREATE TABLE disclosure_rules (
+    workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    asker_workspace_id TEXT NOT NULL,
+    category TEXT NOT NULL CHECK (category IN ('memory', 'mail', 'calendar_details', 'other_private_data')),
+    PRIMARY KEY (workspace_id, asker_workspace_id, category)
+);

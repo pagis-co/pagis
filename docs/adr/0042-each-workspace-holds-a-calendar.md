@@ -69,14 +69,15 @@ Calendar contains the current time. The server computes this status on each read
 it takes priority over active client input.
 Event details follow Disclosure Rules (ADR-0043). An availability answer
 does not open the Event, mail or memory that explains it.
-Not built: Disclosure Rules.
 
 ### Agents use calendar tools under Grants
 
 An Agent needs a Grant to create or change events and answer invitations.
 It can arrange meetings by mail through the Workspace Mailbox. Calendar
 access does not give mail send authority. Mail Approvals still apply
-(ADR-0040). Not built: calendar Grants and tools.
+(ADR-0040). The Free/Busy tool returns intervals only. The Event read tool checks
+Disclosure Rules for a colleague Run. Not built: calendar change Grants
+and tools.
 
 An Event can hold a free HTTPS meeting link to a service the Person chooses.
 The store and API keep the link, and the Calendar place opens it.

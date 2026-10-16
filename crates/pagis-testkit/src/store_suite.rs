@@ -205,6 +205,7 @@ pub mod calendar;
 pub mod coding_sessions;
 pub mod continuation;
 pub mod conversation_evidence;
+pub mod disclosure;
 pub mod event_sources;
 pub mod hosts;
 pub mod installation;
@@ -250,6 +251,7 @@ macro_rules! store_suite {
         $crate::store_suite_pending_reviews!($crate::__store_suite_emit);
         $crate::store_suite_audit!($crate::__store_suite_emit);
         $crate::store_suite_calendar!($crate::__store_suite_emit);
+        $crate::store_suite_disclosure!($crate::__store_suite_emit);
         $crate::store_suite_push_subscriptions!($crate::__store_suite_emit);
         $crate::store_suite_run_journal!($crate::__store_suite_emit);
         $crate::store_suite_sign_in!($crate::__store_suite_emit);
@@ -368,6 +370,11 @@ const MODULES: &[(&str, &str, &str)] = &[
         "audit",
         include_str!("store_suite/audit.rs"),
         "macro_rules! store_suite_audit",
+    ),
+    (
+        "disclosure",
+        include_str!("store_suite/disclosure.rs"),
+        "macro_rules! store_suite_disclosure",
     ),
     (
         "calendar",

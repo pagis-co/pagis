@@ -1,3 +1,5 @@
+//! A disclosure Approval stores its proposed Disclosure Rule on Always.
+//!
 //! Requests REST: list the pending
 //! requests, read one (the card renders its state from the row), and
 //! write the decision that wakes the parked run.
@@ -45,9 +47,9 @@ pub struct RequestDto {
     /// `tool_action`, `credential_action`, `form`, `choice`, `widget`
     /// or `harness_permission`.
     pub kind: String,
-    /// The trusted content the daemon minted the row with: tool name
-    /// and arguments for an action, the field schema for a form, the
-    /// options for a choice.
+    /// The content the Person can review: action details, form fields
+    /// or choice options. Internal resume data is excluded. A disclosure
+    /// Approval names its tool, category and askers, with no private arguments.
     pub payload: serde_json::Value,
     /// `pending`, `approved`, `denied`, `expired`, or `superseded`
     /// (the user sent a message in place of a decision).
@@ -72,13 +74,26 @@ impl RequestDto {
             ),
             None => None,
         };
+        let mut payload = request.payload;
+        if let Some(fields) = payload.as_object_mut() {
+            fields.remove("resume");
+            fields.remove("call_context");
+            if fields.contains_key("disclosure_rules") {
+                fields.retain(|key, _| {
+                    matches!(
+                        key.as_str(),
+                        "action_title" | "body" | "tool_name" | "disclosure_rules" | "always_label"
+                    )
+                });
+            }
+        }
         Ok(Self {
             decided_by,
             id: request.id.to_string(),
             agent_id: request.agent_id.to_string(),
             run_id: request.run_id.map(|r| r.to_string()),
             kind: request.kind,
-            payload: request.payload,
+            payload,
             state: request.state.as_str().to_string(),
             values: request.values,
             decided_at: request.decided_at,
@@ -106,10 +121,10 @@ pub struct DecisionRequest {
     /// `approved` or `denied`. A form submission is `approved` with
     /// `values`; a dismissal is `denied`.
     pub decision: String,
-    /// `once` (the default), or `always` to also write the request's
-    /// proposed allow rules, or its proposed session allow rule, into
-    /// the agent's grant. Meaningful for a `tool_action` and a
-    /// `harness_permission` only.
+    /// `once` (the default), or `always` to store the proposed Allow
+    /// Rule or Disclosure Rule. An Allow Rule belongs to the Agent's
+    /// Grant or Mailbox. A Disclosure Rule belongs to the Person's
+    /// Private Workspace. Only an Approval takes this scope.
     pub scope: Option<String>,
     /// What a `form` or a `choice` submits, validated against the
     /// field schema on the row.
@@ -218,6 +233,15 @@ pub async fn decide_request(
         .get(&tenant.workspace_id, &request_id)
         .await?
         .ok_or_else(|| ApiError::not_found("request"))?;
+    let disclosure_rules: Vec<pagis_core::DisclosureRule> = current
+        .payload
+        .get("disclosure_rules")
+        .map(|value| {
+            serde_json::from_value(value.clone())
+                .map_err(|_| ApiError::validation("Invalid Disclosure Rules."))
+        })
+        .transpose()?
+        .unwrap_or_default();
     let proposed_rules = proposed_rules(&current);
     // Only an `always` writes the session rule, so only an `always`
     // checks it.
@@ -226,7 +250,8 @@ pub async fn decide_request(
     } else {
         None
     };
-    if always && proposed_rules.is_empty() && session_rule.is_none() {
+    if always && proposed_rules.is_empty() && session_rule.is_none() && disclosure_rules.is_empty()
+    {
         return Err(ApiError::validation(
             "scope always needs proposed allow rules; this request has none",
         ));
@@ -267,6 +292,11 @@ pub async fn decide_request(
         .await?
     {
         DecideOutcome::Decided(decided) => {
+            if always && decided.state == RequestState::Approved {
+                for rule in &disclosure_rules {
+                    state.disclosure.add(&tenant.workspace_id, rule).await?;
+                }
+            }
             // An approve writes the grant before the wake event:
             // the grant exists once the decision is visible.
             if decided.state == RequestState::Approved

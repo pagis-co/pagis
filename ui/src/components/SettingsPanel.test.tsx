@@ -84,6 +84,10 @@ function stubApi() {
   return {
     GET: vi.fn(async (path: string) => {
       switch (path) {
+        case '/api/v1/disclosure':
+          return { data: { profile: '', rules: [] } }
+        case '/api/v1/colleagues':
+          return { data: { items: [] } }
         case '/api/v1/settings/model-aliases':
           return {
             data: {
