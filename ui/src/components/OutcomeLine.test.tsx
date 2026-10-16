@@ -1,7 +1,8 @@
 // The quiet lines: a Run the user stopped, and a Run that
 // failed. Each one says what happened and offers the act that follows.
 
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient } from '@tanstack/react-query'
+import { QueryClientProvider } from '../test/QueryClientProvider'
 import { fireEvent, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 

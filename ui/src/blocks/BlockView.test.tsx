@@ -6,7 +6,8 @@
 // instead of breaking the message. The table, form and choice card
 // have their own suites.
 
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient } from '@tanstack/react-query'
+import { QueryClientProvider } from '../test/QueryClientProvider'
 import { render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 

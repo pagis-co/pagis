@@ -1,7 +1,8 @@
 // The Forget section: one danger row that previews what goes
 // before it removes anything.
 
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient } from '@tanstack/react-query'
+import { QueryClientProvider } from '../../test/QueryClientProvider'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'

@@ -1,7 +1,8 @@
 // The Hosts section: the person's own machines and which of them
 // a sprite can act on right now.
 
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient } from '@tanstack/react-query'
+import { QueryClientProvider } from '../../test/QueryClientProvider'
 import { render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 

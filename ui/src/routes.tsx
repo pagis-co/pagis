@@ -17,6 +17,7 @@ import {
 import { useEffect } from 'react'
 
 import type { ApiClient } from './api/client'
+import { CurrentWorkspaceProvider } from './workspace'
 import { AppShell } from './AppShell'
 import { ConversationsPhone } from './components/phone/ConversationsPhone'
 import { You } from './components/phone/You'
@@ -84,7 +85,7 @@ export interface PanelSearch {
 }
 
 const rootRoute = createRootRouteWithContext<RouterContext>()({
-  component: AppShell,
+  component: WorkspaceShell,
   // The search is the shell's, so it is validated once, at the root.
   // An unknown parameter does not survive a navigation. The router lays
   // the result over the raw search, so `from` is always set: a value
@@ -92,6 +93,11 @@ const rootRoute = createRootRouteWithContext<RouterContext>()({
   validateSearch: (search: Record<string, unknown>): PanelSearch =>
     ({ ...(search.panel === 'desk' ? { panel: 'desk' as const } : {}), ...(typeof search.request === 'string' ? { request: search.request } : {}), from: appPath(search.from) }),
 })
+
+function WorkspaceShell() {
+  const api = useApi()
+  return <CurrentWorkspaceProvider api={api}><AppShell /></CurrentWorkspaceProvider>
+}
 
 function useApi(): ApiClient {
   return useRouteContext({ from: '__root__' }).api

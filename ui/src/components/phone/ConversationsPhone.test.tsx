@@ -2,7 +2,8 @@
 // "Sprites" with their last message and the Activity of the Agent,
 // groups under "Groups", a search over both, and the New group sheet.
 
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient } from '@tanstack/react-query'
+import { QueryClientProvider } from '../../test/QueryClientProvider'
 import {
   Outlet,
   RouterProvider,

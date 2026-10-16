@@ -4,6 +4,7 @@
 // preview live. An awake Computer in Home mode names the exit in use,
 // and `computer.exit_changed` events keep it live.
 
+import { useCurrentWorkspaceId } from '../workspace'
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { X } from 'lucide-react'
@@ -27,8 +28,9 @@ import { computerStateWord } from './stateWords'
 import './Computers.css'
 
 function PreviewImage({ agent }: { agent: AgentDto }) {
+  const workspaceId = useCurrentWorkspaceId()
   const preview = useQuery({
-    queryKey: screenPreviewKey(agent.id),
+    queryKey: screenPreviewKey(workspaceId, agent.id),
     queryFn: () => fetchScreenPreview(agent.id),
     staleTime: Infinity,
   })

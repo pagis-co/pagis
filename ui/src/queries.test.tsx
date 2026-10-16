@@ -3,7 +3,8 @@
 // `data` fails after the daemon did the work, and the page it should
 // refresh keeps the old state.
 
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient } from '@tanstack/react-query'
+import { QueryClientProvider } from './test/QueryClientProvider'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { describe, expect, it, vi } from 'vitest'
@@ -63,7 +64,7 @@ describe('a mutation of a 204 route', () => {
     expect(api.DELETE).toHaveBeenCalledWith('/api/v1/settings/trust-list/{trust_entry_id}', {
       params: { path: { trust_entry_id: 'row-1' } },
     })
-    expect(invalidated).toHaveBeenCalledWith({ queryKey: trustListKey })
+    expect(invalidated).toHaveBeenCalledWith({ queryKey: trustListKey('ws-1') })
   })
 
   it('deletes the Keypad Code and refreshes the list', async () => {
@@ -73,7 +74,7 @@ describe('a mutation of a 204 route', () => {
     await act(() => result.current.mutateAsync())
 
     expect(api.DELETE).toHaveBeenCalledWith('/api/v1/settings/keypad-code')
-    expect(invalidated).toHaveBeenCalledWith({ queryKey: trustListKey })
+    expect(invalidated).toHaveBeenCalledWith({ queryKey: trustListKey('ws-1') })
   })
 
   it('clears the failed attempts of the Keypad Code and refreshes the list and the queue', async () => {
@@ -85,8 +86,8 @@ describe('a mutation of a 204 route', () => {
     await act(() => result.current.mutateAsync())
 
     expect(api.DELETE).toHaveBeenCalledWith('/api/v1/settings/keypad-code/failures')
-    expect(invalidated).toHaveBeenCalledWith({ queryKey: trustListKey })
-    expect(invalidated).toHaveBeenCalledWith({ queryKey: needsYouKey })
+    expect(invalidated).toHaveBeenCalledWith({ queryKey: trustListKey('ws-1') })
+    expect(invalidated).toHaveBeenCalledWith({ queryKey: needsYouKey('ws-1') })
   })
 
   it('hangs up a live call and refreshes the call', async () => {
@@ -100,7 +101,7 @@ describe('a mutation of a 204 route', () => {
     expect(api.POST).toHaveBeenCalledWith('/api/v1/calls/{call_id}/hangup', {
       params: { path: { call_id: 'call-1' } },
     })
-    expect(invalidated).toHaveBeenCalledWith({ queryKey: callKey('call-1') })
+    expect(invalidated).toHaveBeenCalledWith({ queryKey: callKey('ws-1', 'call-1') })
   })
 
   it('still fails on a refusal, and refreshes nothing', async () => {

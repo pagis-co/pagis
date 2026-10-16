@@ -2,7 +2,8 @@
 // and Approve, every other item of the Needs-You Queue is a row with its
 // line and one line of detail, and the Work record reads under the brief.
 
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient } from '@tanstack/react-query'
+import { QueryClientProvider } from '../../test/QueryClientProvider'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 

@@ -2,7 +2,8 @@
 // daemon's Needs-You Queue, and moves its router to the place that the
 // service worker names after a tap on a Notification.
 
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient } from '@tanstack/react-query'
+import { QueryClientProvider } from '../test/QueryClientProvider'
 import {
   Outlet,
   RouterProvider,
@@ -111,7 +112,7 @@ describe('useNotificationSync', () => {
     await waitFor(() => expect(setAppBadge).toHaveBeenCalledWith(1))
     expect(notification.close).not.toHaveBeenCalled()
 
-    act(() => queryClient.setQueryData(needsYouKey, queue()))
+    act(() => queryClient.setQueryData(needsYouKey('ws-1'), queue()))
 
     await waitFor(() => expect(notification.close).toHaveBeenCalledOnce())
   })
@@ -122,10 +123,10 @@ describe('useNotificationSync', () => {
 
     await waitFor(() => expect(setAppBadge).toHaveBeenLastCalledWith(2))
 
-    act(() => queryClient.setQueryData(needsYouKey, queue('run:run-1')))
+    act(() => queryClient.setQueryData(needsYouKey('ws-1'), queue('run:run-1')))
     await waitFor(() => expect(setAppBadge).toHaveBeenLastCalledWith(1))
 
-    act(() => queryClient.setQueryData(needsYouKey, queue()))
+    act(() => queryClient.setQueryData(needsYouKey('ws-1'), queue()))
     await waitFor(() => expect(clearAppBadge).toHaveBeenCalledOnce())
   })
 

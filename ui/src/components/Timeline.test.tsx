@@ -8,7 +8,8 @@
 // is replaced by a stub that renders every item and hands the test the
 // two seams the timeline uses: the at-bottom report and `scrollToIndex`.
 
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient } from '@tanstack/react-query'
+import { QueryClientProvider } from '../test/QueryClientProvider'
 import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { forwardRef, useImperativeHandle, type ReactNode } from 'react'
 import { describe, expect, it, vi } from 'vitest'

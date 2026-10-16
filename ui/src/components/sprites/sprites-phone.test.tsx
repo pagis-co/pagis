@@ -1,7 +1,8 @@
 // The Sprites tab at phone width: the roster, the New sprite sheet,
 // the Access switch list with its Coding sessions section, and the Memory and Work screens of a sprite.
 
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient } from '@tanstack/react-query'
+import { QueryClientProvider } from '../../test/QueryClientProvider'
 import { createMemoryHistory } from '@tanstack/react-router'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'

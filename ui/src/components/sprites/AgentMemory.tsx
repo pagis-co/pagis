@@ -3,6 +3,7 @@
 // last three changes. The pages and the full history live in the
 // Memory place, so every count links there.
 
+import { useCurrentWorkspaceId } from '../../workspace'
 import { useQueryClient } from '@tanstack/react-query'
 import { ChevronRight, MessageSquare, Phone } from 'lucide-react'
 
@@ -264,6 +265,7 @@ function RecentChanges({
   onOpenMemory: AgentMemoryProps['onOpenMemory']
   onOpenRun: (runId: string) => void
 }) {
+  const workspaceId = useCurrentWorkspaceId()
   const phone = useIsMobile()
   const changes = useRecentChanges(api, scope, RECENT_CHANGES)
   const revert = useRevertCommit(api)
@@ -277,9 +279,9 @@ function RecentChanges({
       { sha: item.sha, expectedRevision },
       {
         onSuccess: () => {
-          void queryClient.invalidateQueries({ queryKey: ['memory-feed'] })
-          void queryClient.invalidateQueries({ queryKey: ['memory-pages'] })
-          void queryClient.resetQueries({ queryKey: ['memory-file'] })
+          void queryClient.invalidateQueries({ queryKey: ['workspace', workspaceId, 'memory-feed'] })
+          void queryClient.invalidateQueries({ queryKey: ['workspace', workspaceId, 'memory-pages'] })
+          void queryClient.resetQueries({ queryKey: ['workspace', workspaceId, 'memory-file'] })
         },
       },
     )

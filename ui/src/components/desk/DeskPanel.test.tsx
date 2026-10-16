@@ -2,7 +2,8 @@
 // with the steps of its live Run, the other Desks compact under it,
 // and the footer that counts the office and its disk.
 
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient } from '@tanstack/react-query'
+import { QueryClientProvider } from '../../test/QueryClientProvider'
 import {
   cleanup,
   fireEvent,

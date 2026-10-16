@@ -16,7 +16,8 @@ import { Package } from 'lucide-react'
 
 import type { ApiClient } from '../api/client'
 import type { components } from '../api/schema'
-import { useChannels, useWidgetPage, useWidgetView } from '../queries'
+import { useWidgetPage, useWidgetView } from '../queries'
+import { useCurrentWorkspaceId } from '../workspace'
 import { Card, CardBody, CardFooter, CardHeader } from './Card'
 import {
   selectWidgetLive,
@@ -90,11 +91,7 @@ export function WidgetBlock({
   const live = useWidgetFrames(selectWidgetLive(toolCallId))
   const torn = useWidgetTeardowns(selectWidgetTorn(toolCallId))
   const [origin] = useState(() => sandboxOrigin(window.location))
-  // The frame sends no cookie, so the daemon reads the tenant from the
-  // sandbox URL. Every Channel of this desk is the signed-in
-  // person's, so any of them names it.
-  const channels = useChannels(api)
-  const workspaceId = channels.data?.[0]?.workspace_id
+  const workspaceId = useCurrentWorkspaceId()
   const [height, setHeight] = useState(START_HEIGHT)
   const frameRef = useRef<HTMLIFrameElement | null>(null)
   const bridgeRef = useRef<WidgetBridge | null>(null)
@@ -176,7 +173,6 @@ export function WidgetBlock({
       />
     )
   }
-  if (workspaceId === undefined) return <Projection block={block} />
   if (!live || page.isError) return <Projection block={block} />
   if (html === undefined || !settled) return <Projection block={block} />
 

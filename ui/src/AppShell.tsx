@@ -2,6 +2,7 @@
 // and the inspector slot. Every view is a URL, so the shell
 // reads the route rather than a boolean per destination.
 
+import { privateWorkspaceKey, useCurrentWorkspaceId } from './workspace'
 import { createAvatarReactions } from './avatars/reactions'
 import { useAvatarReaction } from './avatars/liveMotion'
 import { AvatarRoster } from './avatars/AvatarRoster'
@@ -34,7 +35,6 @@ import type { PlaceId } from './components/sidebar/places'
 import { ThreadPane } from './components/ThreadPane'
 import {
   agentsKey,
-  workspaceKey,
   callKey,
   codingSessionEventsKey,
   codingSessionKey,
@@ -111,6 +111,7 @@ function ConnectionBanner() {
 }
 
 export function AppShell() {
+  const workspaceId = useCurrentWorkspaceId()
   const { api } = useRouteContext({ from: '__root__' })
   const queryClient = useQueryClient()
   const navigate = useNavigate()
@@ -266,13 +267,13 @@ export function AppShell() {
           )
           if (cue !== null) playCue(cue)
           if (frame.type === 'channel.created') {
-            void queryClient.invalidateQueries({ queryKey: channelsKey })
+            void queryClient.invalidateQueries({ queryKey: channelsKey(workspaceId) })
           }
           // Remove retained chat projections before access or source state is rechecked.
           if (['knowledge.changed', 'grant.changed', 'grant.revoked', 'connection.changed',
             'connection.deleted', 'agent.updated', 'agent.archived'].includes(frame.type)) {
-            void queryClient.resetQueries({ queryKey: ['timeline'] })
-            void queryClient.resetQueries({ queryKey: ['thread'] })
+            void queryClient.resetQueries({ queryKey: ['workspace', workspaceId, 'timeline'] })
+            void queryClient.resetQueries({ queryKey: ['workspace', workspaceId, 'thread'] })
           }
           // A roster write refreshes the agent list.
           if (
@@ -280,23 +281,23 @@ export function AppShell() {
             frame.type === 'agent.updated' ||
             frame.type === 'agent.archived'
           ) {
-            void queryClient.invalidateQueries({ queryKey: agentsKey })
-            void queryClient.resetQueries({ queryKey: ['account-sync'] })
+            void queryClient.invalidateQueries({ queryKey: agentsKey(workspaceId) })
+            void queryClient.resetQueries({ queryKey: ['workspace', workspaceId, 'account-sync'] })
           }
           // The Chief of Staff moved, by the user or by an archive
           // (ADR-0022).
           if (frame.type === 'workspace.updated') {
-            void queryClient.invalidateQueries({ queryKey: workspaceKey })
+            void queryClient.invalidateQueries({ queryKey: privateWorkspaceKey })
           }
           // A grant write refreshes the settings page.
           if (frame.type === 'grant.changed' || frame.type === 'grant.revoked') {
-            void queryClient.invalidateQueries({ queryKey: grantsKey })
-            void queryClient.resetQueries({ queryKey: ['memory-file'] })
-            void queryClient.resetQueries({ queryKey: ['account-sync'] })
+            void queryClient.invalidateQueries({ queryKey: grantsKey(workspaceId) })
+            void queryClient.resetQueries({ queryKey: ['workspace', workspaceId, 'memory-file'] })
+            void queryClient.resetQueries({ queryKey: ['workspace', workspaceId, 'account-sync'] })
           }
           if (frame.type === 'knowledge.changed') {
-            void queryClient.resetQueries({ queryKey: ['account-sync'] })
-            void queryClient.resetQueries({ queryKey: ['memory-file'] })
+            void queryClient.resetQueries({ queryKey: ['workspace', workspaceId, 'account-sync'] })
+            void queryClient.resetQueries({ queryKey: ['workspace', workspaceId, 'memory-file'] })
           }
           // A durable rule write, or a Wake-up moving, refreshes the
           // Automations destination.
@@ -304,13 +305,13 @@ export function AppShell() {
             frame.type.startsWith('schedule.') ||
             frame.type.startsWith('wakeup.')
           ) {
-            void queryClient.invalidateQueries({ queryKey: schedulesKey })
+            void queryClient.invalidateQueries({ queryKey: schedulesKey(workspaceId) })
           }
           if (
             frame.type.startsWith('event_subscription.') ||
             frame.type.startsWith('wakeup.')
           ) {
-            void queryClient.invalidateQueries({ queryKey: subscriptionsKey })
+            void queryClient.invalidateQueries({ queryKey: subscriptionsKey(workspaceId) })
           }
           // A published package or a Contribution that moved refreshes
           // the Software destination.
@@ -318,7 +319,7 @@ export function AppShell() {
             frame.type === 'software.published' ||
             frame.type === 'contribution.updated'
           ) {
-            void queryClient.invalidateQueries({ queryKey: softwareKey })
+            void queryClient.invalidateQueries({ queryKey: softwareKey(workspaceId) })
           }
           // An install, an update, a state change or a changed tool
           // list refreshes the Plugins tab.
@@ -327,7 +328,7 @@ export function AppShell() {
             void queryClient.invalidateQueries({ queryKey: pluginsKey })
             if (payload.plugin_id != null) {
               void queryClient.invalidateQueries({
-                queryKey: pluginKey(payload.plugin_id),
+                queryKey: pluginKey(workspaceId, payload.plugin_id),
               })
             }
           }
@@ -335,32 +336,32 @@ export function AppShell() {
           // when an item enters or leaves it (ADR-0030). Home and the
           // sidebar count read the queue again.
           if (frame.type === 'needs_you.added' || frame.type === 'needs_you.removed') {
-            void queryClient.invalidateQueries({ queryKey: needsYouKey })
+            void queryClient.invalidateQueries({ queryKey: needsYouKey(workspaceId) })
           }
           if (frame.type.startsWith('request.')) {
-            void queryClient.invalidateQueries({ queryKey: pendingRequestsKey })
+            void queryClient.invalidateQueries({ queryKey: pendingRequestsKey(workspaceId) })
           }
           if (frame.type.startsWith('run.')) {
-            void queryClient.invalidateQueries({ queryKey: ['runs'] })
+            void queryClient.invalidateQueries({ queryKey: ['workspace', workspaceId, 'runs'] })
           }
           if (event.run_id != null) {
             void queryClient.invalidateQueries({
-              queryKey: runTranscriptKey(event.run_id),
+              queryKey: runTranscriptKey(workspaceId, event.run_id),
             })
             // The work record and the Working row read the steps,
             // so a tool event moves them too.
             void queryClient.invalidateQueries({
-              queryKey: runStepsKey(event.run_id),
+              queryKey: runStepsKey(workspaceId, event.run_id),
             })
           }
           if (frame.type.startsWith('model_alias.')) {
-            void queryClient.invalidateQueries({ queryKey: modelAliasesKey })
+            void queryClient.invalidateQueries({ queryKey: modelAliasesKey(workspaceId) })
           }
           if (frame.type === 'connection.deleted' || frame.type === 'connection.changed') {
-            void queryClient.invalidateQueries({ queryKey: connectionsKey })
-            void queryClient.resetQueries({ queryKey: ['account-sync'] })
-            void queryClient.resetQueries({ queryKey: ['memory-file'] })
-            void queryClient.invalidateQueries({ queryKey: grantsKey })
+            void queryClient.invalidateQueries({ queryKey: connectionsKey(workspaceId) })
+            void queryClient.resetQueries({ queryKey: ['workspace', workspaceId, 'account-sync'] })
+            void queryClient.resetQueries({ queryKey: ['workspace', workspaceId, 'memory-file'] })
+            void queryClient.invalidateQueries({ queryKey: grantsKey(workspaceId) })
           }
           // The Call surfaces. The record stays the source of
           // truth, so a call event that changes it refetches it; a
@@ -375,7 +376,7 @@ export function AppShell() {
               frame.type === 'call.answered' ||
               frame.type === 'call.tier_changed'
             ) {
-              void queryClient.invalidateQueries({ queryKey: trustListKey })
+              void queryClient.invalidateQueries({ queryKey: trustListKey(workspaceId) })
             }
             const payload = event.payload as {
               call_id?: string
@@ -397,7 +398,7 @@ export function AppShell() {
                 })
               } else {
                 void queryClient.invalidateQueries({
-                  queryKey: callKey(payload.call_id),
+                  queryKey: callKey(workspaceId, payload.call_id),
                 })
               }
             }
@@ -406,13 +407,13 @@ export function AppShell() {
           // transcript, with no text (ADR-0033). The Coding place, the
           // session page and the session block read them again.
           if (frame.type.startsWith('coding_session.')) {
-            void queryClient.invalidateQueries({ queryKey: codingSessionsKey })
+            void queryClient.invalidateQueries({ queryKey: codingSessionsKey(workspaceId) })
             const sessionId = (event.payload as { coding_session_id?: string })
               .coding_session_id
             if (sessionId != null) {
-              void queryClient.invalidateQueries({ queryKey: codingSessionKey(sessionId) })
+              void queryClient.invalidateQueries({ queryKey: codingSessionKey(workspaceId, sessionId) })
               void queryClient.invalidateQueries({
-                queryKey: codingSessionEventsKey(sessionId),
+                queryKey: codingSessionEventsKey(workspaceId, sessionId),
               })
             }
           }
@@ -420,12 +421,12 @@ export function AppShell() {
           // no longer does, on a Host. Settings › Hosts reads the report
           // with each Host (ADR-0033).
           if (frame.type === 'harness.sign_in_changed') {
-            void queryClient.invalidateQueries({ queryKey: hostsKey })
+            void queryClient.invalidateQueries({ queryKey: hostsKey(workspaceId) })
           }
           // A number bought, assigned, unassigned or released refreshes
           // the Agent's settings page.
           if (frame.type.startsWith('phone_number.')) {
-            void queryClient.invalidateQueries({ queryKey: phoneNumbersKey })
+            void queryClient.invalidateQueries({ queryKey: phoneNumbersKey(workspaceId) })
           }
           // A Run that ended dropped its Widget views
           // (ADR-0016). Each frame hears the extension's
@@ -446,45 +447,45 @@ export function AppShell() {
               ?.agent_id
             if (agentId !== undefined) {
               void queryClient.invalidateQueries({
-                queryKey: agentMailboxKey(agentId),
+                queryKey: agentMailboxKey(workspaceId, agentId),
               })
             }
-            void queryClient.invalidateQueries({ queryKey: mailboxesKey })
-            void queryClient.invalidateQueries({ queryKey: agentsKey })
+            void queryClient.invalidateQueries({ queryKey: mailboxesKey(workspaceId) })
+            void queryClient.invalidateQueries({ queryKey: agentsKey(workspaceId) })
           }
           if (frame.type === 'credential.deleted') {
-            void queryClient.invalidateQueries({ queryKey: credentialsKey })
-            void queryClient.invalidateQueries({ queryKey: grantsKey })
+            void queryClient.invalidateQueries({ queryKey: credentialsKey(workspaceId) })
+            void queryClient.invalidateQueries({ queryKey: grantsKey(workspaceId) })
           }
           // A memory change reaches the learned lines live.
           if (
             frame.type === 'memory.committed' ||
             frame.type === 'memory.reverted'
           ) {
-            void queryClient.invalidateQueries({ queryKey: memoryFeedKey })
-            void queryClient.invalidateQueries({ queryKey: ['memory-pages'] })
-            void queryClient.resetQueries({ queryKey: ['memory-file'] })
+            void queryClient.invalidateQueries({ queryKey: memoryFeedKey(workspaceId) })
+            void queryClient.invalidateQueries({ queryKey: ['workspace', workspaceId, 'memory-pages'] })
+            void queryClient.resetQueries({ queryKey: ['workspace', workspaceId, 'memory-file'] })
           }
           // A computer transition refreshes its tile and preview.
           if (frame.type === 'computer.state_changed' && event.agent_id != null) {
             void queryClient.invalidateQueries({
-              queryKey: computerKey(event.agent_id),
+              queryKey: computerKey(workspaceId, event.agent_id),
             })
             void queryClient.invalidateQueries({
-              queryKey: screenPreviewKey(event.agent_id),
+              queryKey: screenPreviewKey(workspaceId, event.agent_id),
             })
           }
           // A change of the exit in use (ADR-0029) refreshes the tile,
           // which names the exit.
           if (frame.type === 'computer.exit_changed' && event.agent_id != null) {
             void queryClient.invalidateQueries({
-              queryKey: computerKey(event.agent_id),
+              queryKey: computerKey(workspaceId, event.agent_id),
             })
           }
           // Takeover state and the handback countdown toast.
           if (frame.type.startsWith('screen.') && event.agent_id != null) {
             void queryClient.invalidateQueries({
-              queryKey: computerKey(event.agent_id),
+              queryKey: computerKey(workspaceId, event.agent_id),
             })
             if (frame.type === 'screen.handback_countdown') {
               const seconds =
@@ -508,14 +509,14 @@ export function AppShell() {
               .request_id
             if (requestId != null) {
               void queryClient.invalidateQueries({
-                queryKey: requestKey(requestId),
+                queryKey: requestKey(workspaceId, requestId),
               })
             }
           }
           const settled =
             frame.type === 'message.completed' || frame.type === 'message.failed'
           if (settled && event.channel_id != null) {
-            void queryClient.invalidateQueries({ queryKey: channelsKey })
+            void queryClient.invalidateQueries({ queryKey: channelsKey(workspaceId) })
             const payload = event.payload as {
               message_id?: string
               parent_message_id?: string | null
@@ -545,11 +546,11 @@ export function AppShell() {
             // A reply also changes its root's rollup, so the timeline
             // refetches for thread messages too.
             void queryClient.invalidateQueries({
-              queryKey: timelineKey(event.channel_id),
+              queryKey: timelineKey(workspaceId, event.channel_id),
             })
             if (payload.parent_message_id != null) {
               void queryClient.invalidateQueries({
-                queryKey: threadKey(event.channel_id, payload.parent_message_id),
+                queryKey: threadKey(workspaceId, event.channel_id, payload.parent_message_id),
               })
             }
           }
@@ -584,7 +585,7 @@ export function AppShell() {
       socketRef.current = null
       socket.stop()
     }
-  }, [queryClient, speaker])
+  }, [queryClient, speaker, workspaceId])
 
   // The selected channel is the subscribed one: its live streams and
   // run progress (with their mid-run catch-up) arrive as

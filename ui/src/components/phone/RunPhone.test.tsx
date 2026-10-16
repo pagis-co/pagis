@@ -2,7 +2,8 @@
 // with the next step, its steps, and a way to the Agent's live screen.
 // Back goes to the fixed parent: Home, or the sprite's Work it came from.
 
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient } from '@tanstack/react-query'
+import { QueryClientProvider } from '../../test/QueryClientProvider'
 import {
   Outlet,
   RouterProvider,

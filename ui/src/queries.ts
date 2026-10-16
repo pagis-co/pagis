@@ -12,6 +12,7 @@ import {
   QueryClient,
 } from "@tanstack/react-query";
 import type { components } from "./api/schema";
+import { useCurrentWorkspaceId, privateWorkspaceKey } from "./workspace";
 import { deviceTimezone } from "./timezone";
 
 import type {
@@ -33,45 +34,60 @@ import type { ChangeKind } from "./components/memory/changes";
 import { usePendingSends } from "./state/stores";
 import { threadScope } from "./timeline";
 
-export const channelsKey = ["channels"] as const;
-export const timelineKey = (channelId: string) =>
-  ["timeline", channelId] as const;
-export const threadKey = (channelId: string, rootId: string) =>
-  ["thread", channelId, rootId] as const;
-export const onboardingKey = ["onboarding"] as const;
-export const requestKey = (requestId: string) =>
-  ["request", requestId] as const;
-export const grantsKey = ["grants"] as const;
-export const memoryFeedKey = ["memory-feed"] as const;
+export { useWorkspace } from "./workspace";
+
+export const channelsKey = (workspaceId: string) =>
+  ["workspace", workspaceId, "channels"] as const;
+export const timelineKey = (workspaceId: string, channelId: string) =>
+  ["workspace", workspaceId, "timeline", channelId] as const;
+export const threadKey = (workspaceId: string, channelId: string, rootId: string) =>
+  ["workspace", workspaceId, "thread", channelId, rootId] as const;
+export const onboardingKey = (workspaceId: string) =>
+  ["workspace", workspaceId, "onboarding"] as const;
+export const requestKey = (workspaceId: string, requestId: string) =>
+  ["workspace", workspaceId, "request", requestId] as const;
+export const grantsKey = (workspaceId: string) =>
+  ["workspace", workspaceId, "grants"] as const;
+export const memoryFeedKey = (workspaceId: string) =>
+  ["workspace", workspaceId, "memory-feed"] as const;
 export const memoryPagesKey = (
+  workspaceId: string,
   scope: string,
   kind: string | undefined,
   search: string,
-) => ["memory-pages", scope, "list", kind ?? "", search] as const;
-export const memoryPageCountsKey = (scope: string) =>
-  ["memory-pages", scope, "counts"] as const;
-export const memoryFileKey = (scope: string, path: string) =>
-  ["memory-file", scope, path] as const;
-export const agentsKey = ["agents"] as const;
-export const workspaceKey = ["workspace"] as const;
+) => ["workspace", workspaceId, "memory-pages", scope, "list", kind ?? "", search] as const;
+export const memoryPageCountsKey = (workspaceId: string, scope: string) =>
+  ["workspace", workspaceId, "memory-pages", scope, "counts"] as const;
+export const memoryFileKey = (workspaceId: string, scope: string, path: string) =>
+  ["workspace", workspaceId, "memory-file", scope, path] as const;
+export const agentsKey = (workspaceId: string) =>
+  ["workspace", workspaceId, "agents"] as const;
+
 export const userKey = ["user"] as const;
-export const reportKey = ["workspace", "report"] as const;
-export const voicesKey = ["voices"] as const;
-export const computerKey = (agentId: string) => ["computer", agentId] as const;
-export const computerDiskKey = ["computers", "disk"] as const;
-export const screenPreviewKey = (agentId: string) =>
-  ["screen-preview", agentId] as const;
-export const runsKey = (agentId: string, channelId: string, state: string) =>
-  ["runs", agentId, channelId, state] as const;
-export const runModelRequestsKey = (runId: string) =>
-  ["runs", runId, "model-requests"] as const;
-export const runTranscriptKey = (runId: string) =>
-  ["run-transcript", runId] as const;
-export const runStepsKey = (runId: string) => ["run-steps", runId] as const;
-export const modelAliasesKey = ["model-aliases"] as const;
+export const reportKey = (workspaceId: string) =>
+  ["workspace", workspaceId, "report"] as const;
+export const voicesKey = (workspaceId: string) =>
+  ["workspace", workspaceId, "voices"] as const;
+export const computerKey = (workspaceId: string, agentId: string) =>
+  ["workspace", workspaceId, "computer", agentId] as const;
+export const computerDiskKey = (workspaceId: string) =>
+  ["workspace", workspaceId, "computers", "disk"] as const;
+export const screenPreviewKey = (workspaceId: string, agentId: string) =>
+  ["workspace", workspaceId, "screen-preview", agentId] as const;
+export const runsKey = (workspaceId: string, agentId: string, channelId: string, state: string) =>
+  ["workspace", workspaceId, "runs", agentId, channelId, state] as const;
+export const runModelRequestsKey = (workspaceId: string, runId: string) =>
+  ["workspace", workspaceId, "runs", runId, "model-requests"] as const;
+export const runTranscriptKey = (workspaceId: string, runId: string) =>
+  ["workspace", workspaceId, "run-transcript", runId] as const;
+export const runStepsKey = (workspaceId: string, runId: string) =>
+  ["workspace", workspaceId, "run-steps", runId] as const;
+export const modelAliasesKey = (workspaceId: string) =>
+  ["workspace", workspaceId, "model-aliases"] as const;
 export const modelListsKey = ["model-lists"] as const;
 export const providerSetupsKey = ["provider-setups"] as const;
-export const retentionKey = ["retention"] as const;
+export const retentionKey = (workspaceId: string) =>
+  ["workspace", workspaceId, "retention"] as const;
 export const systemSettingsKey = ["system-settings"] as const;
 export const remoteAccessKey = ["system-settings", "remote-access"] as const;
 export const peopleKey = ["administration", "people"] as const;
@@ -85,74 +101,92 @@ export const vapidKeyKey = ["push", "key"] as const;
 /** The signed-in person's own Push Subscriptions. */
 export const pushSubscriptionsKey = ["push-subscriptions"] as const;
 /** The person's own machines. */
-export const hostsKey = ["hosts"] as const;
+export const hostsKey = (workspaceId: string) =>
+  ["workspace", workspaceId, "hosts"] as const;
 /** The Harness Catalog: the Coding Harnesses that Pagis starts. */
 export const harnessesKey = ["harnesses"] as const;
 /** The person's own Home Exit (ADR-0029). */
-export const homeExitKey = ["home-exit"] as const;
+export const homeExitKey = (workspaceId: string) =>
+  ["workspace", workspaceId, "home-exit"] as const;
 /** Every machine of the installation, on the administration port. */
 export const installationHostsKey = ["administration", "hosts"] as const;
 export const resourcesKey = ["administration", "resources"] as const;
 export const installationHealthKey = ["administration", "health"] as const;
 export const setupKey = ["setup"] as const;
 export const healthKey = ["health"] as const;
-export const myUsageKey = ["usage"] as const;
-export const connectionsKey = ["connections"] as const;
+export const myUsageKey = (workspaceId: string) =>
+  ["workspace", workspaceId, "usage"] as const;
+export const connectionsKey = (workspaceId: string) =>
+  ["workspace", workspaceId, "connections"] as const;
 export const connectionProvidersKey = ["connections", "providers"] as const;
-export const credentialsKey = ["credentials"] as const;
-export const phoneNumbersKey = ["phone-numbers"] as const;
-export const mailboxesKey = ["mailboxes"] as const;
-export const agentMailboxKey = (agentId: string) =>
-  ["agent-mailbox", agentId] as const;
+export const credentialsKey = (workspaceId: string) =>
+  ["workspace", workspaceId, "credentials"] as const;
+export const phoneNumbersKey = (workspaceId: string) =>
+  ["workspace", workspaceId, "phone-numbers"] as const;
+export const mailboxesKey = (workspaceId: string) =>
+  ["workspace", workspaceId, "mailboxes"] as const;
+export const agentMailboxKey = (workspaceId: string, agentId: string) =>
+  ["workspace", workspaceId, "agent-mailbox", agentId] as const;
 export const mailboxOffersKey = (agentName: string) =>
   ["mailbox-offers", agentName] as const;
 export const mailboxNameKey = (connectionId: string, localPart: string) =>
   ["mailbox-name", connectionId, localPart] as const;
-export const trustListKey = ["trust-list"] as const;
-export const callKey = (callId: string) => ["call", callId] as const;
-export const codingSessionsKey = ["coding-sessions"] as const;
-export const codingSessionKey = (sessionId: string) =>
-  ["coding-session", sessionId] as const;
-export const codingSessionEventsKey = (sessionId: string) =>
-  ["coding-session-events", sessionId] as const;
-export const mailMessageKey = (mailbox: string, messageId: string) =>
-  ["mail-message", mailbox, messageId] as const;
+export const trustListKey = (workspaceId: string) =>
+  ["workspace", workspaceId, "trust-list"] as const;
+export const callKey = (workspaceId: string, callId: string) =>
+  ["workspace", workspaceId, "call", callId] as const;
+export const codingSessionsKey = (workspaceId: string) =>
+  ["workspace", workspaceId, "coding-sessions"] as const;
+export const codingSessionKey = (workspaceId: string, sessionId: string) =>
+  ["workspace", workspaceId, "coding-session", sessionId] as const;
+export const codingSessionEventsKey = (workspaceId: string, sessionId: string) =>
+  ["workspace", workspaceId, "coding-session-events", sessionId] as const;
+export const mailMessageKey = (workspaceId: string, mailbox: string, messageId: string) =>
+  ["workspace", workspaceId, "mail-message", mailbox, messageId] as const;
 export const availableNumbersKey = (
   country: string,
   areaCode: string,
   locality: string,
 ) => ["available-numbers", country, areaCode, locality] as const;
 export const widgetPageKey = (
+  workspaceId: string,
   packageName: string,
   version: string,
   widget: string,
-) => ["widget-page", packageName, version, widget] as const;
-export const widgetViewKey = (toolCallId: string) =>
-  ["widget-view", toolCallId] as const;
-export const pendingRequestsKey = ["requests", "pending"] as const;
-export const needsYouKey = ["needs-you"] as const;
-export const schedulesKey = ["schedules"] as const;
-export const scheduleKey = (scheduleId: string) =>
-  ["schedule", scheduleId] as const;
-export const scheduleOccurrencesKey = (scheduleId: string) =>
-  ["schedule-occurrences", scheduleId] as const;
-export const scheduleWakeupsKey = (scheduleId: string) =>
-  ["schedule-wakeups", scheduleId] as const;
-export const subscriptionsKey = ["event-subscriptions"] as const;
-export const subscriptionKey = (subscriptionId: string) =>
-  ["event-subscription", subscriptionId] as const;
-export const subscriptionEventsKey = (subscriptionId: string) =>
-  ["event-subscription-events", subscriptionId] as const;
-export const subscriptionWakeupsKey = (subscriptionId: string) =>
-  ["event-subscription-wakeups", subscriptionId] as const;
+) => ["workspace", workspaceId, "widget-page", packageName, version, widget] as const;
+export const widgetViewKey = (workspaceId: string, toolCallId: string) =>
+  ["workspace", workspaceId, "widget-view", toolCallId] as const;
+export const pendingRequestsKey = (workspaceId: string) =>
+  ["workspace", workspaceId, "requests", "pending"] as const;
+export const needsYouKey = (workspaceId: string) =>
+  ["workspace", workspaceId, "needs-you"] as const;
+export const schedulesKey = (workspaceId: string) =>
+  ["workspace", workspaceId, "schedules"] as const;
+export const scheduleKey = (workspaceId: string, scheduleId: string) =>
+  ["workspace", workspaceId, "schedule", scheduleId] as const;
+export const scheduleOccurrencesKey = (workspaceId: string, scheduleId: string) =>
+  ["workspace", workspaceId, "schedule-occurrences", scheduleId] as const;
+export const scheduleWakeupsKey = (workspaceId: string, scheduleId: string) =>
+  ["workspace", workspaceId, "schedule-wakeups", scheduleId] as const;
+export const subscriptionsKey = (workspaceId: string) =>
+  ["workspace", workspaceId, "event-subscriptions"] as const;
+export const subscriptionKey = (workspaceId: string, subscriptionId: string) =>
+  ["workspace", workspaceId, "event-subscription", subscriptionId] as const;
+export const subscriptionEventsKey = (workspaceId: string, subscriptionId: string) =>
+  ["workspace", workspaceId, "event-subscription-events", subscriptionId] as const;
+export const subscriptionWakeupsKey = (workspaceId: string, subscriptionId: string) =>
+  ["workspace", workspaceId, "event-subscription-wakeups", subscriptionId] as const;
 export const pluginsKey = ["plugins"] as const;
-export const pluginKey = (pluginId: string) => ["plugin", pluginId] as const;
-export const pluginLogKey = (pluginId: string) =>
-  ["plugin-log", pluginId] as const;
-export const softwareKey = ["software"] as const;
-export const softwarePackageKey = (name: string) => ["software", name] as const;
-export const contributionKey = (name: string, contributionId: string) =>
-  ["software-contribution", name, contributionId] as const;
+export const pluginKey = (workspaceId: string, pluginId: string) =>
+  ["workspace", workspaceId, "plugin", pluginId] as const;
+export const pluginLogKey = (workspaceId: string, pluginId: string) =>
+  ["workspace", workspaceId, "plugin-log", pluginId] as const;
+export const softwareKey = (workspaceId: string) =>
+  ["workspace", workspaceId, "software"] as const;
+export const softwarePackageKey = (workspaceId: string, name: string) =>
+  ["workspace", workspaceId, "software", name] as const;
+export const contributionKey = (workspaceId: string, name: string, contributionId: string) =>
+  ["workspace", workspaceId, "software-contribution", name, contributionId] as const;
 
 /** One page of history in the Automations detail body (ADR-0006). */
 const HISTORY_PAGE = 20;
@@ -212,11 +246,13 @@ async function expectNoContent(
     throw error ?? new Error("request failed");
 }
 
-const accountSyncKey = (id: string) => ["account-sync", id] as const;
+const accountSyncKey = (workspaceId: string, id: string) =>
+  ["workspace", workspaceId, "account-sync", id] as const;
 
 export function useAccountSync(api: ApiClient, connectionId: string) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: accountSyncKey(connectionId),
+    queryKey: accountSyncKey(workspaceId, connectionId),
     queryFn: () =>
       unwrap(
         api.GET("/api/v1/connections/{connection_id}/sync", {
@@ -230,8 +266,9 @@ export function useAccountSync(api: ApiClient, connectionId: string) {
 /** The Signal Catalogue of one resource and the filter it starts from
  *  (ADR-0011). The catalogue changes only when the account's labels do. */
 export function useSyncCatalogue(api: ApiClient, connectionId: string) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: [...accountSyncKey(connectionId), "catalogue"],
+    queryKey: [...accountSyncKey(workspaceId, connectionId), "catalogue"],
     queryFn: () =>
       unwrap(
         api.GET("/api/v1/connections/{connection_id}/sync/catalogue", {
@@ -248,8 +285,9 @@ export function useFilterPreview(
   connectionId: string,
   filter: components["schemas"]["ReflectionFilter"] | undefined,
 ) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: [...accountSyncKey(connectionId), "preview", filter],
+    queryKey: [...accountSyncKey(workspaceId, connectionId), "preview", filter],
     queryFn: () =>
       unwrap(
         api.POST("/api/v1/connections/{connection_id}/sync/filter/preview", {
@@ -262,6 +300,7 @@ export function useFilterPreview(
 }
 
 export function useConfigureSync(api: ApiClient, connectionId: string) {
+  const workspaceId = useCurrentWorkspaceId();
   const client = useQueryClient();
   return useMutation({
     mutationFn: (body: components["schemas"]["ConfigureSync"]) =>
@@ -272,15 +311,16 @@ export function useConfigureSync(api: ApiClient, connectionId: string) {
         }),
       ),
     onSuccess: () =>
-      client.resetQueries({ queryKey: accountSyncKey(connectionId) }),
+      client.resetQueries({ queryKey: accountSyncKey(workspaceId, connectionId) }),
   });
 }
 
 /** Onboarding status. No staleTime: Docker is probed lazily on
  *  the daemon, so a refetch notices Docker appearing. */
 export function useOnboarding(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: onboardingKey,
+    queryKey: onboardingKey(workspaceId),
     queryFn: () => unwrap(api.GET("/api/v1/settings/onboarding")),
   });
 }
@@ -289,6 +329,7 @@ export function useOnboarding(api: ApiClient) {
  *  generates nothing and costs nothing. A passed check also refreshes
  *  the provider's list. */
 export function useCheckProviderModel(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (provider: string) =>
@@ -298,7 +339,7 @@ export function useCheckProviderModel(api: ApiClient) {
         }),
       ),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: onboardingKey });
+      void queryClient.invalidateQueries({ queryKey: onboardingKey(workspaceId) });
       void queryClient.invalidateQueries({ queryKey: modelListsKey });
     },
   });
@@ -319,6 +360,7 @@ export function useModelLists(api: ApiClient, enabled = true) {
  *  default route names. `candidate: null` takes the daemon's
  *  preselection. */
 export function useSetOnboardingDefaultModel(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (body: { candidate: string | null }) => {
@@ -330,7 +372,7 @@ export function useSetOnboardingDefaultModel(api: ApiClient) {
         throw error ?? new Error("save failed");
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: modelAliasesKey });
+      void queryClient.invalidateQueries({ queryKey: modelAliasesKey(workspaceId) });
     },
   });
 }
@@ -338,6 +380,7 @@ export function useSetOnboardingDefaultModel(api: ApiClient) {
 /** The model step's check of a typed key. The daemon stores the key
  *  only when the provider lists its models for it. */
 export function useCheckOnboardingProviderKey(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ provider, key }: { provider: string; key: string }) =>
@@ -348,7 +391,7 @@ export function useCheckOnboardingProviderKey(api: ApiClient) {
         }),
       ),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: onboardingKey });
+      void queryClient.invalidateQueries({ queryKey: onboardingKey(workspaceId) });
       void queryClient.invalidateQueries({ queryKey: modelListsKey });
     },
   });
@@ -358,6 +401,7 @@ export function useCheckOnboardingProviderKey(api: ApiClient) {
  *  onboarding runs and refuses it afterwards: the Administration
  *  Interface changes the installation's keys from then on. */
 export function useSetOnboardingProviderKey(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ provider, key }: { provider: string; key: string }) =>
@@ -368,9 +412,9 @@ export function useSetOnboardingProviderKey(api: ApiClient) {
         }),
       ),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: onboardingKey });
+      void queryClient.invalidateQueries({ queryKey: onboardingKey(workspaceId) });
       void queryClient.invalidateQueries({ queryKey: modelListsKey });
-      void queryClient.invalidateQueries({ queryKey: modelAliasesKey });
+      void queryClient.invalidateQueries({ queryKey: modelAliasesKey(workspaceId) });
     },
   });
 }
@@ -378,15 +422,17 @@ export function useSetOnboardingProviderKey(api: ApiClient) {
 /** "Check again" on the computer step. The onboarding read pings every
  *  candidate endpoint, so reading it again is the probe. */
 export function useRecheckDocker() {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () => queryClient.refetchQueries({ queryKey: onboardingKey }),
+    mutationFn: () => queryClient.refetchQueries({ queryKey: onboardingKey(workspaceId) }),
   });
 }
 
 /** The computer step's Docker endpoint. Pagis pings it before it saves,
  *  and the product port takes it while onboarding runs alone. */
 export function useSetOnboardingDockerEndpoint(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (dockerEndpoint: string | null) => {
@@ -398,12 +444,13 @@ export function useSetOnboardingDockerEndpoint(api: ApiClient) {
         throw error ?? new Error("save failed");
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: onboardingKey });
+      void queryClient.invalidateQueries({ queryKey: onboardingKey(workspaceId) });
     },
   });
 }
 
 export function useCompleteOnboarding(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ userName }: { userName?: string } = {}) => {
@@ -417,15 +464,16 @@ export function useCompleteOnboarding(api: ApiClient) {
     },
     // The wizard records the name, so the shell must read it again.
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: onboardingKey });
+      await queryClient.invalidateQueries({ queryKey: onboardingKey(workspaceId) });
       await queryClient.invalidateQueries({ queryKey: userKey });
     },
   });
 }
 
 export function useChannels(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: channelsKey,
+    queryKey: channelsKey(workspaceId),
     queryFn: () =>
       unwrap(api.GET("/api/v1/channels")).then((page) => page.items),
     staleTime: Infinity,
@@ -434,6 +482,7 @@ export function useChannels(api: ApiClient) {
 
 /** Create a group channel with its agent participants. */
 export function useCreateChannel(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ title, agentIds }: { title: string; agentIds: string[] }) =>
@@ -442,7 +491,7 @@ export function useCreateChannel(api: ApiClient) {
           body: { title, agent_ids: agentIds },
         }),
       ),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: channelsKey }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: channelsKey(workspaceId) }),
   });
 }
 
@@ -450,14 +499,16 @@ export function useCreateChannel(api: ApiClient) {
  *  and its voices, the names an Agent Voice can take. It changes with
  *  the keys and the `speak` alias, so each form reads it again. */
 export function useVoices(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: voicesKey,
+    queryKey: voicesKey(workspaceId),
     queryFn: () => unwrap(api.GET("/api/v1/settings/voices")),
   });
 }
 
 /** Create an agent. The daemon also creates the agent's DM. */
 export function useCreateAgent(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (body: {
@@ -470,14 +521,15 @@ export function useCreateAgent(api: ApiClient) {
       mailbox?: NewMailboxBody;
     }) => unwrap(api.POST("/api/v1/agents", { body })),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: agentsKey });
-      void queryClient.invalidateQueries({ queryKey: channelsKey });
+      void queryClient.invalidateQueries({ queryKey: agentsKey(workspaceId) });
+      void queryClient.invalidateQueries({ queryKey: channelsKey(workspaceId) });
     },
   });
 }
 
 /** Rewrite an agent's profile. */
 export function useUpdateAgent(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({
@@ -500,12 +552,13 @@ export function useUpdateAgent(api: ApiClient) {
           body,
         }),
       ),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: agentsKey }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: agentsKey(workspaceId) }),
   });
 }
 
 /** Save appearance without replacing the About fields. */
 export function useUpdateAppearance(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({
@@ -522,16 +575,17 @@ export function useUpdateAppearance(api: ApiClient) {
         }),
       ),
     onSuccess: (saved) => {
-      queryClient.setQueryData<AgentDto[]>(agentsKey, (agents) =>
+      queryClient.setQueryData<AgentDto[]>(agentsKey(workspaceId), (agents) =>
         agents?.map((agent) => (agent.id === saved.id ? saved : agent)),
       );
-      void queryClient.invalidateQueries({ queryKey: agentsKey });
+      void queryClient.invalidateQueries({ queryKey: agentsKey(workspaceId) });
     },
   });
 }
 
 /** Archive an agent: it stops triggering; history stays. */
 export function useArchiveAgent(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (agentId: string) =>
@@ -540,7 +594,7 @@ export function useArchiveAgent(api: ApiClient) {
           params: { path: { agent_id: agentId } },
         }),
       ),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: agentsKey }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: agentsKey(workspaceId) }),
   });
 }
 
@@ -548,8 +602,9 @@ export function useArchiveAgent(api: ApiClient) {
  *  daemon answers a conversation that is not the person's as not
  *  found, and the query client does not retry that answer. */
 export function useTimeline(api: ApiClient, channelId: string) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: timelineKey(channelId),
+    queryKey: timelineKey(workspaceId, channelId),
     queryFn: () =>
       unwrap(
         api.GET("/api/v1/channels/{channel_id}/messages", {
@@ -562,8 +617,9 @@ export function useTimeline(api: ApiClient, channelId: string) {
 
 /** One thread: the root plus its replies, oldest first. */
 export function useThread(api: ApiClient, channelId: string, rootId: string) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: threadKey(channelId, rootId),
+    queryKey: threadKey(workspaceId, channelId, rootId),
     queryFn: () =>
       unwrap(
         api.GET("/api/v1/channels/{channel_id}/threads/{root_message_id}", {
@@ -578,11 +634,12 @@ export function useThread(api: ApiClient, channelId: string, rootId: string) {
 
 /** Insert a confirmed top-level message unless the timeline has it. */
 export function insertMessage(
+  workspaceId: string,
   queryClient: QueryClient,
   message: MessageDto,
 ): void {
   queryClient.setQueryData<TimelineItem[]>(
-    timelineKey(message.channel_id),
+    timelineKey(workspaceId, message.channel_id),
     (items) => {
       if (items === undefined) return items;
       if (items.some((item) => item.id === message.id)) return items;
@@ -603,12 +660,13 @@ export function insertMessage(
 
 /** Append a confirmed reply unless the thread already has it. */
 export function insertReply(
+  workspaceId: string,
   queryClient: QueryClient,
   rootId: string,
   message: MessageDto,
 ): void {
   queryClient.setQueryData<ThreadDto>(
-    threadKey(message.channel_id, rootId),
+    threadKey(workspaceId, message.channel_id, rootId),
     (thread) => {
       if (thread === undefined) return thread;
       if (thread.replies.some((reply) => reply.id === message.id))
@@ -636,8 +694,9 @@ export function useCancelRun(api: ApiClient) {
  *  truth. The `request.decided` WS event invalidates it, so every card
  *  of one Request re-renders together. */
 export function useRequest(api: ApiClient, requestId: string) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: requestKey(requestId),
+    queryKey: requestKey(workspaceId, requestId),
     queryFn: () =>
       unwrap(
         api.GET("/api/v1/requests/{request_id}", {
@@ -654,6 +713,7 @@ export function useRequest(api: ApiClient, requestId: string) {
  *  failure (409 on a lost race, 422 on values the row's schema
  *  refuses) refetches the row so the card shows the real state. */
 export function useDecideRequest(api: ApiClient, requestId: string) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({
@@ -672,15 +732,16 @@ export function useDecideRequest(api: ApiClient, requestId: string) {
         }),
       ),
     onSettled: () =>
-      queryClient.invalidateQueries({ queryKey: requestKey(requestId) }),
+      queryClient.invalidateQueries({ queryKey: requestKey(workspaceId, requestId) }),
   });
 }
 
 /** The live grants with their allow rules, for the settings page.
  *  The `grant.changed` / `grant.revoked` WS events invalidate it. */
 export function useGrants(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: grantsKey,
+    queryKey: grantsKey(workspaceId),
     queryFn: () => unwrap(api.GET("/api/v1/grants")).then((page) => page.items),
     staleTime: Infinity,
   });
@@ -690,8 +751,9 @@ export function useGrants(api: ApiClient) {
  *  No staleTime: presence is what the list is for, and a machine goes
  *  away the moment its client does. */
 export function useHosts(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: hostsKey,
+    queryKey: hostsKey(workspaceId),
     queryFn: async () => (await unwrap(api.GET("/api/v1/hosts"))).items,
   });
 }
@@ -749,8 +811,9 @@ export function useCheckHarnessSignIn(api: ApiClient) {
  *  chose, the Hosts they can choose, and whether the Administrator
  *  turned it off. A local installation answers that it has none. */
 export function useHomeExit(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: homeExitKey,
+    queryKey: homeExitKey(workspaceId),
     queryFn: () => unwrap(api.GET("/api/v1/settings/home-exit")),
   });
 }
@@ -758,21 +821,23 @@ export function useHomeExit(api: ApiClient) {
 /** Choose one Host as the Home Exit. The daemon switches each awake
  *  Computer of the person at once, and names each one that did not. */
 export function useChooseHomeExit(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (hostId: string) =>
       unwrap(api.PUT("/api/v1/settings/home-exit", { body: { host_id: hostId } })),
-    onSuccess: (saved) => queryClient.setQueryData(homeExitKey, saved.home_exit),
+    onSuccess: (saved) => queryClient.setQueryData(homeExitKey(workspaceId), saved.home_exit),
   });
 }
 
 /** Turn the Home Exit off: the person's Computers reach the internet
  *  from the server again, at once. */
 export function useTurnOffHomeExit(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () => unwrap(api.DELETE("/api/v1/settings/home-exit")),
-    onSuccess: (saved) => queryClient.setQueryData(homeExitKey, saved.home_exit),
+    onSuccess: (saved) => queryClient.setQueryData(homeExitKey(workspaceId), saved.home_exit),
   });
 }
 
@@ -788,6 +853,7 @@ export function useInstallationHosts(api: ApiClient) {
 
 /** Give one Agent named capabilities on one Connection. */
 export function useCreateConnectionGrant(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (body: {
@@ -795,12 +861,13 @@ export function useCreateConnectionGrant(api: ApiClient) {
       connection_id: string;
       capabilities: string[];
     }) => unwrap(api.POST("/api/v1/grants", { body })),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: grantsKey }),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: grantsKey(workspaceId) }),
   });
 }
 
 /** Replace the complete named capability set on a Connection grant. */
 export function useSetGrantCapabilities(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({
@@ -816,13 +883,14 @@ export function useSetGrantCapabilities(api: ApiClient) {
           body: { capabilities },
         }),
       ),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: grantsKey }),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: grantsKey(workspaceId) }),
   });
 }
 
 /** Replace one grant's allow rules, and the session allow rules of a
  *  host grant when `sessions` is given. Without it they stay. */
 export function useSetGrantRules(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({
@@ -840,7 +908,7 @@ export function useSetGrantRules(api: ApiClient) {
           body: sessions === undefined ? { allow } : { allow, sessions },
         }),
       ),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: grantsKey }),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: grantsKey(workspaceId) }),
   });
 }
 
@@ -848,6 +916,7 @@ export function useSetGrantRules(api: ApiClient) {
  *  The host Grant holds it, and the first write on a machine with no
  *  Grant makes one. */
 export function useSetSessionApprovalMode(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({
@@ -868,7 +937,7 @@ export function useSetSessionApprovalMode(api: ApiClient) {
           },
         ),
       ),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: grantsKey }),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: grantsKey(workspaceId) }),
   });
 }
 
@@ -876,6 +945,7 @@ export function useSetSessionApprovalMode(api: ApiClient) {
  *  host Grant holds the allowance, and the first write on a machine with
  *  no Grant makes one. */
 export function useSetUnattendedModes(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({
@@ -893,12 +963,13 @@ export function useSetUnattendedModes(api: ApiClient) {
           body: { allowed },
         }),
       ),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: grantsKey }),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: grantsKey(workspaceId) }),
   });
 }
 
 /** Revoke a grant: the off switch. The next host call asks again. */
 export function useRevokeGrant(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (grantId: string) => {
@@ -912,7 +983,7 @@ export function useRevokeGrant(api: ApiClient) {
         throw error ?? new Error("request failed");
       }
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: grantsKey }),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: grantsKey(workspaceId) }),
   });
 }
 
@@ -924,8 +995,9 @@ export function useMemoryChanges(
   scope: string,
   kind?: ChangeKind,
 ) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: [...memoryFeedKey, "changes", scope, kind ?? "all"],
+    queryKey: [...memoryFeedKey(workspaceId), "changes", scope, kind ?? "all"],
     queryFn: () =>
       unwrap(
         api.GET("/api/v1/memory/feed", {
@@ -939,8 +1011,9 @@ export function useMemoryChanges(
 /** The lines before and after of one commit. A commit does not
  *  change, so the answer never goes stale. */
 export function useCommitDiff(api: ApiClient, sha: string) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: ["memory-diff", sha],
+    queryKey: ["workspace", workspaceId, "memory-diff", sha],
     queryFn: () =>
       unwrap(
         api.GET("/api/v1/memory/commits/{sha}/diff", {
@@ -954,8 +1027,9 @@ export function useCommitDiff(api: ApiClient, sha: string) {
 /** The newest memory feed of the workspace. The learned line
  *  finds the commits of one reply in it. */
 export function useMemoryFeed(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: memoryFeedKey,
+    queryKey: memoryFeedKey(workspaceId),
     queryFn: () => unwrap(api.GET("/api/v1/memory/feed")),
     staleTime: Infinity,
   });
@@ -965,6 +1039,7 @@ export function useMemoryFeed(api: ApiClient) {
  *  the open files. A 409 `revert_conflict` carries the guidance
  *  message; the caller shows it inline. */
 export function useRevertCommit(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({
@@ -989,9 +1064,9 @@ export function useRevertCommit(api: ApiClient) {
       return data;
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: memoryFeedKey });
-      void queryClient.invalidateQueries({ queryKey: ["memory-pages"] });
-      void queryClient.resetQueries({ queryKey: ["memory-file"] });
+      void queryClient.invalidateQueries({ queryKey: memoryFeedKey(workspaceId) });
+      void queryClient.invalidateQueries({ queryKey: ["workspace", workspaceId, "memory-pages"] });
+      void queryClient.resetQueries({ queryKey: ["workspace", workspaceId, "memory-file"] });
     },
   });
 }
@@ -1005,8 +1080,9 @@ export function useMemoryPages(
   kind: string | undefined,
   search: string,
 ) {
+  const workspaceId = useCurrentWorkspaceId();
   return useInfiniteQuery({
-    queryKey: memoryPagesKey(scope, kind, search),
+    queryKey: memoryPagesKey(workspaceId, scope, kind, search),
     initialPageParam: null as string | null,
     queryFn: ({ pageParam }) =>
       unwrap(
@@ -1023,15 +1099,17 @@ export function useMemoryPages(
       ),
     getNextPageParam: (part) => part.next ?? undefined,
     // The rows stay while the next search loads.
-    placeholderData: (previous) => previous,
+    placeholderData: (previous, query) =>
+      query?.queryKey[1] === workspaceId ? previous : undefined,
     staleTime: Infinity,
   });
 }
 
 /** How many pages a scope holds, and who changed them last. */
 export function useMemoryPageCounts(api: ApiClient, scope: string) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: memoryPageCountsKey(scope),
+    queryKey: memoryPageCountsKey(workspaceId, scope),
     queryFn: () =>
       unwrap(
         api.GET("/api/v1/memory/pages/counts", {
@@ -1045,8 +1123,9 @@ export function useMemoryPageCounts(api: ApiClient, scope: string) {
 /** The feed entries that touch one page, newest first. The key
  *  sits under `memoryFeedKey`, so a memory event refreshes it too. */
 export function usePageHistory(api: ApiClient, scope: string, path: string) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: [...memoryFeedKey, scope, path],
+    queryKey: [...memoryFeedKey(workspaceId), scope, path],
     queryFn: () =>
       unwrap(
         api.GET("/api/v1/memory/feed", { params: { query: { scope, path } } }),
@@ -1058,8 +1137,9 @@ export function usePageHistory(api: ApiClient, scope: string, path: string) {
 /** The newest feed entries of one scope. The key sits under
  *  `memoryFeedKey`, so a memory event refreshes it too. */
 export function useRecentChanges(api: ApiClient, scope: string, limit: number) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: [...memoryFeedKey, scope, "recent", limit],
+    queryKey: [...memoryFeedKey(workspaceId), scope, "recent", limit],
     queryFn: () =>
       unwrap(
         api.GET("/api/v1/memory/feed", { params: { query: { scope, limit } } }),
@@ -1070,8 +1150,9 @@ export function useRecentChanges(api: ApiClient, scope: string, limit: number) {
 
 /** The connections whose sync names one Agent as responsible. */
 export function useAgentSyncConnections(api: ApiClient, agentId: string) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: ["agent-sync-connections", agentId],
+    queryKey: ["workspace", workspaceId, "agent-sync-connections", agentId],
     queryFn: () =>
       unwrap(
         api.GET("/api/v1/agents/{agent_id}/sync-connections", {
@@ -1083,8 +1164,9 @@ export function useAgentSyncConnections(api: ApiClient, agentId: string) {
 
 /** One fact file, read-only. */
 export function useMemoryFile(api: ApiClient, scope: string, path: string) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: memoryFileKey(scope, path),
+    queryKey: memoryFileKey(workspaceId, scope, path),
     queryFn: () =>
       unwrap(
         api.GET("/api/v1/memory/file", {
@@ -1308,26 +1390,17 @@ export function useSignOut(api: ApiClient) {
   });
 }
 
-/** The Workspace and its Chief of Staff (ADR-0022). The shell
- *  reads it on load; `workspace.updated` drops the cache. */
-export function useWorkspace(api: ApiClient) {
-  return useQuery({
-    queryKey: workspaceKey,
-    queryFn: () => unwrap(api.GET("/api/v1/workspace")),
-    staleTime: Infinity,
-  });
-}
-
 /** Make an IANA timezone the Person's own. The Daily report moves with
  *  it, so the Report's next time is read again. */
 export function useSetTimezone(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (timezone: string) =>
       unwrap(api.PUT("/api/v1/workspace/timezone", { body: { timezone } })),
     onSuccess: (saved) => {
-      queryClient.setQueryData(workspaceKey, saved);
-      void queryClient.invalidateQueries({ queryKey: reportKey });
+      queryClient.setQueryData(privateWorkspaceKey, saved);
+      void queryClient.invalidateQueries({ queryKey: reportKey(workspaceId) });
     },
   });
 }
@@ -1342,15 +1415,16 @@ export function useSetChiefOfStaff(api: ApiClient) {
           body: { agent_id: agentId },
         }),
       ),
-    onSuccess: (saved) => queryClient.setQueryData(workspaceKey, saved),
+    onSuccess: (saved) => queryClient.setQueryData(privateWorkspaceKey, saved),
   });
 }
 
 /** The Report that Home reads (ADR-0022): the newest one written, and
  *  the Run writing one now. */
 export function useReport(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: reportKey,
+    queryKey: reportKey(workspaceId),
     queryFn: () => unwrap(api.GET("/api/v1/workspace/report")),
   });
 }
@@ -1358,6 +1432,7 @@ export function useReport(api: ApiClient) {
 /** Ask a Schedule to run now, ahead of its cadence. Home writes a
  *  Report this way. */
 export function useRunScheduleNow(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (scheduleId: string) =>
@@ -1366,14 +1441,15 @@ export function useRunScheduleNow(api: ApiClient) {
           params: { path: { schedule_id: scheduleId } },
         }),
       ),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: reportKey }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: reportKey(workspaceId) }),
   });
 }
 
 /** The agent roster. */
 export function useAgents(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: agentsKey,
+    queryKey: agentsKey(workspaceId),
     queryFn: () => unwrap(api.GET("/api/v1/agents")).then((page) => page.items),
     staleTime: Infinity,
   });
@@ -1396,8 +1472,9 @@ export function useRuns(
   channelId: string,
   state: string,
 ) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: runsKey(agentId, channelId, state),
+    queryKey: runsKey(workspaceId, agentId, channelId, state),
     queryFn: () =>
       unwrap(
         api.GET("/api/v1/runs", {
@@ -1416,8 +1493,9 @@ export function useRuns(
 /** The Model Request Captures of a Run (ADR-0031). Only an
  *  Administrator reads them, so a Member's page never asks. */
 export function useRunModelRequests(api: ApiClient, runId: string, enabled: boolean) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: runModelRequestsKey(runId),
+    queryKey: runModelRequestsKey(workspaceId, runId),
     queryFn: () =>
       unwrap(
         api.GET("/api/v1/runs/{run_id}/model-requests", {
@@ -1429,8 +1507,9 @@ export function useRunModelRequests(api: ApiClient, runId: string, enabled: bool
 }
 
 export function useRunTranscript(api: ApiClient, runId: string | null) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: runTranscriptKey(runId ?? ""),
+    queryKey: runTranscriptKey(workspaceId, runId ?? ""),
     queryFn: () =>
       unwrap(
         api.GET("/api/v1/runs/{run_id}/events", {
@@ -1445,6 +1524,7 @@ export function useRunTranscript(api: ApiClient, runId: string | null) {
  *  item leaves the cached queue at once, before the daemon answers; the
  *  `needs_you.removed` WS event refreshes the other clients. */
 export function useDismissRun(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (runId: string) =>
@@ -1453,13 +1533,14 @@ export function useDismissRun(api: ApiClient) {
           params: { path: { run_id: runId } },
         }),
       ),
-    onMutate: (runId) => dropNeedsYouItem(queryClient, `run:${runId}`),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: needsYouKey }),
+    onMutate: (runId) => dropNeedsYouItem(workspaceId, queryClient, `run:${runId}`),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: needsYouKey(workspaceId) }),
   });
 }
 
 /** Queue the same durable evidence after a memory review failed. */
 export function useRetryReview(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (runId: string) =>
@@ -1469,8 +1550,8 @@ export function useRetryReview(api: ApiClient) {
         }),
       ),
     onSuccess: (_result, runId) => {
-      void queryClient.invalidateQueries({ queryKey: ["runs"] });
-      void queryClient.invalidateQueries({ queryKey: runTranscriptKey(runId) });
+      void queryClient.invalidateQueries({ queryKey: ["workspace", workspaceId, "runs"] });
+      void queryClient.invalidateQueries({ queryKey: runTranscriptKey(workspaceId, runId) });
     },
   });
 }
@@ -1480,8 +1561,9 @@ export function useRetryReview(api: ApiClient) {
  *  changes, so the answer stays fresh; the shell drops the cache of a
  *  Run on each of its events, so a live Run stays current. */
 export function useRunSteps(api: ApiClient, runId: string | null) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: runStepsKey(runId ?? ""),
+    queryKey: runStepsKey(workspaceId, runId ?? ""),
     staleTime: Infinity,
     queryFn: () =>
       unwrap(
@@ -1494,8 +1576,9 @@ export function useRunSteps(api: ApiClient, runId: string | null) {
 }
 
 export function useModelAliases(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: modelAliasesKey,
+    queryKey: modelAliasesKey(workspaceId),
     queryFn: () =>
       unwrap(api.GET("/api/v1/settings/model-aliases")).then(
         (page) => page.items,
@@ -1504,6 +1587,7 @@ export function useModelAliases(api: ApiClient) {
 }
 
 export function useCreateModelAlias(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({
@@ -1519,11 +1603,12 @@ export function useCreateModelAlias(api: ApiClient) {
         }),
       ),
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: modelAliasesKey }),
+      queryClient.invalidateQueries({ queryKey: modelAliasesKey(workspaceId) }),
   });
 }
 
 export function useUpdateModelAlias(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({
@@ -1540,11 +1625,12 @@ export function useUpdateModelAlias(api: ApiClient) {
         }),
       ),
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: modelAliasesKey }),
+      queryClient.invalidateQueries({ queryKey: modelAliasesKey(workspaceId) }),
   });
 }
 
 export function useDeleteModelAlias(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (alias: string) => {
@@ -1556,7 +1642,7 @@ export function useDeleteModelAlias(api: ApiClient) {
         throw error ?? new Error("delete failed");
     },
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: modelAliasesKey }),
+      queryClient.invalidateQueries({ queryKey: modelAliasesKey(workspaceId) }),
   });
 }
 
@@ -1579,11 +1665,12 @@ export type SetupPartRef = { provider: string; part: string };
 
 /** What a change to a provider's setup makes stale: the setups, and the
  *  person's side that reads what the installation set up. */
-function invalidateProviderSetups(queryClient: ReturnType<typeof useQueryClient>) {
+function invalidateProviderSetups(queryClient: QueryClient) {
   void queryClient.invalidateQueries({ queryKey: providerSetupsKey });
-  void queryClient.invalidateQueries({ queryKey: onboardingKey });
-  void queryClient.invalidateQueries({ queryKey: connectionsKey });
-  void queryClient.invalidateQueries({ queryKey: phoneNumbersKey });
+  void queryClient.invalidateQueries({
+    predicate: ({ queryKey }) => queryKey[0] === "workspace" &&
+      ["onboarding", "connections", "phone-numbers"].includes(queryKey[2] as string),
+  });
 }
 
 export function useConfigureProviderPart(api: ApiClient) {
@@ -1631,8 +1718,9 @@ export function useRemoveProviderPart(api: ApiClient) {
 }
 
 export function useConnections(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: connectionsKey,
+    queryKey: connectionsKey(workspaceId),
     queryFn: () =>
       unwrap(api.GET("/api/v1/settings/connections")).then(
         (page) => page.items,
@@ -1654,8 +1742,9 @@ export function useConnectionProviders(api: ApiClient) {
 }
 
 export function useCredentials(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: credentialsKey,
+    queryKey: credentialsKey(workspaceId),
     queryFn: () =>
       unwrap(api.GET("/api/v1/settings/credentials")).then(
         (page) => page.items,
@@ -1668,6 +1757,7 @@ export function useCredentials(api: ApiClient) {
  *  daemon hands it to the provider or to its encrypted secret store and
  *  stores it nowhere else. */
 export function useCreateConnection(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (body: {
@@ -1677,7 +1767,7 @@ export function useCreateConnection(api: ApiClient) {
       fields: Record<string, string>;
     }) => unwrap(api.POST("/api/v1/settings/connections", { body })),
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: connectionsKey }),
+      queryClient.invalidateQueries({ queryKey: connectionsKey(workspaceId) }),
   });
 }
 
@@ -1690,6 +1780,7 @@ export function useCreateConnection(api: ApiClient) {
  *  this resolves, and `authorization_url` is null. An empty capability
  *  list keeps the read-only profile a new connection starts at. */
 export function useAuthorizeConnection(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({
@@ -1708,11 +1799,12 @@ export function useAuthorizeConnection(api: ApiClient) {
         }),
       ),
     onSettled: () =>
-      queryClient.invalidateQueries({ queryKey: connectionsKey }),
+      queryClient.invalidateQueries({ queryKey: connectionsKey(workspaceId) }),
   });
 }
 
 export function useDeleteConnection(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (connectionId: string) => {
@@ -1724,15 +1816,16 @@ export function useDeleteConnection(api: ApiClient) {
         throw error ?? new Error("delete failed");
     },
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: connectionsKey }),
+      queryClient.invalidateQueries({ queryKey: connectionsKey(workspaceId) }),
   });
 }
 
 /** The Workspace's numbers and the carrier they came from. The
  *  `phone_number.*` WS events invalidate it. */
 export function usePhoneNumbers(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: phoneNumbersKey,
+    queryKey: phoneNumbersKey(workspaceId),
     queryFn: () => unwrap(api.GET("/api/v1/settings/phone-numbers")),
   });
 }
@@ -1771,28 +1864,31 @@ export function useAvailableNumbers(
  *  from. The daemon writes a purchase intent first, so a restart
  *  reconciles instead of buying twice (ADR-0018). */
 export function useBuyPhoneNumber(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (body: { e164: string; agent_id?: string }) =>
       unwrap(api.POST("/api/v1/settings/phone-numbers", { body })),
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: phoneNumbersKey }),
+      queryClient.invalidateQueries({ queryKey: phoneNumbersKey(workspaceId) }),
   });
 }
 
 /** Adopt a number the carrier account already holds. The daemon
  *  asks the carrier and records it; nothing is bought. */
 export function useAdoptPhoneNumber(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (body: { e164: string; agent_id?: string }) =>
       unwrap(api.POST("/api/v1/settings/phone-numbers/adopt", { body })),
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: phoneNumbersKey }),
+      queryClient.invalidateQueries({ queryKey: phoneNumbersKey(workspaceId) }),
   });
 }
 
 export function useAssignPhoneNumber(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({
@@ -1809,13 +1905,14 @@ export function useAssignPhoneNumber(api: ApiClient) {
         }),
       ),
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: phoneNumbersKey }),
+      queryClient.invalidateQueries({ queryKey: phoneNumbersKey(workspaceId) }),
   });
 }
 
 /** Take the line back. The Workspace keeps the number and keeps paying
  *  for it, which is what makes this different from a release. */
 export function useUnassignPhoneNumber(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (phoneNumberId: string) =>
@@ -1825,13 +1922,14 @@ export function useUnassignPhoneNumber(api: ApiClient) {
         }),
       ),
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: phoneNumbersKey }),
+      queryClient.invalidateQueries({ queryKey: phoneNumbersKey(workspaceId) }),
   });
 }
 
 /** Give the number back to the carrier. The charge stops and the
  *  number never comes back. */
 export function useReleasePhoneNumber(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (phoneNumberId: string) =>
@@ -1841,7 +1939,7 @@ export function useReleasePhoneNumber(api: ApiClient) {
         }),
       ),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: phoneNumbersKey });
+      void queryClient.invalidateQueries({ queryKey: phoneNumbersKey(workspaceId) });
       void queryClient.invalidateQueries({ queryKey: ["available-numbers"] });
     },
   });
@@ -1860,8 +1958,9 @@ export interface NewMailboxBody {
 /** Every mailbox of the Workspace (ADR-0019). The Connections page
  *  reads it to say which mailboxes sit on a Mailbox Provider. */
 export function useMailboxes(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: mailboxesKey,
+    queryKey: mailboxesKey(workspaceId),
     queryFn: () =>
       unwrap(api.GET("/api/v1/settings/mailboxes")).then((page) => page.items),
   });
@@ -1869,8 +1968,9 @@ export function useMailboxes(api: ApiClient) {
 
 /** One Agent's mailbox, and what it could have when it holds none. */
 export function useAgentMailbox(api: ApiClient, agentId: string) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: agentMailboxKey(agentId),
+    queryKey: agentMailboxKey(workspaceId, agentId),
     queryFn: () =>
       unwrap(
         api.GET("/api/v1/agents/{agent_id}/mailbox", {
@@ -1931,6 +2031,7 @@ export function useMailboxName(
  *  it; the login proof follows, so the card starts at `provisioning`
  *  (ADR-0019). */
 export function useProvisionMailbox(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ agentId, ...body }: { agentId: string } & NewMailboxBody) =>
@@ -1941,13 +2042,14 @@ export function useProvisionMailbox(api: ApiClient) {
         }),
       ),
     onSuccess: (_mailbox, { agentId }) =>
-      invalidateMailboxes(queryClient, agentId),
+      invalidateMailboxes(workspaceId, queryClient, agentId),
   });
 }
 
 /** Give the mailbox a new password and prove the login again. A host
  *  that mints its own takes no password here. */
 export function useResetMailboxPassword(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({
@@ -1964,13 +2066,14 @@ export function useResetMailboxPassword(api: ApiClient) {
         }),
       ),
     onSuccess: (_mailbox, { agentId }) =>
-      invalidateMailboxes(queryClient, agentId),
+      invalidateMailboxes(workspaceId, queryClient, agentId),
   });
 }
 
 /** Delete the mailbox. The address is typed back, because the host's
  *  mail goes with it and Pagis keeps no copy (ADR-0019). */
 export function useDeleteMailbox(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({
@@ -1987,23 +2090,24 @@ export function useDeleteMailbox(api: ApiClient) {
         }),
       ),
     onSuccess: (_deleted, { agentId }) =>
-      invalidateMailboxes(queryClient, agentId),
+      invalidateMailboxes(workspaceId, queryClient, agentId),
   });
 }
 
 /** One mailbox act moves the card, the Workspace list, the Address
  *  Ledger suggestions and the Agent's read-through address. */
-function invalidateMailboxes(queryClient: QueryClient, agentId: string) {
-  void queryClient.invalidateQueries({ queryKey: agentMailboxKey(agentId) });
-  void queryClient.invalidateQueries({ queryKey: mailboxesKey });
+function invalidateMailboxes(workspaceId: string, queryClient: QueryClient, agentId: string) {
+  void queryClient.invalidateQueries({ queryKey: agentMailboxKey(workspaceId, agentId) });
+  void queryClient.invalidateQueries({ queryKey: mailboxesKey(workspaceId) });
   void queryClient.invalidateQueries({ queryKey: ["mailbox-offers"] });
   void queryClient.invalidateQueries({ queryKey: ["mailbox-name"] });
-  void queryClient.invalidateQueries({ queryKey: agentsKey });
+  void queryClient.invalidateQueries({ queryKey: agentsKey(workspaceId) });
 }
 
 /** Save a login the user already has. The secret goes one way:
  *  the daemon seals it and no endpoint reads it back. */
 export function useAddCredential(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (body: {
@@ -2014,11 +2118,12 @@ export function useAddCredential(api: ApiClient) {
       totp_seed?: string;
     }) => unwrap(api.POST("/api/v1/settings/credentials", { body })),
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: credentialsKey }),
+      queryClient.invalidateQueries({ queryKey: credentialsKey(workspaceId) }),
   });
 }
 
 export function useDeleteCredential(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (credentialId: string) => {
@@ -2030,7 +2135,7 @@ export function useDeleteCredential(api: ApiClient) {
         throw error ?? new Error("delete failed");
     },
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: credentialsKey }),
+      queryClient.invalidateQueries({ queryKey: credentialsKey(workspaceId) }),
   });
 }
 
@@ -2041,8 +2146,9 @@ export function useComputer(
   agentId: string,
   { pollMs }: { pollMs?: number } = {},
 ) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: computerKey(agentId),
+    queryKey: computerKey(workspaceId, agentId),
     queryFn: () =>
       unwrap(
         api.GET("/api/v1/agents/{agent_id}/computer", {
@@ -2065,8 +2171,9 @@ export function useComputer(
  * URL is made again. `null` means there is no screen yet.
  */
 export function useScreenPreviewUrl(agentId: string): string | null {
+  const workspaceId = useCurrentWorkspaceId();
   const preview = useQuery({
-    queryKey: screenPreviewKey(agentId),
+    queryKey: screenPreviewKey(workspaceId, agentId),
     queryFn: () => fetchScreenPreview(agentId),
     staleTime: Infinity,
   });
@@ -2086,6 +2193,7 @@ export function useScreenPreviewUrl(agentId: string): string | null {
 /** Wake one agent's computer. Progress arrives as
  *  `computer.state_changed` events; a 409 names a stale local image. */
 export function useWakeComputer(api: ApiClient, agentId: string) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async () => {
@@ -2101,13 +2209,14 @@ export function useWakeComputer(api: ApiClient, agentId: string) {
       return data;
     },
     onSettled: () =>
-      queryClient.invalidateQueries({ queryKey: computerKey(agentId) }),
+      queryClient.invalidateQueries({ queryKey: computerKey(workspaceId, agentId) }),
   });
 }
 
 /** Put one agent's computer to sleep now, ahead of the idle
  *  sweep. A 409 says a command runs in it. */
 export function useSleepComputer(api: ApiClient, agentId: string) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async () => {
@@ -2123,7 +2232,7 @@ export function useSleepComputer(api: ApiClient, agentId: string) {
       return data;
     },
     onSettled: () =>
-      queryClient.invalidateQueries({ queryKey: computerKey(agentId) }),
+      queryClient.invalidateQueries({ queryKey: computerKey(workspaceId, agentId) }),
   });
 }
 
@@ -2134,9 +2243,10 @@ export function useAwakeCount(
   api: ApiClient,
   agentIds: readonly string[],
 ): number {
+  const workspaceId = useCurrentWorkspaceId();
   const results = useQueries({
     queries: agentIds.map((agentId) => ({
-      queryKey: computerKey(agentId),
+      queryKey: computerKey(workspaceId, agentId),
       queryFn: () =>
         unwrap(
           api.GET("/api/v1/agents/{agent_id}/computer", {
@@ -2151,8 +2261,9 @@ export function useAwakeCount(
 
 /** What the office keeps on disk, for the Desk Panel footer. */
 export function useComputerDisk(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: computerDiskKey,
+    queryKey: computerDiskKey(workspaceId),
     queryFn: () => unwrap(api.GET("/api/v1/computers/disk")),
   });
 }
@@ -2160,6 +2271,7 @@ export function useComputerDisk(api: ApiClient) {
 /** Take over the agent's computer: the daemon flips the input
  *  switch to the user and denies the agent's screen leases. */
 export function useTakeover(api: ApiClient, agentId: string) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async () => {
@@ -2175,12 +2287,13 @@ export function useTakeover(api: ApiClient, agentId: string) {
       return data;
     },
     onSettled: () =>
-      queryClient.invalidateQueries({ queryKey: computerKey(agentId) }),
+      queryClient.invalidateQueries({ queryKey: computerKey(workspaceId, agentId) }),
   });
 }
 
 /** Hand the computer back to the agent. */
 export function useHandback(api: ApiClient, agentId: string) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async () => {
@@ -2196,7 +2309,7 @@ export function useHandback(api: ApiClient, agentId: string) {
       return data;
     },
     onSettled: () =>
-      queryClient.invalidateQueries({ queryKey: computerKey(agentId) }),
+      queryClient.invalidateQueries({ queryKey: computerKey(workspaceId, agentId) }),
   });
 }
 
@@ -2206,6 +2319,7 @@ export function useSendMessage(
   channelId: string,
   rootId?: string,
 ) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   const pending = usePendingSends();
   const scope = threadScope(channelId, rootId);
@@ -2247,12 +2361,12 @@ export function useSendMessage(
     },
     onSuccess: (message, { pendingId }) => {
       if (rootId === undefined) {
-        insertMessage(queryClient, message);
+        insertMessage(workspaceId, queryClient, message);
       } else {
-        insertReply(queryClient, rootId, message);
+        insertReply(workspaceId, queryClient, rootId, message);
         // The root's rollup changed; recompute the timeline.
         void queryClient.invalidateQueries({
-          queryKey: timelineKey(channelId),
+          queryKey: timelineKey(workspaceId, channelId),
         });
       }
       pending.remove(scope, pendingId);
@@ -2275,8 +2389,9 @@ export function useSendMessage(
  *  Request. The needs-you queue reads this one list (ADR-0022: the
  *  queue is a view, never a second source of truth). */
 export function usePendingRequests(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: pendingRequestsKey,
+    queryKey: pendingRequestsKey(workspaceId),
     queryFn: () =>
       unwrap(
         api.GET("/api/v1/requests", {
@@ -2291,8 +2406,9 @@ export function usePendingRequests(api: ApiClient) {
  *  the items in the order of the queue, and their count. Home and the
  *  sidebar count read it. The `needs_you.*` WS events invalidate it. */
 export function useNeedsYou(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: needsYouKey,
+    queryKey: needsYouKey(workspaceId),
     queryFn: () => unwrap(api.GET("/api/v1/needs-you")),
     staleTime: Infinity,
   });
@@ -2300,9 +2416,9 @@ export function useNeedsYou(api: ApiClient) {
 
 /** Takes one item out of the cached Needs-You Queue, so a dismissed
  *  item leaves Home and the sidebar count before the daemon answers. */
-async function dropNeedsYouItem(queryClient: QueryClient, itemId: string) {
-  await queryClient.cancelQueries({ queryKey: needsYouKey });
-  queryClient.setQueryData<NeedsYouQueue>(needsYouKey, (queue) => {
+async function dropNeedsYouItem(workspaceId: string, queryClient: QueryClient, itemId: string) {
+  await queryClient.cancelQueries({ queryKey: needsYouKey(workspaceId) });
+  queryClient.setQueryData<NeedsYouQueue>(needsYouKey(workspaceId), (queue) => {
     if (queue === undefined) return queue;
     const items = queue.items.filter((item) => item.id !== itemId);
     return { items, count: items.length };
@@ -2310,8 +2426,9 @@ async function dropNeedsYouItem(queryClient: QueryClient, itemId: string) {
 }
 
 export function useSchedules(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: schedulesKey,
+    queryKey: schedulesKey(workspaceId),
     queryFn: () =>
       unwrap(api.GET("/api/v1/schedules")).then((page) => page.items),
     staleTime: Infinity,
@@ -2319,8 +2436,9 @@ export function useSchedules(api: ApiClient) {
 }
 
 export function useSchedule(api: ApiClient, scheduleId: string | null) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: scheduleKey(scheduleId ?? ""),
+    queryKey: scheduleKey(workspaceId, scheduleId ?? ""),
     queryFn: () =>
       unwrap(
         api.GET("/api/v1/schedules/{schedule_id}", {
@@ -2336,8 +2454,9 @@ export function useScheduleOccurrences(
   api: ApiClient,
   scheduleId: string | null,
 ) {
+  const workspaceId = useCurrentWorkspaceId();
   return useInfiniteQuery({
-    queryKey: scheduleOccurrencesKey(scheduleId ?? ""),
+    queryKey: scheduleOccurrencesKey(workspaceId, scheduleId ?? ""),
     initialPageParam: null as string | null,
     queryFn: ({ pageParam }) =>
       unwrap(
@@ -2355,8 +2474,9 @@ export function useScheduleOccurrences(
 }
 
 export function useScheduleWakeups(api: ApiClient, scheduleId: string | null) {
+  const workspaceId = useCurrentWorkspaceId();
   return useInfiniteQuery({
-    queryKey: scheduleWakeupsKey(scheduleId ?? ""),
+    queryKey: scheduleWakeupsKey(workspaceId, scheduleId ?? ""),
     initialPageParam: null as string | null,
     queryFn: ({ pageParam }) =>
       unwrap(
@@ -2377,6 +2497,7 @@ export function useScheduleWakeups(api: ApiClient, scheduleId: string | null) {
  *  or `archive`. The daemon answers with the row it wrote, and a lost
  *  skip-next race answers 409 with the sentence the caller shows. */
 export function useUpdateSchedule(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({
@@ -2403,21 +2524,22 @@ export function useUpdateSchedule(api: ApiClient) {
         }),
       ),
     onSettled: (_data, _error, { scheduleId }) => {
-      void queryClient.invalidateQueries({ queryKey: schedulesKey });
-      void queryClient.invalidateQueries({ queryKey: scheduleKey(scheduleId) });
+      void queryClient.invalidateQueries({ queryKey: schedulesKey(workspaceId) });
+      void queryClient.invalidateQueries({ queryKey: scheduleKey(workspaceId, scheduleId) });
       void queryClient.invalidateQueries({
-        queryKey: scheduleOccurrencesKey(scheduleId),
+        queryKey: scheduleOccurrencesKey(workspaceId, scheduleId),
       });
       void queryClient.invalidateQueries({
-        queryKey: scheduleWakeupsKey(scheduleId),
+        queryKey: scheduleWakeupsKey(workspaceId, scheduleId),
       });
     },
   });
 }
 
 export function useSubscriptions(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: subscriptionsKey,
+    queryKey: subscriptionsKey(workspaceId),
     queryFn: () =>
       unwrap(api.GET("/api/v1/event-subscriptions")).then((page) => page.items),
     staleTime: Infinity,
@@ -2426,8 +2548,9 @@ export function useSubscriptions(api: ApiClient) {
 
 /** One Event Subscription with its collector health beside it. */
 export function useSubscription(api: ApiClient, subscriptionId: string | null) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: subscriptionKey(subscriptionId ?? ""),
+    queryKey: subscriptionKey(workspaceId, subscriptionId ?? ""),
     queryFn: () =>
       unwrap(
         api.GET("/api/v1/event-subscriptions/{subscription_id}", {
@@ -2443,8 +2566,9 @@ export function useSubscriptionEvents(
   api: ApiClient,
   subscriptionId: string | null,
 ) {
+  const workspaceId = useCurrentWorkspaceId();
   return useInfiniteQuery({
-    queryKey: subscriptionEventsKey(subscriptionId ?? ""),
+    queryKey: subscriptionEventsKey(workspaceId, subscriptionId ?? ""),
     initialPageParam: null as string | null,
     queryFn: ({ pageParam }) =>
       unwrap(
@@ -2465,8 +2589,9 @@ export function useSubscriptionWakeups(
   api: ApiClient,
   subscriptionId: string | null,
 ) {
+  const workspaceId = useCurrentWorkspaceId();
   return useInfiniteQuery({
-    queryKey: subscriptionWakeupsKey(subscriptionId ?? ""),
+    queryKey: subscriptionWakeupsKey(workspaceId, subscriptionId ?? ""),
     initialPageParam: null as string | null,
     queryFn: ({ pageParam }) =>
       unwrap(
@@ -2487,6 +2612,7 @@ export function useSubscriptionWakeups(
  *  `archive`. There is no skip-next: an Event Subscription has no next
  *  occurrence to skip. */
 export function useUpdateSubscription(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({
@@ -2507,15 +2633,15 @@ export function useUpdateSubscription(api: ApiClient) {
         }),
       ),
     onSettled: (_data, _error, { subscriptionId }) => {
-      void queryClient.invalidateQueries({ queryKey: subscriptionsKey });
+      void queryClient.invalidateQueries({ queryKey: subscriptionsKey(workspaceId) });
       void queryClient.invalidateQueries({
-        queryKey: subscriptionKey(subscriptionId),
+        queryKey: subscriptionKey(workspaceId, subscriptionId),
       });
       void queryClient.invalidateQueries({
-        queryKey: subscriptionEventsKey(subscriptionId),
+        queryKey: subscriptionEventsKey(workspaceId, subscriptionId),
       });
       void queryClient.invalidateQueries({
-        queryKey: subscriptionWakeupsKey(subscriptionId),
+        queryKey: subscriptionWakeupsKey(workspaceId, subscriptionId),
       });
     },
   });
@@ -2523,14 +2649,16 @@ export function useUpdateSubscription(api: ApiClient) {
 
 /** The retention window per artifact class. */
 export function useRetentionPolicies(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: retentionKey,
+    queryKey: retentionKey(workspaceId),
     queryFn: () =>
       unwrap(api.GET("/api/v1/settings/retention")).then((page) => page.items),
   });
 }
 
 export function useSetRetentionPolicy(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({
@@ -2546,7 +2674,7 @@ export function useSetRetentionPolicy(api: ApiClient) {
           body: { retain_days: retainDays },
         }),
       ),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: retentionKey }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: retentionKey(workspaceId) }),
   });
 }
 
@@ -2557,8 +2685,9 @@ export function useSetRetentionPolicy(api: ApiClient) {
  *  A record the bridge has not written yet answers 404, so the read
  *  retries: the strip is minted at the same moment the call starts. */
 export function useCall(api: ApiClient, callId: string) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: callKey(callId),
+    queryKey: callKey(workspaceId, callId),
     queryFn: () =>
       unwrap(
         api.GET("/api/v1/calls/{call_id}", {
@@ -2579,8 +2708,9 @@ const CODING_SESSIONS_PAGE = 100;
  *  the Coding place sorts every session: an old open session goes above
  *  a new ended one. Each `coding_session.*` frame invalidates it. */
 export function useCodingSessions(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const query = useInfiniteQuery({
-    queryKey: codingSessionsKey,
+    queryKey: codingSessionsKey(workspaceId),
     initialPageParam: undefined as string | undefined,
     queryFn: ({ pageParam }) =>
       unwrap(
@@ -2602,8 +2732,9 @@ export function useCodingSessions(api: ApiClient) {
 /** One Coding Session record (ADR-0033). A `coding_session.*` frame of
  *  the session invalidates it. */
 export function useCodingSession(api: ApiClient, sessionId: string) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: codingSessionKey(sessionId),
+    queryKey: codingSessionKey(workspaceId, sessionId),
     queryFn: () =>
       unwrap(
         api.GET("/api/v1/coding-sessions/{coding_session_id}", {
@@ -2618,6 +2749,7 @@ export function useCodingSession(api: ApiClient, sessionId: string) {
  *  turn that runs and closes the session. The record is read again, and
  *  it settles when the daemon writes the terminal state. */
 export function useStopCodingSession(api: ApiClient, sessionId: string) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () =>
@@ -2627,7 +2759,7 @@ export function useStopCodingSession(api: ApiClient, sessionId: string) {
         }),
       ),
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: codingSessionKey(sessionId) }),
+      queryClient.invalidateQueries({ queryKey: codingSessionKey(workspaceId, sessionId) }),
   });
 }
 
@@ -2640,8 +2772,9 @@ const TRANSCRIPT_PAGE = 500;
  *  `coding_session.*` frame of the session invalidates it, and the
  *  pages are read again. */
 export function useCodingSessionEvents(api: ApiClient, sessionId: string) {
+  const workspaceId = useCurrentWorkspaceId();
   const query = useInfiniteQuery({
-    queryKey: codingSessionEventsKey(sessionId),
+    queryKey: codingSessionEventsKey(workspaceId, sessionId),
     initialPageParam: undefined as number | undefined,
     queryFn: ({ pageParam }) =>
       unwrap(
@@ -2671,8 +2804,9 @@ export function useMailMessage(
   mailbox: string,
   messageId: string,
 ) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: mailMessageKey(mailbox, messageId),
+    queryKey: mailMessageKey(workspaceId, mailbox, messageId),
     queryFn: () =>
       unwrap(
         api.GET("/api/v1/mail/{mailbox}/{message_id}", {
@@ -2688,6 +2822,7 @@ export function useMailMessage(
  *  item leaves the cached queue at once, before the daemon answers; the
  *  `needs_you.removed` WS event refreshes the other clients. */
 export function useDismissCall(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (callId: string) =>
@@ -2696,13 +2831,14 @@ export function useDismissCall(api: ApiClient) {
           params: { path: { call_id: callId } },
         }),
       ),
-    onMutate: (callId) => dropNeedsYouItem(queryClient, `call:${callId}`),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: needsYouKey }),
+    onMutate: (callId) => dropNeedsYouItem(workspaceId, queryClient, `call:${callId}`),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: needsYouKey(workspaceId) }),
   });
 }
 
 /** The user ends a live call (ADR-0022). */
 export function useHangUpCall(api: ApiClient, callId: string) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () =>
@@ -2712,13 +2848,14 @@ export function useHangUpCall(api: ApiClient, callId: string) {
         }),
       ),
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: callKey(callId) }),
+      queryClient.invalidateQueries({ queryKey: callKey(workspaceId, callId) }),
   });
 }
 
 /** The user drops a live call to Unknown (ADR-0021). It cannot be
  *  undone while the call runs, so the control asks first. */
 export function useDropCallTier(api: ApiClient, callId: string) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () =>
@@ -2729,20 +2866,22 @@ export function useDropCallTier(api: ApiClient, callId: string) {
         }),
       ),
     onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: callKey(callId) }),
+      queryClient.invalidateQueries({ queryKey: callKey(workspaceId, callId) }),
   });
 }
 
 /** The Trust List and the Keypad Code card
  *  (ADR-0021, ADR-0019). No tool writes the list: the user edits it here. */
 export function useTrustList(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: trustListKey,
+    queryKey: trustListKey(workspaceId),
     queryFn: () => unwrap(api.GET("/api/v1/settings/trust-list")),
   });
 }
 
 export function useAddTrustEntry(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (body: {
@@ -2751,11 +2890,12 @@ export function useAddTrustEntry(api: ApiClient) {
       label?: string;
       agent_id?: string;
     }) => unwrap(api.POST("/api/v1/settings/trust-list", { body })),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: trustListKey }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: trustListKey(workspaceId) }),
   });
 }
 
 export function useDeleteTrustEntry(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (trustEntryId: string) =>
@@ -2764,27 +2904,29 @@ export function useDeleteTrustEntry(api: ApiClient) {
           params: { path: { trust_entry_id: trustEntryId } },
         }),
       ),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: trustListKey }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: trustListKey(workspaceId) }),
   });
 }
 
 /** Set the one Keypad Code. It is hashed at the daemon and never read
  *  back: there is no reveal and no export. */
 export function useSetKeypadCode(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (code: string) =>
       unwrap(api.PUT("/api/v1/settings/keypad-code", { body: { code } })),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: trustListKey }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: trustListKey(workspaceId) }),
   });
 }
 
 export function useDeleteKeypadCode(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () =>
       expectNoContent(api.DELETE("/api/v1/settings/keypad-code")),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: trustListKey }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: trustListKey(workspaceId) }),
   });
 }
 
@@ -2792,14 +2934,15 @@ export function useDeleteKeypadCode(api: ApiClient) {
  *  end its delay (ADR-0021). Only the person knows whether the wrong
  *  codes were theirs, so no tool does this. */
 export function useClearKeypadFailures(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () =>
       expectNoContent(api.DELETE("/api/v1/settings/keypad-code/failures")),
     onSuccess: () =>
       Promise.all([
-        queryClient.invalidateQueries({ queryKey: trustListKey }),
-        queryClient.invalidateQueries({ queryKey: needsYouKey }),
+        queryClient.invalidateQueries({ queryKey: trustListKey(workspaceId) }),
+        queryClient.invalidateQueries({ queryKey: needsYouKey(workspaceId) }),
       ]),
   });
 }
@@ -2812,8 +2955,9 @@ export function useClearKeypadFailures(api: ApiClient) {
 
 /** Every package of the Workspace. */
 export function useSoftware(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: softwareKey,
+    queryKey: softwareKey(workspaceId),
     queryFn: () =>
       unwrap(api.GET("/api/v1/software")).then((page) => page.items),
     staleTime: Infinity,
@@ -2823,8 +2967,9 @@ export function useSoftware(api: ApiClient) {
 /** One package with its tools, Versions, origin, and Contributions.
  *  The Contributions carry no patch. */
 export function useSoftwarePackage(api: ApiClient, name: string | null) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: softwarePackageKey(name ?? ""),
+    queryKey: softwarePackageKey(workspaceId, name ?? ""),
     queryFn: () =>
       unwrap(
         api.GET("/api/v1/software/{name}", {
@@ -2843,8 +2988,9 @@ export function useContribution(
   name: string,
   contributionId: string | null,
 ) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: contributionKey(name, contributionId ?? ""),
+    queryKey: contributionKey(workspaceId, name, contributionId ?? ""),
     queryFn: () =>
       unwrap(
         api.GET("/api/v1/software/{name}/contributions/{contribution_id}", {
@@ -3001,8 +3147,9 @@ export function useSetSignIn(api: ApiClient) {
 /** What the signed-in person spent this month, and the cap they are
  *  under. Every person reads their own. */
 export function useMyUsage(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: myUsageKey,
+    queryKey: myUsageKey(workspaceId),
     queryFn: () => unwrap(api.GET("/api/v1/usage")),
   });
 }
@@ -3247,8 +3394,9 @@ export function useWidgetPage(
   widget: string,
   enabled: boolean,
 ) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: widgetPageKey(packageName, version, widget),
+    queryKey: widgetPageKey(workspaceId, packageName, version, widget),
     queryFn: () => fetchWidgetPage(packageName, version, widget),
     enabled,
     retry: false,
@@ -3259,8 +3407,9 @@ export function useWidgetPage(
 /** One Plugin with its servers, fields, bindings, tools and Skills.
  *  It is the install card and the plugin page at once. */
 export function usePlugin(api: ApiClient, pluginId: string | null) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: pluginKey(pluginId ?? ""),
+    queryKey: pluginKey(workspaceId, pluginId ?? ""),
     queryFn: () =>
       unwrap(
         api.GET("/api/v1/plugins/{plugin_id}", {
@@ -3275,8 +3424,9 @@ export function usePlugin(api: ApiClient, pluginId: string | null) {
 /** The end of one Plugin's server log (ADR-0017). No staleTime: the
  *  log grows while a server runs, so a read shows what is there now. */
 export function usePluginLog(api: ApiClient, pluginId: string | null) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: pluginLogKey(pluginId ?? ""),
+    queryKey: pluginLogKey(workspaceId, pluginId ?? ""),
     queryFn: () =>
       unwrap(
         api.GET("/api/v1/plugins/{plugin_id}/log", {
@@ -3290,12 +3440,13 @@ export function usePluginLog(api: ApiClient, pluginId: string | null) {
 /** Install from a git URL or from one uploaded tar. The answer is the
  *  install card: what the package declares, and what it binds. */
 export function useInstallPlugin(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (source: PluginSourceRequest) =>
       unwrap(api.POST("/api/v1/plugins", { body: { source } })),
     onSuccess: (plugin) => {
-      queryClient.setQueryData(pluginKey(plugin.id), plugin);
+      queryClient.setQueryData(pluginKey(workspaceId, plugin.id), plugin);
       void queryClient.invalidateQueries({ queryKey: pluginsKey });
     },
   });
@@ -3305,6 +3456,7 @@ export function useInstallPlugin(api: ApiClient) {
  *  it and the desk never reads it back (ADR-0017). The Plugin enables
  *  itself when its last required Binding arrives. */
 export function useBindPluginField(api: ApiClient, pluginId: string) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({
@@ -3321,7 +3473,7 @@ export function useBindPluginField(api: ApiClient, pluginId: string) {
         }),
       ),
     onSuccess: (plugin) => {
-      queryClient.setQueryData(pluginKey(pluginId), plugin);
+      queryClient.setQueryData(pluginKey(workspaceId, pluginId), plugin);
       void queryClient.invalidateQueries({ queryKey: pluginsKey });
     },
   });
@@ -3330,6 +3482,7 @@ export function useBindPluginField(api: ApiClient, pluginId: string) {
 /** Read the source again and install the next state. The answer names
  *  the files that changed and carries the new tools (ADR-0017). */
 export function useUpdatePlugin(api: ApiClient, pluginId: string) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (artifactId?: string) =>
@@ -3340,7 +3493,7 @@ export function useUpdatePlugin(api: ApiClient, pluginId: string) {
         }),
       ),
     onSuccess: (plugin) => {
-      queryClient.setQueryData(pluginKey(pluginId), plugin);
+      queryClient.setQueryData(pluginKey(workspaceId, pluginId), plugin);
       void queryClient.invalidateQueries({ queryKey: pluginsKey });
     },
   });
@@ -3348,6 +3501,7 @@ export function useUpdatePlugin(api: ApiClient, pluginId: string) {
 
 /** Start every server of a Plugin that failed (ADR-0017). */
 export function useStartPlugin(api: ApiClient, pluginId: string) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () =>
@@ -3357,9 +3511,9 @@ export function useStartPlugin(api: ApiClient, pluginId: string) {
         }),
       ),
     onSuccess: (plugin) => {
-      queryClient.setQueryData(pluginKey(pluginId), plugin);
+      queryClient.setQueryData(pluginKey(workspaceId, pluginId), plugin);
       void queryClient.invalidateQueries({ queryKey: pluginsKey });
-      void queryClient.invalidateQueries({ queryKey: pluginLogKey(pluginId) });
+      void queryClient.invalidateQueries({ queryKey: pluginLogKey(workspaceId, pluginId) });
     },
   });
 }
@@ -3367,6 +3521,7 @@ export function useStartPlugin(api: ApiClient, pluginId: string) {
 /** Uninstall: the servers stop, the Grants go, and the directories go
  *  with them. */
 export function useUninstallPlugin(api: ApiClient) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (pluginId: string) => {
@@ -3380,13 +3535,14 @@ export function useUninstallPlugin(api: ApiClient) {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: pluginsKey });
-      void queryClient.invalidateQueries({ queryKey: grantsKey });
+      void queryClient.invalidateQueries({ queryKey: grantsKey(workspaceId) });
     },
   });
 }
 
 /** Give one Agent the Plugin Grant: all of the Plugin, or none of it. */
 export function useGrantPlugin(api: ApiClient, pluginId: string) {
+  const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (agentId: string) =>
@@ -3396,7 +3552,7 @@ export function useGrantPlugin(api: ApiClient, pluginId: string) {
           body: { agent_id: agentId },
         }),
       ),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: grantsKey }),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: grantsKey(workspaceId) }),
   });
 }
 /** The data half of one live Widget view. It is gone once the Run that
@@ -3406,8 +3562,9 @@ export function useWidgetView(
   toolCallId: string,
   enabled: boolean,
 ) {
+  const workspaceId = useCurrentWorkspaceId();
   return useQuery({
-    queryKey: widgetViewKey(toolCallId),
+    queryKey: widgetViewKey(workspaceId, toolCallId),
     queryFn: () =>
       unwrap(
         api.GET("/api/v1/widgets/{tool_call_id}/view", {

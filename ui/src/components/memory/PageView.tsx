@@ -39,7 +39,6 @@ export function PageView({
   const subject = file.data === undefined ? null : parseSubjectPage(file.data.content)
   const title = file.data?.title ?? path
   const askChannel = asker === null ? null : directMessageChannel(channels, asker.id)
-  const workspaceId = channels[0]?.workspace_id
 
   const ask = () => {
     if (askChannel === null) return
@@ -69,10 +68,9 @@ export function PageView({
               Ask {asker.name} about it
             </Button>
           )}
-          {subject !== null && subject.timeline.length > 0 && workspaceId !== undefined && (
+          {subject !== null && subject.timeline.length > 0 && (
             <ForgetPage
               api={api}
-              workspaceId={workspaceId}
               title={title}
               timeline={subject.timeline}
             />
