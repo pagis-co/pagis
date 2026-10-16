@@ -1304,10 +1304,9 @@ pub trait TextRecordStore: Send + Sync {
 /// Removing a Mailbox Provider Connection reads the count here: a
 /// Connection that a mailbox still points at is not removed.
 ///
-/// The schema owns the two rules the desk must never break. A unique
-/// index on the address, tombstones included, is the Address Ledger; a
-/// partial unique index on the Agent gives one Agent one live mailbox.
-/// Both refusals arrive here as [`StoreError::Conflict`].
+/// The shared Address Ledger reserves addresses for both mailbox types,
+/// tombstones included. A partial unique index on the Agent gives one
+/// Agent one live mailbox. Both refusals are [`StoreError::Conflict`].
 #[async_trait]
 pub trait AgentMailboxStore: Send + Sync {
     /// Reserve the address in the Address Ledger. The desk writes the

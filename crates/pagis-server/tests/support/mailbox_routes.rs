@@ -192,3 +192,148 @@ async fn a_provider_without_endpoints_reads_mail_through_the_route() {
     assert_eq!(body["text"], "Please check this invoice.");
     assert_eq!(body["subject"], "Invoice");
 }
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+async fn workspace_mailbox_reads_through_the_product_api_and_isolates_workspaces() {
+    let embedder = Embedder::new().await;
+    let connection = provider(&embedder).await;
+    let org_workspace = &embedder.routers.state.org_workspace_id;
+    let mut record = embedder
+        .stores
+        .connections
+        .get(org_workspace, &connection)
+        .await
+        .unwrap()
+        .unwrap();
+    record.config["imap_host"] = json!("imap.test");
+    record.config["imap_port"] = json!(993);
+    record.config["smtp_host"] = json!("smtp.test");
+    record.config["smtp_port"] = json!(465);
+    embedder
+        .stores
+        .connections
+        .set_config(org_workspace, &connection, &record.config)
+        .await
+        .unwrap();
+    let (status, page) = response(&embedder, "GET", "/api/v1/workspace/mailbox", Value::Null).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(page["mailbox"].is_null());
+    let create = json!({"connection_id": connection, "local_part": "person"});
+    let (status, mailbox) = response(
+        &embedder,
+        "POST",
+        "/api/v1/workspace/mailbox",
+        create.clone(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{mailbox}");
+    assert_eq!(mailbox["address"], "person@example.com");
+    assert!(mailbox.get("password").is_none());
+    assert_eq!(
+        response(&embedder, "POST", "/api/v1/workspace/mailbox", create)
+            .await
+            .0,
+        StatusCode::CONFLICT
+    );
+    let transport = &embedder.mail_transport;
+    transport.deliver("sender@example.test", "Invoice", "invoice first");
+    let thread = transport.summaries("INBOX")[0].thread_id.clone();
+    transport.deliver_reply(
+        &thread,
+        "sender@example.test",
+        "Re: Invoice",
+        "invoice second",
+    );
+    let (status, list) = response(
+        &embedder,
+        "GET",
+        "/api/v1/workspace/mail/messages",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{list}");
+    assert_eq!(list["items"].as_array().unwrap().len(), 2);
+    assert_eq!(list["items"][0]["seen"], false);
+    let id = list["items"][0]["id"].as_str().unwrap();
+    let (status, opened) = response(
+        &embedder,
+        "GET",
+        &format!("/api/v1/workspace/mail/messages/{id}"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(opened["text"], "invoice second");
+    assert_eq!(opened["seen"], true);
+    let thread_id: String =
+        url::form_urlencoded::byte_serialize(opened["thread_id"].as_str().unwrap().as_bytes())
+            .collect();
+    let (status, thread) = response(
+        &embedder,
+        "GET",
+        &format!("/api/v1/workspace/mail/threads/{}", thread_id),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(thread["items"].as_array().unwrap().len(), 2);
+    let (_, found) = response(
+        &embedder,
+        "GET",
+        "/api/v1/workspace/mail/messages?q=invoice",
+        Value::Null,
+    )
+    .await;
+    assert_eq!(found["items"].as_array().unwrap().len(), 2);
+    assert_eq!(found["items"][0]["seen"], true);
+    let (status, _) = super::response(
+        &embedder,
+        "GET",
+        "/api/v1/workspace/mail/messages",
+        Value::Null,
+        Some(&embedder.other_cookie),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    for path in [
+        format!("/api/v1/workspace/mail/messages/{id}"),
+        format!("/api/v1/workspace/mail/threads/{}", thread_id),
+        "/api/v1/workspace/mail/folders".into(),
+    ] {
+        let (status, _) = super::response(
+            &embedder,
+            "GET",
+            &path,
+            Value::Null,
+            Some(&embedder.other_cookie),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{path}");
+        let (status, _) = super::response(&embedder, "GET", &path, Value::Null, None).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED, "{path}");
+    }
+    let (_, other) = super::response(
+        &embedder,
+        "GET",
+        "/api/v1/workspace/mailbox",
+        Value::Null,
+        Some(&embedder.other_cookie),
+    )
+    .await;
+    assert!(other["mailbox"].is_null());
+    let (_, folders) = response(
+        &embedder,
+        "GET",
+        "/api/v1/workspace/mail/folders",
+        Value::Null,
+    )
+    .await;
+    assert!(
+        folders["items"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("INBOX"))
+    );
+    assert_eq!(transport.logins().len(), transport.logouts().len());
+}

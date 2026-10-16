@@ -441,6 +441,75 @@ pub async fn only_live_mailboxes_hold_a_connection(backend: &Backend) {
     );
 }
 
+/// A Workspace has one mailbox, with an address in the shared ledger.
+pub async fn workspace_mailbox_record_and_ledger(backend: &Backend) {
+    let (ws, agent, _) = seed(backend).await;
+    let store = &backend.stores().workspace_mailboxes;
+    let record = pagis_core::WorkspaceMailbox {
+        workspace_id: ws.id.clone(),
+        connection_id: ConnectionId::generate(),
+        address: "person@example.com".into(),
+        created_at: now_ms(),
+    };
+    assert!(store.get(&ws.id).await.unwrap().is_none());
+    store.create(&record).await.unwrap();
+    assert_eq!(store.get(&ws.id).await.unwrap(), Some(record.clone()));
+    let other = backend.seeded_workspace().await;
+    assert!(store.get(&other.id).await.unwrap().is_none());
+    let second = pagis_core::WorkspaceMailbox {
+        address: "second@example.com".into(),
+        ..record.clone()
+    };
+    assert!(matches!(
+        store.create(&second).await,
+        Err(StoreError::Conflict(_))
+    ));
+    assert!(
+        backend
+            .stores()
+            .agent_mailboxes
+            .address_taken(&record.address)
+            .await
+            .unwrap()
+    );
+    let agent_record = mailbox(&ws.id, &agent.id, &record.connection_id, &record.address);
+    assert!(matches!(
+        backend.stores().agent_mailboxes.create(&agent_record).await,
+        Err(StoreError::Conflict(_))
+    ));
+    assert!(matches!(
+        store
+            .create(&pagis_core::WorkspaceMailbox {
+                workspace_id: other.id.clone(),
+                ..record.clone()
+            })
+            .await,
+        Err(StoreError::Conflict(_))
+    ));
+    assert!(
+        !store
+            .drop_reservation(&other.id, &record.address)
+            .await
+            .unwrap()
+    );
+    assert!(
+        store
+            .drop_reservation(&ws.id, &record.address)
+            .await
+            .unwrap()
+    );
+    backend
+        .stores()
+        .agent_mailboxes
+        .create(&agent_record)
+        .await
+        .unwrap();
+    assert!(matches!(
+        store.create(&record).await,
+        Err(StoreError::Conflict(_))
+    ));
+}
+
 /// Every body of this module. [`crate::store_suite!`] turns each one
 /// into a SQLite test and a Postgres test.
 #[macro_export]
@@ -448,6 +517,7 @@ macro_rules! store_suite_mailboxes {
     ($emit:path) => {
         $emit!(
             mailboxes,
+            workspace_mailbox_record_and_ledger,
             allow_rules_are_added_once_and_keep_their_order,
             a_deleted_mailbox_takes_no_allow_rule,
             a_mailbox_roundtrips_through_the_store,

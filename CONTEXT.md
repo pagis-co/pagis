@@ -500,16 +500,16 @@ _Avoid_: usage row, token log, billing record
 
 ### Workspace
 The scope that owns Agents, memory, conversations, Connections, Grants,
-Vault, Trust List, Software List, Agent Mailboxes, Files, Retention Policies
-and a timezone. A **tenant** is a Workspace as the unit of isolation, as in
-the Tenant Data Key and Tenant Network. Store lookups name the Workspace
-beside the record, except installation-wide records (ADR-0006, ADR-0023).
+Vault, Trust List, Software List, Agent Mailboxes, a Workspace Mailbox, a
+Workspace Number, Files, Retention Policies and a timezone. A **tenant** is
+a Workspace as the unit of isolation, as in the Tenant Data Key and Tenant
+Network. Store lookups name the Workspace beside the record, except
+installation-wide records (ADR-0006, ADR-0023, ADR-0040, ADR-0041).
 The daemon gives each Person one Workspace. Its timezone comes from the
 browser or Client App at first sign-in and changes in Settings.
-Not built: Private and Shared Workspace kinds, Workspace Mailbox, Workspace
-Number, calendar, messages between Workspaces and access through each
-record's owning Workspace or conversation (ADR-0039, ADR-0040, ADR-0041,
-ADR-0042, ADR-0043).
+Not built: Private and Shared Workspace kinds, calendar, messages between
+Workspaces and access through each record's owning Workspace or
+conversation (ADR-0039, ADR-0042, ADR-0043).
 
 ## Agents and conversations
 
@@ -1455,8 +1455,9 @@ number Grants and routing a callback to the Agent that called.
 ## Mail and texting
 
 ### Address Ledger
-The record of every Agent Mailbox address that Pagis made or assigned,
-deleted ones too, so no address is used twice (ADR-0019).
+The record of every Agent Mailbox and Workspace Mailbox address that Pagis
+makes or assigns, deleted ones too, so no address is used twice (ADR-0019,
+ADR-0040).
 
 ### Agent Mailbox
 The email address of one Agent, which it reads and sends from as its own
@@ -1475,16 +1476,16 @@ own Agent Mailbox or in one of the Person's mail Connections under a Grant
 (ADR-0019). Not built: Workspace Mailbox access under a Grant (ADR-0040).
 
 ### Mailbox Provider
-The Installation Connection through which Agent Mailboxes exist: one
-account at a mail host that owns a domain, or a manual host where the
-Person makes each mailbox. An Embedder names its provider and can supply
-mail reads and sends through `Mailboxes` with no IMAP or SMTP endpoints.
+The Installation Connection through which Agent Mailboxes and Workspace
+Mailboxes exist: one account at a mail host that owns a domain, or a manual
+host where the Person makes each mailbox. An Embedder names its provider
+and can supply mail reads and sends through `Mailboxes` with no IMAP or
+SMTP endpoints.
 The Connection holds the domain and capabilities. The host declares
 whether it needs an API key. A host that needs no key reads no host secret.
 An ordinary mail host holds both endpoints. A host refusal can carry
 a message for the Person, bounded to 512 UTF-8 bytes. Logs hold the code
 only (ADR-0019).
-Not built: Workspace Mailboxes through this transport (ADR-0040).
 
 ### Messaging Readiness
 Whether the carrier delivers an outbound text from a Workspace Number:
@@ -1521,12 +1522,14 @@ One of the three core tools to send a text, read one Text Conversation, or
 list recent ones. Not built (ADR-0020).
 
 ### Workspace Mailbox
-The mailbox of a Workspace on the Org's mail domain, one per Workspace.
-The Chief of Staff reads it first through a default Grant. Other Agents
-need a Grant. Spam filtering precedes the Trust Tier and every Agent read.
-An Agent replies from its Agent Mailbox with the Person in Cc. A send as
-the Workspace Mailbox needs an Approval until a standing Grant allows
-that kind of mail. Not built: Workspace Mailboxes (ADR-0040).
+The mailbox of a Workspace on the Org's mail domain, at most one per
+Workspace. The Person creates it in Settings and reads it in the Mail
+place: All mail, folders, messages, threads and search. Opening a message
+marks it as seen. The mail host holds the bodies, labels and flags. A read
+store uses the mail transport. Its conformance suite checks the operations
+(ADR-0040).
+Not built: spam verdicts, Junk, Agent triage, Needs you items, send,
+Grants, Shared Workspace visibility and assignments.
 
 ## Messages and UI
 

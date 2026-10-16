@@ -434,7 +434,7 @@ async fn mailbox_offer(
         .ok_or_else(|| ApiError::not_found("mailbox provider"))
 }
 
-fn offer_dto(offer: MailboxOffer) -> MailboxOfferDto {
+pub(crate) fn offer_dto(offer: MailboxOffer) -> MailboxOfferDto {
     MailboxOfferDto {
         connection_id: offer.connection.id.to_string(),
         display_name: offer.connection.display_name,

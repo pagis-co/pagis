@@ -6,6 +6,7 @@
 /// list, so a table that lands on one backend and not the other is
 /// caught.
 const TABLES: &[&str] = &[
+    "address_ledger",
     "agent_mailboxes",
     "agents",
     "calls",
@@ -85,6 +86,7 @@ const TABLES: &[&str] = &[
     "users",
     "wakeup_sources",
     "wakeups",
+    "workspace_mailboxes",
     "workspaces",
 ];
 

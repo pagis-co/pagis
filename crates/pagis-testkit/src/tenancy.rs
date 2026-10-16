@@ -50,6 +50,12 @@ pub struct Person {
 /// the harness plants in person A's Workspace, and [`TwoTenants::start`]
 /// refuses to run while one is neither.
 const OPAQUE: &[(&str, &str)] = &[
+    (
+        "thread_id",
+        "a mail thread at the host. The Workspace Mailbox comes from \
+         the Session; the Product API test checks another Workspace \
+         with no mailbox cannot read the thread",
+    ),
     ("provider", "a provider name, the same for every Workspace"),
     (
         "alias",

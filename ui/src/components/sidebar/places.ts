@@ -1,9 +1,10 @@
-// The seven places of the sidebar. Each one replaces the main
+// The places of the sidebar. Each one replaces the main
 // pane. A conversation is not a place: the list under the places is
 // the door to it.
 
 import {
   BookOpen,
+  Mail,
   Home,
   Package,
   RefreshCw,
@@ -16,6 +17,7 @@ import {
 export type PlaceId =
   | 'home'
   | 'sprites'
+  | 'mail'
   | 'memory'
   | 'automations'
   | 'coding'
@@ -31,6 +33,7 @@ export interface Place {
 export const PLACES: readonly Place[] = [
   { id: 'home', label: 'Home', icon: Home },
   { id: 'sprites', label: 'Sprites', icon: Users },
+  { id: 'mail', label: 'Mail', icon: Mail },
   { id: 'memory', label: 'Memory', icon: BookOpen },
   { id: 'automations', label: 'Automations', icon: RefreshCw },
   { id: 'coding', label: 'Coding', icon: SquareTerminal },
@@ -45,6 +48,7 @@ export function placeForPath(pathname: string): PlaceId | null {
   if (first === undefined) return 'home'
   // An Agent is one of the user's sprites.
   if (first === 'sprites' || first === 'agents') return 'sprites'
+  if (first === 'mail') return 'mail'
   if (first === 'memory') return 'memory'
   if (first === 'automations') return 'automations'
   if (first === 'coding') return 'coding'

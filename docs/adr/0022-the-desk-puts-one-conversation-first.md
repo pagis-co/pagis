@@ -39,11 +39,14 @@ does.
 
 The Chief of Staff answers inbound Calls and receives inbound texts to the
 Workspace Number. Routing reads the designation and grants no outbound
-authority (ADR-0041). Not built: the Workspace Mailbox, outbound Calls and
-texts from the Workspace Number, and their default Grants (ADR-0040).
+authority (ADR-0041). The designation grants no access to the Workspace
+Mailbox (ADR-0040).
+Not built: outbound Calls and texts from the Workspace Number, and the
+default Grants of the Workspace Mailbox and the Workspace Number.
 
-The sidebar has seven places at the top: Home, Sprites, Memory, Automations,
-Coding, Software and Settings. Home carries the count of the Needs-You Queue.
+The sidebar has eight places at the top: Home, Sprites, Mail, Memory,
+Automations, Coding, Software and Settings. Home carries the count of the
+Needs-You Queue.
 Each place replaces the main pane. Below the places the sidebar lists the
 conversations: the Chief of Staff first with its presence and caption, then
 the other Agents, then the groups. The composer on Home addresses the Chief of

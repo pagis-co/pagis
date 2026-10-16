@@ -813,6 +813,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     let standing_call_rule = Arc::new(crate::call_events::DeferredStandingCallRule::default());
     let call_events = Arc::new(crate::call_events::DeferredCallEvents::default());
     let mailbox_desk = Arc::new(pagis_mail::MailboxDesk::new(pagis_mail::MailboxDeskDeps {
+        workspace_mailboxes: stores.workspace_mailboxes.clone(),
         mailboxes: Arc::clone(&mailbox_store) as _,
         connections: Arc::clone(&connections) as _,
         org_workspace_id: org_workspace_id.clone(),

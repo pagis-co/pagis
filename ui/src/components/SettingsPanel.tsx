@@ -8,6 +8,7 @@ import { ConnectionsPhone } from './phone/ConnectionsPhone'
 import type { ApiClient } from '../api/client'
 import { useUser } from '../queries'
 import type { AdministrationAddress } from './settings/OrgSettingsGroup'
+import { WorkspaceMailbox } from './settings/WorkspaceMailbox'
 import { Connections } from './Connections'
 import { HomeExit } from './settings/HomeExit'
 import { HOST_HINT, Hosts } from './settings/Hosts'
@@ -91,6 +92,7 @@ export function SettingsPanel({
       isAdministrator={isAdministrator}
       administration={administration}
     >
+      {section === 'mailbox' && <WorkspaceMailbox api={api} />}
       {section === 'connections' && (
         phone ? <ConnectionsPhone api={api} onOpen={onOpenConnection} /> : <section className="settings-section">
           <h3>Connections</h3>

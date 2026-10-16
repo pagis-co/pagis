@@ -1,4 +1,4 @@
-// The sidebar: the seven places with the Needs-You count on Home,
+// The sidebar: the eight places with the Needs-You count on Home,
 // the conversations with the Chief of Staff first, one current mark at
 // a time, and the profile row that names the user and opens Settings.
 
@@ -223,7 +223,7 @@ describe('Sidebar', () => {
     expect(screen.queryByText(/keeps a copy of your model requests/)).toBeNull()
   })
 
-  it('lists the seven places, with the Needs-You count on Home', async () => {
+  it('lists the eight places, with the Needs-You count on Home', async () => {
     mount({ pathname: '/', selectedId: null })
 
     const names = within(places())
@@ -232,6 +232,7 @@ describe('Sidebar', () => {
     expect(names).toEqual([
       'Home',
       'Sprites',
+      'Mail',
       'Memory',
       'Automations',
       'Coding',

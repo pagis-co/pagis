@@ -52,6 +52,7 @@ pub mod remote_access;
 mod remote_access_native;
 #[cfg(not(feature = "native"))]
 mod unavailable;
+mod workspace_mail;
 #[cfg(feature = "native")]
 pub use native::NativeState;
 #[cfg(feature = "native")]
@@ -467,6 +468,27 @@ fn product_router(state: Arc<AppState>) -> Router {
             get(mailboxes::get_mailbox)
                 .post(mailboxes::provision_mailbox)
                 .delete(mailboxes::delete_mailbox),
+        )
+        .route(
+            "/api/v1/workspace/mailbox",
+            get(workspace_mail::get_workspace_mailbox)
+                .post(workspace_mail::create_workspace_mailbox),
+        )
+        .route(
+            "/api/v1/workspace/mail/folders",
+            get(workspace_mail::list_workspace_mail_folders),
+        )
+        .route(
+            "/api/v1/workspace/mail/messages",
+            get(workspace_mail::list_workspace_mail_messages),
+        )
+        .route(
+            "/api/v1/workspace/mail/messages/{message_id}",
+            get(workspace_mail::get_workspace_mail_message),
+        )
+        .route(
+            "/api/v1/workspace/mail/threads/{thread_id}",
+            get(workspace_mail::get_workspace_mail_thread),
         )
         .route("/api/v1/settings/mailboxes", get(mailboxes::list_mailboxes))
         .route(

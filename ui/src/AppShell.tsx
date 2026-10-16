@@ -217,6 +217,7 @@ export function AppShell() {
     if (place === 'home') return void navigate({ to: '/' })
     if (place === 'sprites') return void navigate({ to: '/sprites' })
     if (place === 'memory') return void navigate({ to: '/memory', search: {} })
+    if (place === 'mail') return void navigate({ to: '/mail' })
     if (place === 'automations') return void navigate({ to: '/automations' })
     if (place === 'coding') return void navigate({ to: '/coding' })
     if (place === 'software') return void navigate({ to: '/software' })

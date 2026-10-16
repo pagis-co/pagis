@@ -541,3 +541,50 @@ async fn a_refused_password_and_a_closed_port_are_different_failures() {
         .expect("nothing listens on the port");
     assert_eq!(unreachable.0, TransportErrorCode::Unreachable);
 }
+
+#[tokio::test]
+#[ignore = "needs Docker and the pinned GreenMail image"]
+async fn workspace_mail_store_greenmail_conforms() {
+    let server = GreenMail::start(&["person"]).await;
+    let transport = StandardTransport::new();
+    let mut session = transport.login(&server.credential("person")).await.unwrap();
+    let first = session
+        .send(&OutgoingMessage {
+            to: vec![format!("person@{DOMAIN}")],
+            subject: "Invoice".into(),
+            body: "invoice first".into(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    session
+        .send(&OutgoingMessage {
+            to: vec![format!("person@{DOMAIN}")],
+            subject: "Re: Invoice".into(),
+            body: "invoice second".into(),
+            in_reply_to: Some(first.message_id),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    session.select(INBOX).await.unwrap();
+    let deadline = Instant::now() + READY_TIMEOUT;
+    loop {
+        if session
+            .search(&MailQuery {
+                limit: 10,
+                ..Default::default()
+            })
+            .await
+            .unwrap()
+            .len()
+            == 2
+        {
+            break;
+        }
+        assert!(Instant::now() < deadline, "mail reaches the inbox");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let mut store = pagis_mail::ImapWorkspaceMailStore::new(session);
+    crate::workspace_store::conformance(&mut store).await;
+}

@@ -1,11 +1,9 @@
 //! The Agent Mailbox records and the Address Ledger (ADR-0019).
 //!
-//! The schema owns the two rules the desk must never break. A unique
-//! index on `address`, with no exception for tombstones, is the Address
-//! Ledger, so an address Pagis ever made or assigned is never given out
-//! again. A partial unique index on `agent_id` gives one Agent one live
-//! mailbox. Both refusals arrive at the caller as
-//! [`StoreError::Conflict`].
+//! The shared Address Ledger reserves addresses for both mailbox types,
+//! tombstones included. Its unique key refuses an address a mailbox
+//! already holds. A partial unique index on `agent_id` gives one Agent
+//! one live mailbox. Both refusals arrive as [`StoreError::Conflict`].
 
 use async_trait::async_trait;
 use pagis_core::{
@@ -184,7 +182,7 @@ impl AgentMailboxStore for PostgresAgentMailboxStore {
     async fn address_taken(&self, address: &str) -> Result<bool, StoreError> {
         // The whole ledger answers: every Connection, and the
         // tombstones too.
-        let row = sqlx::query("SELECT 1 FROM agent_mailboxes WHERE address = $1 LIMIT 1")
+        let row = sqlx::query("SELECT 1 FROM address_ledger WHERE address = $1 LIMIT 1")
             .bind(address.to_lowercase())
             .fetch_optional(&self.pool)
             .await

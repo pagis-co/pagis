@@ -244,6 +244,65 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> StandardSession<S> {
 
 #[async_trait]
 impl<S: AsyncRead + AsyncWrite + Unpin + Send> MailSession for StandardSession<S> {
+    async fn folders(&mut self) -> Result<Vec<String>, TransportError> {
+        let responses = self.imap.command_text("LIST \"\" \"*\"").await?;
+        let mut folders = Vec::new();
+        for response in responses {
+            if let Response::Data(Data::List { mailbox, items, .. }) = response {
+                if items.contains(&imap_next::imap_types::flag::FlagNameAttribute::Noselect) {
+                    continue;
+                }
+                folders.push(match mailbox {
+                    imap_next::imap_types::mailbox::Mailbox::Inbox => "INBOX".into(),
+                    imap_next::imap_types::mailbox::Mailbox::Other(name) => {
+                        String::from_utf8(name.inner().as_ref().to_vec())
+                            .map_err(|_| TransportError(TransportErrorCode::Unreadable))?
+                    }
+                });
+            }
+        }
+        folders.sort();
+        Ok(folders)
+    }
+    async fn metadata(&mut self, id: &MessageId) -> Result<crate::MailMetadata, TransportError> {
+        let id = id.as_str().parse::<ImapMessageId>()?;
+        self.ensure_selected(&id.folder).await?;
+        let responses = self
+            .imap
+            .command_text(&format!("UID FETCH {} (FLAGS)", id.uid))
+            .await?;
+        for response in responses {
+            if let Response::Data(Data::Fetch { items, .. }) = response {
+                if !items
+                    .as_ref()
+                    .iter()
+                    .any(|item| matches!(item, MessageDataItem::Uid(uid) if uid.get() == id.uid))
+                {
+                    continue;
+                }
+                for item in items.as_ref() {
+                    if let MessageDataItem::Flags(flags) = item {
+                        let mut metadata = crate::MailMetadata::default();
+                        for flag in flags {
+                            let imap_next::imap_types::flag::FlagFetch::Flag(flag) = flag else {
+                                continue;
+                            };
+                            let value = flag.to_string();
+                            match value.as_str() {
+                                "\\Seen" => metadata.seen = true,
+                                "\\Flagged" => metadata.flagged = true,
+                                _ if !value.starts_with('\\') => metadata.labels.push(value),
+                                _ => {}
+                            }
+                        }
+                        return Ok(metadata);
+                    }
+                }
+            }
+        }
+        Err(TransportError(TransportErrorCode::StaleId))
+    }
+
     fn idle_supported(&self) -> bool {
         self.idle_supported
     }
@@ -382,11 +441,17 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> MailSession for StandardSession<S
 /// and a query with no field at all reads the whole folder.
 fn search_criteria(query: &MailQuery) -> String {
     let mut criteria: Vec<String> = Vec::new();
+    if let Some(before) = query.before_uid {
+        if before <= 1 {
+            return "NOT ALL".into();
+        }
+        criteria.push(format!("UID 1:{}", before - 1));
+    }
     for (key, value) in [
         ("FROM", &query.from),
         ("TO", &query.to),
         ("SUBJECT", &query.subject),
-        ("BODY", &query.text),
+        ("TEXT", &query.text),
     ] {
         if let Some(value) = value {
             criteria.push(format!("{key} {}", quoted(value)));
@@ -858,6 +923,46 @@ mod tests {
         );
         session.logout().await.unwrap();
         handle.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn scripted_workspace_mail_folders_skip_nonselectable_names() {
+        let mut turns = login_turns(false);
+        turns.push(("A3 LIST \"\" \"*\"\r\n".into(),
+            "* LIST (\\Noselect) \"/\" parent\r\n* LIST () \"/\" INBOX\r\n* LIST () \"/\" Archive\r\nA3 OK list\r\n".into()));
+        let (stream, server) = script(turns);
+        let mut session = StandardSession::login(stream, &credential()).await.unwrap();
+        assert_eq!(session.folders().await.unwrap(), ["Archive", "INBOX"]);
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn scripted_workspace_mail_reads_flags_and_custom_labels() {
+        let mut turns = login_turns(false);
+        turns.push(select_turn("A3"));
+        turns.push((
+            "A4 UID FETCH 9 FLAGS\r\n".into(),
+            "* 2 FETCH (UID 9 FLAGS (\\Seen \\Flagged \\Recent invoices))\r\nA4 OK fetched\r\n"
+                .into(),
+        ));
+        let (stream, server) = script(turns);
+        let mut session = StandardSession::login(stream, &credential()).await.unwrap();
+        let metadata = session.metadata(&MessageId::new("INBOX:9")).await.unwrap();
+        assert!(metadata.seen);
+        assert!(metadata.flagged);
+        assert_eq!(metadata.labels, ["invoices"]);
+        server.await.unwrap();
+    }
+
+    #[test]
+    fn a_text_query_searches_headers_and_body() {
+        assert_eq!(
+            search_criteria(&MailQuery {
+                text: Some("invoice".into()),
+                ..Default::default()
+            }),
+            "TEXT \"invoice\""
+        );
     }
 
     #[test]

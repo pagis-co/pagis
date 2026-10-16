@@ -9,21 +9,31 @@ needs an address for its Workspace. A shared mailbox needs one store and
 clear access rules. Mail filters separate junk from mail before a reader
 acts. An Agent needs the same boundary before it reads untrusted mail.
 
-Not built: Workspace Mailbox, Agent triage, Junk, verdict filtering,
-quarantine, Shared Workspace visibility levels and assignments.
+The Person creates a Workspace Mailbox in Settings and reads it in the
+Mail place of the Product App.
+
+Not built: Agent triage, Junk, verdict filtering, quarantine, Needs you
+items, send, Grants, Shared Workspace visibility levels and assignments.
 
 ## Decision
 
 ### One Workspace Mailbox uses a store over the mail transport
 
 Each Workspace has one Workspace Mailbox on the Org's mail domain, with at
-most one mailbox record. The Chief of Staff gets it through a default Grant.
-Other Agents need a Grant. The designation grants no power (ADR-0022).
+most one mailbox record. Settings takes the local part and uses the Org
+mail domain Connection to create the mailbox. The Address Ledger reserves
+the address across Agent Mailboxes and Workspace Mailboxes. The credential
+is a Workspace secret.
+
+Not built: the default Grant to the Chief of Staff and Grants to other
+Agents. The designation grants no power (ADR-0022).
 
 A store interface holds messages, threads, folders, labels and flags. Its
 conformance suite checks each operation. The daemon implements the store
-over IMAP and SMTP on an external mail host through the transport of
-ADR-0019. The daemon is not a mail server. Not built: this store and suite.
+over IMAP on an external mail host through the transport of ADR-0019. It
+uses the same sessions as Agent Mailboxes. The suite runs with the fake
+transport and with the opt-in GreenMail tests. The daemon is not a mail
+server. The read store has no send operation.
 
 ### A spam verdict comes before any Agent read
 
@@ -53,7 +63,12 @@ schedules or assigns within those rules. Delegate everything gives it mail
 even while the Person is active. Mail in the Product App and Mobile App
 shows Needs you, All mail, folders, Junk and search. A Person can compose,
 reply, forward and attach Files. Handled mail shows the Agent's note.
-Not built: this triage and Mail place.
+The Mail place in the Product App shows an empty Needs you view, All mail,
+folders and search. A Person opens a message and reads its thread as text.
+The host's labels and flags travel with each message. Opening the message
+or its thread marks the displayed messages as seen.
+Not built: triage, Needs you items, the Mobile App Mail place, Junk,
+compose, reply, forward, attachments and Agent notes.
 
 Agents reply from their own Agent Mailbox with the Person in Cc by default.
 Sending as the Workspace Mailbox needs an Approval for each message until a

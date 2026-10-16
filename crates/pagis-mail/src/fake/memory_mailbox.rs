@@ -196,7 +196,10 @@ impl Mailbox for MemoryMailbox {
                     && contains(&summary.from, &query.from)
                     && contains(&summary.to.join(","), &query.to)
                     && contains(&summary.subject, &query.subject)
-                    && contains(&stored.message.text, &query.text)
+                    && (contains(&stored.message.text, &query.text)
+                        || stored.message.headers.iter().any(|(name, value)| {
+                            contains(&format!("{name}: {value}"), &query.text)
+                        }))
                     && query.since.is_none_or(|since| summary.date >= since)
                     && query.before.is_none_or(|before| summary.date < before)
             })

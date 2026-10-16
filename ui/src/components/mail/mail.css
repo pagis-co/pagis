@@ -1,0 +1,96 @@
+/* The Mail place uses the same frames and rows as the other places. */
+.mail-place {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  overflow: auto;
+  width: 100%;
+}
+
+.mail-header h2,
+.mail-header p,
+.mail-message h3 {
+  margin: 0;
+}
+
+.mail-header p,
+.mail-empty,
+.mail-row-snippet,
+.mail-message-sender,
+.mail-list-row time {
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.mail-views,
+.mail-controls,
+.mail-pages {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.mail-controls label {
+  display: grid;
+  gap: var(--space-1);
+  flex: 1;
+}
+
+.mail-panes {
+  display: grid;
+  gap: var(--space-5);
+  min-height: 0;
+}
+
+.mail-panes-open {
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+}
+
+.mail-list,
+.mail-thread {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.mail-list-row {
+  align-items: start;
+  text-align: left;
+}
+
+.mail-row-copy {
+  display: grid;
+  gap: var(--space-1);
+  flex: 1;
+  min-width: 0;
+}
+
+.mail-row-copy > * {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mail-unread .mail-row-sender {
+  font-weight: var(--weight-semibold);
+}
+
+.mail-message article {
+  width: 100%;
+  min-width: 0;
+}
+
+.mail-message pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+}
+
+@media (max-width: 760px) {
+  .mail-panes-open {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

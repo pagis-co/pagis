@@ -96,3 +96,5 @@ mod widgets;
 mod ws;
 
 mod forget_controls;
+
+mod workspace_mailbox;

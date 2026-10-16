@@ -238,12 +238,17 @@ impl PhoneNumberStore for FakePhoneNumberStore {
 impl AgentMailboxStore for FakeAgentMailboxStore {
     async fn create(&self, mailbox: &AgentMailbox) -> Result<(), StoreError> {
         let mut data = self.0.lock().unwrap();
-        if data.agent_mailboxes.0.values().any(|row| {
-            row.address == mailbox.address
-                || (row.state.is_live()
-                    && row.workspace_id == mailbox.workspace_id
-                    && row.agent_id == mailbox.agent_id)
-        }) {
+        if data
+            .workspace_mailboxes
+            .values()
+            .any(|row| row.address == mailbox.address)
+            || data.agent_mailboxes.0.values().any(|row| {
+                row.address == mailbox.address
+                    || (row.state.is_live()
+                        && row.workspace_id == mailbox.workspace_id
+                        && row.agent_id == mailbox.agent_id)
+            })
+        {
             return Err(conflict("Agent Mailbox exists"));
         }
         data.agent_mailboxes
@@ -305,14 +310,16 @@ impl AgentMailboxStore for FakeAgentMailboxStore {
     }
     async fn address_taken(&self, address: &str) -> Result<bool, StoreError> {
         let address = address.to_lowercase();
-        Ok(self
-            .0
-            .lock()
-            .unwrap()
-            .agent_mailboxes
-            .0
+        let data = self.0.lock().unwrap();
+        Ok(data
+            .workspace_mailboxes
             .values()
-            .any(|row| row.address == address))
+            .any(|row| row.address == address)
+            || data
+                .agent_mailboxes
+                .0
+                .values()
+                .any(|row| row.address == address))
     }
     async fn set_state(
         &self,
@@ -778,4 +785,69 @@ fn note_send(day: &mut Option<i64>, count: &mut u32, at: i64) -> u32 {
     }
     *count += 1;
     *count
+}
+
+#[async_trait::async_trait]
+impl crate::WorkspaceMailboxRecordStore for FakeWorkspaceMailboxStore {
+    async fn get(
+        &self,
+        workspace: &WorkspaceId,
+    ) -> Result<Option<crate::WorkspaceMailbox>, StoreError> {
+        Ok(self
+            .0
+            .lock()
+            .unwrap()
+            .workspace_mailboxes
+            .get(workspace)
+            .cloned())
+    }
+    async fn create(&self, mailbox: &crate::WorkspaceMailbox) -> Result<(), StoreError> {
+        let mut data = self.0.lock().unwrap();
+        if data.workspace_mailboxes.contains_key(&mailbox.workspace_id)
+            || data
+                .workspace_mailboxes
+                .values()
+                .any(|m| m.address == mailbox.address)
+            || data
+                .agent_mailboxes
+                .0
+                .values()
+                .any(|m| m.address == mailbox.address)
+        {
+            return Err(conflict("that Workspace or address already has a mailbox"));
+        }
+        data.workspace_mailboxes
+            .insert(mailbox.workspace_id.clone(), mailbox.clone());
+        Ok(())
+    }
+    async fn drop_reservation(
+        &self,
+        workspace: &WorkspaceId,
+        address: &str,
+    ) -> Result<bool, StoreError> {
+        let mut data = self.0.lock().unwrap();
+        if data
+            .workspace_mailboxes
+            .get(workspace)
+            .is_some_and(|m| m.address == address)
+        {
+            data.workspace_mailboxes.remove(workspace);
+            return Ok(true);
+        }
+        Ok(false)
+    }
+    async fn count_for_connection(
+        &self,
+        workspace: &WorkspaceId,
+        connection: &ConnectionId,
+    ) -> Result<u32, StoreError> {
+        Ok(self
+            .0
+            .lock()
+            .unwrap()
+            .workspace_mailboxes
+            .values()
+            .filter(|m| m.workspace_id == *workspace && m.connection_id == *connection)
+            .count() as u32)
+    }
 }
