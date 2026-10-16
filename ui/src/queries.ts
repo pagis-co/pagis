@@ -3824,9 +3824,17 @@ export function useOrganizeWorkspaceMail(api: ApiClient, id: string) {
     }: {
       action: 'move' | 'label' | 'unlabel'
       name: string
+    } | {
+      action: 'delete'
+      name?: never
     }) => {
       let result
-      if (action === 'unlabel') {
+      if (action === 'delete') {
+        result = await api.DELETE(
+          '/api/v1/workspace/mail/messages/{message_id}',
+          { params: { path: { message_id: id } } },
+        )
+      } else if (action === 'unlabel') {
         result = await api.DELETE(
           '/api/v1/workspace/mail/messages/{message_id}/labels/{label}',
           { params: { path: { message_id: id, label: name } } },

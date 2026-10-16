@@ -301,6 +301,10 @@ pub trait MailSession: Send {
     async fn create_folder(&mut self, name: &str) -> Result<(), TransportError>;
     async fn rename_folder(&mut self, name: &str, new_name: &str) -> Result<(), TransportError>;
     async fn delete_folder(&mut self, name: &str) -> Result<(), TransportError>;
+    /// The special-use Trash folder, or the folder named Trash.
+    async fn trash_folder(&mut self) -> Result<Option<String>, TransportError>;
+    /// Remove only this message from the mail host.
+    async fn expunge_message(&mut self, id: &MessageId) -> Result<(), TransportError>;
     async fn junk_folders(&mut self) -> Result<Vec<String>, TransportError>;
     async fn system_folders(&mut self) -> Result<Vec<String>, TransportError>;
     async fn move_message(&mut self, id: &MessageId, folder: &str) -> Result<(), TransportError>;

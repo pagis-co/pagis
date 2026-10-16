@@ -110,7 +110,11 @@ A Person uploads a File and names its id in the send request. Received
 attachments use the same passive content types as File downloads.
 The Person creates, renames and deletes folders, moves mail, and applies
 or removes labels as IMAP keywords. System folders cannot be renamed or
-deleted.
+deleted. Deleting a folder first moves its mail to
+Trash with its flags and labels. Deleting a message moves it to Trash.
+Deleting a message from Trash removes it for good. The store uses the
+host's special-use Trash folder, or the folder named Trash. It creates
+Trash when neither exists.
 Not built: triage, Needs you items, Junk handling, saved drafts and Agent notes.
 
 A Person's own send needs no Approval. Agents do not use the Person's

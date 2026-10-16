@@ -1139,3 +1139,91 @@ impl MailboxApp {
             .1
     }
 }
+
+#[tokio::test]
+async fn workspace_mailbox_deleted_folder_keeps_mail_in_trash_until_message_delete() {
+    let app = MailboxApp::with_mailbox().await;
+    let id = app
+        .transport
+        .deliver("sender@example.com", "Records", "Keep this mail");
+    app.get(&format!("/api/v1/workspace/mail/messages/{id}"))
+        .await;
+    app.mail_request(
+        reqwest::Method::POST,
+        "/folders",
+        json!({"name":"Records"}),
+        204,
+    )
+    .await;
+    app.mail_request(
+        reqwest::Method::POST,
+        &format!("/messages/{id}/labels"),
+        json!({"name":"finance"}),
+        204,
+    )
+    .await;
+    app.mail_request(
+        reqwest::Method::POST,
+        &format!("/messages/{id}/move"),
+        json!({"name":"Records"}),
+        204,
+    )
+    .await;
+    app.mail_request(reqwest::Method::DELETE, "/folders/Records", json!({}), 204)
+        .await;
+    let page = app
+        .get("/api/v1/workspace/mail/messages?folder=Trash")
+        .await;
+    assert_eq!(page["items"].as_array().unwrap().len(), 1);
+    assert_eq!(page["items"][0]["labels"], json!(["finance"]));
+    assert_eq!(page["items"][0]["seen"], true);
+    let folders = app.get("/api/v1/workspace/mail/folders").await;
+    assert!(
+        !folders["items"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("Records"))
+    );
+    let id = page["items"][0]["id"].as_str().unwrap();
+    app.mail_request(
+        reqwest::Method::DELETE,
+        &format!("/messages/{id}"),
+        json!({}),
+        204,
+    )
+    .await;
+    assert!(
+        app.get("/api/v1/workspace/mail/messages?folder=Trash")
+            .await["items"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    let id = app
+        .transport
+        .deliver("sender@example.com", "Another", "Move to Trash");
+    app.mail_request(
+        reqwest::Method::DELETE,
+        &format!("/messages/{id}"),
+        json!({}),
+        204,
+    )
+    .await;
+    assert_eq!(
+        app.get("/api/v1/workspace/mail/messages?folder=Trash")
+            .await["items"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    for folder in ["INBOX", "Trash"] {
+        app.mail_request(
+            reqwest::Method::DELETE,
+            &format!("/folders/{folder}"),
+            json!({}),
+            422,
+        )
+        .await;
+    }
+}

@@ -794,7 +794,7 @@ async fn workspace_mail_routes_use_the_supplied_store_without_imap() {
         StatusCode::NO_CONTENT
     );
     let (_, folders) = response(&embedder, "GET", &format!("{root}/folders"), Value::Null).await;
-    assert_eq!(folders["items"], json!(["INBOX"]));
+    assert_eq!(folders["items"], json!(["INBOX", "Trash"]));
     let agent = embedder.agent(&embedder.workspace, "Reader").await;
     let desk = &embedder.routers.state.mailbox_desk;
     assert!(
@@ -834,6 +834,24 @@ async fn workspace_mail_routes_use_the_supplied_store_without_imap() {
             .await
             .is_err()
     );
+    for _ in 0..2 {
+        assert_eq!(
+            response(&embedder, "DELETE", &message, Value::Null).await.0,
+            StatusCode::NO_CONTENT
+        );
+    }
+    assert_eq!(
+        response(&embedder, "GET", &message, Value::Null).await.0,
+        StatusCode::NOT_FOUND
+    );
+    let (_, trash) = response(
+        &embedder,
+        "GET",
+        &format!("{root}/messages?folder=Trash"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(trash["items"], json!([]));
     assert!(embedder.mail_transport.logins().is_empty());
     assert!(embedder.mailbox_host.addresses().is_empty());
 }

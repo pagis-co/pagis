@@ -424,3 +424,180 @@ async fn junk_folder_sets_a_stored_verdict_without_a_header() {
         1
     );
 }
+
+async fn message_trash_conformance(store: &mut dyn WorkspaceMailStore) {
+    let inbox = store
+        .messages("INBOX", "", &PageRequest::new(None, 100))
+        .await
+        .unwrap();
+    let id = &inbox.items[0].summary.id;
+    store.set_label(id, "keep", true).await.unwrap();
+    store
+        .set_flags(
+            id,
+            FlagChange {
+                seen: Some(true),
+                flagged: Some(true),
+            },
+        )
+        .await
+        .unwrap();
+    store.delete_message(id).await.unwrap();
+    let trash = store
+        .messages("Trash", "", &PageRequest::new(None, 100))
+        .await
+        .unwrap();
+    assert_eq!(trash.items.len(), 1);
+    assert_eq!(trash.items[0].labels, ["keep"]);
+    assert!(trash.items[0].flags.seen);
+    assert!(trash.items[0].flags.flagged);
+    store
+        .delete_message(&trash.items[0].summary.id)
+        .await
+        .unwrap();
+    assert!(store.message(&trash.items[0].summary.id).await.is_err());
+    assert!(
+        store
+            .messages("Trash", "", &PageRequest::new(None, 100))
+            .await
+            .unwrap()
+            .items
+            .is_empty()
+    );
+    assert_eq!(
+        store
+            .messages("INBOX", "", &PageRequest::new(None, 100))
+            .await
+            .unwrap()
+            .items
+            .len(),
+        inbox.items.len() - 1
+    );
+}
+
+#[tokio::test]
+async fn deleting_a_message_moves_to_trash_then_removes_it_in_memory() {
+    let mut store = pagis_mail::fake::MemoryWorkspaceMailStore::default();
+    store.deliver("sender@test", "One", "first");
+    store.deliver("sender@test", "Two", "second");
+    message_trash_conformance(&mut store).await;
+}
+
+#[tokio::test]
+async fn deleting_a_message_moves_to_trash_then_removes_it_with_imap() {
+    let transport = FakeMailTransport::default();
+    transport.deliver("sender@test", "One", "first");
+    transport.deliver("sender@test", "Two", "second");
+    let credential = MailboxCredential::new(
+        "person@test",
+        "pw",
+        Endpoint::new("imap.test", 993),
+        Endpoint::new("smtp.test", 465),
+    );
+    let mut store = ImapWorkspaceMailStore::new(
+        transport.login(&credential).await.unwrap(),
+        crate::spam::context(),
+    );
+    message_trash_conformance(&mut store).await;
+}
+
+async fn all_messages(
+    store: &mut dyn WorkspaceMailStore,
+    folder: &str,
+) -> Vec<pagis_mail::WorkspaceMailSummary> {
+    let mut items = Vec::new();
+    let mut token = None;
+    loop {
+        let page = store
+            .messages(folder, "", &PageRequest::new(token, 100))
+            .await
+            .unwrap();
+        items.extend(page.items);
+        token = page.next;
+        if token.is_none() {
+            return items;
+        }
+    }
+}
+
+/// Folder deletion keeps every message, including flags and labels.
+async fn folder_trash_conformance(store: &mut dyn WorkspaceMailStore) {
+    store.create_folder("Records").await.unwrap();
+    let messages = all_messages(store, "INBOX").await;
+    for item in &messages {
+        store
+            .set_flags(
+                &item.summary.id,
+                FlagChange {
+                    seen: Some(true),
+                    flagged: Some(true),
+                },
+            )
+            .await
+            .unwrap();
+        store
+            .set_label(&item.summary.id, "finance", true)
+            .await
+            .unwrap();
+        store
+            .move_message(&item.summary.id, "Records")
+            .await
+            .unwrap();
+    }
+    store.delete_folder("Records").await.unwrap();
+    assert!(!store.folders().await.unwrap().contains(&"Records".into()));
+    let trash = all_messages(store, "Trash").await;
+    assert_eq!(trash.len(), messages.len());
+    for item in &trash {
+        assert!(item.flags.seen);
+        assert!(item.flags.flagged);
+        assert_eq!(item.labels, ["finance"]);
+    }
+    let removed = &trash[0].summary.id;
+    store.delete_message(removed).await.unwrap();
+    assert!(store.message(removed).await.is_err());
+    let remaining = all_messages(store, "Trash").await;
+    assert_eq!(remaining.len(), trash.len() - 1);
+    for item in &remaining {
+        assert_ne!(&item.summary.id, removed);
+    }
+    let inbox = store
+        .messages("INBOX", "", &PageRequest::new(None, 100))
+        .await
+        .unwrap();
+    assert!(inbox.items.is_empty());
+    for folder in ["INBOX", "Trash", "Sent", "Drafts", "Junk"] {
+        assert!(store.delete_folder(folder).await.is_err());
+        assert!(store.rename_folder(folder, "Other").await.is_err());
+    }
+}
+
+#[tokio::test]
+async fn deleting_a_folder_moves_mail_to_trash_in_memory() {
+    let mut store = pagis_mail::fake::MemoryWorkspaceMailStore::default();
+    store.deliver("sender@test", "One", "first");
+    for _ in 0..104 {
+        store.deliver("sender@test", "Two", "second");
+    }
+    folder_trash_conformance(&mut store).await;
+}
+
+#[tokio::test]
+async fn deleting_a_folder_moves_mail_to_trash_with_imap() {
+    let transport = FakeMailTransport::default();
+    transport.deliver("sender@test", "One", "first");
+    for _ in 0..104 {
+        transport.deliver("sender@test", "Two", "second");
+    }
+    let credential = MailboxCredential::new(
+        "person@test",
+        "pw",
+        Endpoint::new("imap.test", 993),
+        Endpoint::new("smtp.test", 465),
+    );
+    let mut store = ImapWorkspaceMailStore::new(
+        transport.login(&credential).await.unwrap(),
+        crate::spam::context(),
+    );
+    folder_trash_conformance(&mut store).await;
+}

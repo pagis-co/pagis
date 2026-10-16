@@ -1724,7 +1724,11 @@ marks it as seen. The Person composes, replies, replies to all and forwards
 mail with Files as attachments. A Person's send needs no Approval. Sent
 mail appears in the host's Sent folder. The Person creates, renames and
 deletes folders, moves mail and applies or removes labels. System folders
-cannot be renamed or deleted. The mail host holds bodies, labels and flags.
+cannot be renamed or deleted. Deleting a folder first moves its mail to
+Trash with its flags and labels. Deleting a message moves it to Trash.
+Deleting a message from Trash removes it for good. The store uses the
+host's special-use Trash folder, or the folder named Trash. It creates
+Trash when neither exists. The mail host holds bodies, labels and flags.
 The store uses the mail transport. Its conformance suite checks the
 operations (ADR-0040).
 The store records a Spam Verdict and Trust Tier before each read. The Mail

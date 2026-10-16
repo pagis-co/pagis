@@ -162,6 +162,18 @@ impl MemoryWorkspaceMailStore {
     }
 }
 
+fn trash_folder(state: &mut State) -> String {
+    if let Some(name) = state
+        .folders
+        .iter()
+        .find(|name| name.eq_ignore_ascii_case("Trash"))
+    {
+        return name.clone();
+    }
+    state.folders.insert("Trash".into());
+    "Trash".into()
+}
+
 fn invalid() -> TransportError {
     TransportError(TransportErrorCode::InvalidRequest)
 }
@@ -299,7 +311,11 @@ impl WorkspaceMailWriter for MemoryWorkspaceMailStore {
     async fn rename_folder(&mut self, name: &str, new_name: &str) -> Result<(), TransportError> {
         crate::workspace_store::valid_folder(new_name)?;
         let mut state = self.state.lock().unwrap();
-        if name == "INBOX" || state.folders.contains(new_name) || !state.folders.remove(name) {
+        if crate::workspace_store::is_system_folder(name)
+            || crate::workspace_store::is_system_folder(new_name)
+            || state.folders.contains(new_name)
+            || !state.folders.remove(name)
+        {
             return Err(invalid());
         }
         state.folders.insert(new_name.into());
@@ -314,18 +330,34 @@ impl WorkspaceMailWriter for MemoryWorkspaceMailStore {
     }
     async fn delete_folder(&mut self, name: &str) -> Result<(), TransportError> {
         let mut state = self.state.lock().unwrap();
-        if name == "INBOX" || !state.folders.remove(name) {
+        if crate::workspace_store::is_system_folder(name) || !state.folders.contains(name) {
             return Err(invalid());
         }
-        let removed: Vec<_> = state
+        let trash = trash_folder(&mut state);
+        for entry in state
             .entries
-            .iter()
-            .filter(|(_, entry)| entry.folder == name)
-            .map(|(id, _)| id.clone())
-            .collect();
-        for id in removed {
-            state.entries.remove(&id);
-            self.mail.remove(&MessageId::new(id));
+            .values_mut()
+            .filter(|entry| entry.folder == name)
+        {
+            entry.folder = trash.clone();
+        }
+        state.folders.remove(name);
+        Ok(())
+    }
+    async fn delete_message(&mut self, id: &MessageId) -> Result<(), TransportError> {
+        let mut state = self.state.lock().unwrap();
+        let folder = state
+            .entries
+            .get(id.as_str())
+            .ok_or_else(stale)?
+            .folder
+            .clone();
+        let trash = trash_folder(&mut state);
+        if folder == trash {
+            state.entries.remove(id.as_str());
+            self.mail.remove(id);
+        } else {
+            state.entries.get_mut(id.as_str()).ok_or_else(stale)?.folder = trash;
         }
         Ok(())
     }

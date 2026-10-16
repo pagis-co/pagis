@@ -23,6 +23,12 @@ export function MessageControls({
   const mutation = useOrganizeWorkspaceMail(api, id)
   return (
     <div className="mail-controls">
+      <Button
+        disabled={mutation.isPending}
+        onClick={() => mutation.mutate({ action: 'delete' }, { onSuccess: onMove })}
+      >
+        Delete
+      </Button>
       <Select
         label="Move to folder"
         value={folder}
