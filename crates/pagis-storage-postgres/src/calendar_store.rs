@@ -92,6 +92,18 @@ impl CalendarStore for PostgresCalendarStore {
                 == 1,
         )
     }
+    async fn free_busy(
+        &self,
+        workspace: &WorkspaceId,
+        from: i64,
+        to: i64,
+    ) -> Result<Vec<pagis_core::BusyInterval>, StoreError> {
+        let range = CalendarRange::new(from, to)?;
+        let events = sqlx::query("SELECT * FROM calendar_events WHERE workspace_id = $1 AND starts_at < $2 AND (ends_by IS NULL OR ends_by > $3) ORDER BY starts_at, id")
+            .bind(workspace.as_str()).bind(range.to()).bind(range.from()).fetch_all(&self.pool).await.map_err(db_err)?
+            .into_iter().map(decode).collect::<Result<Vec<_>, _>>()?;
+        pagis_core::calendar::free_busy(events, range).map_err(Into::into)
+    }
     async fn list(
         &self,
         workspace: &WorkspaceId,

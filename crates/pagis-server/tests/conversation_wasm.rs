@@ -862,3 +862,201 @@ async fn workspace_conversations_sort_by_message_time_then_id_and_empty_creation
         ]
     );
 }
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+async fn free_busy_is_an_org_read_without_event_details() {
+    let e = Embedder::new().await;
+    let state = &e.routers.state;
+    let workspace = state.workspaces.get(&e.workspace).await.unwrap().unwrap();
+    state
+        .users
+        .set_email_and_password(
+            workspace.user_id.as_ref().unwrap(),
+            "alice@example.com",
+            "hash",
+            now_ms(),
+        )
+        .await
+        .unwrap();
+    let body = json!({"title":"Private title", "description":"Private description", "location":"Private room",
+        "start":"2026-03-08T09:00:00", "end":"2026-03-08T10:00:00", "timezone":"UTC", "all_day":false,
+        "rrule":null, "exdates":[], "attendees":[], "reminders":[], "meeting_url":null});
+    let event = json_response(
+        &e,
+        "POST",
+        "/api/v1/calendar/events",
+        body,
+        &e.cookie,
+        StatusCode::CREATED,
+    )
+    .await;
+    let query = json!({"from":"2026-03-08T00:00:00Z", "to":"2026-03-09T00:00:00Z", "addresses":["ALICE@example.com", "outside@example.com"]});
+    let answer = json_response(
+        &e,
+        "POST",
+        "/api/v1/free-busy",
+        query.clone(),
+        &e.other_cookie,
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(
+        answer,
+        json!({"items":[{"address":"ALICE@example.com", "busy":[{"start":"2026-03-08T09:00:00Z", "end":"2026-03-08T10:00:00Z"}]}]})
+    );
+    hidden(
+        &e,
+        &format!("/api/v1/calendar/events/{}", event["id"].as_str().unwrap()),
+    )
+    .await;
+    for (from, to) in [
+        ("bad", "2026-03-09T00:00:00Z"),
+        ("2026-03-09T00:00:00Z", "2026-03-08T00:00:00Z"),
+        ("2026-03-08T00:00:00Z", "2026-05-10T00:00:00Z"),
+    ] {
+        let mut invalid = query.clone();
+        invalid["from"] = json!(from);
+        invalid["to"] = json!(to);
+        json_response(
+            &e,
+            "POST",
+            "/api/v1/free-busy",
+            invalid,
+            &e.other_cookie,
+            StatusCode::UNPROCESSABLE_ENTITY,
+        )
+        .await;
+    }
+    let mut invalid = query.clone();
+    invalid["addresses"] = json!(vec!["alice@example.com"; 51]);
+    json_response(
+        &e,
+        "POST",
+        "/api/v1/free-busy",
+        invalid,
+        &e.other_cookie,
+        StatusCode::UNPROCESSABLE_ENTITY,
+    )
+    .await;
+    assert_eq!(
+        request(&e, "POST", "/api/v1/free-busy", query, "").await.0,
+        StatusCode::UNAUTHORIZED
+    );
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+async fn colleague_meeting_presence_follows_the_clock_and_wins_over_active() {
+    let e = Embedder::new().await;
+    let start = CalendarRange::parse("2026-03-08T09:00:00Z", "2026-03-08T10:00:00Z")
+        .unwrap()
+        .from();
+    let body = json!({"title":"Private", "description":"", "location":"",
+        "start":"2026-03-08T09:00:00", "end":"2026-03-08T10:00:00", "timezone":"UTC", "all_day":false,
+        "rrule":null, "exdates":[], "attendees":[], "reminders":[], "meeting_url":null});
+    json_response(
+        &e,
+        "POST",
+        "/api/v1/calendar/events",
+        body,
+        &e.other_cookie,
+        StatusCode::CREATED,
+    )
+    .await;
+    for (at, expected) in [
+        (start - 1, "away"),
+        (start, "in_a_meeting"),
+        (start + 3_599_999, "in_a_meeting"),
+        (start + 3_600_000, "away"),
+    ] {
+        e.clock.set(at);
+        assert_eq!(
+            read(&e, "/api/v1/colleagues").await["items"][0]["presence"],
+            expected
+        );
+    }
+    e.clock.set(start);
+    let other = e
+        .routers
+        .state
+        .workspaces
+        .get(&e.other_workspace)
+        .await
+        .unwrap()
+        .unwrap();
+    e.routers
+        .state
+        .person_activity
+        .record(other.user_id.as_ref().unwrap(), start);
+    assert_eq!(
+        read(&e, "/api/v1/colleagues").await["items"][0]["presence"],
+        "in_a_meeting"
+    );
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+async fn free_busy_resolves_private_and_shared_workspace_mailboxes() {
+    let e = Embedder::new().await;
+    let stores = &e.stores;
+    let mut shared = stores.workspaces.get(&e.workspace).await.unwrap().unwrap();
+    shared.id = WorkspaceId::generate();
+    shared.kind = WorkspaceKind::Shared;
+    shared.user_id = None;
+    stores.workspaces.create(&shared).await.unwrap();
+    for (workspace, address) in [
+        (&e.workspace, "private@example.com"),
+        (&shared.id, "team@example.com"),
+    ] {
+        stores
+            .workspace_mailboxes
+            .create(&WorkspaceMailbox {
+                workspace_id: workspace.clone(),
+                connection_id: ConnectionId::generate(),
+                address: address.into(),
+                outgoing_cap: 100,
+                created_at: now_ms(),
+            })
+            .await
+            .unwrap();
+        let event = CalendarEvent::new(workspace.clone(), Author::System, serde_json::from_value(json!({
+            "title":"Private", "description":"", "location":"", "start":"2026-03-08T09:00:00", "end":"2026-03-08T10:00:00",
+            "timezone":"UTC", "all_day":false, "rrule":null, "exdates":[], "attendees":[], "reminders":[], "meeting_url":null,
+        })).unwrap());
+        stores.calendar.create(&event).await.unwrap();
+    }
+    let outside = User::new(OrgId::generate(), UserRole::Member, now_ms());
+    stores.users.create(&outside).await.unwrap();
+    stores
+        .users
+        .set_email_and_password(&outside.id, "other-org@example.com", "hash", now_ms())
+        .await
+        .unwrap();
+    let mut outside_workspace = shared.clone();
+    outside_workspace.id = WorkspaceId::generate();
+    outside_workspace.kind = WorkspaceKind::Private;
+    outside_workspace.user_id = Some(outside.id);
+    stores.workspaces.create(&outside_workspace).await.unwrap();
+    stores
+        .workspace_mailboxes
+        .create(&WorkspaceMailbox {
+            workspace_id: outside_workspace.id,
+            connection_id: ConnectionId::generate(),
+            address: "other-mailbox@example.com".into(),
+            outgoing_cap: 100,
+            created_at: now_ms(),
+        })
+        .await
+        .unwrap();
+    let answer = json_response(&e, "POST", "/api/v1/free-busy", json!({
+        "from":"2026-03-08T00:00:00Z", "to":"2026-03-09T00:00:00Z", "addresses":["private@example.com", "team@example.com", "other-org@example.com", "other-mailbox@example.com"],
+    }), &e.other_cookie, StatusCode::OK).await;
+    assert_eq!(answer["items"].as_array().unwrap().len(), 2);
+    for item in answer["items"].as_array().unwrap() {
+        assert_eq!(
+            item["busy"],
+            json!([{"start":"2026-03-08T09:00:00Z", "end":"2026-03-08T10:00:00Z"}])
+        );
+    }
+}

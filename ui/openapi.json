@@ -4774,6 +4774,43 @@
         "x-workspace-role": "reader"
       }
     },
+    "/api/v1/free-busy": {
+      "post": {
+        "tags": [
+          "calendar"
+        ],
+        "summary": "Org members read availability without access to Event details.",
+        "operationId": "query_free_busy",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FreeBusyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FreeBusyResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": ""
+          },
+          "422": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/api/v1/grants": {
       "get": {
         "tags": [
@@ -14908,7 +14945,7 @@
           },
           "presence": {
             "type": "string",
-            "description": "`active` or `away`, from the Private Workspace's client input."
+            "description": "`in_a_meeting` during a busy Event in the Private Workspace Calendar;\notherwise `active` or `away`, from client input."
           },
           "workspace_id": {
             "type": "string"
@@ -16579,6 +16616,78 @@
           "checkbox",
           "date"
         ]
+      },
+      "FreeBusyInterval": {
+        "type": "object",
+        "required": [
+          "start",
+          "end"
+        ],
+        "properties": {
+          "end": {
+            "type": "string"
+          },
+          "start": {
+            "type": "string"
+          }
+        }
+      },
+      "FreeBusyItem": {
+        "type": "object",
+        "required": [
+          "address",
+          "busy"
+        ],
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "busy": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FreeBusyInterval"
+            }
+          }
+        }
+      },
+      "FreeBusyRequest": {
+        "type": "object",
+        "required": [
+          "from",
+          "to",
+          "addresses"
+        ],
+        "properties": {
+          "addresses": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "At most 50 Person login or Workspace Mailbox addresses."
+          },
+          "from": {
+            "type": "string",
+            "description": "Inclusive RFC 3339 start. The range is at most 62 days."
+          },
+          "to": {
+            "type": "string",
+            "description": "Exclusive RFC 3339 end."
+          }
+        }
+      },
+      "FreeBusyResponse": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FreeBusyItem"
+            }
+          }
+        }
       },
       "FunnelPort": {
         "oneOf": [

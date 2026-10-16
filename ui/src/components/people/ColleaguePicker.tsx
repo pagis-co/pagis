@@ -9,7 +9,7 @@ function PresenceDot({ name, presence }: { name: string; presence: string }) {
     <span
       className={`person-presence person-presence-${presence}`}
       role="img"
-      aria-label={`${name} is ${presence}`}
+      aria-label={`${name} is ${presence === 'in_a_meeting' ? 'in a meeting' : presence}`}
     />
   )
 }
@@ -48,6 +48,7 @@ export function ColleaguePicker({
             />
             <PresenceDot name={person.name} presence={person.presence} />
             {person.name}
+            {person.presence === 'in_a_meeting' && <span>In a meeting</span>}
           </label>
         ))}
       </fieldset>

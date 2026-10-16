@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import type { ApiClient } from '../../api/client'
 import { Button, Combobox, Input, Select, Textarea } from '../../primitives'
+import { FreeBusy } from './FreeBusy'
 import { AttendeesEditor } from './AttendeesEditor'
 import { shiftDate } from './dates'
 import { useDeleteEvent, useSaveEvent } from './queries'
@@ -222,6 +223,7 @@ export function EventEditor({ api, date, event, occurrenceStart, onClose }: {
         attendees={draft.attendees}
         onChange={(attendees) => change('attendees', attendees)}
       />
+      <FreeBusy api={api} draft={draft} />
       <label>
         Reminder minutes
         <Input

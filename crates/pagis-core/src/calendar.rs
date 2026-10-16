@@ -99,6 +99,13 @@ pub struct CalendarRange {
 }
 
 impl CalendarRange {
+    pub fn parse(from: &str, to: &str) -> Result<Self, CalendarError> {
+        let from =
+            DateTime::parse_from_rfc3339(from).map_err(|_| invalid("Invalid range start."))?;
+        let to = DateTime::parse_from_rfc3339(to).map_err(|_| invalid("Invalid range end."))?;
+        Self::new(from.timestamp_millis(), to.timestamp_millis())
+    }
+
     pub fn new(from: i64, to: i64) -> Result<Self, CalendarError> {
         let from =
             DateTime::from_timestamp_millis(from).ok_or_else(|| invalid("Invalid range start."))?;
@@ -284,10 +291,21 @@ pub fn occurrences(
     events: Vec<CalendarEvent>,
     range: CalendarRange,
 ) -> Result<Vec<CalendarOccurrence>, CalendarError> {
+    expand(events, range, false)
+}
+
+fn expand(
+    events: Vec<CalendarEvent>,
+    range: CalendarRange,
+    busy_only: bool,
+) -> Result<Vec<CalendarOccurrence>, CalendarError> {
     let CalendarRange { from, to } = range;
     let mut found = Vec::new();
     for event in events {
         let data = &event.data;
+        if busy_only && data.all_day {
+            continue;
+        }
         let start = data.at(&data.start)?;
         let end = data.at(&data.end)?;
         let duration = end.signed_duration_since(start);
@@ -304,7 +322,13 @@ pub fn occurrences(
             .rule_set()?
             .after(earliest.with_timezone(&data.zone()?))
             .before(to.with_timezone(&data.zone()?));
-        for at in set.all((MAX_OCCURRENCES + 4) as u16).dates {
+        let expanded = set.all((MAX_OCCURRENCES + 4) as u16);
+        if busy_only && expanded.limited {
+            return Err(invalid(
+                "Too many occurrences. Use a smaller Free/Busy range.",
+            ));
+        }
+        for at in expanded.dates {
             let finish = data.finish(at)?;
             if at < to && finish > from {
                 found.push((
@@ -326,13 +350,67 @@ pub fn occurrences(
             }
         }
         found.sort_by(|a, b| (a.0, &a.1.event.id).cmp(&(b.0, &b.1.event.id)));
-        found.truncate(MAX_OCCURRENCES);
+        if !busy_only {
+            found.truncate(MAX_OCCURRENCES);
+        }
     }
     Ok(found.into_iter().map(|(_, value)| value).collect())
 }
 
+/// A busy interval contains no Event details. Its end is exclusive.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BusyInterval {
+    pub start_ms: i64,
+    pub end_ms: i64,
+}
+
+impl BusyInterval {
+    /// RFC 3339 UTC start and exclusive end.
+    pub fn rfc3339(&self) -> (String, String) {
+        let format = |ms| {
+            DateTime::from_timestamp_millis(ms)
+                .expect("validated Calendar range")
+                .to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true)
+        };
+        (format(self.start_ms), format(self.end_ms))
+    }
+}
+
+/// Merge timed occurrences within the half-open UTC range. All-day Events are free.
+pub fn free_busy(
+    events: Vec<CalendarEvent>,
+    range: CalendarRange,
+) -> Result<Vec<BusyInterval>, CalendarError> {
+    let mut busy: Vec<BusyInterval> = Vec::new();
+    for occurrence in expand(events, range, true)? {
+        let start_ms = DateTime::parse_from_rfc3339(&occurrence.start)
+            .map_err(|_| invalid("Invalid occurrence start."))?
+            .timestamp_millis()
+            .max(range.from());
+        let end_ms = DateTime::parse_from_rfc3339(&occurrence.end)
+            .map_err(|_| invalid("Invalid occurrence end."))?
+            .timestamp_millis()
+            .min(range.to());
+        if let Some(last) = busy.last_mut()
+            && start_ms <= last.end_ms
+        {
+            last.end_ms = last.end_ms.max(end_ms);
+        } else {
+            busy.push(BusyInterval { start_ms, end_ms });
+        }
+    }
+    Ok(busy)
+}
+
 #[async_trait]
 pub trait CalendarStore: Send + Sync {
+    /// Read only merged busy intervals of this Workspace in [from, to).
+    async fn free_busy(
+        &self,
+        workspace_id: &WorkspaceId,
+        from: i64,
+        to: i64,
+    ) -> Result<Vec<BusyInterval>, StoreError>;
     async fn create(&self, event: &CalendarEvent) -> Result<(), StoreError>;
     async fn get(
         &self,
@@ -506,5 +584,24 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+    #[test]
+    fn free_busy_does_not_use_the_event_list_cap() {
+        let row = CalendarEvent::new(WorkspaceId::generate(), Author::System, data());
+        let mut events = vec![row.clone(); MAX_OCCURRENCES];
+        let mut later = row;
+        later.data.start = "2026-03-08T09:00:00".into();
+        later.data.end = "2026-03-08T10:00:00".into();
+        events.push(later);
+        let range = CalendarRange::parse("2026-03-07T00:00:00Z", "2026-03-09T00:00:00Z").unwrap();
+        assert_eq!(free_busy(events, range).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn free_busy_refuses_incomplete_expansion() {
+        let mut row = CalendarEvent::new(WorkspaceId::generate(), Author::System, data());
+        row.data.rrule = Some("FREQ=MINUTELY".into());
+        let range = CalendarRange::parse("2026-03-07T00:00:00Z", "2026-03-09T00:00:00Z").unwrap();
+        assert!(free_busy(vec![row], range).is_err());
     }
 }

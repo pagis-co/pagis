@@ -105,6 +105,12 @@ describe('People', () => {
     )
     expect(open).toHaveBeenCalledWith('conversation')
   })
+  it('shows when a colleague is in a meeting', async () => {
+    const api = { GET: vi.fn(async (path: string) => ({ data: { items: path === '/api/v1/colleagues' ? [{ ...colleagues[0], presence: 'in_a_meeting' }] : [] } })) } as unknown as ApiClient
+    mount(<People api={api} onOpen={vi.fn()} />)
+    expect(await screen.findByLabelText('Bob is in a meeting')).toBeTruthy()
+    expect(screen.getByText('In a meeting')).toBeTruthy()
+  })
   it('opens an existing conversation', async () => {
     const open = vi.fn()
     const api = {

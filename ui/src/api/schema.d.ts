@@ -1277,6 +1277,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/free-busy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Org members read availability without access to Event details. */
+        post: operations["query_free_busy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/grants": {
         parameters: {
             query?: never;
@@ -4199,7 +4216,10 @@ export interface components {
         ColleagueDto: {
             name: string;
             person_id: string;
-            /** @description `active` or `away`, from the Private Workspace's client input. */
+            /**
+             * @description `in_a_meeting` during a busy Event in the Private Workspace Calendar;
+             *     otherwise `active` or `away`, from client input.
+             */
             presence: string;
             workspace_id: string;
         };
@@ -4824,6 +4844,25 @@ export interface components {
         };
         /** @enum {string} */
         FormFieldKind: "text" | "number" | "select" | "checkbox" | "date";
+        FreeBusyInterval: {
+            end: string;
+            start: string;
+        };
+        FreeBusyItem: {
+            address: string;
+            busy: components["schemas"]["FreeBusyInterval"][];
+        };
+        FreeBusyRequest: {
+            /** @description At most 50 Person login or Workspace Mailbox addresses. */
+            addresses: string[];
+            /** @description Inclusive RFC 3339 start. The range is at most 62 days. */
+            from: string;
+            /** @description Exclusive RFC 3339 end. */
+            to: string;
+        };
+        FreeBusyResponse: {
+            items: components["schemas"]["FreeBusyItem"][];
+        };
         /** @description What one port of the Funnel of this machine serves. */
         FunnelPort: {
             /** @enum {string} */
@@ -11319,6 +11358,41 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
+            };
+        };
+    };
+    query_free_busy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FreeBusyRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FreeBusyResponse"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

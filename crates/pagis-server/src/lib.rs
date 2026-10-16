@@ -564,6 +564,7 @@ fn product_router(state: Arc<AppState>) -> Router {
             "/api/v1/mail/{mailbox}/{message_id}",
             get(mail::get_mail_message),
         )
+        .route("/api/v1/free-busy", post(calendar::query_free_busy))
         .route("/api/v1/colleagues", get(conversations::list_colleagues))
         .route(
             "/api/v1/conversations",

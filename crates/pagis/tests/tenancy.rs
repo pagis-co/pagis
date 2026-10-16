@@ -490,3 +490,31 @@ async fn person_b_cannot_allow_unattended_modes_for_person_as_agent() {
     assert_eq!(host_grant["unattended_modes"], false);
     assert_eq!(host_grant["revision"], 1);
 }
+
+#[tokio::test]
+async fn person_b_reads_person_as_free_busy_without_event_details() {
+    let world = TwoTenants::start().await;
+    world
+        .daemon
+        .stores()
+        .users
+        .set_email_and_password(
+            &world.a.user_id,
+            "a@example.com",
+            "hash",
+            pagis_core::now_ms(),
+        )
+        .await
+        .unwrap();
+    let response = reqwest::Client::new()
+        .post(format!("{}/api/v1/free-busy", world.daemon.base_url))
+        .header("cookie", &world.b.cookie)
+        .json(&serde_json::json!({"from":"2026-03-07T00:00:00Z", "to":"2026-03-08T00:00:00Z", "addresses":["a@example.com"]}))
+        .send().await.unwrap();
+    assert_eq!(response.status(), 200);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(
+        body,
+        serde_json::json!({"items":[{"address":"a@example.com", "busy":[{"start":"2026-03-07T09:00:00Z", "end":"2026-03-07T10:00:00Z"}]}]})
+    );
+}

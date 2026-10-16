@@ -15,7 +15,25 @@ use pagis_core::fake::{FakeCatalogueProvider, FakeDatabase, FakeMemoryStore, Mem
 use pagis_core::*;
 use pagis_server::{AppState, Routers};
 
+pub struct TestClock(std::sync::atomic::AtomicI64);
+impl TestClock {
+    #[allow(dead_code)]
+    pub fn set(&self, at: i64) {
+        self.0.store(at, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+impl Clock for TestClock {
+    fn now_ms(&self) -> i64 {
+        match self.0.load(std::sync::atomic::Ordering::SeqCst) {
+            i64::MIN => now_ms(),
+            at => at,
+        }
+    }
+}
+
 pub struct Embedder {
+    #[allow(dead_code)]
+    pub clock: Arc<TestClock>,
     pub stores: Stores,
     pub routers: Routers,
     pub workspace: WorkspaceId,
@@ -185,7 +203,7 @@ impl Embedder {
         };
         let presence = Arc::new(HostPresence::default());
         let skills = Arc::new(NoSkills);
-        let clock = Arc::new(SystemClock);
+        let clock = Arc::new(TestClock(std::sync::atomic::AtomicI64::new(i64::MIN)));
         let runtime = Arc::new(CoreToolRuntime::new(ToolRuntimeDeps {
             agents: stores.agents.clone(),
             channels: stores.channels.clone(),
@@ -269,7 +287,7 @@ impl Embedder {
             hub: Arc::new(StreamHub::default()),
             progress: Arc::new(ProgressHub::default()),
             triggers: stores.triggers.clone(),
-            clock,
+            clock: clock.clone(),
             config,
         };
         let agents = AgentSystem::start(deps.clone()).await;
@@ -459,6 +477,7 @@ impl Embedder {
             clock: deps.clock,
         };
         Self {
+            clock,
             stores,
             routers: pagis_server::routers(state, axum::Router::new()),
             workspace,
