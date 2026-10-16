@@ -35,6 +35,12 @@ export function MessageControls({
   const mutation = useOrganizeWorkspaceMail(api, id)
   return (
     <div className="mail-controls">
+      <Button
+        disabled={mutation.isPending}
+        onClick={() => mutation.mutate({ action: 'delete' }, { onSuccess: onMove })}
+      >
+        Delete
+      </Button>
       <Button disabled={correction.isPending} onClick={() => correction.mutate(true)}>Spam</Button>
       <Button disabled={correction.isPending} onClick={() => correction.mutate(false)}>Not spam</Button>
       {correction.isError && <p role="alert">Could not send the spam correction.</p>}

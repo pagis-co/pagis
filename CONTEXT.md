@@ -1749,30 +1749,36 @@ list recent ones. Not built (ADR-0020).
 
 ### Workspace Mailbox
 The mailbox of a Workspace on the Org's mail domain, at most one per
-Workspace. The Org Address Rule creates it for a new Person, or the Person
-creates it in Settings. The Person reads it in the Mail
-place: All mail, folders, messages, threads and search. Opening a message
-marks it as seen. The Person composes, replies, replies to all and
-forwards mail with Files as attachments. A Person's send needs no
-Approval. Sent mail appears in the host's Sent folder. The Person creates,
-renames and deletes folders, moves mail and applies or removes labels.
-System folders cannot be renamed or deleted. The mail host holds bodies,
-labels and flags. The store uses the mail transport. Its conformance suite
+Workspace. The Org Address Rule creates it for a new Person, or the
+Person creates it in Settings. The Person reads it in the Mail place:
+All mail, folders, messages, threads and search. Opening a message marks
+it as seen. The Person composes, replies, replies to all and forwards
+mail with Files as attachments. A Person's send needs no Approval. Sent
+mail appears in the host's Sent folder. The Person creates, renames and
+deletes folders, moves mail and applies or removes labels. System
+folders cannot be renamed or deleted. The mail host holds bodies, labels
+and flags. The store uses the mail transport. Its conformance suite
 checks the operations (ADR-0040). The store records a Spam Verdict and
 Trust Tier before each read. The Mail place shows the score, action and
 reasons. Score-only mode moves nothing. The Chief of Staff holds its
-default Workspace Mailbox Grant. Other Agents need a Grant from the owner
-or a Manager. An Agent send as the Workspace Mailbox needs an Approval for
-each message unless its Grant's recipient-domain Allow Rules cover every
-recipient. An Agent replies from its own Agent Mailbox with the Workspace
-Mailbox in Cc by default and keeps the original thread. In a Private
-Workspace that address is the Person's mailbox; in a Shared Workspace it
-is the team mailbox. A Shared Workspace Mailbox uses Mail Visibility. A
-Responder or Manager sends as it, and the send records its Person author
-in the Org Audit Log. An Agent with a live Grant marks a message as Needs
-you through its escalation tool. The escalation keeps the Agent author and
-the message identity across folder moves. Not built: automatic Agent
-triage, assignments and saved drafts.
+default Workspace Mailbox Grant. Other Agents need a Grant from the
+owner or a Manager. An Agent send as the Workspace Mailbox needs an
+Approval for each message unless its Grant's recipient-domain Allow
+Rules cover every recipient. An Agent replies from its own Agent Mailbox
+with the Workspace Mailbox in Cc by default and keeps the original
+thread. In a Private Workspace that address is the Person's mailbox; in
+a Shared Workspace it is the team mailbox. A Shared Workspace Mailbox
+uses Mail Visibility. A Responder or Manager sends as it, and the send
+records its Person author in the Org Audit Log. An Agent with a live
+Grant marks a message as Needs you through its escalation tool. The
+escalation keeps the Agent author and the message identity across folder
+moves. Deleting a folder first moves its mail to Trash with its flags
+and labels. Deleting a message moves it to Trash. Deleting a message
+from Trash removes it for good. The store uses the host's special-use
+Trash folder, or the folder named Trash. It creates Trash when neither
+exists. Folder deletion refuses a folder that contains quarantined mail
+before it moves any message. Not built: automatic Agent triage,
+assignments and saved drafts.
 
 ### Workspace Mailbox Grant
 The Grant that gives one active Agent access to its Workspace Mailbox.

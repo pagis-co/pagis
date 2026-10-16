@@ -106,34 +106,40 @@ classification in that mode moves nothing.
 
 The host's malware symbols and high-confidence phishing symbols select
 quarantine before a model call or list decision. Phishing needs a host
-score of at least 15.0 points. Quarantine is a read restriction,
-independent of folder location and scoring mode. Lists, search, direct
-message reads, threads, attachments and Agent intake enforce it. Only
-Administrator routes read quarantine content or release a message. Release
-and its Org Audit Log entry share one storage transaction. The release
-keeps a durable record so the same host evidence does not quarantine that
-message again.
+score of at least 15.0 points. Quarantine is a read and write
+restriction, independent of folder location and scoring mode. Lists,
+search, direct message reads, threads, attachments, message writes and
+Agent intake enforce it. Only Administrator routes read quarantine
+content or release a message. Release and its Org Audit Log entry share
+one storage transaction. The release keeps a durable record so the same
+host evidence does not quarantine that message again.
 
 ### The Chief of Staff handles mail within rules
 
 The Person sets what the Chief of Staff can handle alone. It files,
 answers, schedules or assigns within those rules. Delegate everything
-gives it mail even while the Person is active. Mail in the Product App and
-Mobile App shows Needs you, All mail, folders, Junk and search. A Person
-can compose, reply, forward and attach Files. Handled mail shows the
-Agent's note. The Mail place in the Product App shows an empty Needs you
-view, All mail, folders and search. A Person opens a message and reads its
-thread as text. The host's labels and flags travel with each message.
-Opening the message or its thread marks the displayed messages as seen. A
-Person composes, replies, replies to all and forwards mail with Files. The
-composer uses plain text. A forward includes the original text and
-attachments. A reply keeps the reference headers. Reply all excludes the
-mailbox's own address. A Person uploads a File and names its id in the
-send request. Received attachments use the same passive content types as
-File downloads. The Person creates, renames and deletes folders, moves
-mail, and applies or removes labels as IMAP keywords. System folders
-cannot be renamed or deleted. Not built: triage, Needs you items, saved
-drafts and Agent notes.
+gives it mail even while the Person is active. Mail in the Product App
+and Mobile App shows Needs you, All mail, folders, Junk and search. A
+Person can compose, reply, forward and attach Files. Handled mail shows
+the Agent's note. The Mail place in the Product App shows an empty Needs
+you view, All mail, folders and search. A Person opens a message and
+reads its thread as text. The host's labels and flags travel with each
+message. Opening the message or its thread marks the displayed messages
+as seen. A Person composes, replies, replies to all and forwards mail
+with Files. The composer uses plain text. A forward includes the
+original text and attachments. A reply keeps the reference headers.
+Reply all excludes the mailbox's own address. A Person uploads a File
+and names its id in the send request. Received attachments use the same
+passive content types as File downloads. The Person creates, renames and
+deletes folders, moves mail, and applies or removes labels as IMAP
+keywords. System folders cannot be renamed or deleted. Deleting a folder
+first moves its mail to Trash with its flags and labels. Deleting a
+message moves it to Trash. Deleting a message from Trash removes it for
+good. The store uses the host's special-use Trash folder, or the folder
+named Trash. It creates Trash when neither exists. Folder deletion
+refuses a folder that contains quarantined mail before it moves any
+message. Not built: triage, Needs you items, saved drafts and Agent
+notes.
 
 A Person's own send needs no Approval. Agents do not use the Person's send
 path.

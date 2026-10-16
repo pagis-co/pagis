@@ -1171,6 +1171,25 @@ async fn workspace_mail_visibility_checks_every_human_read_and_current_limits() 
             },
             "{sent}"
         );
+        let disposable = mail.deliver("sender@example.com", "Delete", "Disposable mail");
+        let (status, body) = call(
+            &e,
+            false,
+            "DELETE",
+            &format!("{prefix}/mail/messages/{disposable}"),
+            Value::Null,
+            &e.other_cookie,
+        )
+        .await;
+        assert_eq!(
+            status,
+            if role == "reader" {
+                StatusCode::FORBIDDEN
+            } else {
+                StatusCode::NO_CONTENT
+            },
+            "{body}"
+        );
         if role == "responder" {
             let (_, audit) = call(
                 &e,

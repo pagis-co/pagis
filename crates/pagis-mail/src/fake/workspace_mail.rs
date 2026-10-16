@@ -162,6 +162,18 @@ impl MemoryWorkspaceMailStore {
     }
 }
 
+fn trash_folder(state: &mut State) -> String {
+    if let Some(name) = state
+        .folders
+        .iter()
+        .find(|name| name.eq_ignore_ascii_case("Trash"))
+    {
+        return name.clone();
+    }
+    state.folders.insert("Trash".into());
+    "Trash".into()
+}
+
 fn invalid() -> TransportError {
     TransportError(TransportErrorCode::InvalidRequest)
 }
@@ -356,7 +368,11 @@ impl WorkspaceMailWriter for MemoryWorkspaceMailStore {
     async fn rename_folder(&mut self, name: &str, new_name: &str) -> Result<(), TransportError> {
         crate::workspace_store::valid_folder(new_name)?;
         let mut state = self.state.lock().unwrap();
-        if name == "INBOX" || state.folders.contains(new_name) || !state.folders.remove(name) {
+        if crate::workspace_store::is_system_folder(name)
+            || crate::workspace_store::is_system_folder(new_name)
+            || state.folders.contains(new_name)
+            || !state.folders.remove(name)
+        {
             return Err(invalid());
         }
         state.folders.insert(new_name.into());
@@ -370,29 +386,60 @@ impl WorkspaceMailWriter for MemoryWorkspaceMailStore {
         Ok(())
     }
     async fn delete_folder(&mut self, name: &str) -> Result<(), TransportError> {
-        let mut state = self.state.lock().unwrap();
-        if name == "INBOX" || !state.folders.remove(name) {
-            return Err(invalid());
+        let ids: Vec<_> = {
+            let state = self.state.lock().unwrap();
+            if crate::workspace_store::is_system_folder(name) || !state.folders.contains(name) {
+                return Err(invalid());
+            }
+            state
+                .entries
+                .iter()
+                .filter(|(_, entry)| entry.folder == name)
+                .map(|(id, _)| MessageId::new(id))
+                .collect()
+        };
+        for id in &ids {
+            self.message(id).await?;
         }
-        let removed: Vec<_> = state
-            .entries
-            .iter()
-            .filter(|(_, entry)| entry.folder == name)
-            .map(|(id, _)| id.clone())
-            .collect();
-        for id in removed {
-            state.entries.remove(&id);
-            self.mail.remove(&MessageId::new(id));
+        let trash = trash_folder(&mut self.state.lock().unwrap());
+        for id in ids {
+            self.move_message(&id, &trash).await?;
         }
+        self.state.lock().unwrap().folders.remove(name);
         Ok(())
     }
-    async fn move_message(&mut self, id: &MessageId, folder: &str) -> Result<(), TransportError> {
+    async fn delete_message(&mut self, id: &MessageId) -> Result<(), TransportError> {
         self.message(id).await?;
-        let mut state = self.state.lock().unwrap();
-        if !state.folders.contains(folder) {
-            return Err(invalid());
+        let (folder, trash) = {
+            let mut state = self.state.lock().unwrap();
+            let folder = state
+                .entries
+                .get(id.as_str())
+                .ok_or_else(stale)?
+                .folder
+                .clone();
+            (folder, trash_folder(&mut state))
+        };
+        if folder == trash {
+            self.state.lock().unwrap().entries.remove(id.as_str());
+            self.mail.remove(id);
+            Ok(())
+        } else {
+            self.move_message(id, &trash).await
         }
-        state.entries.get_mut(id.as_str()).ok_or_else(stale)?.folder = folder.into();
+    }
+    async fn move_message(&mut self, id: &MessageId, folder: &str) -> Result<(), TransportError> {
+        let message = self.message(id).await?;
+        {
+            let mut state = self.state.lock().unwrap();
+            if !state.folders.contains(folder) {
+                return Err(invalid());
+            }
+            state.entries.get_mut(id.as_str()).ok_or_else(stale)?.folder = folder.into();
+        }
+        if let Some(context) = &self.context {
+            context.relocate(&message.message.summary, id).await?;
+        }
         Ok(())
     }
     async fn set_label(

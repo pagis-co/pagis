@@ -539,7 +539,8 @@ fn product_router(state: Arc<AppState>) -> Router {
         )
         .route(
             "/api/v1/workspace/mail/messages/{message_id}",
-            get(workspace_mail::get_workspace_mail_message),
+            get(workspace_mail::get_workspace_mail_message)
+                .delete(workspace_mail::delete_workspace_mail_message),
         )
         .route(
             "/api/v1/workspace/mail/threads/{thread_id}",

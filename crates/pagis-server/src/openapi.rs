@@ -100,6 +100,7 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         workspace_mail::create_workspace_mail,
         workspace_mail::rename_workspace_mail,
         workspace_mail::delete_workspace_mail,
+        workspace_mail::delete_workspace_mail_message,
         workspace_mail::send_workspace_mail,
         workspace_mail::reply_workspace_mail,
         workspace_mail::reply_all_workspace_mail,
