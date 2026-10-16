@@ -248,9 +248,10 @@ impl TwoTenants {
         };
         users.create(&b_user).await.expect("write person B");
         let b_workspace = Workspace {
+            kind: pagis_core::WorkspaceKind::Private,
             monthly_spend_cap_usd: None,
             id: WorkspaceId::generate(),
-            user_id: b_user.id.clone(),
+            user_id: Some(b_user.id.clone()),
             name: "B's Workspace".to_string(),
             timezone: "UTC".to_string(),
             created_at: now,
@@ -534,7 +535,7 @@ async fn seed_a(
     let colleague = User::new(owner.org_id, pagis_core::UserRole::Member, now);
     stores.users.create(&colleague).await.unwrap();
     let colleague_workspace = Workspace {
-        user_id: colleague.id,
+        user_id: Some(colleague.id),
         ..fixture::workspace()
     };
     stores
@@ -557,6 +558,7 @@ async fn seed_a(
     // drives the administration routes against A's own id, so a Member
     // who disabled, reset or capped the administrator would fail here.
     owned.insert("user_id", daemon.user_id.to_string());
+    owned.insert("person_id", daemon.user_id.to_string());
 
     // A Session of A's own, beside the one the harness signs A in with,
     // so a route that ended it would not end the harness.
@@ -604,7 +606,8 @@ async fn seed_a(
             .await
             .unwrap()
             .unwrap()
-            .user_id,
+            .user_id
+            .unwrap(),
         &channel_id,
         "A's own words",
     );

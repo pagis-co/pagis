@@ -233,6 +233,7 @@ mod tests {
 
     fn tenant(user_id: &UserId, expires_at: UnixMillis) -> Tenant {
         Tenant {
+            workspace_role: None,
             workspace_id: WorkspaceId::generate(),
             user_id: user_id.clone(),
             role: UserRole::Member,

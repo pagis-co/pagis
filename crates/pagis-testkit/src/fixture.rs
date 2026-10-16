@@ -22,7 +22,7 @@ pub async fn seeded_workspace(pool: &sqlx::SqlitePool) -> Workspace {
         .expect("seed the org and its administrator");
     Workspace {
         monthly_spend_cap_usd: None,
-        user_id: person.id,
+        user_id: Some(person.id),
         ..workspace()
     }
 }
@@ -31,9 +31,10 @@ pub async fn seeded_workspace(pool: &sqlx::SqlitePool) -> Workspace {
 /// person, so this one is for a test that keeps its records in memory.
 pub fn workspace() -> Workspace {
     Workspace {
+        kind: pagis_core::WorkspaceKind::Private,
         monthly_spend_cap_usd: None,
         id: WorkspaceId::generate(),
-        user_id: UserId::generate(),
+        user_id: Some(UserId::generate()),
         name: "Workspace".to_string(),
         timezone: "UTC".to_string(),
         created_at: now_ms(),

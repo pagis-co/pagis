@@ -69,7 +69,8 @@ async fn targets_in(world: &TwoTenants, workspace_id: &WorkspaceId) -> Targets {
             .await
             .unwrap()
             .unwrap()
-            .user_id,
+            .user_id
+            .unwrap(),
         &channel.id,
         "a Thread of its own",
     );

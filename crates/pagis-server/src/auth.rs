@@ -1,7 +1,9 @@
 //! Authentication. Every request that reads or writes a person's
 //! data carries a session cookie. The middleware resolves it to a
-//! [`Tenant`]: the signed-in person, their role, and the Workspace they
-//! own. Handlers take the tenant from the extractor, so no handler reads
+//! [`Tenant`]: the signed-in Person, their Org role, and the Workspace
+//! the request can enter. Shared Workspace routes also check membership
+//! and the Workspace role. Handlers take the Tenant from the extractor,
+//! so no handler reads
 //! an ambient one.
 //!
 //! The cookie is HTTP-only, so a script in the page cannot read it, and
@@ -38,10 +40,11 @@ const COOKIE_MAX_AGE_SECS: i64 = SESSION_LIFETIME_MS / 1_000;
 /// days.
 const TOUCH_INTERVAL_MS: i64 = 60 * 60 * 1_000;
 
-/// Who the request comes from, and whose data it may touch. The
-/// Workspace is the person's own: one Workspace per person.
+/// Who the request comes from, and which Workspace it can enter. A
+/// Private Workspace request has no separate Workspace role.
 #[derive(Debug, Clone)]
 pub struct Tenant {
+    pub workspace_role: Option<pagis_core::WorkspaceRole>,
     pub workspace_id: WorkspaceId,
     pub user_id: UserId,
     pub role: UserRole,
@@ -149,9 +152,41 @@ pub async fn authenticate(
     mut request: Request,
     next: Next,
 ) -> Result<Response, ApiError> {
-    let resolved = resolve_session(&state, request.headers())
+    let mut resolved = resolve_session(&state, request.headers())
         .await?
         .ok_or_else(ApiError::unauthorized)?;
+    if let Some(target) = request
+        .extensions()
+        .get::<crate::shared_workspace::SharedWorkspace>()
+    {
+        let member = state
+            .workspace_members
+            .get(&target.0, &resolved.tenant.user_id)
+            .await?
+            .ok_or_else(|| ApiError::not_found("workspace"))?;
+        let workspace = state
+            .workspaces
+            .get(&target.0)
+            .await?
+            .filter(|w| w.kind == pagis_core::WorkspaceKind::Shared)
+            .ok_or_else(|| ApiError::not_found("workspace"))?;
+        let method = request.method().as_str().to_ascii_lowercase();
+        let path = request
+            .extensions()
+            .get::<axum::extract::MatchedPath>()
+            .map(|p| p.as_str());
+        let required = path
+            .and_then(|path| crate::routes::ROUTES.iter().find(|r| r.path == path))
+            .and_then(|r| r.workspace_role(&method))
+            .ok_or_else(|| ApiError::not_found("route"))?;
+        if member.role < required {
+            return Err(ApiError::forbidden(
+                "the Workspace role does not permit this action",
+            ));
+        }
+        resolved.tenant.workspace_id = workspace.id;
+        resolved.tenant.workspace_role = Some(member.role);
+    }
     let renewed = resolved.renewed.then(|| {
         session_cookie(
             &resolved.secret,
@@ -225,6 +260,7 @@ async fn resolve_session(
     }
     Ok(Some(Resolved {
         tenant: Tenant {
+            workspace_role: None,
             workspace_id: workspace.id,
             user_id: user.id,
             role: user.role,
@@ -283,6 +319,7 @@ mod tests {
     /// carries the tenant of one role, as the middleware leaves it.
     async fn administrator_of(role: UserRole) -> Result<Administrator, ApiError> {
         let tenant = Tenant {
+            workspace_role: None,
             workspace_id: WorkspaceId::generate(),
             user_id: UserId::generate(),
             role,

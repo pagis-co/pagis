@@ -94,6 +94,8 @@ fn page<K: Ord, V>(mut rows: Vec<(K, V)>, before: Option<&K>, limit: u32) -> Vec
 /// The in-memory `WorkspaceStore`. Clones share their records.
 #[derive(Clone, Default)]
 pub struct FakeWorkspaceStore(Shared);
+#[derive(Clone)]
+pub struct FakeWorkspaceMemberStore(Shared);
 /// The in-memory `OnboardingStore`. Clones share their records.
 #[derive(Clone, Default)]
 pub struct FakeOnboardingStore(Shared);
@@ -290,6 +292,7 @@ impl FakeDatabase {
             usage: Arc::new(FakeUsageStore(self.0.clone())),
             users: Arc::new(FakeUserStore(self.0.clone())),
             workspaces: Arc::new(FakeWorkspaceStore(self.0.clone())),
+            workspace_members: Arc::new(FakeWorkspaceMemberStore(self.0.clone())),
         }
     }
 }
@@ -324,6 +327,7 @@ struct Data {
     push_subscriptions: Table<PushSubscriptionId, PushSubscription>,
 
     workspaces: BTreeMap<WorkspaceId, Workspace>,
+    workspace_members: BTreeMap<(WorkspaceId, UserId), crate::WorkspaceMember>,
     orgs: BTreeMap<OrgId, Org>,
     users: BTreeMap<UserId, User>,
     sessions: BTreeMap<SessionId, Session>,

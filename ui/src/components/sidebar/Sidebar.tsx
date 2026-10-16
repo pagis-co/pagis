@@ -1,3 +1,4 @@
+import { WorkspaceSwitcher } from '../../workspace'
 // The sidebar (ADR-0022): the places at the top with the
 // Needs-You count on Home, the conversations under them with the Chief
 // of Staff first, and the profile row at the bottom. The profile row
@@ -78,6 +79,7 @@ export function Sidebar({
       onSearch={onSearch}
       onSignOut={onSignOut}
     >
+      <WorkspaceSwitcher onSwitch={() => onSelectPlace('home')} />
       <nav className="sidebar-conversations" aria-label="Conversations">
         <div className="sidebar-conversations-heading">
           <span>Conversations</span>

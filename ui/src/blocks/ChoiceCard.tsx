@@ -1,3 +1,4 @@
+import { useWorkspaceAccess } from '../workspace'
 // The choice card block (ADR-0004): one tap, like an
 // approval card. It is its own type rather than a form with one enum
 // field because the two differ in interaction and not in data. State
@@ -35,6 +36,7 @@ export function ChoiceCard({
   body: string | null | undefined
   options: ChoiceOption[]
 }) {
+  const { canRespond } = useWorkspaceAccess()
   const phone = useIsMobile()
   const [selected, setSelected] = useState<string | null>(null)
   const question = useQuestion(api, requestId)
@@ -59,6 +61,13 @@ export function ChoiceCard({
       </Card>
     )
   }
+
+  if (!canRespond) return (
+    <Card data-testid="choice-card">
+      <CardHeader act={title} />
+      <CardBody>{options.map((option) => <p key={option.value}>{option.label}</p>)}</CardBody>
+    </Card>
+  )
 
   if (phone)
     return (

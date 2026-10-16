@@ -24,7 +24,7 @@ Orgs or moves a Person between them. Any installation can hold several People.
 A Person has a name, an Org role and exactly one Private Workspace. The role
 is `administrator` or `member` and applies to the whole installation. An
 Administrator changes what the Org holds and what other People may do; a
-Member changes only their own Private Workspace. Not built: a Member also
+Member changes their own Private Workspace. A Member also
 enters Shared Workspaces through the separate roles Manager, Responder and
 Reader (ADR-0039). Every Org has at least one Administrator, its first Person:
 the seeded Person of a Local Installation, or the one from Server Setup
@@ -52,8 +52,9 @@ Completion marks their Workspace as onboarded.
 A Private Workspace has exactly one Person and never gains others. A Shared
 Workspace has no owner. Persons in it have the roles Manager,
 Responder or Reader. Each record has one owning Workspace or conversation,
-and its owner decides access (ADR-0039). Not built: these Workspace kinds and
-Shared Workspace access. The daemon gives each Person one Workspace.
+and its owner decides access (ADR-0039). The daemon gives each Person one
+Private Workspace. An Administrator creates a Shared Workspace and names
+its first Manager. A Manager changes its membership and roles.
 
 A Workspace holds Agents, memory, conversations, Connections, Grants, Vault,
 Trust List, Software List, Agent Mailboxes, a Workspace Mailbox, a Workspace
@@ -86,7 +87,7 @@ domain. It also holds conversations between Workspaces, each stored once
 with its messages (ADR-0043). A Workspace row keeps every store call the
 same and the database refusal intact, so no Person reaches it by accident:
 
-- `WorkspaceStore::get` and `list` answer only Workspaces a Person owns. No
+- `WorkspaceStore::get` and `list` answer Private and Shared Workspaces. No
   per-Workspace sweep or seed reaches the Org's Workspace.
 - The seed never runs for it. It has no Agents, aliases or memory.
 - It holds no Google Connection and needs no Tenant Data Key; the keys of
@@ -106,15 +107,15 @@ alone reads or writes it, on the Administration Port (ADR-0024).
 
 | The Org's | One Workspace's |
 | --- | --- |
-| The provider keys, one for each model provider | The Model Aliases each Agent thinks on |
-| The Installation OAuth Client | The Person's own Connections, their Google account above all |
-| The Installation Connections: the carrier and the mail domain | Agent Mailboxes, the Workspace Mailbox and the Workspace Number |
-| The installed Plugins and their Bindings | Which Agent holds a Grant to a Plugin |
-| The System Settings: the ports, the Docker endpoint, the log level, the data directory | The timezone |
-| The roster and each Org role | The Spend Cap |
-| | The Agents, the memory, the conversations, the Files, the Vault, the Software List |
-| The Awake Cap on Computers | The Retention windows |
-| The Home Exit System Setting, which turns the Home Exit off for every Person (ADR-0029) | The Home Exit: which Host of the Person their Computers reach the internet through |
+| Model provider keys | Model Aliases |
+| Installation OAuth Client | Personal Connections |
+| Installation Connections | Mailboxes and the Workspace Number |
+| Installed Plugins and Bindings | Agent Grants to Plugins |
+| System Settings | Timezone |
+| People and Org roles | Spend Cap |
+| | Agents, memory, Channels, Files, Vault and Software List |
+| Awake Cap | Retention windows |
+| Home Exit System Setting | The Person's Home Exit Host |
 
 A Person holds and reads no provider key. The Administrator supplies one key
 for each provider, and each Person chooses what to think with.
@@ -152,7 +153,7 @@ A Person signs in before any client reads or writes their data. A Session
 names the Person and the client kind (`browser` or `desktop`), records when it
 was made and last used, ends at sign-out, and expires 30 days after its last
 use (ADR-0028). It grants nothing by itself; the role and the Workspace decide.
-It stays bound to the Person's Private Workspace. Not built: Shared Workspace
+It stays bound to the Person's Private Workspace. Shared Workspace
 requests name `/api/v1/workspaces/:id/...`. The server checks the Session,
 then the role at the entrance of each Shared Workspace route (ADR-0039).
 

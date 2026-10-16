@@ -94,9 +94,10 @@ async fn person(daemon: &TestDaemon, email: &str, password: &str) -> User {
     stores
         .workspaces
         .create(&Workspace {
+            kind: pagis_core::WorkspaceKind::Private,
             monthly_spend_cap_usd: None,
             id: WorkspaceId::generate(),
-            user_id: person.id.clone(),
+            user_id: Some(person.id.clone()),
             name: "Grace".to_string(),
             timezone: "UTC".to_string(),
             created_at: now,

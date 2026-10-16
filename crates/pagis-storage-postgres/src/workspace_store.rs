@@ -20,8 +20,13 @@ impl PostgresWorkspaceStore {
 
 fn row_to_workspace(row: &sqlx::postgres::PgRow) -> Workspace {
     Workspace {
+        kind: if row.get::<String, _>("kind") == "shared" {
+            pagis_core::WorkspaceKind::Shared
+        } else {
+            pagis_core::WorkspaceKind::Private
+        },
         id: WorkspaceId::from(row.get::<String, _>("id")),
-        user_id: UserId::from(row.get::<String, _>("user_id")),
+        user_id: row.get::<Option<String>, _>("user_id").map(UserId::from),
         name: row.get("name"),
         timezone: row.get("timezone"),
         monthly_spend_cap_usd: row.get("monthly_spend_cap_usd"),
@@ -41,7 +46,7 @@ fn row_to_workspace(row: &sqlx::postgres::PgRow) -> Workspace {
 
 /// The columns [`row_to_workspace`] reads, in one place.
 const COLUMNS: &str = "id, user_id, name, timezone, created_at, onboarded_at, \
-     chief_of_staff_agent_id, report_schedule_id, home_exit_host_id, monthly_spend_cap_usd";
+     chief_of_staff_agent_id, report_schedule_id, home_exit_host_id, monthly_spend_cap_usd, kind";
 
 #[async_trait]
 impl WorkspaceStore for PostgresWorkspaceStore {
@@ -50,44 +55,17 @@ impl WorkspaceStore for PostgresWorkspaceStore {
         id: &WorkspaceId,
         cap_usd: Option<f64>,
     ) -> Result<bool, StoreError> {
-        let updated = sqlx::query("UPDATE workspaces SET monthly_spend_cap_usd = $1 WHERE id = $2 AND user_id IS NOT NULL").bind(cap_usd).bind(id.as_str()).execute(&self.pool).await.map_err(db_err)?;
+        let updated = sqlx::query("UPDATE workspaces SET monthly_spend_cap_usd = $1 WHERE id = $2 AND id NOT IN (SELECT workspace_id FROM orgs)").bind(cap_usd).bind(id.as_str()).execute(&self.pool).await.map_err(db_err)?;
         Ok(updated.rows_affected() == 1)
     }
 
     async fn create(&self, workspace: &Workspace) -> Result<(), StoreError> {
-        sqlx::query(&format!(
-            "INSERT INTO workspaces ({COLUMNS}) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"
-        ))
-        .bind(workspace.id.as_str())
-        .bind(workspace.user_id.as_str())
-        .bind(&workspace.name)
-        .bind(&workspace.timezone)
-        .bind(workspace.created_at)
-        .bind(workspace.onboarded_at)
-        .bind(
-            workspace
-                .chief_of_staff_agent_id
-                .as_ref()
-                .map(AgentId::as_str),
-        )
-        .bind(
-            workspace
-                .report_schedule_id
-                .as_ref()
-                .map(ScheduleId::as_str),
-        )
-        .bind(workspace.home_exit_host_id.as_ref().map(HostId::as_str))
-        .bind(workspace.monthly_spend_cap_usd)
-        .execute(&self.pool)
-        .await
-        .map_err(db_err)?;
-        Ok(())
+        insert_workspace(&self.pool, workspace).await
     }
 
     async fn get(&self, id: &WorkspaceId) -> Result<Option<Workspace>, StoreError> {
         let row = sqlx::query(&format!(
-            "SELECT {COLUMNS} FROM workspaces WHERE id = $1 AND user_id IS NOT NULL"
+            "SELECT {COLUMNS} FROM workspaces WHERE id = $1 AND id NOT IN (SELECT workspace_id FROM orgs)"
         ))
         .bind(id.as_str())
         .fetch_optional(&self.pool)
@@ -109,7 +87,7 @@ impl WorkspaceStore for PostgresWorkspaceStore {
 
     async fn list(&self) -> Result<Vec<Workspace>, StoreError> {
         let rows = sqlx::query(&format!(
-            "SELECT {COLUMNS} FROM workspaces WHERE user_id IS NOT NULL ORDER BY id"
+            "SELECT {COLUMNS} FROM workspaces WHERE id NOT IN (SELECT workspace_id FROM orgs) ORDER BY id"
         ))
         .fetch_all(&self.pool)
         .await
@@ -187,4 +165,42 @@ impl WorkspaceStore for PostgresWorkspaceStore {
         .map_err(db_err)?;
         Ok(updated.rows_affected() == 1)
     }
+}
+
+pub(crate) async fn insert_workspace<'e, E>(
+    executor: E,
+    workspace: &Workspace,
+) -> Result<(), StoreError>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    sqlx::query(&format!(
+        "INSERT INTO workspaces ({COLUMNS}) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"
+    ))
+    .bind(workspace.id.as_str())
+    .bind(workspace.user_id.as_ref().map(UserId::as_str))
+    .bind(&workspace.name)
+    .bind(&workspace.timezone)
+    .bind(workspace.created_at)
+    .bind(workspace.onboarded_at)
+    .bind(
+        workspace
+            .chief_of_staff_agent_id
+            .as_ref()
+            .map(AgentId::as_str),
+    )
+    .bind(
+        workspace
+            .report_schedule_id
+            .as_ref()
+            .map(ScheduleId::as_str),
+    )
+    .bind(workspace.home_exit_host_id.as_ref().map(HostId::as_str))
+    .bind(workspace.monthly_spend_cap_usd)
+    .bind(workspace.kind.as_str())
+    .execute(executor)
+    .await
+    .map_err(db_err)?;
+    Ok(())
 }

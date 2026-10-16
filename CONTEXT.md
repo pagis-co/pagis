@@ -378,29 +378,31 @@ Mode of its Agent on that machine, or a Plugin. A Grant has numbered revisions. 
 matches the live revision needs no new approval (ADR-0005).
 
 ### guest
-A login with the Org role guest. A guest has no Private Workspace and has
-access only to Shared Workspaces that a Manager names. Not built
-(ADR-0039).
+A login with the Org role guest. A guest has no Private Workspace and
+has access only to Shared Workspaces that a Manager names.
+Not built: guests (ADR-0039).
 
 ### Manager
-The role of a Person in a Shared Workspace who manages its People, roles,
-Agents, Chief of Staff and settings within Org policy. A Manager can also
-send and decide Requests. Not built: the Manager role (ADR-0039).
+The role of a Person in a Shared Workspace who manages its People,
+roles, Agents, Chief of Staff and settings within Org policy. A Manager
+can also send and decide Requests (ADR-0039).
+Not built: Org policy limits.
 
 ### Member
 The Org role of a Person who has no Administration Port access and reads
 no Org settings. A Member changes their own Private Workspace. This role
-does not name a Person's role in a Shared Workspace (ADR-0023, ADR-0039).
-Not built: access to a Shared Workspace through its own role.
+does not name a Person's role in a Shared Workspace (ADR-0023,
+ADR-0039). A Member enters a Shared Workspace through its separate role.
 
 ### Org
 The installation, as the People in it share it. One installation is one
 Org. It holds the provider keys, Installation OAuth Client, Installation
 Connections, installed Plugins, System Settings, People with their Org
-roles, and Awake Cap. An Administrator sets a Spend Cap for each Workspace
-(ADR-0023).
-Not built: Shared Workspaces, guests and Org policy for their access and
-resources. The Spend Cap belongs to a Workspace (ADR-0039).
+roles, and Awake Cap. An Administrator sets a Spend Cap for each
+Workspace (ADR-0023). An Administrator creates a Shared Workspace and
+names its first Manager. The Spend Cap
+belongs to a Workspace (ADR-0039).
+Not built: guests and Org policy limits for access and resources.
 
 ### Org's Workspace
 The Workspace that the Org owns and no Person owns. It holds the installed
@@ -414,52 +416,57 @@ Not built: its use as an Org-wide Shared Workspace with every Person in it
 ### Person
 One human in the Org, with a name, an Org role and exactly one Private
 Workspace. A Person signs in before a client reads or writes their data.
-The daemon gives each Person one Workspace (ADR-0023). Presence is active
-while a visible client had input in the last 120 s, and away otherwise.
-It reads the Private Workspace's Notification activity state (ADR-0030).
+The daemon gives each Person one Workspace (ADR-0023). Presence is
+active while a visible client had input in the last 120 s, and away
+otherwise. It reads the Private Workspace's Notification activity state
+(ADR-0030). A Person enters each Shared
+Workspace through its role (ADR-0039).
 Not built: calendar presence (ADR-0043).
-Not built: the Private Workspace kind and roles in Shared Workspaces
-(ADR-0039).
-_Avoid_: user record, account (for a Person; an account is at an external
-provider)
+_Avoid_: user record, account (for a Person; an
+account is at an external provider)
 
 ### Private Workspace
 The Workspace of exactly one Person, made with that Person. It has no
 membership list and never gains another Person. Hosts, the Home Exit,
-personal Connections and the Keypad Code exist only here. The daemon gives
-each Person one private scope. Not built: the Private Workspace kind and
-its conversion to a Shared Workspace on departure (ADR-0039).
+personal Connections and the Keypad Code exist only here. The daemon
+gives each Person one Private Workspace.
+Not built: conversion to a Shared Workspace on departure (ADR-0039).
 
 ### Reader
-The role of a Person in a Shared Workspace who reads within its visibility
-level. A Reader cannot send or decide Requests. Not built: the Reader role
-(ADR-0039).
+The role of a Person in a Shared Workspace who reads within its
+visibility level. A Reader cannot send or decide Requests (ADR-0039).
+Not built: Shared Workspace visibility levels.
 
 ### Responder
-The role of a Person in a Shared Workspace who reads within its visibility
-level, sends as the Shared Workspace and decides its Requests. A Responder
-does not manage its People, roles or Agents. Not built: the Responder role
-(ADR-0039).
+The role of a Person in a Shared Workspace who reads within its
+visibility level, sends as the Shared Workspace and decides its
+Requests. A Responder does not manage its
+People, roles or Agents (ADR-0039).
+Not built: Shared Workspace visibility levels.
 
 ### Session
 What a client holds after a Person signs in: an HTTP-only, host-only,
 `SameSite=Strict` cookie that names the Person and the kind of client. A
-browser's Session also carries the name of the browser and its system, such as
-"Safari on macOS", or "Pagis on macOS" for the product window of a connected
-Client App. The Mobile App holds a `browser` Session named "Pagis on iPhone",
-"Pagis on iPad" or "Pagis on Android". A Session ends at sign-out, when the
-Person removes it from their Sessions list, and 30 days after its last use. A
-password sign-in, the trade of a Client Credential and a Sign-In Link hand one
-out. It grants nothing on its own. It belongs to the Person and stays bound to
-their Private Workspace. Not built: Shared Workspace requests with a Workspace
-id in the route and a role check at its entrance (ADR-0023, ADR-0028,
-ADR-0032, ADR-0039).
+browser's Session also carries the name of the browser and its system,
+such as "Safari on macOS", or "Pagis on macOS" for the product window of
+a connected Client App. The Mobile App holds a `browser` Session named
+"Pagis on iPhone", "Pagis on iPad" or "Pagis on Android". A Session ends
+at sign-out, when the Person removes it from their Sessions list, and 30
+days after its last use. A password sign-in, the trade of a Client
+Credential and a Sign-In Link hand one out. It grants nothing on its
+own. It belongs to the Person and stays bound to their Private
+Workspace. A Shared Workspace request names the Workspace id in the
+route. The server checks membership and the required role at its
+entrance (ADR-0023, ADR-0028, ADR-0032, ADR-0039).
 _Avoid_: bearer, login token
 
 ### Shared Workspace
-A Workspace with no owner. Persons in it have the roles Manager, Responder or
-Reader. It has its own Chief of Staff, Agents, memory and Connections. The
-product calls it a **team**. Not built: Shared Workspaces (ADR-0039).
+A Workspace with no owner. Persons in it have the roles Manager,
+Responder or Reader. It has its own Chief of Staff, Agents, memory and
+Connections. The product calls it a **team**. An Administrator creates
+it with a name and a first Manager. A Manager adds Persons, changes
+roles and removes Persons. The last Manager
+cannot be removed or demoted (ADR-0039).
 _Avoid_: team (in code and ADRs), Member (for a Shared Workspace role)
 
 ### Sign-In Link
@@ -506,31 +513,31 @@ _Avoid_: usage row, token log, billing record
 
 ### Workspace
 The scope that owns Agents, memory, conversations, Connections, Grants,
-Vault, Trust List, Software List, Agent Mailboxes, a Workspace Mailbox, a
-Workspace Number, Files, Retention Policies and a timezone. A **tenant** is
-a Workspace as the unit of isolation, as in the Tenant Data Key and Tenant
-Network. Store lookups name the Workspace beside the record, except
-installation-wide records (ADR-0006, ADR-0023, ADR-0040, ADR-0041).
-The daemon gives each Person one Workspace. Its timezone comes from the
-browser or Client App at first sign-in and changes in Settings.
-Not built: Private and Shared Workspace kinds, calendar and Shared
-Workspace access (ADR-0039, ADR-0042).
+Vault, Trust List, Software List, Agent Mailboxes, a Workspace Mailbox,
+a Workspace Number, Files, Retention Policies and a timezone. A
+**tenant** is a Workspace as the unit of isolation, as in the Tenant
+Data Key and Tenant Network. Store lookups name the Workspace beside the
+record, except installation-wide records (ADR-0006, ADR-0023, ADR-0040,
+ADR-0041). The daemon gives each Person one Workspace. Its timezone
+comes from the browser or Client App at first sign-in and changes in
+Settings. A Workspace has the kind private or shared. A Shared Workspace
+has a membership list with one role for each Person (ADR-0039).
+Not built: calendar (ADR-0042).
 
 ## Agents and conversations
 
 ### Agent
 A persistent helper of a Workspace: a job, a description, a personality,
 memory and history, capabilities, a Computer, an Agent Voice, and an
-optional Agent Mailbox. The job is the first thing it reads about itself.
-The description is the line other Agents read. An Agent is not a chat
-session. The product calls it a **sprite**.
-Outside its Private Workspace, it introduces itself with its name and the
-Person's name. It says it is an AI assistant when asked. It never says or
-suggests that it is human. This rule is stronger than its personality and
-any message instruction.
-Not built: Shared Workspace Agents, whose introduction names the Shared
-Workspace, and Calls or texts through a Workspace Number under a Grant
-(ADR-0039, ADR-0041).
+optional Agent Mailbox. The job is the first thing it reads about
+itself. The description is the line other Agents read. An Agent is not a
+chat session. The product calls it a **sprite**. Outside its Private
+Workspace, it introduces itself with its name and the Person's name. It
+says it is an AI assistant when asked. It never says or suggests that it
+is human. This rule is stronger than its personality and any message
+instruction. A Shared Workspace has its own Agents.
+Not built: their introduction with the Shared Workspace name, and Calls
+or texts through a Workspace Number under a Grant (ADR-0039, ADR-0041).
 _Avoid_: sprite (in the glossary, code and ADRs), bot
 
 ### Agent Voice
@@ -547,33 +554,33 @@ Not built: Persons in a Shared Workspace (ADR-0039).
 
 ### Channel
 The container for a conversation. Each participant names a Person, an
-Agent or a Workspace. A Workspace participant names its Workspace id. Each
-message records its author and shows their name. Inside one
+Agent or a Workspace. A Workspace participant names its Workspace id.
+Each message records its author and shows their name. Inside one
 Workspace it holds the Person and Agents, or Agents with each other. The
-direct Channel of the Person and one Agent is that Agent's **DM Channel**.
-The Person reads every Channel of their private scope. A Channel that
-Agents open between themselves is read-only to the Person (ADR-0003).
-Not built: Persons read a Shared Workspace's Channels within their roles.
-A Channel can also have Workspaces as participants. That conversation is
-stored once in the Org's Workspace, outside the participant Workspaces.
-Each participant Workspace reads it there. The same set of Workspaces opens
-one conversation. Each route checks participation before access. A Person
-finds colleagues and their active or away presence in People. A message
-publishes a live event to each participant Workspace and starts no Agent
-Run (ADR-0039, ADR-0043).
-Not built: away Notifications, Chief of Staff answers, Delegate everything,
-For the person only, Disclosure Rules, Agents messaging colleagues, group
-answer rules and calendar presence.
+direct Channel of the Person and one Agent is that Agent's **DM
+Channel**. The Person reads every Channel of their private scope. A
+Channel that Agents open between themselves is read-only to the Person
+(ADR-0003). Persons read a Shared Workspace's Channels through their
+Workspace role. A Channel can also have Workspaces as participants. That
+conversation is stored once in the Org's Workspace, outside the
+participant Workspaces. Each participant Workspace reads it there. The
+same set of Workspaces opens one conversation. Each route checks
+participation before access. A Person finds colleagues and their active
+or away presence in People. A message publishes a live event to each
+participant Workspace and starts no Agent Run (ADR-0039, ADR-0043).
+Not built: away Notifications, Chief of Staff answers, Delegate
+everything, For the person only, Disclosure Rules, Agents messaging
+colleagues, group answer rules and calendar presence.
 
 ### Chief of Staff
 The main Agent of a Workspace: the active Agent it addresses by default.
-The Product App pins it at the top of the sidebar. Home is its Report, and
-the composer on Home speaks to it. The seed makes Pixie and names it. The
-Person can move the designation to any active Agent. The designation
-grants no power (ADR-0022).
-Not built: a Chief of Staff in a Shared Workspace, the default Grant that
-gives it the Workspace Mailbox and Workspace Number, and reading mail
-first (ADR-0039, ADR-0040, ADR-0041).
+The Product App pins it at the top of the sidebar. Home is its Report,
+and the composer on Home speaks to it. The seed makes Pixie and names
+it. The Person can move the designation to any active Agent. The
+designation grants no power (ADR-0022). A Shared
+Workspace has its own seeded Chief of Staff.
+Not built: the default Grant that gives it the Workspace Mailbox and
+Workspace Number, and reading mail first (ADR-0039, ADR-0040, ADR-0041).
 
 ### Compaction
 The step that summarizes the older part of a conversation into a
@@ -1396,15 +1403,16 @@ Brief and voice. With no Standing Brief, the Agent takes a message
 (ADR-0020, ADR-0041).
 
 ### Keypad Code
-The 6 to 8 digits a caller enters to confirm a Trust Tier above Unknown on
-a Call that Pagis answers. Each Private Workspace holds one code. It
+The 6 to 8 digits a caller enters to confirm a Trust Tier above Unknown
+on a Call that Pagis answers. Each Private Workspace holds one code. It
 confirms only Calls in that private scope. The daemon collects it from
 the keypad, so it never reaches the model or the transcript. After 6
-failed attempts across the Workspace, the code is refused for a delay that
-starts at 1 minute and doubles with each further failure, up to 24 hours.
-A correct code or the Person in Settings clears the count (ADR-0021).
-Not built: the Private Workspace kind. A Shared Workspace has no Keypad
-Code (ADR-0039).
+failed attempts across the Workspace, the code is refused for a delay
+that starts at 1 minute and doubles with each further failure, up to 24
+hours. A correct code or the Person in
+Settings clears the count (ADR-0021).
+Not built: the rule that a Shared Workspace
+has no Keypad Code (ADR-0039).
 
 ### Listen-Live
 The Person hearing a Call while it happens, with no way to speak or act on

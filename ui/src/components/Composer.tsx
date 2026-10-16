@@ -1,3 +1,4 @@
+import { workspacePath } from '../api/workspace-path'
 import { useEffect, useRef, useState } from 'react'
 import { Plus, X, ArrowUp } from 'lucide-react'
 
@@ -33,7 +34,7 @@ interface Utterance {
 
 function dictationUrl(channelId: string): string {
   const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws'
-  return `${scheme}://${window.location.host}/api/v1/channels/${channelId}/dictate`
+  return `${scheme}://${window.location.host}${workspacePath(`/api/v1/channels/${channelId}/dictate`)}`
 }
 
 /** Append a transcript to the draft with one space between them. */

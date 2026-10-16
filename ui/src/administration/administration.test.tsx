@@ -122,7 +122,7 @@ describe('the administration page', () => {
         .toBe(`https://pagis.example.com${place.id === 'home' ? '/' : `/${place.id}`}`)
     }
     for (const group of SETTINGS_GROUPS) {
-      for (const item of group.sections) {
+      for (const item of group.sections.filter((item) => item.value !== 'members')) {
         expect(within(within(nav).getByRole('group', { name: group.label })).getByRole('link', { name: item.label }).getAttribute('href'))
           .toBe(`https://pagis.example.com/settings/${item.value}`)
       }

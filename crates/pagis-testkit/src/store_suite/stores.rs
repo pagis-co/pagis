@@ -53,7 +53,7 @@ pub async fn conversations_have_workspace_participants_and_one_history(backend: 
         assert!(participant.person_id.is_none());
         assert!(participant.agent_id.is_none());
     }
-    let message = person_message(&a.id, &a.user_id, &first.id, "Hello");
+    let message = person_message(&a.id, a.user_id.as_ref().unwrap(), &first.id, "Hello");
     stores.messages.insert(&message).await.unwrap();
     assert_eq!(
         stores
@@ -100,11 +100,12 @@ pub async fn authored_records_keep_person_agent_and_system(backend: &Backend) {
     let run = queued_run(&ws.id, &agent.id, &channel.id);
     stores.runs.create(&run).await.unwrap();
     for author in [
-        pagis_core::Author::Person(ws.user_id.clone()),
+        pagis_core::Author::Person(ws.user_id.clone().unwrap()),
         pagis_core::Author::Agent(agent.id.clone()),
         pagis_core::Author::System,
     ] {
-        let mut message = person_message(&ws.id, &ws.user_id, &channel.id, "Hello");
+        let mut message =
+            person_message(&ws.id, ws.user_id.as_ref().unwrap(), &channel.id, "Hello");
         message.author = author.clone();
         stores.messages.insert(&message).await.unwrap();
         assert_eq!(
@@ -592,7 +593,7 @@ pub async fn message_insert_roundtrips_and_gets(backend: &Backend) {
     backend.stores().channels.create(&ch).await.unwrap();
 
     let store = &backend.stores().messages;
-    let msg = person_message(&ws.id, &ws.user_id, &ch.id, "hello");
+    let msg = person_message(&ws.id, ws.user_id.as_ref().unwrap(), &ch.id, "hello");
 
     let outcome = store.insert(&msg).await.unwrap();
 
@@ -616,7 +617,12 @@ pub async fn retained_turn_exposure_is_daemon_stamped_and_round_trips(backend: &
     let ch = channel(&ws.id);
     backend.stores().channels.create(&ch).await.unwrap();
     let store = &backend.stores().messages;
-    let msg = person_message(&ws.id, &ws.user_id, &ch.id, "source-derived answer");
+    let msg = person_message(
+        &ws.id,
+        ws.user_id.as_ref().unwrap(),
+        &ch.id,
+        "source-derived answer",
+    );
     store.insert(&msg).await.unwrap();
     assert_eq!(
         store.exposures(&ws.id, &msg.id).await.unwrap(),
@@ -627,7 +633,12 @@ pub async fn retained_turn_exposure_is_daemon_stamped_and_round_trips(backend: &
         pagis_core::Author::Agent(a.id.clone()),
         pagis_core::Author::System,
     ] {
-        let mut unstamped = person_message(&ws.id, &ws.user_id, &ch.id, "unstamped generated text");
+        let mut unstamped = person_message(
+            &ws.id,
+            ws.user_id.as_ref().unwrap(),
+            &ch.id,
+            "unstamped generated text",
+        );
         unstamped.author = author_kind;
         store.insert(&unstamped).await.unwrap();
         assert_eq!(store.exposures(&ws.id, &unstamped.id).await.unwrap(), None);
@@ -666,7 +677,12 @@ pub async fn a_stamped_insert_writes_the_row_and_its_stamp_together(backend: &Ba
         grant_id: GrantId::generate(),
         revision: 3,
     };
-    let mut generated = person_message(&ws.id, &ws.user_id, &ch.id, "a sourced answer");
+    let mut generated = person_message(
+        &ws.id,
+        ws.user_id.as_ref().unwrap(),
+        &ch.id,
+        "a sourced answer",
+    );
     generated.author = pagis_core::Author::Agent(a.id.clone());
 
     let outcome = store
@@ -682,7 +698,7 @@ pub async fn a_stamped_insert_writes_the_row_and_its_stamp_together(backend: &Ba
 
     // A stamp that cannot be written takes the row with it, so no
     // reader ever finds a generated message without its stamp.
-    let mut rejected = person_message(&ws.id, &ws.user_id, &ch.id, "never stored");
+    let mut rejected = person_message(&ws.id, ws.user_id.as_ref().unwrap(), &ch.id, "never stored");
     rejected.author = pagis_core::Author::Agent(a.id.clone());
     let repeated = [exposure.clone(), exposure];
     assert!(store.insert_stamped(&rejected, &repeated).await.is_err());
@@ -695,10 +711,10 @@ pub async fn duplicate_pending_id_returns_the_original(backend: &Backend) {
     backend.stores().channels.create(&ch).await.unwrap();
 
     let store = &backend.stores().messages;
-    let original = person_message(&ws.id, &ws.user_id, &ch.id, "hello");
+    let original = person_message(&ws.id, ws.user_id.as_ref().unwrap(), &ch.id, "hello");
     store.insert(&original).await.unwrap();
 
-    let mut retry = person_message(&ws.id, &ws.user_id, &ch.id, "hello again");
+    let mut retry = person_message(&ws.id, ws.user_id.as_ref().unwrap(), &ch.id, "hello again");
     retry.pending_id = original.pending_id.clone();
 
     let outcome = store.insert(&retry).await.unwrap();
@@ -716,10 +732,10 @@ pub async fn same_pending_id_in_another_channel_is_a_new_message(backend: &Backe
     channels.create(&second).await.unwrap();
 
     let store = &backend.stores().messages;
-    let msg = person_message(&ws.id, &ws.user_id, &first.id, "hello");
+    let msg = person_message(&ws.id, ws.user_id.as_ref().unwrap(), &first.id, "hello");
     store.insert(&msg).await.unwrap();
 
-    let mut other = person_message(&ws.id, &ws.user_id, &second.id, "hello");
+    let mut other = person_message(&ws.id, ws.user_id.as_ref().unwrap(), &second.id, "hello");
     other.pending_id = msg.pending_id.clone();
 
     assert_eq!(
@@ -736,12 +752,17 @@ pub async fn timeline_pages_newest_first_with_exclusive_cursor(backend: &Backend
     let store = &backend.stores().messages;
     let mut sent = Vec::new();
     for i in 0..5 {
-        let msg = person_message(&ws.id, &ws.user_id, &ch.id, &format!("m{i}"));
+        let msg = person_message(
+            &ws.id,
+            ws.user_id.as_ref().unwrap(),
+            &ch.id,
+            &format!("m{i}"),
+        );
         store.insert(&msg).await.unwrap();
         sent.push(msg);
     }
     // A thread reply must not appear in the timeline.
-    let mut reply = person_message(&ws.id, &ws.user_id, &ch.id, "reply");
+    let mut reply = person_message(&ws.id, ws.user_id.as_ref().unwrap(), &ch.id, "reply");
     reply.parent_message_id = Some(sent[0].id.clone());
     store.insert(&reply).await.unwrap();
 
@@ -766,13 +787,18 @@ pub async fn timeline_entries_carry_thread_rollups(backend: &Backend) {
     backend.stores().channels.create(&ch).await.unwrap();
 
     let store = &backend.stores().messages;
-    let root = person_message(&ws.id, &ws.user_id, &ch.id, "root");
+    let root = person_message(&ws.id, ws.user_id.as_ref().unwrap(), &ch.id, "root");
     store.insert(&root).await.unwrap();
-    let bare = person_message(&ws.id, &ws.user_id, &ch.id, "no replies");
+    let bare = person_message(&ws.id, ws.user_id.as_ref().unwrap(), &ch.id, "no replies");
     store.insert(&bare).await.unwrap();
     let mut last_reply_at = 0;
     for i in 0..2 {
-        let mut reply = person_message(&ws.id, &ws.user_id, &ch.id, &format!("r{i}"));
+        let mut reply = person_message(
+            &ws.id,
+            ws.user_id.as_ref().unwrap(),
+            &ch.id,
+            &format!("r{i}"),
+        );
         reply.parent_message_id = Some(root.id.clone());
         store.insert(&reply).await.unwrap();
         last_reply_at = reply.created_at;
@@ -780,7 +806,7 @@ pub async fn timeline_entries_carry_thread_rollups(backend: &Backend) {
 
     // A derived progress row sits in the thread but is not a
     // reply, so the rollup passes it over.
-    let mut progress = person_message(&ws.id, &ws.user_id, &ch.id, "Done");
+    let mut progress = person_message(&ws.id, ws.user_id.as_ref().unwrap(), &ch.id, "Done");
     progress.parent_message_id = Some(root.id.clone());
     progress.blocks = vec![pagis_core::Block::progress("run_1", "Done")];
     store.insert(&progress).await.unwrap();
@@ -812,16 +838,21 @@ pub async fn the_last_message_of_a_channel_skips_replies_and_progress(backend: &
     backend.stores().channels.create(&empty).await.unwrap();
 
     let store = &backend.stores().messages;
-    let older = person_message(&ws.id, &ws.user_id, &ch.id, "older");
+    let older = person_message(&ws.id, ws.user_id.as_ref().unwrap(), &ch.id, "older");
     store.insert(&older).await.unwrap();
-    let newest = person_message(&ws.id, &ws.user_id, &ch.id, "Book the Austin trip");
+    let newest = person_message(
+        &ws.id,
+        ws.user_id.as_ref().unwrap(),
+        &ch.id,
+        "Book the Austin trip",
+    );
     store.insert(&newest).await.unwrap();
-    let mut reply = person_message(&ws.id, &ws.user_id, &ch.id, "a reply");
+    let mut reply = person_message(&ws.id, ws.user_id.as_ref().unwrap(), &ch.id, "a reply");
     reply.parent_message_id = Some(newest.id.clone());
     store.insert(&reply).await.unwrap();
     // A scheduled Run speaks at the top level, so its progress row
     // has no parent.
-    let mut progress = person_message(&ws.id, &ws.user_id, &ch.id, "Failed");
+    let mut progress = person_message(&ws.id, ws.user_id.as_ref().unwrap(), &ch.id, "Failed");
     progress.blocks = vec![pagis_core::Block::progress("run_1", "Failed")];
     store.insert(&progress).await.unwrap();
 
@@ -845,7 +876,7 @@ pub async fn timeline_entries_name_the_newest_reply_authors(backend: &Backend) {
     backend.stores().channels.create(&ch).await.unwrap();
 
     let store = &backend.stores().messages;
-    let root = person_message(&ws.id, &ws.user_id, &ch.id, "root");
+    let root = person_message(&ws.id, ws.user_id.as_ref().unwrap(), &ch.id, "root");
     store.insert(&root).await.unwrap();
     // Six replies from four authors. The user writes twice, so the
     // user counts once, at the newest of the two replies.
@@ -859,7 +890,12 @@ pub async fn timeline_entries_name_the_newest_reply_authors(backend: &Backend) {
     ];
     for (i, author) in authors.iter().enumerate() {
         let mut reply = match author {
-            None => person_message(&ws.id, &ws.user_id, &ch.id, &format!("r{i}")),
+            None => person_message(
+                &ws.id,
+                ws.user_id.as_ref().unwrap(),
+                &ch.id,
+                &format!("r{i}"),
+            ),
             Some(id) => agent_message(&ws.id, &ch.id, id, &format!("r{i}")),
         };
         reply.parent_message_id = Some(root.id.clone());
@@ -877,7 +913,7 @@ pub async fn timeline_entries_name_the_newest_reply_authors(backend: &Backend) {
         vec![
             pagis_core::Author::Agent(roster[1].clone()),
             pagis_core::Author::Agent(roster[2].clone()),
-            pagis_core::Author::Person(ws.user_id.clone()),
+            pagis_core::Author::Person(ws.user_id.clone().unwrap()),
         ]
     );
 }
@@ -895,9 +931,9 @@ pub async fn timeline_rollups_count_only_replies_of_their_own_workspace(backend:
     backend.stores().agents.create(&stranger).await.unwrap();
 
     let store = &backend.stores().messages;
-    let root = person_message(&ws.id, &ws.user_id, &ch.id, "root");
+    let root = person_message(&ws.id, ws.user_id.as_ref().unwrap(), &ch.id, "root");
     store.insert(&root).await.unwrap();
-    let mut own = person_message(&ws.id, &ws.user_id, &ch.id, "own reply");
+    let mut own = person_message(&ws.id, ws.user_id.as_ref().unwrap(), &ch.id, "own reply");
     own.parent_message_id = Some(root.id.clone());
     own.created_at = 1_000;
     store.insert(&own).await.unwrap();
@@ -919,7 +955,7 @@ pub async fn timeline_rollups_count_only_replies_of_their_own_workspace(backend:
     assert_eq!(entry.last_reply_at, Some(1_000));
     assert_eq!(
         entry.reply_authors,
-        vec![pagis_core::Author::Person(ws.user_id.clone())]
+        vec![pagis_core::Author::Person(ws.user_id.clone().unwrap())]
     );
 }
 
@@ -929,13 +965,23 @@ pub async fn thread_lists_root_and_replies_oldest_first(backend: &Backend) {
     backend.stores().channels.create(&ch).await.unwrap();
 
     let store = &backend.stores().messages;
-    let root = person_message(&ws.id, &ws.user_id, &ch.id, "root");
+    let root = person_message(&ws.id, ws.user_id.as_ref().unwrap(), &ch.id, "root");
     store.insert(&root).await.unwrap();
-    let other = person_message(&ws.id, &ws.user_id, &ch.id, "other top-level");
+    let other = person_message(
+        &ws.id,
+        ws.user_id.as_ref().unwrap(),
+        &ch.id,
+        "other top-level",
+    );
     store.insert(&other).await.unwrap();
     let mut replies = Vec::new();
     for i in 0..2 {
-        let mut reply = person_message(&ws.id, &ws.user_id, &ch.id, &format!("r{i}"));
+        let mut reply = person_message(
+            &ws.id,
+            ws.user_id.as_ref().unwrap(),
+            &ch.id,
+            &format!("r{i}"),
+        );
         reply.parent_message_id = Some(root.id.clone());
         store.insert(&reply).await.unwrap();
         replies.push(reply);
@@ -951,7 +997,7 @@ pub async fn finalize_settles_a_streaming_message(backend: &Backend) {
     backend.stores().channels.create(&ch).await.unwrap();
 
     let store = &backend.stores().messages;
-    let mut msg = person_message(&ws.id, &ws.user_id, &ch.id, "");
+    let mut msg = person_message(&ws.id, ws.user_id.as_ref().unwrap(), &ch.id, "");
     msg.status = MessageStatus::Streaming;
     msg.completed_at = None;
     store.insert(&msg).await.unwrap();
@@ -982,9 +1028,9 @@ pub async fn fail_streaming_marks_only_streaming_messages(backend: &Backend) {
     backend.stores().channels.create(&ch).await.unwrap();
 
     let store = &backend.stores().messages;
-    let complete = person_message(&ws.id, &ws.user_id, &ch.id, "done");
+    let complete = person_message(&ws.id, ws.user_id.as_ref().unwrap(), &ch.id, "done");
     store.insert(&complete).await.unwrap();
-    let mut streaming = person_message(&ws.id, &ws.user_id, &ch.id, "partial");
+    let mut streaming = person_message(&ws.id, ws.user_id.as_ref().unwrap(), &ch.id, "partial");
     streaming.status = MessageStatus::Streaming;
     streaming.completed_at = None;
     store.insert(&streaming).await.unwrap();
@@ -1156,7 +1202,11 @@ pub async fn dm_lookups_resolve_user_and_agent_dms(backend: &Backend) {
     let user_dm = channel(&ws.id);
     channels.create(&user_dm).await.unwrap();
     participants
-        .create(&person_participant(&ws.id, &ws.user_id, &user_dm.id))
+        .create(&person_participant(
+            &ws.id,
+            ws.user_id.as_ref().unwrap(),
+            &user_dm.id,
+        ))
         .await
         .unwrap();
     participants
@@ -1196,7 +1246,7 @@ pub async fn participants_list_for_channel_returns_all_kinds(backend: &Backend) 
     let dm = channel(&ws.id);
     backend.stores().channels.create(&dm).await.unwrap();
     let store = &backend.stores().participants;
-    let user = person_participant(&ws.id, &ws.user_id, &dm.id);
+    let user = person_participant(&ws.id, ws.user_id.as_ref().unwrap(), &dm.id);
     let agent_row = agent_participant(&ws.id, &dm.id, &a.id);
     store.create(&user).await.unwrap();
     store.create(&agent_row).await.unwrap();
@@ -1214,7 +1264,7 @@ pub async fn participants_list_for_channel_returns_all_kinds(backend: &Backend) 
     store.create(&workspace_row).await.unwrap();
     let invalid = pagis_core::ChannelParticipant {
         id: pagis_core::ParticipantId::generate(),
-        person_id: Some(ws.user_id.clone()),
+        person_id: Some(ws.user_id.clone().unwrap()),
         ..workspace_row.clone()
     };
     assert!(store.create(&invalid).await.is_err());

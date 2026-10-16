@@ -1482,6 +1482,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     };
 
     let state = AppState {
+        workspace_members: stores.workspace_members.clone(),
         plugins: Arc::clone(&plugins),
         plugin_hosts: Arc::clone(&plugin_hosts),
         native: pagis_server::NativeState {
@@ -1614,11 +1615,11 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     pagis_server::model_lists::route_unrouted_plumbing(&state)
         .await
         .map_err(|error| anyhow::anyhow!("routing the voice aliases failed: {}", error.message))?;
-    let routers = pagis_server::routers(state);
+    let routers = pagis_server::routers(state, axum::Router::new().fallback(crate::spa::serve));
     let administration_path_prefix = booted.config.administration.path_prefix.clone();
     let mut interfaces = Interfaces {
         state: routers.state,
-        product: routers.product.fallback(crate::spa::serve),
+        product: routers.product,
         // The administration page is the other entry of the same UI
         // build, served under its configured page path prefix.
         administration: routers.administration.fallback(move |uri| {

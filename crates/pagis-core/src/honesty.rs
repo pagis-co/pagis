@@ -41,8 +41,11 @@ pub async fn person_name(
         .get(workspace_id)
         .await?
         .ok_or_else(|| StoreError::Corrupt("the Workspace is absent".into()))?;
+    let Some(person_id) = workspace.user_id else {
+        return Ok(workspace.name);
+    };
     let person = users
-        .get(&workspace.user_id)
+        .get(&person_id)
         .await?
         .ok_or_else(|| StoreError::Corrupt("the Person of the Workspace is absent".into()))?;
     Ok(person.name.unwrap_or_else(|| "your Person".into()))

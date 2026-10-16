@@ -108,7 +108,7 @@ fn rule(world: &World, session: &CodingSessionId) -> EventSubscription {
 pub async fn subscriptions_keep_person_agent_and_system_authors(backend: &Backend) {
     let world = world(backend).await;
     for author in [
-        pagis_core::Author::Person(world.workspace.user_id.clone()),
+        pagis_core::Author::Person(world.workspace.user_id.clone().unwrap()),
         pagis_core::Author::Agent(world.agent_id.clone()),
         pagis_core::Author::System,
     ] {

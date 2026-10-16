@@ -359,6 +359,7 @@ impl Embedder {
             bus: bus.clone(),
         }));
         let state = AppState {
+            workspace_members: stores.workspace_members.clone(),
             plugins,
             plugin_hosts,
             channels: stores.channels.clone(),
@@ -456,7 +457,7 @@ impl Embedder {
         };
         Self {
             stores,
-            routers: pagis_server::routers(state),
+            routers: pagis_server::routers(state, axum::Router::new()),
             workspace,
             other_workspace,
             cookie,
@@ -470,9 +471,10 @@ impl Embedder {
 
     async fn workspace(stores: &Stores, person: &User) -> WorkspaceId {
         let workspace = Workspace {
+            kind: pagis_core::WorkspaceKind::Private,
             monthly_spend_cap_usd: None,
             id: WorkspaceId::generate(),
-            user_id: person.id.clone(),
+            user_id: Some(person.id.clone()),
             name: "Desk".into(),
             timezone: "UTC".into(),
             created_at: now_ms(),

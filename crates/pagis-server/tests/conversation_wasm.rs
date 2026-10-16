@@ -605,12 +605,12 @@ async fn workspace_conversations_share_one_history_and_check_participation() {
         .unwrap();
     state
         .users
-        .set_name(&a.user_id, "Alice", now_ms())
+        .set_name(a.user_id.as_ref().unwrap(), "Alice", now_ms())
         .await
         .unwrap();
     state
         .users
-        .set_name(&b.user_id, "Bob", now_ms())
+        .set_name(b.user_id.as_ref().unwrap(), "Bob", now_ms())
         .await
         .unwrap();
     let colleagues = read(&e, "/api/v1/colleagues").await;
@@ -712,12 +712,18 @@ async fn workspace_conversations_share_one_history_and_check_participation() {
             .is_empty()
     );
     // A new group excludes B and keeps B's read and post outside it.
-    let org = state.users.get(&a.user_id).await.unwrap().unwrap().org_id;
+    let org = state
+        .users
+        .get(a.user_id.as_ref().unwrap())
+        .await
+        .unwrap()
+        .unwrap()
+        .org_id;
     let c = User::new(org, UserRole::Member, now_ms());
     state.users.create(&c).await.unwrap();
     let c_workspace = Workspace {
         id: WorkspaceId::generate(),
-        user_id: c.id,
+        user_id: Some(c.id),
         ..a
     };
     state.workspaces.create(&c_workspace).await.unwrap();
@@ -824,7 +830,7 @@ async fn workspace_conversations_sort_by_message_time_then_id_and_empty_creation
                     workspace_id: owner.clone(),
                     channel_id,
                     parent_message_id: None,
-                    author: Author::Person(person.clone()),
+                    author: Author::Person(person.clone().unwrap()),
                     run_id: None,
                     status: MessageStatus::Complete,
                     blocks: vec![Block::markdown("Hello")],

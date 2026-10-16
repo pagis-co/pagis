@@ -27,7 +27,12 @@ pub async fn replacement_is_atomic_compare_and_swap_and_survives_restart(backend
         "01J00000000000000000000020",
         "01J00000000000000000000040",
     ] {
-        let mut message = person_message(&workspace.id, &workspace.user_id, &channel.id, id);
+        let mut message = person_message(
+            &workspace.id,
+            workspace.user_id.as_ref().unwrap(),
+            &channel.id,
+            id,
+        );
         message.id = MessageId::from(id.to_string());
         messages.insert(&message).await.unwrap();
     }

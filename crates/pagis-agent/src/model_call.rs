@@ -73,7 +73,7 @@ impl<'a> ModelCall<'a> {
             .await
             .map_err(|error| BrainError::new(error.to_string()))?
             .ok_or_else(|| BrainError::new("model request has no Person Workspace"))?;
-        request.person_id = Some(workspace.user_id);
+        request.person_id = workspace.user_id;
         request.max_output_tokens =
             RequestBudget::for_candidates(&request.model_candidates, &deps.models)
                 .ok()

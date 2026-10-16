@@ -85,6 +85,7 @@ async fn host_frames_are_logged_once_per_connection_and_channel_events_still_arr
         };
         let live = LiveTenant {
             tenant: Tenant {
+                workspace_role: None,
                 workspace_id: workspace_id.clone(),
                 user_id: pagis_core::UserId::generate(),
                 role: UserRole::Administrator,

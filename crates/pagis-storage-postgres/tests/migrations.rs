@@ -87,6 +87,7 @@ const TABLES: &[&str] = &[
     "wakeup_sources",
     "wakeups",
     "workspace_mailboxes",
+    "workspace_members",
     "workspaces",
 ];
 

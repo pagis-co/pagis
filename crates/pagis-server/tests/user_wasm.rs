@@ -81,7 +81,7 @@ async fn the_embedder_resolves_the_org_name_and_entries_for_each_person_on_each_
         let person = embedder
             .stores
             .users
-            .get(&workspace.user_id)
+            .get(workspace.user_id.as_ref().unwrap())
             .await
             .unwrap()
             .unwrap();
@@ -244,7 +244,7 @@ async fn the_user_answer_gives_only_an_administrator_the_offered_sections_and_li
         .stores
         .users
         .set_role(
-            &workspace.user_id,
+            workspace.user_id.as_ref().unwrap(),
             pagis_core::UserRole::Member,
             pagis_core::now_ms(),
         )

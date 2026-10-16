@@ -82,6 +82,7 @@ mod screen_relay;
 mod server_setup;
 mod session_socket;
 mod sessions;
+mod shared_workspaces;
 mod shutdown;
 mod sign_in_links;
 mod software;

@@ -18,8 +18,9 @@ async fn desk() -> (
 ) {
     let stores = pagis_core::fake::stores();
     let workspace = pagis_core::Workspace {
+        kind: pagis_core::WorkspaceKind::Private,
         id: WorkspaceId::generate(),
-        user_id: pagis_core::UserId::generate(),
+        user_id: Some(pagis_core::UserId::generate()),
         name: "Workspace".into(),
         timezone: "UTC".into(),
         monthly_spend_cap_usd: None,

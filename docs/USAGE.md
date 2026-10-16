@@ -81,7 +81,9 @@ A local model needs one provider entry:
 ```rust
 let config = RouterConfig::new().provider(
     "ollama",
-    ProviderConfig::new(ProtocolKind::OpenAiChat, "http://localhost:11434/v1", ""),
+    ProviderConfig::new(
+        ProtocolKind::OpenAiChat, "http://localhost:11434/v1", "",
+    ),
 );
 ```
 
@@ -145,7 +147,9 @@ append the results, and call again until the model stops asking.
 use llm_router::{FinishReason, Tool};
 use serde_json::json;
 
-let mut request = ChatRequest::new("default", vec![Message::user("Weather in Paris?")]);
+let mut request = ChatRequest::new(
+    "default", vec![Message::user("Weather in Paris?")],
+);
 request.tools = vec![Tool::function(
     "get_weather",
     "Get the current weather for a city",
@@ -205,7 +209,8 @@ request.tools = vec![
 A turn can call several members. Each call is one tool call named
 `computer` whose arguments are the whole `tool_use` block: the member is
 its `name` and the parameters are its `input`. Answer each call with its
-own tool result; the router adds `toolset_name` to the result. Claude models that do
+own tool result; the router adds `toolset_name` to the result. Claude models
+that do
 not take the toolset refuse it with a 400 ("'<model>' does not support
 tool types: computer_toolset_20260801."), and Pagis then gives them the
 portable `computer` function tool, as below.
@@ -214,7 +219,9 @@ OpenAI (`ProviderConfig::openai_responses` — computer use lives on the
 Responses API, not Chat Completions):
 
 ```rust
-request.tools = vec![Tool::provider_defined("computer", "computer", Default::default())];
+request.tools = vec![Tool::provider_defined(
+    "computer", "computer", Default::default(),
+)];
 ```
 
 OpenRouter uses the same tool shape through
@@ -276,7 +283,8 @@ it maps to adaptive thinking at an effort level (`thinking: {type:
 adaptive thinking shares `max_tokens` with the answer. An earlier Claude
 model, or a model that is not Claude, gets a thinking-token budget.
 Each form converts from the other: a budget picks the effort of its
-size, and an effort picks a budget. Reasoning comes back as `ContentPart::Reasoning`
+size, and an effort picks a budget. Reasoning comes back as
+`ContentPart::Reasoning`
 parts and `ReasoningDelta` events; pass them back unmodified in tool
 loops. `CachePolicy::Auto` places cache hints at the stable prefix
 boundaries on Anthropic — the biggest cost lever for agent loops;
@@ -306,7 +314,9 @@ unsupported):
 use llm_router::{AudioFormat, AudioOut, Modality};
 
 request.modalities = vec![Modality::Text, Modality::Audio];
-request.audio = Some(AudioOut { voice: "alloy".into(), format: AudioFormat::Mp3 });
+request.audio = Some(AudioOut {
+    voice: "alloy".into(), format: AudioFormat::Mp3,
+});
 request.messages.push(Message {
     role: Role::User,
     content: vec![ContentPart::InputAudio {
@@ -456,7 +466,9 @@ use llm_router::{Error, ErrorKind};
 
 match router.chat(&request).await {
     Ok(response) => { /* ... */ }
-    Err(Error::Provider { kind: ErrorKind::ContextLength, .. }) => { /* compact */ }
+    Err(Error::Provider { kind: ErrorKind::ContextLength, .. }) => {
+        /* compact */
+    }
     Err(Error::Exhausted { last, .. }) => { /* every candidate failed */ }
     Err(other) => { /* config errors, transport, ... */ }
 }
@@ -467,7 +479,9 @@ Observe the loop (logging, a "retrying…" UI) with a hook:
 ```rust
 let router = Router::new(config)?.on_attempt(|info| {
     if let Some(error) = info.error {
-        eprintln!("attempt {} on {} failed: {error}", info.attempt, info.provider);
+        eprintln!(
+            "attempt {} on {} failed: {error}", info.attempt, info.provider,
+        );
     }
 });
 ```
@@ -578,3 +592,21 @@ deleted. On a message, select **Move to folder**, then **Move**. Enter a
 label and select **Apply label**. Select **Remove label** to remove it.
 
 Not built: Agent triage, Junk handling and saved drafts.
+
+## Shared Workspaces
+
+An Administrator creates a Shared Workspace in Workspaces in the
+Administration Interface. Enter its name and select an active Person as
+its first Manager.
+
+Use the Workspace control in the sidebar to select your Private Workspace
+or a Shared Workspace. One sign-in serves each Workspace you can enter.
+A Reader reads. A Responder also sends messages and decides Requests. A
+Manager also changes Agents, settings and membership. In Settings, a
+Manager uses Members to add Persons, change roles and remove Persons.
+The last Manager cannot be removed or demoted.
+
+A Shared Workspace request uses `/api/v1/workspaces/{workspace_id}/...`.
+The server answers 404 for a non-member and 403 for a member whose role
+cannot do the action. Routes with no Workspace id use the Private
+Workspace. The Org's Workspace has no membership list.

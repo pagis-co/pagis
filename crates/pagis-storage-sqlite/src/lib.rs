@@ -44,7 +44,9 @@ mod text_record_store;
 mod trigger_store;
 mod trust_list_store;
 mod usage_store;
+mod workspace_member_store;
 mod workspace_store;
+pub use workspace_member_store::SqliteWorkspaceMemberStore;
 
 pub use agent_mailbox_store::SqliteAgentMailboxStore;
 pub use agent_store::SqliteAgentStore;
@@ -177,6 +179,7 @@ pub fn stores(pool: sqlx::SqlitePool) -> pagis_core::Stores {
         trust_list: Arc::new(SqliteTrustListStore::new(pool.clone())),
         usage: Arc::new(SqliteUsageStore::new(pool.clone())),
         users: Arc::new(SqliteUserStore::new(pool.clone())),
+        workspace_members: Arc::new(SqliteWorkspaceMemberStore::new(pool.clone())),
         workspaces: Arc::new(SqliteWorkspaceStore::new(pool)),
     }
 }

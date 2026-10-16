@@ -126,7 +126,7 @@ async fn the_segments_of_the_conversation_search_hold_no_word_of_a_forgotten_mes
     // a table that FTS5 still writes to and not an empty one.
     let kept = fixture::person_message(
         &workspace.id,
-        &workspace.user_id,
+        workspace.user_id.as_ref().unwrap(),
         &channel.id,
         "The lanternfish note stays.",
     );

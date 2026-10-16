@@ -170,8 +170,9 @@ impl World {
                 .await
                 .unwrap();
         let workspace = pagis_core::Workspace {
+            kind: pagis_core::WorkspaceKind::Private,
             monthly_spend_cap_usd: None,
-            user_id: person.id.clone(),
+            user_id: Some(person.id.clone()),
             id: WorkspaceId::generate(),
             name: "Workspace".to_string(),
             timezone: "UTC".to_string(),

@@ -42,8 +42,9 @@ impl World {
         stores
             .workspaces
             .create(&pagis_core::Workspace {
+                kind: pagis_core::WorkspaceKind::Private,
                 id: workspace.clone(),
-                user_id: pagis_core::UserId::generate(),
+                user_id: Some(pagis_core::UserId::generate()),
                 name: "Workspace".into(),
                 timezone: "UTC".into(),
                 created_at: 0,

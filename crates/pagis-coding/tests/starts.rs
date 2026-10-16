@@ -35,9 +35,10 @@ async fn world(pool: SqlitePool) -> World {
         .await
         .unwrap();
     let workspace = Workspace {
+        kind: pagis_core::WorkspaceKind::Private,
         monthly_spend_cap_usd: None,
         id: WorkspaceId::generate(),
-        user_id: person.id,
+        user_id: Some(person.id),
         name: "Workspace".to_string(),
         timezone: "UTC".to_string(),
         created_at: now_ms(),

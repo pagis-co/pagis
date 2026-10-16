@@ -11,6 +11,8 @@
 /// it answers, and whether it sits behind the session middleware.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Route {
+    /// The route also serves a Shared Workspace through its id prefix.
+    pub shared: bool,
     pub path: &'static str,
     pub methods: &'static [&'static str],
     /// `false` for the ways in and the reads that hold no person's
@@ -19,6 +21,47 @@ pub struct Route {
     pub authenticated: bool,
     /// The Native Part that serves this route, or `None` for a portable route.
     pub part: Option<&'static str>,
+}
+
+/// Writes that a Responder can make in a Shared Workspace.
+pub const RESPONDER_WRITES: &[(&str, &str)] = &[
+    ("/api/v1/channels/{channel_id}/messages", "post"),
+    ("/api/v1/requests/{request_id}/decision", "post"),
+    ("/api/v1/files", "post"),
+    ("/api/v1/workspace/mail/messages", "post"),
+    ("/api/v1/workspace/mail/messages/{message_id}/reply", "post"),
+    (
+        "/api/v1/workspace/mail/messages/{message_id}/reply-all",
+        "post",
+    ),
+    (
+        "/api/v1/workspace/mail/messages/{message_id}/forward",
+        "post",
+    ),
+    ("/api/v1/workspace/mail/messages/{message_id}/move", "post"),
+    (
+        "/api/v1/workspace/mail/messages/{message_id}/labels",
+        "post",
+    ),
+    (
+        "/api/v1/workspace/mail/messages/{message_id}/labels/{label}",
+        "delete",
+    ),
+];
+
+impl Route {
+    pub fn workspace_role(&self, method: &str) -> Option<pagis_core::WorkspaceRole> {
+        use pagis_core::WorkspaceRole::{Manager, Reader, Responder};
+        if !self.shared || !self.methods.contains(&method) {
+            None
+        } else if method == "get" {
+            Some(Reader)
+        } else if RESPONDER_WRITES.contains(&(self.path, method)) {
+            Some(Responder)
+        } else {
+            Some(Manager)
+        }
+    }
 }
 
 /// Every route outside the session middleware, with why it returns no
@@ -240,222 +283,259 @@ pub const SHARED_ROUTES: &[(&str, &[&str], &str)] = &[
 /// handler takes: the guard is the router's.
 pub const ADMINISTRATION_ROUTES: &[Route] = &[
     Route {
+        shared: false,
         path: "/api/v1/administration/sections",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/administration/people",
         methods: &["get", "post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/administration/people/{user_id}/role",
         methods: &["put"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/administration/people/{user_id}/disable",
         methods: &["post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/administration/people/{user_id}/enable",
         methods: &["post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/administration/people/{user_id}/password",
         methods: &["post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/administration/people/{user_id}/sign-in",
         methods: &["put"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/administration/people/{user_id}/sign-in-links",
         methods: &["post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/administration/workspaces",
-        methods: &["get"],
+        methods: &["get", "post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/administration/workspaces/{workspace_id}/spend-cap",
         methods: &["put"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/administration/usage",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/administration/sessions",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/administration/hosts",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/administration/resources",
         methods: &["get"],
         authenticated: true,
         part: Some("Computers"),
     },
     Route {
+        shared: false,
         path: "/api/v1/administration/health",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/administration/computer-image/pull",
         methods: &["post"],
         authenticated: true,
         part: Some("Computers"),
     },
     Route {
+        shared: false,
         path: "/api/v1/user",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/sessions/current",
         methods: &["delete"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/settings/system",
         methods: &["get", "put"],
         authenticated: true,
         part: Some("System Settings"),
     },
     Route {
+        shared: false,
         path: "/api/v1/settings/system/remote-access",
         methods: &["get", "put", "delete"],
         authenticated: true,
         part: Some("Remote Access"),
     },
     Route {
+        shared: false,
         path: "/api/v1/settings/system/analytics",
         methods: &["put"],
         authenticated: true,
         part: Some("System Settings"),
     },
     Route {
+        shared: false,
         path: "/api/v1/settings/system/model-request-capture",
         methods: &["put"],
         authenticated: true,
         part: Some("System Settings"),
     },
     Route {
+        shared: false,
         path: "/api/v1/settings/system/home-exit",
         methods: &["put"],
         authenticated: true,
         part: Some("System Settings"),
     },
     Route {
+        shared: false,
         path: "/api/v1/settings/system/docker/probe",
         methods: &["post"],
         authenticated: true,
         part: Some("System Settings"),
     },
     Route {
+        shared: false,
         path: "/api/v1/administration/providers",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/administration/providers/{provider}/key",
         methods: &["put", "delete"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/administration/providers/{provider}/key/test",
         methods: &["post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/administration/providers/{provider}/{part}",
         methods: &["put", "delete"],
         authenticated: true,
         part: Some("Connections"),
     },
     Route {
+        shared: false,
         path: "/api/v1/administration/providers/{provider}/{part}/test",
         methods: &["post"],
         authenticated: true,
         part: Some("Connections"),
     },
     Route {
+        shared: false,
         path: "/api/v1/system/restart",
         methods: &["post"],
         authenticated: true,
         part: Some("System Settings"),
     },
     Route {
+        shared: false,
         path: "/api/v1/setup",
         methods: &["get", "post"],
         authenticated: false,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/sessions",
         methods: &["post"],
         authenticated: false,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/plugins",
         methods: &["get", "post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/plugins/{plugin_id}",
         methods: &["get", "delete"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/plugins/{plugin_id}/update",
         methods: &["post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/plugins/{plugin_id}/bindings/{field}",
         methods: &["put"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/plugins/{plugin_id}/start",
         methods: &["post"],
         authenticated: true,
@@ -466,996 +546,1183 @@ pub const ADMINISTRATION_ROUTES: &[Route] = &[
 /// Every route the daemon serves.
 pub const ROUTES: &[Route] = &[
     Route {
+        shared: true,
         path: "/api/v1/workspace/mail/folders/{name}",
         methods: &["delete", "patch"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/workspace/mail/messages/{message_id}/reply",
         methods: &["post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/workspace/mail/messages/{message_id}/reply-all",
         methods: &["post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/workspace/mail/messages/{message_id}/forward",
         methods: &["post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/workspace/mail/messages/{message_id}/composer",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/workspace/mail/messages/{message_id}/move",
         methods: &["post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/workspace/mail/messages/{message_id}/labels",
         methods: &["post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/workspace/mail/messages/{message_id}/labels/{label}",
         methods: &["delete"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/workspace/mail/messages/{message_id}/attachments/{index}",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: false,
+        path: "/api/v1/workspaces",
+        methods: &["get"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
+        shared: true,
+        path: "/api/v1/workspaces/{workspace_id}/members",
+        methods: &["get", "post"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
+        shared: true,
+        path: "/api/v1/workspaces/{workspace_id}/members/{person_id}",
+        methods: &["delete", "patch"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
+        shared: true,
         path: "/api/v1/workspace/mailbox",
         methods: &["get", "post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/workspace/mail/folders",
         methods: &["get", "post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/workspace/mail/messages",
         methods: &["get", "post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/workspace/mail/messages/{message_id}",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/workspace/mail/threads/{thread_id}",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/knowledge/forget",
         methods: &["get", "post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/knowledge/forget/preview",
         methods: &["post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/knowledge/forget/{id}",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/knowledge/forget/{id}/retry",
         methods: &["post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/knowledge/forget/{id}/reopt",
         methods: &["post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/connections/{connection_id}/sync",
         methods: &["get", "put"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/connections/{connection_id}/sync/catalogue",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/connections/{connection_id}/sync/filter/preview",
         methods: &["post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/agents/{agent_id}/sync-connections",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/agents",
         methods: &["get", "post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/agents/{agent_id}",
         methods: &["put"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/agents/{agent_id}/appearance",
         methods: &["put"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/agents/{agent_id}/archive",
         methods: &["post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/agents/{agent_id}/mailbox",
         methods: &["get", "post", "delete"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/settings/mailboxes",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/settings/mailbox-offers",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/settings/mailbox-offers/name",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/agents/{agent_id}/mailbox/reset-password",
         methods: &["post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/mail/{mailbox}/{message_id}",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/agents/{agent_id}/computer",
         methods: &["get"],
         authenticated: true,
         part: Some("Computers"),
     },
     Route {
+        shared: true,
         path: "/api/v1/agents/{agent_id}/computer/wake",
         methods: &["post"],
         authenticated: true,
         part: Some("Computers"),
     },
     Route {
+        shared: true,
         path: "/api/v1/agents/{agent_id}/computer/sleep",
         methods: &["post"],
         authenticated: true,
         part: Some("Computers"),
     },
     Route {
+        shared: true,
         path: "/api/v1/computers/disk",
         methods: &["get"],
         authenticated: true,
         part: Some("Computers"),
     },
     Route {
+        shared: false,
         path: "/api/v1/screen/ice",
         methods: &["get"],
         authenticated: true,
         part: Some("Computers"),
     },
     Route {
+        shared: true,
         path: "/api/v1/agents/{agent_id}/screen/preview.png",
         methods: &["get"],
         authenticated: true,
         part: Some("Computers"),
     },
     Route {
+        shared: true,
         path: "/api/v1/agents/{agent_id}/screen/offer",
         methods: &["post"],
         authenticated: true,
         part: Some("Computers"),
     },
     Route {
+        shared: true,
         path: "/api/v1/agents/{agent_id}/screen/takeover",
         methods: &["post"],
         authenticated: true,
         part: Some("Computers"),
     },
     Route {
+        shared: true,
         path: "/api/v1/agents/{agent_id}/screen/handback",
         methods: &["post"],
         authenticated: true,
         part: Some("Computers"),
     },
     Route {
+        shared: false,
         path: "/api/v1/colleagues",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/conversations",
         methods: &["get", "post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/conversations/{conversation_id}/messages",
         methods: &["get", "post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/channels",
         methods: &["get", "post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/channels/{channel_id}/messages",
         methods: &["get", "post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/channels/{channel_id}/messages/{message_id}",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/channels/{channel_id}/messages/{message_id}/speech",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/channels/{channel_id}/threads/{root_message_id}",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/settings/voices",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/files",
         methods: &["post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/files/{file_id}",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/calls/{call_id}/control",
         methods: &["post"],
         authenticated: true,
         part: Some("Calls"),
     },
     Route {
+        shared: true,
         path: "/api/v1/runs/{run_id}/cancel",
         methods: &["post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/runs/{run_id}/dismiss",
         methods: &["post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/runs/{run_id}/retry",
         methods: &["post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/runs/{run_id}/events",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/runs/{run_id}/steps",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/runs/{run_id}/model-requests",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/runs",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/schedules",
         methods: &["get", "post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/schedules/{schedule_id}",
         methods: &["get", "post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/schedules/{schedule_id}/archive",
         methods: &["post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/schedules/{schedule_id}/run",
         methods: &["post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/schedules/{schedule_id}/revisions",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/schedules/{schedule_id}/occurrences",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/schedules/{schedule_id}/wakeups",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/event-subscriptions",
         methods: &["get", "post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/event-subscriptions/{subscription_id}",
         methods: &["get", "post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/event-subscriptions/{subscription_id}/events",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/event-subscriptions/{subscription_id}/wakeups",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/needs-you",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/requests",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/requests/{request_id}",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/requests/{request_id}/decision",
         methods: &["post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/memory/feed",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/memory/commits/{sha}/revert",
         methods: &["post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/memory/file",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/memory/pages",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/memory/pages/counts",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/memory/commits/{sha}/diff",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/hosts",
         methods: &["get"],
         authenticated: true,
         part: Some("Hosts"),
     },
     Route {
+        shared: true,
         path: "/api/v1/hosts/{host_id}/harnesses/{harness_id}/sign-in",
         methods: &["post"],
         authenticated: true,
         part: Some("Hosts"),
     },
     Route {
+        shared: true,
         path: "/api/v1/hosts/{host_id}/harnesses/{harness_id}/sign-in-check",
         methods: &["post"],
         authenticated: true,
         part: Some("Hosts"),
     },
     Route {
+        shared: false,
         path: "/api/v1/harnesses",
         methods: &["get"],
         authenticated: true,
         part: Some("Hosts"),
     },
     Route {
+        shared: true,
         path: "/api/v1/grants",
         methods: &["get", "post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/grants/{grant_id}/rules",
         methods: &["put"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/grants/{grant_id}/capabilities",
         methods: &["put"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/grants/{grant_id}",
         methods: &["delete"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/agents/{agent_id}/hosts/{host_id}/session-approval-mode",
         methods: &["put"],
         authenticated: true,
         part: Some("Hosts"),
     },
     Route {
+        shared: true,
         path: "/api/v1/agents/{agent_id}/hosts/{host_id}/unattended-modes",
         methods: &["put"],
         authenticated: true,
         part: Some("Hosts"),
     },
     Route {
+        shared: false,
         path: "/api/v1/user",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/workspace",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/workspace/chief-of-staff",
         methods: &["put"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/workspace/timezone",
         methods: &["put"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/workspace/report",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/settings/onboarding",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/settings/onboarding/complete",
         methods: &["post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/settings/onboarding/providers/{provider}/key",
         methods: &["put"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/settings/onboarding/providers/{provider}/key/check",
         methods: &["post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/settings/onboarding/docker-endpoint",
         methods: &["put"],
         authenticated: true,
         part: Some("Computers"),
     },
     Route {
+        shared: false,
         path: "/api/v1/settings/onboarding/default-model",
         methods: &["put"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/settings/providers/{provider}/check",
         methods: &["post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/settings/models",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/settings/model-aliases/{alias}",
         methods: &["put", "delete"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/settings/model-aliases",
         methods: &["get", "post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/settings/retention",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/settings/retention/{kind}",
         methods: &["put"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/settings/connections/providers",
         methods: &["get"],
         authenticated: true,
         part: Some("Connections"),
     },
     Route {
+        shared: true,
         path: "/api/v1/settings/connections",
         methods: &["get", "post"],
         authenticated: true,
         part: Some("Connections"),
     },
     Route {
+        shared: true,
         path: "/api/v1/settings/connections/{connection_id}",
         methods: &["delete"],
         authenticated: true,
         part: Some("Connections"),
     },
     Route {
+        shared: true,
         path: "/api/v1/settings/connections/{connection_id}/authorize",
         methods: &["post"],
         authenticated: true,
         part: Some("Connections"),
     },
     Route {
+        shared: true,
         path: "/api/v1/settings/trust-list",
         methods: &["get", "post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/settings/trust-list/{trust_entry_id}",
         methods: &["delete"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/settings/keypad-code",
         methods: &["put", "delete"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/settings/keypad-code/failures",
         methods: &["delete"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/calls",
         methods: &["get"],
         authenticated: true,
         part: Some("Calls"),
     },
     Route {
+        shared: true,
         path: "/api/v1/calls/{call_id}",
         methods: &["get"],
         authenticated: true,
         part: Some("Calls"),
     },
     Route {
+        shared: true,
         path: "/api/v1/calls/{call_id}/dismiss",
         methods: &["post"],
         authenticated: true,
         part: Some("Calls"),
     },
     Route {
+        shared: true,
         path: "/api/v1/calls/{call_id}/hangup",
         methods: &["post"],
         authenticated: true,
         part: Some("Calls"),
     },
     Route {
+        shared: true,
         path: "/api/v1/calls/{call_id}/tier",
         methods: &["post"],
         authenticated: true,
         part: Some("Calls"),
     },
     Route {
+        shared: true,
         path: "/api/v1/coding-sessions",
         methods: &["get"],
         authenticated: true,
         part: Some("Hosts"),
     },
     Route {
+        shared: true,
         path: "/api/v1/coding-sessions/{coding_session_id}",
         methods: &["get"],
         authenticated: true,
         part: Some("Hosts"),
     },
     Route {
+        shared: true,
         path: "/api/v1/coding-sessions/{coding_session_id}/transcript",
         methods: &["get"],
         authenticated: true,
         part: Some("Hosts"),
     },
     Route {
+        shared: true,
         path: "/api/v1/coding-sessions/{coding_session_id}/stop",
         methods: &["post"],
         authenticated: true,
         part: Some("Hosts"),
     },
     Route {
+        shared: true,
         path: "/api/v1/workspace/number",
         methods: &["get", "post", "delete"],
         authenticated: true,
         part: Some("Calls"),
     },
     Route {
+        shared: false,
         path: "/api/v1/settings/phone-numbers/available",
         methods: &["get"],
         authenticated: true,
         part: Some("Calls"),
     },
     Route {
+        shared: true,
         path: "/api/v1/settings/credentials",
         methods: &["get", "post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/settings/credentials/{credential_id}",
         methods: &["delete"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/plugins",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/plugins/{plugin_id}",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/plugins/{plugin_id}/grants",
         methods: &["post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/plugins/{plugin_id}/log",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/widgets/{package}/{version}/{widget}",
         methods: &["get"],
         authenticated: true,
         part: Some("Software"),
     },
     Route {
+        shared: true,
         path: "/api/v1/widgets/{tool_call_id}/view",
         methods: &["get"],
         authenticated: true,
         part: Some("Software"),
     },
     Route {
+        shared: true,
         path: "/api/v1/widgets/{tool_call_id}/rpc",
         methods: &["post"],
         authenticated: true,
         part: Some("Software"),
     },
     Route {
+        shared: true,
         path: "/api/v1/software",
         methods: &["get"],
         authenticated: true,
         part: Some("Software"),
     },
     Route {
+        shared: true,
         path: "/api/v1/software/{name}",
         methods: &["get"],
         authenticated: true,
         part: Some("Software"),
     },
     Route {
+        shared: true,
         path: "/api/v1/software/{name}/contributions/{contribution_id}",
         methods: &["get"],
         authenticated: true,
         part: Some("Software"),
     },
     Route {
+        shared: true,
         path: "/api/v1/usage",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/sessions/current",
         methods: &["delete"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/settings/sessions",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/settings/sessions/{session_id}",
         methods: &["delete"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/settings/sign-in-links",
         methods: &["post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/push/key",
         methods: &["get"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/push-subscriptions",
         methods: &["get", "post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/push-subscriptions/{push_subscription_id}",
         methods: &["delete"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/push-subscriptions/{push_subscription_id}/test",
         methods: &["post"],
         authenticated: true,
         part: None,
     },
     Route {
+        shared: true,
         path: "/api/v1/settings/home-exit",
         methods: &["get", "put", "delete"],
         authenticated: true,
         part: Some("Computers"),
     },
     Route {
+        shared: true,
         path: "/api/v1/ws",
         methods: &["get"],
         authenticated: true,
         part: Some("live events"),
     },
     Route {
+        shared: true,
         path: "/api/v1/hosts/{host_id}/exit",
         methods: &["get"],
         authenticated: true,
         part: Some("Computers"),
     },
     Route {
+        shared: true,
         path: "/api/v1/hosts/{host_id}/sessions",
         methods: &["get"],
         authenticated: true,
         part: Some("Hosts"),
     },
     Route {
+        shared: true,
         path: "/api/v1/channels/{channel_id}/dictate",
         methods: &["get"],
         authenticated: true,
         part: Some("Dictation"),
     },
     Route {
+        shared: true,
         path: "/api/v1/calls/{call_id}/listen",
         methods: &["get"],
         authenticated: true,
         part: Some("Calls"),
     },
     Route {
+        shared: false,
         path: "/api/v1/widgets/{workspace_id}/{package}/{version}/{widget}/sandbox",
         methods: &["get"],
         authenticated: false,
         part: Some("Software"),
     },
     Route {
+        shared: false,
         path: "/api/v1/connections/google/start",
         methods: &["get"],
         authenticated: false,
         part: Some("Connections"),
     },
     Route {
+        shared: false,
         path: "/api/v1/connections/google/callback",
         methods: &["get"],
         authenticated: false,
         part: Some("Connections"),
     },
     Route {
+        shared: false,
         path: "/api/v1/health",
         methods: &["get"],
         authenticated: false,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/runtime/identity",
         methods: &["get"],
         authenticated: false,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/setup",
         methods: &["get"],
         authenticated: false,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/openapi.json",
         methods: &["get"],
         authenticated: false,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/sessions",
         methods: &["post"],
         authenticated: false,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/sessions/client",
         methods: &["post"],
         authenticated: false,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/sessions/link",
         methods: &["post"],
         authenticated: false,
         part: None,
     },
     Route {
+        shared: false,
         path: "/api/v1/sessions/link/{code}",
         methods: &["get"],
         authenticated: false,
@@ -1933,6 +2200,79 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "native")]
+    #[test]
+    fn shared_contract_marks_operations_without_copying_paths() {
+        let doc = crate::ApiDoc::openapi();
+        assert!(
+            doc["paths"]
+                .get("/api/v1/workspaces/{workspace_id}/channels")
+                .is_none()
+        );
+        assert_eq!(
+            doc["paths"]["/api/v1/channels"]["get"]["x-workspace-role"],
+            "reader"
+        );
+        assert_eq!(
+            doc["paths"]["/api/v1/files"]["post"]["x-workspace-role"],
+            "responder"
+        );
+        assert!(
+            doc["paths"]["/api/v1/plugins"]["post"]
+                .get("x-workspace-role")
+                .is_none()
+        );
+        assert!(
+            doc["paths"]
+                .get("/api/v1/workspaces/{workspace_id}/members")
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn administration_routes_do_not_serve_shared_workspaces() {
+        for route in ADMINISTRATION_ROUTES {
+            for method in route.methods {
+                assert!(!route.shared, "{}", route.path);
+                assert_eq!(
+                    route.workspace_role(method),
+                    None,
+                    "{} {method}",
+                    route.path
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn shared_workspace_routes_keep_the_required_role_at_the_entrance() {
+        use pagis_core::WorkspaceRole::{Manager, Reader, Responder};
+        let role = |path, method| {
+            ROUTES
+                .iter()
+                .find(|r| r.path == path)
+                .unwrap()
+                .workspace_role(method)
+        };
+        assert_eq!(role("/api/v1/channels", "get"), Some(Reader));
+        assert_eq!(role("/api/v1/files", "post"), Some(Responder));
+        for path in [
+            "/api/v1/settings/onboarding",
+            "/api/v1/settings/models",
+            "/api/v1/harnesses",
+            "/api/v1/screen/ice",
+        ] {
+            assert_eq!(role(path, "get"), None, "{path}");
+        }
+        assert_eq!(
+            role("/api/v1/channels/{channel_id}/messages", "post"),
+            Some(Responder)
+        );
+        assert_eq!(role("/api/v1/workspace/timezone", "put"), Some(Manager));
+        assert_eq!(role("/api/v1/user", "get"), None);
+        assert_eq!(role("/api/v1/conversations", "get"), None);
+    }
+
     /// Every `.route(...)` of one router, read out of its source: the
     /// path, the methods, and whether it is inside the authenticated
     /// router. A route added to a router and not to its table fails the
@@ -2030,6 +2370,7 @@ mod tests {
     #[test]
     fn the_route_table_holds_every_route_the_router_builds() {
         let mut from_source = routes_in_source(include_str!("lib.rs"));
+        from_source.extend(routes_in_source(include_str!("workspace_members.rs")));
         let mut native = native_routes_in_source("product_routes", true);
         native.extend(native_routes_in_source("public_routes", false));
         for route in ROUTES {

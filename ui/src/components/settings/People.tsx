@@ -309,7 +309,7 @@ export function People({ api }: { api: ApiClient }) {
   const people = usePeople(api)
   const usage = useInstallationUsage(api)
   const spendOf = (userId: string) =>
-    usage.data?.items.find((item) => item.workspace.person.id === userId)
+    usage.data?.items.find((item) => item.workspace.person?.id === userId)
 
   return (
     <section className="settings-section people">

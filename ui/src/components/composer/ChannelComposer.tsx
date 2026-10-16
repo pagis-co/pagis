@@ -1,3 +1,4 @@
+import { useWorkspaceAccess } from '../../workspace'
 // The composer of one Channel, or the reason the Channel has none
 // (ADR-0003). A Channel the Agents opened between themselves is
 // read-only for the user: a message from the user in it would start an
@@ -27,6 +28,7 @@ export function ChannelComposer({
    *  another page leaves that Channel's draft alone. */
   adoptsDraft?: boolean
 }) {
+  const { canRespond } = useWorkspaceAccess()
   const phone = useIsMobile()
   const names = useAgentNames(api)
   const channels = useChannels(api)
@@ -34,6 +36,8 @@ export function ChannelComposer({
   const partner = channel?.kind === 'dm' && channel.agent_ids.length === 1
     ? names[channel.agent_ids[0]]
     : undefined
+
+  if (!canRespond) return <p className="composer-read-only">You can read this Workspace.</p>
 
   if (channel !== undefined && !channel.user_member) {
     return (

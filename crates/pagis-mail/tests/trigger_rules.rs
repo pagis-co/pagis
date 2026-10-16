@@ -82,7 +82,8 @@ async fn user_channel(world: &World) -> ChannelId {
                             .await
                             .unwrap()
                             .unwrap()
-                            .user_id,
+                            .user_id
+                            .unwrap(),
                     )
                 } else {
                     None

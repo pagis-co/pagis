@@ -145,7 +145,8 @@ async fn workspace(pool: &SqlitePool, user_id: pagis_core::UserId) -> WorkspaceI
     let workspace = Workspace {
         monthly_spend_cap_usd: None,
         id: WorkspaceId::generate(),
-        user_id,
+        user_id: Some(user_id),
+        kind: pagis_core::WorkspaceKind::Private,
         name: "Workspace".to_string(),
         timezone: "UTC".to_string(),
         created_at: now_ms(),
@@ -202,7 +203,8 @@ impl World {
                     .await
                     .unwrap()
                     .unwrap()
-                    .user_id,
+                    .user_id
+                    .unwrap(),
             ),
             run_id: None,
             status: MessageStatus::Complete,

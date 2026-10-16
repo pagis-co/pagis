@@ -56,7 +56,9 @@ mod text_record_store;
 mod trigger_store;
 mod trust_list_store;
 mod usage_store;
+mod workspace_member_store;
 mod workspace_store;
+pub use workspace_member_store::PostgresWorkspaceMemberStore;
 
 pub use agent_mailbox_store::PostgresAgentMailboxStore;
 pub use agent_store::PostgresAgentStore;
@@ -173,6 +175,7 @@ pub fn stores(pool: PgPool) -> pagis_core::Stores {
         trust_list: Arc::new(PostgresTrustListStore::new(pool.clone())),
         usage: Arc::new(PostgresUsageStore::new(pool.clone())),
         users: Arc::new(PostgresUserStore::new(pool.clone())),
+        workspace_members: Arc::new(PostgresWorkspaceMemberStore::new(pool.clone())),
         workspaces: Arc::new(PostgresWorkspaceStore::new(pool)),
     }
 }

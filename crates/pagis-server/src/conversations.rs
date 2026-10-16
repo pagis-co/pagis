@@ -153,7 +153,12 @@ async fn dto(
             .ok_or_else(|| ApiError::not_found("participant"))?;
         let person = state
             .users
-            .get(&workspace.user_id)
+            .get(
+                workspace
+                    .user_id
+                    .as_ref()
+                    .ok_or_else(|| ApiError::not_found("participant"))?,
+            )
             .await?
             .ok_or_else(|| ApiError::not_found("participant"))?;
         participants.push(person_dto(state, person, &id));

@@ -157,3 +157,6 @@ pub use run_journal::{JournalCall, RunCheckpoint, RunJournal, RunJournalEntry};
 
 mod workspace_mailbox;
 pub use workspace_mailbox::{WorkspaceMailbox, WorkspaceMailboxRecordStore};
+
+mod workspace_members;
+pub use workspace_members::*;

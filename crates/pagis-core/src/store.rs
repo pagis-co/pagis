@@ -114,7 +114,7 @@ pub enum StoreError {
     Key(#[from] crate::SealError),
 }
 
-/// A Workspace here is a person's. The Org's Workspace
+/// Private and Shared Workspaces. The Org's Workspace
 /// ([`crate::Org::workspace_id`]) belongs to no person, so this store
 /// never answers it: no per-Workspace sweep, seed or Tenant Data Key
 /// reaches it.
@@ -128,10 +128,10 @@ pub trait WorkspaceStore: Send + Sync {
     ) -> Result<bool, StoreError>;
     async fn create(&self, workspace: &Workspace) -> Result<(), StoreError>;
     async fn get(&self, id: &WorkspaceId) -> Result<Option<Workspace>, StoreError>;
-    /// The Workspace one person owns. This is how a request
-    /// resolves its tenant: the signed-in person names the Workspace.
+    /// The Private Workspace of one Person. An unprefixed request
+    /// resolves its Tenant through the signed-in Person.
     async fn for_user(&self, user_id: &UserId) -> Result<Option<Workspace>, StoreError>;
-    /// Every person's Workspace.
+    /// Every Private and Shared Workspace. The Org's Workspace is excluded.
     async fn list(&self) -> Result<Vec<Workspace>, StoreError>;
     /// Record onboarding completion once; later calls keep the first
     /// timestamp.

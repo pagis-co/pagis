@@ -52,7 +52,10 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
 
 #[derive(OpenApi)]
 #[openapi(
-    info(title = "pagis", description = "The pagis daemon API"),
+    info(
+        title = "pagis",
+        description = "The pagis daemon API. A Shared Workspace serves operations with x-workspace-role under /api/v1/workspaces/{workspace_id}."
+    ),
     paths(
         forget::preview,
         forget::confirm,
@@ -251,6 +254,12 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         setup::complete_setup,
         user::get_user,
         workspace::get_workspace,
+        workspace::list_accessible_workspaces,
+        crate::workspace_members::list,
+        crate::workspace_members::add,
+        crate::workspace_members::change,
+        crate::workspace_members::remove,
+        administration::create_workspace,
         workspace::set_chief_of_staff,
         workspace::put_timezone,
         workspace::get_report,
@@ -592,12 +601,33 @@ pub struct ApiDoc;
 
 impl ApiDoc {
     pub fn openapi() -> serde_json::Value {
-        serde_json::to_value(NativeApiDoc::openapi()).expect("the API contract serializes")
+        let mut doc =
+            serde_json::to_value(NativeApiDoc::openapi()).expect("the API contract serializes");
+        let paths = doc["paths"]
+            .as_object_mut()
+            .expect("the contract has paths");
+        for route in crate::routes::ROUTES {
+            if !route.shared || route.path.starts_with("/api/v1/workspaces/") {
+                continue;
+            }
+            for method in route.methods {
+                if let Some(operation) = paths
+                    .get_mut(route.path)
+                    .and_then(|item| item.get_mut(*method))
+                {
+                    operation["x-workspace-role"] = serde_json::json!(
+                        route
+                            .workspace_role(method)
+                            .expect("a shared method has a role")
+                            .as_str()
+                    );
+                }
+            }
+        }
+        doc
     }
 
     pub fn to_pretty_json() -> String {
-        NativeApiDoc::openapi()
-            .to_pretty_json()
-            .expect("the API contract serializes")
+        serde_json::to_string_pretty(&Self::openapi()).expect("the API contract serializes")
     }
 }

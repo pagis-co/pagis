@@ -1472,9 +1472,10 @@ impl FakeWorkspaces {
     /// One Workspace of a Person of its own, in UTC, with no Home Exit.
     pub fn workspace(id: &WorkspaceId, timezone: &str) -> Workspace {
         Workspace {
+            kind: pagis_core::WorkspaceKind::Private,
             monthly_spend_cap_usd: None,
             id: id.clone(),
-            user_id: pagis_core::UserId::generate(),
+            user_id: Some(pagis_core::UserId::generate()),
             name: "test".to_string(),
             timezone: timezone.to_string(),
             created_at: now_ms(),
@@ -1531,7 +1532,7 @@ impl WorkspaceStore for FakeWorkspaces {
         let workspaces = self.workspaces.lock().expect("fake workspaces");
         Ok(workspaces
             .iter()
-            .find(|workspace| &workspace.user_id == user_id)
+            .find(|workspace| workspace.user_id.as_ref() == Some(user_id))
             .cloned())
     }
 

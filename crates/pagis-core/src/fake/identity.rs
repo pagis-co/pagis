@@ -16,11 +16,9 @@ impl WorkspaceStore for FakeWorkspaceStore {
     }
     async fn create(&self, workspace: &Workspace) -> Result<(), StoreError> {
         let mut data = self.0.lock().unwrap();
-        if data
-            .workspaces
-            .values()
-            .any(|w| w.id == workspace.id || w.user_id == workspace.user_id)
-            || data.orgs.values().any(|o| o.workspace_id == workspace.id)
+        if data.workspaces.values().any(|w| {
+            w.id == workspace.id || (w.user_id.is_some() && w.user_id == workspace.user_id)
+        }) || data.orgs.values().any(|o| o.workspace_id == workspace.id)
         {
             return Err(conflict("Workspace exists"));
         }
@@ -38,7 +36,7 @@ impl WorkspaceStore for FakeWorkspaceStore {
             .unwrap()
             .workspaces
             .values()
-            .find(|w| &w.user_id == user_id)
+            .find(|w| w.user_id.as_ref() == Some(user_id))
             .cloned())
     }
     async fn list(&self) -> Result<Vec<Workspace>, StoreError> {
@@ -615,6 +613,123 @@ impl PushSubscriptionStore for FakePushSubscriptionStore {
             return Ok(false);
         };
         row.last_sent_at = Some(at);
+        Ok(true)
+    }
+}
+
+#[async_trait::async_trait]
+impl crate::WorkspaceMemberStore for FakeWorkspaceMemberStore {
+    async fn create_workspace(
+        &self,
+        workspace: &Workspace,
+        manager: &crate::WorkspaceMember,
+    ) -> Result<(), StoreError> {
+        let mut data = self.0.lock().unwrap();
+        if workspace.kind != crate::WorkspaceKind::Shared
+            || workspace.user_id.is_some()
+            || workspace.id != manager.workspace_id
+            || manager.role != crate::WorkspaceRole::Manager
+            || data.workspaces.contains_key(&workspace.id)
+            || data.orgs.values().any(|o| o.workspace_id == workspace.id)
+            || !data
+                .users
+                .get(&manager.person_id)
+                .is_some_and(|u| !u.is_disabled())
+        {
+            return Err(conflict("a Shared Workspace needs its first Manager"));
+        }
+        data.workspaces
+            .insert(workspace.id.clone(), workspace.clone());
+        data.workspace_members.insert(
+            (workspace.id.clone(), manager.person_id.clone()),
+            manager.clone(),
+        );
+        Ok(())
+    }
+    async fn list(
+        &self,
+        workspace: &WorkspaceId,
+    ) -> Result<Vec<crate::WorkspaceMember>, StoreError> {
+        Ok(self
+            .0
+            .lock()
+            .unwrap()
+            .workspace_members
+            .values()
+            .filter(|m| &m.workspace_id == workspace)
+            .cloned()
+            .collect())
+    }
+    async fn get(
+        &self,
+        workspace: &WorkspaceId,
+        person: &UserId,
+    ) -> Result<Option<crate::WorkspaceMember>, StoreError> {
+        Ok(self
+            .0
+            .lock()
+            .unwrap()
+            .workspace_members
+            .get(&(workspace.clone(), person.clone()))
+            .cloned())
+    }
+    async fn add(&self, member: &crate::WorkspaceMember) -> Result<(), StoreError> {
+        let mut data = self.0.lock().unwrap();
+        let key = (member.workspace_id.clone(), member.person_id.clone());
+        if !data
+            .workspaces
+            .get(&member.workspace_id)
+            .is_some_and(|w| w.kind == crate::WorkspaceKind::Shared)
+            || !data
+                .users
+                .get(&member.person_id)
+                .is_some_and(|u| !u.is_disabled())
+            || data.workspace_members.contains_key(&key)
+        {
+            return Err(conflict("invalid membership"));
+        }
+        data.workspace_members.insert(key, member.clone());
+        Ok(())
+    }
+    async fn change(&self, member: &crate::WorkspaceMember) -> Result<bool, StoreError> {
+        let mut data = self.0.lock().unwrap();
+        let key = (member.workspace_id.clone(), member.person_id.clone());
+        let Some(old) = data.workspace_members.get(&key) else {
+            return Ok(false);
+        };
+        if old.role == crate::WorkspaceRole::Manager
+            && member.role != old.role
+            && data
+                .workspace_members
+                .values()
+                .filter(|m| {
+                    m.workspace_id == member.workspace_id && m.role == crate::WorkspaceRole::Manager
+                })
+                .count()
+                == 1
+        {
+            return Err(conflict("the last Manager cannot be demoted"));
+        }
+        data.workspace_members.insert(key, member.clone());
+        Ok(true)
+    }
+    async fn remove(&self, workspace: &WorkspaceId, person: &UserId) -> Result<bool, StoreError> {
+        let mut data = self.0.lock().unwrap();
+        let key = (workspace.clone(), person.clone());
+        let Some(old) = data.workspace_members.get(&key) else {
+            return Ok(false);
+        };
+        if old.role == crate::WorkspaceRole::Manager
+            && data
+                .workspace_members
+                .values()
+                .filter(|m| &m.workspace_id == workspace && m.role == crate::WorkspaceRole::Manager)
+                .count()
+                == 1
+        {
+            return Err(conflict("the last Manager cannot be removed"));
+        }
+        data.workspace_members.remove(&key);
         Ok(true)
     }
 }
