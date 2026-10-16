@@ -685,6 +685,7 @@ async fn imip_http_flow_receives_answers_and_cancels_through_fake_mail() {
             }],
             ..Default::default()
         },
+        0,
     )
     .unwrap();
     let id = e.mail_transport.deliver_raw(&built.raw);
@@ -785,6 +786,7 @@ async fn imip_http_flow_receives_answers_and_cancels_through_fake_mail() {
             }],
             ..Default::default()
         },
+        0,
     )
     .unwrap();
     e.mail_transport.deliver_raw(&built.raw);
@@ -850,7 +852,7 @@ async fn imip_http_flow_sends_only_outside_the_org_and_applies_replies() {
     assert_eq!(sent[0].to, ["guest@example.org"]);
     assert_eq!(sent[1].to, ["second@example.org"]);
     for message in &sent {
-        let built = pagis_mail::build_mime("reader@example.com", message).unwrap();
+        let built = pagis_mail::build_mime("reader@example.com", message, 0).unwrap();
         let parsed =
             pagis_mail::read_mime(&built.raw, pagis_mail::MessageId::new("INBOX:1")).unwrap();
         let calendar =
@@ -878,6 +880,7 @@ async fn imip_http_flow_sends_only_outside_the_org_and_applies_replies() {
             }],
             ..Default::default()
         },
+        0,
     )
     .unwrap();
     e.mail_transport.deliver_raw(&built.raw);
@@ -971,6 +974,7 @@ async fn imip_http_mail_actions_answer_the_moved_occurrence() {
                 }],
                 ..Default::default()
             },
+            0,
         )
         .unwrap();
         moved_id = e.mail_transport.deliver_raw(&raw.raw).to_string();
@@ -1246,6 +1250,7 @@ async fn imip_request_reaches_the_calendar_through_the_supplied_memory_store() {
                 }],
                 ..Default::default()
             },
+            0,
         )
         .unwrap();
         let mail = host.store(&e.workspace).unwrap();
