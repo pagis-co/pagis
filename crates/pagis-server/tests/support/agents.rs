@@ -276,6 +276,16 @@ impl Embedder {
         let mail_transport = Arc::new(pagis_mail::fake::FakeMailTransport::default());
         let mailbox_host = Arc::new(pagis_mail::fake::FakeMailboxHost::default());
         let mailbox_desk = Arc::new(pagis_mail::MailboxDesk::new(pagis_mail::MailboxDeskDeps {
+            intake: Arc::new(pagis_mail::MailIntake {
+                workspaces: stores.workspaces.clone(),
+                agents: stores.agents.clone(),
+                source: Arc::new(pagis_mail::HostSpamVerdicts),
+                records: stores.mail_assessments.clone(),
+                trust: Arc::new(pagis_mail::ListedSenders::new(
+                    stores.trust_list.clone(),
+                    stores.connections.clone(),
+                )),
+            }),
             workspace_mailboxes: stores.workspace_mailboxes.clone(),
             mailboxes: stores.agent_mailboxes.clone(),
             connections: stores.connections.clone(),

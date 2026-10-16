@@ -5854,6 +5854,16 @@ async fn channel_briefing(deps: &AgentDeps, agent: &Agent, run: &Run, person_nam
                 .unwrap_or(event.occurred_at),
             tier.as_str(),
         ));
+        if let Ok(verdict) = serde_json::from_value::<pagis_core::SpamVerdict>(
+            event.metadata["spam_verdict"].clone(),
+        ) {
+            rows.push_str(&format!(
+                "  Spam score: {} | action: {} | reasons: {}\n",
+                f64::from(verdict.score) / 1000.0,
+                verdict.action.as_str(),
+                verdict.reasons.join(", ")
+            ));
+        }
     }
     briefing.push('\n');
     briefing.push_str(&wrap_untrusted(

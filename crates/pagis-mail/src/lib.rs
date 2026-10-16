@@ -161,3 +161,9 @@ pub fn mailbox_password_secret_name(
         &format!("mailbox_password_{}", address.to_lowercase()),
     )
 }
+
+mod spam;
+pub use spam::{HostSpamVerdicts, SpamVerdictSource, parse_spam_verdict};
+
+mod intake;
+pub use intake::{MailIntake, MailReadContext};

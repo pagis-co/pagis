@@ -37,6 +37,7 @@ use crate::store::{
 #[derive(Clone)]
 pub struct Stores {
     pub workspace_members: Arc<dyn crate::WorkspaceMemberStore>,
+    pub mail_assessments: Arc<dyn crate::MailAssessmentStore>,
     pub workspace_mailboxes: Arc<dyn crate::WorkspaceMailboxRecordStore>,
     pub agent_mailboxes: Arc<dyn AgentMailboxStore>,
     pub agents: Arc<dyn AgentStore>,

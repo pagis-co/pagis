@@ -54,7 +54,10 @@ export function WorkspaceMailbox({ api }: { api: ApiClient }) {
         <p role="alert">Could not load the Workspace Mailbox.</p>
       )}
       {page.data?.mailbox ? (
-        <p>{page.data.mailbox.address}</p>
+        <>
+          <p>{page.data.mailbox.address}</p>
+          <p>Spam filtering uses score-only mode. Messages stay in their folders.</p>
+        </>
       ) : (
         page.data && (
           <>

@@ -317,6 +317,18 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> StandardSession<S> {
 
 #[async_trait]
 impl<S: AsyncRead + AsyncWrite + Unpin + Send> MailSession for StandardSession<S> {
+    async fn junk_folders(&mut self) -> Result<Vec<String>, TransportError> {
+        Ok(self
+            .folder_roles()
+            .await?
+            .into_iter()
+            .filter(|(name, roles)| {
+                name.eq_ignore_ascii_case("Junk")
+                    || roles.iter().any(|r| r.eq_ignore_ascii_case("\\Junk"))
+            })
+            .map(|(name, _)| name)
+            .collect())
+    }
     async fn system_folders(&mut self) -> Result<Vec<String>, TransportError> {
         Ok(self
             .folder_roles()
@@ -1206,6 +1218,19 @@ mod tests {
             session.system_folders().await.unwrap(),
             ["Sent Mail", "Spam"]
         );
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn scripted_junk_folder_uses_the_special_use_role() {
+        let mut turns = login_turns(false);
+        turns.push((
+            "A3 LIST \"\" \"*\"\r\n".into(),
+            "* LIST (\\Junk) \"/\" Spam\r\n* LIST () \"/\" Junk\r\n* LIST (\\Sent) \"/\" Sent\r\nA3 OK list\r\n".into(),
+        ));
+        let (stream, server) = script(turns);
+        let mut session = StandardSession::login(stream, &credential()).await.unwrap();
+        assert_eq!(session.junk_folders().await.unwrap(), ["Spam", "Junk"]);
         server.await.unwrap();
     }
 

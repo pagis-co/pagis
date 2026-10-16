@@ -20,3 +20,5 @@ mod provider;
 mod sender;
 
 mod workspace_store;
+
+mod spam;

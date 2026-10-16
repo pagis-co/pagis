@@ -153,10 +153,26 @@ impl World {
         let workspace_mailboxes = Arc::new(pagis_storage_sqlite::SqliteWorkspaceMailboxStore::new(
             pool.clone(),
         ));
-        let events = Arc::new(SqliteEventLog::new(pool));
+        let events = Arc::new(SqliteEventLog::new(pool.clone()));
         let transport = Arc::new(FakeMailTransport::default());
         let standing_rule = Arc::new(FakeStandingRule::default());
         let desk = Arc::new(MailboxDesk::new(MailboxDeskDeps {
+            intake: Arc::new(pagis_mail::MailIntake {
+                workspaces: Arc::new(pagis_storage_sqlite::SqliteWorkspaceStore::new(
+                    pool.clone(),
+                )),
+                agents: agents.clone(),
+                source: Arc::new(pagis_mail::HostSpamVerdicts),
+                records: Arc::new(pagis_storage_sqlite::SqliteMailAssessmentStore::new(
+                    pool.clone(),
+                )),
+                trust: Arc::new(pagis_mail::ListedSenders::new(
+                    Arc::new(pagis_storage_sqlite::SqliteTrustListStore::new(
+                        pool.clone(),
+                    )),
+                    connections.clone(),
+                )),
+            }),
             workspace_mailboxes,
             mailboxes: Arc::clone(&mailboxes) as _,
             connections: Arc::clone(&connections) as _,

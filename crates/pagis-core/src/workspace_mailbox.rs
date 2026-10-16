@@ -8,6 +8,7 @@ pub struct WorkspaceMailbox {
     pub connection_id: ConnectionId,
     pub address: String,
     pub outgoing_cap: u32,
+    pub spam_mode: MailScoringMode,
     pub created_at: UnixMillis,
 }
 
@@ -32,4 +33,27 @@ pub trait WorkspaceMailboxRecordStore: Send + Sync {
         workspace_id: &WorkspaceId,
         connection_id: &ConnectionId,
     ) -> Result<u32, StoreError>;
+}
+
+/// Score-only mode records verdicts and leaves messages in their folders.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MailScoringMode {
+    ScoreOnly,
+}
+
+impl MailScoringMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::ScoreOnly => "score_only",
+        }
+    }
+}
+impl std::str::FromStr for MailScoringMode {
+    type Err = StoreError;
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "score_only" => Ok(Self::ScoreOnly),
+            _ => Err(StoreError::Corrupt("unknown mail scoring mode".into())),
+        }
+    }
 }

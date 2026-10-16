@@ -157,7 +157,7 @@ pub mod run_journal;
 pub use run_journal::{JournalCall, RunCheckpoint, RunJournal, RunJournalEntry};
 
 mod workspace_mailbox;
-pub use workspace_mailbox::{WorkspaceMailbox, WorkspaceMailboxRecordStore};
+pub use workspace_mailbox::{MailScoringMode, WorkspaceMailbox, WorkspaceMailboxRecordStore};
 
 mod workspace_members;
 pub use calendar::{
@@ -166,3 +166,6 @@ pub use calendar::{
 };
 pub use id::CalendarEventId;
 pub use workspace_members::*;
+
+mod spam;
+pub use spam::*;

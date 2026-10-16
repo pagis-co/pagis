@@ -48,7 +48,19 @@ its Junk folder. The Trust Tier applies after the verdict. Only then does
 the Chief of Staff read the message. It records an outcome: handled with a
 note, replied, assigned, or needs a Person. The last enters the Needs-You
 Queue.
-Not built: this read order and outcome record.
+The verdict seam reads the host's spam headers and special-use Junk folder.
+It also recognizes the Junk folder name. The collector and direct Agent
+Mailbox reads compute the verdict first, apply the sender's Trust Tier,
+and store both in one write before a read or Wake-up. A source or storage
+failure stops the pass without advancing the cursor. The next poll retries.
+Workspace Mailbox reads use the current active Chief of Staff's Trust List.
+The designation is read at each assessment. Without an active Chief of Staff,
+the Trust Tier is Unknown. Agent access under a Grant is not built.
+The stored record uses the Message-ID header within its Workspace and mailbox,
+so a folder move or UIDVALIDITY change keeps the verdict. Mail without that
+header uses its IMAP id. The host's Rspamd result supplies its score and
+weighted symbols as reasons. Mail bodies stay at the host.
+Not built: the Chief of Staff's first read and outcome record.
 
 Junk goes to the Junk folder at the score threshold. Spam and Not spam
 feed corrections through the verdict seam. The daemon moves the message
@@ -60,8 +72,11 @@ for Administrators.
 A model's second opinion on uncertain mail is one weighted input to the
 verdict. It never decides alone. Score-only mode records verdicts and moves
 nothing.
-Not built: Junk, corrections, lists, sensitivity, quarantine, model
-second opinion and score-only mode.
+The Workspace Mailbox stores its score-only mode setting. This is the
+available mode. The API and Mail place show the stored score, action and
+reasons on each message. Score-only mode moves nothing.
+Not built: Junk moves, corrections, lists, sensitivity, quarantine and model
+second opinion.
 
 ### The Chief of Staff handles mail within rules
 

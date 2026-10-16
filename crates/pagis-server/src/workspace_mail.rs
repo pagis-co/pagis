@@ -16,6 +16,7 @@ use utoipa::{IntoParams, ToSchema};
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct WorkspaceMailboxDto {
+    pub spam_mode: String,
     pub workspace_id: String,
     pub connection_id: String,
     pub address: String,
@@ -24,6 +25,9 @@ pub struct WorkspaceMailboxDto {
 impl From<pagis_core::WorkspaceMailbox> for WorkspaceMailboxDto {
     fn from(m: pagis_core::WorkspaceMailbox) -> Self {
         Self {
+            spam_mode: match m.spam_mode {
+                pagis_core::MailScoringMode::ScoreOnly => "score_only".into(),
+            },
             workspace_id: m.workspace_id.to_string(),
             connection_id: m.connection_id.to_string(),
             address: m.address,
@@ -48,10 +52,18 @@ pub struct WorkspaceMailSummaryDto {
     pub seen: bool,
     pub flagged: bool,
     pub labels: Vec<String>,
+    pub spam_verdict: SpamVerdictDto,
+    pub trust_tier: String,
 }
 impl From<pagis_mail::WorkspaceMailSummary> for WorkspaceMailSummaryDto {
     fn from(m: pagis_mail::WorkspaceMailSummary) -> Self {
+        let assessment = m
+            .summary
+            .assessment
+            .expect("Workspace Mailbox intake precedes a read");
         Self {
+            spam_verdict: assessment.verdict.into(),
+            trust_tier: assessment.trust_tier.as_str().into(),
             id: m.summary.id.to_string(),
             thread_id: m.summary.thread_id,
             from: m.summary.from,
@@ -62,6 +74,23 @@ impl From<pagis_mail::WorkspaceMailSummary> for WorkspaceMailSummaryDto {
             seen: m.flags.seen,
             flagged: m.flags.flagged,
             labels: m.labels,
+        }
+    }
+}
+#[derive(Debug, Serialize, ToSchema)]
+pub struct SpamVerdictDto {
+    pub score: f64,
+    pub action: String,
+    pub reasons: Vec<String>,
+    pub source: String,
+}
+impl From<pagis_core::SpamVerdict> for SpamVerdictDto {
+    fn from(v: pagis_core::SpamVerdict) -> Self {
+        Self {
+            score: f64::from(v.score) / 1000.0,
+            action: v.action.as_str().into(),
+            reasons: v.reasons,
+            source: v.source,
         }
     }
 }

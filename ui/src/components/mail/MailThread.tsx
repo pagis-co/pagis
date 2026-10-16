@@ -52,6 +52,16 @@ export function MailThread({
                     {formatMoment(item.date)}
                   </time>
                 </p>
+                <details>
+                  <summary>
+                    Spam score {item.spam_verdict.score} · {item.spam_verdict.action}
+                  </summary>
+                  <ul>
+                    {item.spam_verdict.reasons.map((reason, index) => (
+                      <li key={index}>{reason}</li>
+                    ))}
+                  </ul>
+                </details>
                 <pre>{item.text}</pre>
                 <ul>
                   {item.attachments?.map((file, index) => (

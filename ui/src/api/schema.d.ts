@@ -7212,6 +7212,13 @@ export interface components {
             resource: string;
             workspace_id: string;
         };
+        SpamVerdictDto: {
+            action: string;
+            reasons: string[];
+            /** Format: double */
+            score: number;
+            source: string;
+        };
         StartConversationRequest: {
             workspace_ids: string[];
         };
@@ -7861,9 +7868,11 @@ export interface components {
             labels: string[];
             seen: boolean;
             snippet: string;
+            spam_verdict: components["schemas"]["SpamVerdictDto"];
             subject: string;
             thread_id: string;
             to: string[];
+            trust_tier: string;
         };
         WorkspaceMailThread: {
             items: components["schemas"]["WorkspaceMailMessageDto"][];
@@ -7873,6 +7882,7 @@ export interface components {
             connection_id: string;
             /** Format: int64 */
             created_at: number;
+            spam_mode: string;
             workspace_id: string;
         };
         WorkspaceMailboxPage: {

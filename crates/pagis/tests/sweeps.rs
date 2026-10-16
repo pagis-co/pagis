@@ -276,6 +276,16 @@ impl World {
         let mail_transport = Arc::new(pagis_mail::fake::FakeMailTransport::with_idle(false));
         let mail_ingest = Arc::new(pagis_mail::fake::FakeMailIngest::default());
         let desk = Arc::new(pagis_mail::MailboxDesk::new(pagis_mail::MailboxDeskDeps {
+            intake: Arc::new(pagis_mail::MailIntake {
+                workspaces: stores.workspaces.clone(),
+                agents: stores.agents.clone(),
+                source: Arc::new(pagis_mail::HostSpamVerdicts),
+                records: stores.mail_assessments.clone(),
+                trust: Arc::new(pagis_mail::ListedSenders::new(
+                    stores.trust_list.clone(),
+                    stores.connections.clone(),
+                )),
+            }),
             workspace_mailboxes: stores.workspace_mailboxes.clone(),
             mailboxes: stores.agent_mailboxes.clone(),
             connections: connections.clone(),
@@ -292,7 +302,6 @@ impl World {
             pagis_mail::MailCollectorDeps {
                 desk,
                 sent: stores.sent_mail.clone(),
-                trust,
                 ingest: mail_ingest.clone(),
                 idle_turn: Duration::from_secs(60),
             },

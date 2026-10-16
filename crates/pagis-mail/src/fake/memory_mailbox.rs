@@ -71,6 +71,8 @@ impl MemoryMailbox {
             subject: subject.clone(),
             snippet: body.chars().take(200).collect(),
             has_attachments: false,
+            spam_headers: Vec::new(),
+            assessment: None,
             authentication_results: Vec::new(),
         };
         self.state.lock().unwrap().messages.push(StoredMessage {

@@ -1552,6 +1552,19 @@ Number may send in a day, whatever the host or carrier allows. The daemon
 refuses mail past the mailbox's cap. Not built: outbound texts from the Workspace Number and its
 text cap (ADR-0019, ADR-0041).
 
+### Spam Verdict
+The score, action, reasons and source that describe one mail message.
+The daemon reads the mail host's spam headers and Junk folder through a
+verdict seam. It computes the Spam Verdict before the Trust Tier and stores
+both before a Wake-up or Agent read. Scores use thousandths of one point in
+storage. The Mail place shows decimal points and the host's action.
+The record uses the Message-ID header within its Workspace and mailbox;
+mail without that header uses its IMAP id. Workspace Mailbox mail uses the
+current active Chief of Staff's Trust List. Without one, its tier is Unknown.
+A Workspace Mailbox uses score-only mode: it records verdicts and moves
+nothing. Not built: Junk moves, corrections, lists, sensitivity, quarantine
+and the model's second opinion (ADR-0040).
+
 ### Text Conversation
 The texts between one Workspace Number and one counterpart number: a
 pair, not a stored thing. The Chief of Staff receives inbound texts.
@@ -1584,7 +1597,9 @@ deletes folders, moves mail and applies or removes labels. System folders
 cannot be renamed or deleted. The mail host holds bodies, labels and flags.
 The store uses the mail transport. Its conformance suite checks the
 operations (ADR-0040).
-Not built: spam verdicts, Junk handling, Agent triage, Needs you items,
+The store records a Spam Verdict and Trust Tier before each read. The Mail
+place shows the score, action and reasons. Score-only mode moves nothing.
+Not built: Junk handling, Agent triage, Needs you items,
 Agent Grants, Shared Workspace visibility, assignments and saved drafts.
 
 ## Messages and UI

@@ -36,6 +36,7 @@ impl MailboxDesk {
             workspace_id: workspace.clone(),
             connection_id: checked.connection.id,
             address: checked.address,
+            spam_mode: pagis_core::MailScoringMode::ScoreOnly,
             outgoing_cap: checked.outgoing_cap,
             created_at: now_ms(),
         };
@@ -130,7 +131,7 @@ impl MailboxDesk {
             .get(workspace)
             .await?
             .ok_or(MailboxError::NotFound)?;
-        let (_, settings) = self.connected_provider(&mailbox.connection_id).await?;
+        let (connection, settings) = self.connected_provider(&mailbox.connection_id).await?;
         let (Some(imap), Some(smtp)) = (settings.imap, settings.smtp) else {
             return Err(MailboxError::Validation(
                 "this Workspace Mailbox needs an IMAP login".into(),
@@ -144,9 +145,20 @@ impl MailboxDesk {
             .ok_or_else(|| {
                 MailboxError::Conflict("the Workspace Mailbox password is unavailable".into())
             })?;
+        let context = crate::MailReadContext {
+            intake: self.intake.clone(),
+            workspace: workspace.clone(),
+            address: mailbox.address.clone(),
+            agent: None,
+            authserv_ids: crate::authserv_ids(&connection.provider)
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
+        };
         let credential = MailboxCredential::new(mailbox.address, password, imap, smtp);
         Ok(Box::new(ImapWorkspaceMailStore::new(
             self.transport.login(&credential).await?,
+            context,
         )))
     }
 }

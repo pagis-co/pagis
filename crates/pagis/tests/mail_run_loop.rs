@@ -32,6 +32,7 @@ struct Harness {
     daemon: TestDaemon,
     brain: Arc<ScriptedBrain>,
     transport: Arc<FakeMailTransport>,
+    verdicts: Arc<pagis_mail::fake::FakeSpamVerdicts>,
 }
 
 async fn boot() -> Harness {
@@ -43,10 +44,12 @@ async fn boot() -> Harness {
 async fn boot_on(clock: Arc<dyn Clock>) -> Harness {
     let brain = Arc::new(ScriptedBrain::default());
     let transport = Arc::new(FakeMailTransport::default());
+    let verdicts = Arc::new(pagis_mail::fake::FakeSpamVerdicts::default());
     let daemon = TestDaemon::start_with(TestDaemonOptions {
         brain: Arc::clone(&brain) as _,
         mail_host: Arc::new(FakeMailboxHost::default()),
         mail_transport: Arc::clone(&transport) as _,
+        spam_verdict_source: verdicts.clone(),
         collector_interval: Duration::from_millis(50),
         clock,
         ..TestDaemonOptions::default()
@@ -56,6 +59,7 @@ async fn boot_on(clock: Arc<dyn Clock>) -> Harness {
         daemon,
         brain,
         transport,
+        verdicts,
     }
 }
 
@@ -512,4 +516,74 @@ async fn a_dormant_mailbox_refuses_a_send() {
             .is_empty(),
         "a mailbox that cannot send asks your Person nothing"
     );
+}
+
+#[tokio::test]
+async fn collector_verdict_failure_blocks_a_run_then_retries_with_metadata() {
+    let harness = boot().await;
+    let mailbox = harness.hold_mailbox(5).await;
+    *harness.verdicts.0.lock().unwrap() = Err(pagis_mail::TransportError(
+        pagis_mail::TransportErrorCode::Unreachable,
+    ));
+    harness.brain.push(Script::tool_call(
+        &[],
+        "mail__get_message",
+        serde_json::json!({
+            "mailbox": "own", "message_id": "INBOX:1",
+        }),
+    ));
+    harness
+        .brain
+        .push(Script::reply(&["Read with its verdict."]));
+    harness
+        .transport
+        .deliver("sender@example.com", "Check verdict", "Test body");
+    harness
+        .wait_for("the verdict source refuses the message", || async {
+            (harness.verdicts.calls() > 0).then_some(())
+        })
+        .await;
+    assert!(harness.brain.requests().is_empty());
+    let runs = harness.get("/api/v1/runs").await;
+    assert!(
+        !runs["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["trigger_kind"] == "event")
+    );
+    *harness.verdicts.0.lock().unwrap() = Ok(pagis_core::SpamVerdict {
+        score: 7200,
+        action: pagis_core::SpamAction::AddHeader,
+        reasons: vec!["GTUBE".into()],
+        source: "fake".into(),
+    });
+    harness.wait_for_runs("event", "completed", 1).await;
+    let stores = harness.daemon.stores();
+    let saved = stores
+        .mail_assessments
+        .get(
+            &harness.daemon.workspace_id,
+            mailbox["address"].as_str().unwrap(),
+            harness.transport.summaries("INBOX")[0].assessment_key(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(saved.verdict.score, 7200);
+    assert_eq!(saved.trust_tier, pagis_core::TrustTier::Unknown);
+    let prompt = harness.event_turn_prompt().await;
+    assert!(
+        prompt.contains("Spam score: 7.2 | action: add header | reasons: GTUBE"),
+        "{prompt}"
+    );
+    let text = harness
+        .brain
+        .requests()
+        .iter()
+        .flat_map(|r| r.messages.iter().map(|m| m.text.as_str()))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(text.contains("GTUBE"), "{text}");
+    assert!(text.contains("trust_tier"), "{text}");
 }
