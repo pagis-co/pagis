@@ -2,7 +2,8 @@
 // awake tile is a live WebRTC view that expands to a full-page view; a
 // stale-image wake surfaces the daemon's refusal.
 
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient } from '@tanstack/react-query'
+import { QueryClientProvider } from '../test/QueryClientProvider'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 

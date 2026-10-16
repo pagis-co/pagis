@@ -6,6 +6,7 @@
 // The store holds only what is live: the unfinished runs, the agents on
 // a call, and the channels with a message the reader has not seen.
 
+import { useCurrentWorkspaceId } from '../workspace'
 import { useQuery } from '@tanstack/react-query'
 import { useEffect } from 'react'
 import { create } from 'zustand'
@@ -245,9 +246,10 @@ export function isUnread(state: PresenceState, channelId: string): boolean {
  *  first frame. The list API filters on a set of states, so one
  *  request gets every live state (`LIVE_RUN_STATES`). */
 export function usePresenceSeed(api: ApiClient): void {
+  const workspaceId = useCurrentWorkspaceId()
   const state = LIVE_RUN_STATES.join(',')
   const { data, isFetching } = useQuery({
-    queryKey: runsKey('', '', state),
+    queryKey: runsKey(workspaceId, '', '', state),
     queryFn: () =>
       api
         .GET('/api/v1/runs', { params: { query: { state } } })

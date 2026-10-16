@@ -2,7 +2,8 @@
 // code first, then phone numbers and email senders as framed tables,
 // and the tier explainer as the closing hint.
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient } from '@tanstack/react-query'
+import { QueryClientProvider } from '../test/QueryClientProvider';
 import {
   fireEvent,
   render,

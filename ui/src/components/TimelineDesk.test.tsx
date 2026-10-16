@@ -3,7 +3,8 @@
 // Agent of their row, so the route opens that Agent's Desk: the panel
 // on the desktop, the live screen on the phone.
 
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient } from '@tanstack/react-query'
+import { QueryClientProvider } from '../test/QueryClientProvider'
 import { fireEvent, screen } from '@testing-library/react'
 import { forwardRef, type ReactNode } from 'react'
 import { expect, it, vi } from 'vitest'

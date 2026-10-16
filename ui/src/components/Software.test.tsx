@@ -3,7 +3,8 @@
 // carries the tools, the Versions, the origin of a Fork, and the
 // Contributions with the patch collapsed until the reader opens it.
 
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient } from '@tanstack/react-query'
+import { QueryClientProvider } from '../test/QueryClientProvider'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 

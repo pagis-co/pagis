@@ -2,7 +2,8 @@
 // transcript and the tools of the Call, and the three acts on it. Hang
 // up and a drop of the tier each ask first in an action sheet.
 
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient } from '@tanstack/react-query'
+import { QueryClientProvider } from '../../test/QueryClientProvider'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { useState } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'

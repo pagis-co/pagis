@@ -4,6 +4,7 @@
 // retry, allow again). Forget blocks the reimport; a file delete would
 // not.
 
+import { useCurrentWorkspaceId } from '../../workspace'
 import { useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 
@@ -34,15 +35,14 @@ function sourceItems(timeline: readonly TimelineEntry[]): SourceItem[] {
 
 export function ForgetPage({
   api,
-  workspaceId,
   title,
   timeline,
 }: {
   api: ApiClient
-  workspaceId: string
   title: string
   timeline: readonly TimelineEntry[]
 }) {
+  const workspaceId = useCurrentWorkspaceId()
   const phone = useIsMobile()
   const [open, setOpen] = useState(false)
   const queryClient = useQueryClient()
@@ -50,10 +50,10 @@ export function ForgetPage({
   if (items.length === 0) return null
 
   const refresh = async () => {
-    await queryClient.invalidateQueries({ queryKey: ['forget-operations'] })
-    await queryClient.invalidateQueries({ queryKey: ['memory-pages'] })
-    await queryClient.invalidateQueries({ queryKey: ['memory-feed'] })
-    await queryClient.resetQueries({ queryKey: ['memory-file'] })
+    await queryClient.invalidateQueries({ queryKey: ['workspace', workspaceId, 'forget-operations'] })
+    await queryClient.invalidateQueries({ queryKey: ['workspace', workspaceId, 'memory-pages'] })
+    await queryClient.invalidateQueries({ queryKey: ['workspace', workspaceId, 'memory-feed'] })
+    await queryClient.resetQueries({ queryKey: ['workspace', workspaceId, 'memory-file'] })
   }
 
   const description = `${title} comes from ${items.length} source ${items.length === 1 ? 'item' : 'items'}. Forget each item to remove what it wrote and to stop a new import of it.`

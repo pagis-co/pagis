@@ -2,6 +2,7 @@
 // everything this account taught Pagis. The preview names what goes
 // before anything is removed.
 
+import { useCurrentWorkspaceId } from '../../workspace'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 
@@ -19,11 +20,12 @@ export function ConnectionForget({
   api: ApiClient
   connectionId: string
 }) {
+  const workspaceId = useCurrentWorkspaceId()
   const client = useQueryClient()
   const [startedId, setStartedId] = useState<string>()
   const target = { kind: 'account' as const, connection_id: connectionId }
   const operations = useQuery({
-    queryKey: ['forget-operations'],
+    queryKey: ['workspace', workspaceId, 'forget-operations'],
     queryFn: async () => {
       const response = await api.GET('/api/v1/knowledge/forget')
       if (response.error) throw response.error
@@ -38,9 +40,11 @@ export function ConnectionForget({
   })
 
   async function refresh() {
-    await client.invalidateQueries({ queryKey: ['forget-operations'] })
-    await client.invalidateQueries({ queryKey: ['account-sync', connectionId] })
-    await client.invalidateQueries({ queryKey: ['memory'] })
+    await client.invalidateQueries({ queryKey: ['workspace', workspaceId, 'forget-operations'] })
+    await client.invalidateQueries({ queryKey: ['workspace', workspaceId, 'account-sync', connectionId] })
+    await client.invalidateQueries({ queryKey: ['workspace', workspaceId, 'memory-pages'] })
+    await client.invalidateQueries({ queryKey: ['workspace', workspaceId, 'memory-feed'] })
+    await client.resetQueries({ queryKey: ['workspace', workspaceId, 'memory-file'] })
   }
   const retry = async (id: string) => {
     const response = await api.POST('/api/v1/knowledge/forget/{id}/retry', {

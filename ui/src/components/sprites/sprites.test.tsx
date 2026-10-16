@@ -2,7 +2,8 @@ import { defaultAppearance } from "../../avatars/catalog";
 // The sprites board: the roster reads every non-archived agent, and every
 // agent action works from the profile.
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient } from '@tanstack/react-query'
+import { QueryClientProvider } from '../../test/QueryClientProvider';
 import {
   fireEvent,
   render,

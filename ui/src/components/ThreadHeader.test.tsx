@@ -2,7 +2,8 @@
 // which open the Agent, and the acts on the conversation — Call, Speak
 // replies, Search this conversation and the Desk panel.
 
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient } from '@tanstack/react-query'
+import { QueryClientProvider } from '../test/QueryClientProvider'
 import { act, fireEvent, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
