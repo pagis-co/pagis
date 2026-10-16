@@ -152,7 +152,7 @@ COPY --from=build --chown=root:root /usr/local/share/pagis/THIRD_PARTY_NOTICES /
 RUN ln -s /usr/local/lib/pagis/pagis /usr/local/bin/pagis
 
 # The state directory: the sealed secrets, the memory repositories, the
-# artifacts, the recordings, the Plugins and the Software. A deployment
+# Files, the recordings, the Plugins and the Software. A deployment
 # keeps a volume here, and Postgres holds the records.
 ENV PAGIS_HOME=/var/lib/pagis
 RUN mkdir -p /var/lib/pagis

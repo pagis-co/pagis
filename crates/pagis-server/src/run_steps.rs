@@ -80,7 +80,7 @@ pub struct RunStepDto {
     /// Null while the step is live.
     pub ended_at: Option<i64>,
     pub duration_ms: Option<i64>,
-    /// The Artifact of the screenshot taken during the step, when there
+    /// The File of the screenshot taken during the step, when there
     /// is one.
     pub screenshot_id: Option<String>,
     /// True on the step the Run works on now.
@@ -133,9 +133,7 @@ pub fn fold_steps(run: &Run, events: &[Event]) -> RunStepsDto {
                 if let Some(step) = steps.last_mut().filter(|step| step.ended_at.is_none()) {
                     step.ended_at = Some(event.created_at);
                     step.duration_ms = Some(event.created_at - step.started_at);
-                    step.screenshot_id = event.payload["artifact_ids"][0]
-                        .as_str()
-                        .map(str::to_string);
+                    step.screenshot_id = event.payload["file_ids"][0].as_str().map(str::to_string);
                 }
             }
             "run.state_changed" if event.payload["to"] == "canceled" => {
@@ -319,7 +317,7 @@ mod tests {
             called("computer", 2_000),
             event(
                 "tool.completed",
-                serde_json::json!({ "name": "computer", "ok": true, "artifact_ids": ["art-1"] }),
+                serde_json::json!({ "name": "computer", "ok": true, "file_ids": ["art-1"] }),
                 4_000,
             ),
             called("host_shell", 5_000),

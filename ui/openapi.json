@@ -2554,122 +2554,6 @@
         }
       }
     },
-    "/api/v1/artifacts": {
-      "post": {
-        "tags": [
-          "artifacts"
-        ],
-        "operationId": "upload_artifact",
-        "requestBody": {
-          "content": {
-            "multipart/form-data": {
-              "schema": {
-                "$ref": "#/components/schemas/UploadForm"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Duplicate content; the original artifact",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ArtifactDto"
-                }
-              }
-            }
-          },
-          "201": {
-            "description": "Artifact stored",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ArtifactDto"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "413": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/artifacts/{artifact_id}": {
-      "get": {
-        "tags": [
-          "artifacts"
-        ],
-        "operationId": "download_artifact",
-        "parameters": [
-          {
-            "name": "artifact_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "The artifact bytes. A passive image, audio, video or plain-text type shows inline; every other type is an `application/octet-stream` attachment.",
-            "content": {
-              "application/octet-stream": {}
-            }
-          },
-          "401": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/calls": {
       "get": {
         "tags": [
@@ -4262,6 +4146,122 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/WakeupPage"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/files": {
+      "post": {
+        "tags": [
+          "files"
+        ],
+        "operationId": "upload_file",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/UploadForm"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Duplicate content; the original file",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileDto"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "File stored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/files/{file_id}": {
+      "get": {
+        "tags": [
+          "files"
+        ],
+        "operationId": "download_file",
+        "parameters": [
+          {
+            "name": "file_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The file bytes. A passive image, audio, video or plain-text type shows inline; every other type is an `application/octet-stream` attachment.",
+            "content": {
+              "application/octet-stream": {}
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
                 }
               }
             }
@@ -9666,7 +9666,7 @@
           {
             "name": "kind",
             "in": "path",
-            "description": "The artifact class",
+            "description": "The file class",
             "required": true,
             "schema": {
               "type": "string"
@@ -11574,41 +11574,6 @@
           }
         }
       },
-      "ArtifactDto": {
-        "type": "object",
-        "required": [
-          "id",
-          "mime",
-          "size_bytes",
-          "sha256",
-          "created_at"
-        ],
-        "properties": {
-          "created_at": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "filename": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "id": {
-            "type": "string"
-          },
-          "mime": {
-            "type": "string"
-          },
-          "sha256": {
-            "type": "string"
-          },
-          "size_bytes": {
-            "type": "integer",
-            "format": "int64"
-          }
-        }
-      },
       "AssignNumberRequest": {
         "type": "object",
         "required": [
@@ -11911,7 +11876,7 @@
             "type": "string",
             "description": "What the call is for, from the Call Brief."
           },
-          "recording_artifact_id": {
+          "recording_file_id": {
             "type": [
               "string",
               "null"
@@ -12042,7 +12007,7 @@
             "type": "string",
             "description": "What the call is for, from the Call Brief."
           },
-          "recording_artifact_id": {
+          "recording_file_id": {
             "type": [
               "string",
               "null"
@@ -14184,6 +14149,41 @@
           "unknown"
         ]
       },
+      "FileDto": {
+        "type": "object",
+        "required": [
+          "id",
+          "mime",
+          "size_bytes",
+          "sha256",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "filename": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "mime": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "FilterPreview": {
         "type": "object",
         "description": "What one filter decides about the stored pages of a resource, for\nthe filter editor. The counts come from Page Signals alone.",
@@ -15281,9 +15281,9 @@
           },
           {
             "type": "object",
-            "description": "An image artifact, fetched through the daemon.",
+            "description": "An image file, fetched through the daemon.",
             "required": [
-              "artifact_id",
+              "file_id",
               "type"
             ],
             "properties": {
@@ -15293,7 +15293,7 @@
                   "null"
                 ]
               },
-              "artifact_id": {
+              "file_id": {
                 "type": "string"
               },
               "type": {
@@ -15306,14 +15306,14 @@
           },
           {
             "type": "object",
-            "description": "A non-image artifact, downloaded through the daemon.",
+            "description": "A non-image file, downloaded through the daemon.",
             "required": [
-              "artifact_id",
+              "file_id",
               "name",
               "type"
             ],
             "properties": {
-              "artifact_id": {
+              "file_id": {
                 "type": "string"
               },
               "mime": {
@@ -18177,13 +18177,13 @@
           {
             "type": "object",
             "required": [
-              "artifact_id",
+              "file_id",
               "kind"
             ],
             "properties": {
-              "artifact_id": {
+              "file_id": {
                 "type": "string",
-                "description": "The Artifact that holds the plugin directory as one tar."
+                "description": "The File that holds the plugin directory as one tar."
               },
               "kind": {
                 "type": "string",
@@ -18194,7 +18194,7 @@
             }
           }
         ],
-        "description": "Where the files of a Plugin come from. An upload arrives as an\nArtifact: the desk uploads the tar of the directory first and names\nit here."
+        "description": "Where the files of a Plugin come from. An upload arrives as a\nFile: the desk uploads the tar of the directory first and names\nit here."
       },
       "PluginToolEffectDto": {
         "type": "object",
@@ -18993,7 +18993,7 @@
         "properties": {
           "kind": {
             "type": "string",
-            "description": "`screenshot`, `call_recording`, `call_transcript`, or `file`."
+            "description": "`screenshot`, `call_recording`, `call_transcript`, or `other`."
           },
           "retain_days": {
             "type": [
@@ -19328,7 +19328,7 @@
               "string",
               "null"
             ],
-            "description": "The Artifact of the screenshot taken during the step, when there\nis one."
+            "description": "The File of the screenshot taken during the step, when there\nis one."
           },
           "started_at": {
             "type": "integer",
@@ -19892,7 +19892,7 @@
           "text"
         ],
         "properties": {
-          "artifact_ids": {
+          "file_ids": {
             "type": "array",
             "items": {
               "type": "string"
@@ -21787,7 +21787,7 @@
       "UpdatePluginRequest": {
         "type": "object",
         "properties": {
-          "artifact_id": {
+          "file_id": {
             "type": [
               "string",
               "null"

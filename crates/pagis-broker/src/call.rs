@@ -7,7 +7,7 @@
 //!
 //! The metadata is the envelope of one call and never its words: who
 //! called, which tier they reached, how the call ended, and the id of
-//! the transcript Artifact. The Agent reads the words with a live
+//! the transcript File. The Agent reads the words with a live
 //! `call_transcript`, which wraps them in the untrusted envelope with
 //! the tier, the way `phone_call` wraps an outbound transcript.
 //!
@@ -71,7 +71,7 @@ pub fn call_ended(provider: &str) -> IncomingEventKind {
                 "outcome": {"type": "string"},
                 "ended_reason": {"type": "string"},
                 "duration_ms": {"type": "integer"},
-                "transcript_artifact_id": {"type": "string"},
+                "transcript_file_id": {"type": "string"},
                 "answered_at": {"type": "integer"}
             },
             "required": ["call_id", "direction", "number", "from", "outcome"],
@@ -143,6 +143,6 @@ mod tests {
             .as_object()
             .expect("the metadata schema declares its properties");
         assert!(!properties.contains_key("transcript"));
-        assert!(properties.contains_key("transcript_artifact_id"));
+        assert!(properties.contains_key("transcript_file_id"));
     }
 }

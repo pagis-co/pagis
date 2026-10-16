@@ -17,15 +17,15 @@ use async_trait::async_trait;
 use object_store::ObjectStoreExt as _;
 use pagis_broker::{ToolCall, ToolResult};
 use pagis_core::{
-    Agent, AgentId, AgentStatus, AgentStore, ArtifactStore, Call, CallDirection, CallId, CallState,
-    CallStore, Channel, ChannelId, ChannelKind, ChannelStore, ConnectionId, Event, EventBus,
-    EventId, EventScope, EventStream, MemorySecretStore, NewEvent, PhoneNumber, PhoneNumberId, Run,
-    RunId, RunState, RunStore, SecretStore, Speaker, StoreError, TriggerKind, TrustTier, Workspace,
-    WorkspaceId, WorkspaceStore, now_ms,
+    Agent, AgentId, AgentStatus, AgentStore, Call, CallDirection, CallId, CallState, CallStore,
+    Channel, ChannelId, ChannelKind, ChannelStore, ConnectionId, Event, EventBus, EventId,
+    EventScope, EventStream, FileStore, MemorySecretStore, NewEvent, PhoneNumber, PhoneNumberId,
+    Run, RunId, RunState, RunStore, SecretStore, Speaker, StoreError, TriggerKind, TrustTier,
+    Workspace, WorkspaceId, WorkspaceStore, now_ms,
 };
 use pagis_storage_sqlite::{
-    SqliteAgentStore, SqliteArtifactStore, SqliteCallStore, SqliteChannelStore,
-    SqliteConnectionStore, SqlitePhoneNumberStore, SqliteRunStore, SqliteWorkspaceStore,
+    SqliteAgentStore, SqliteCallStore, SqliteChannelStore, SqliteConnectionStore, SqliteFileStore,
+    SqlitePhoneNumberStore, SqliteRunStore, SqliteWorkspaceStore,
 };
 use pagis_telephony::audio::{Codec, FRAME_BYTES, Frame};
 use pagis_telephony::fake::{FakeCallTransport, FakeNumberDirectory, RemoteParty, TokioClock};
@@ -226,7 +226,7 @@ struct World {
     transport: Arc<FakeCallTransport>,
     sessions: Arc<FakeModelSessions>,
     calls: Arc<SqliteCallStore>,
-    artifacts: Arc<SqliteArtifactStore>,
+    files: Arc<SqliteFileStore>,
     blobs: Arc<object_store::memory::InMemory>,
     bus: Arc<dyn EventBus>,
     cancel: CancellationToken,
@@ -336,7 +336,7 @@ impl World {
             bus: Arc::clone(&bus),
         }));
         let calls = Arc::new(SqliteCallStore::new(pool.clone()));
-        let artifacts = Arc::new(SqliteArtifactStore::new(pool.clone()));
+        let files = Arc::new(SqliteFileStore::new(pool.clone()));
         let blobs = Arc::new(object_store::memory::InMemory::new());
         let sessions = Arc::new(FakeModelSessions::new());
         let cancel = CancellationToken::new();
@@ -345,7 +345,7 @@ impl World {
             sessions: Arc::clone(&sessions) as _,
             tools: Arc::new(NoTools),
             calls: Arc::clone(&calls) as _,
-            artifacts: Arc::clone(&artifacts) as _,
+            files: Arc::clone(&files) as _,
             blobs: Arc::clone(&blobs) as _,
             recordings: tempfile::tempdir().unwrap().keep(),
             live: Arc::new(LiveCalls::default()),
@@ -365,7 +365,7 @@ impl World {
             transport,
             sessions,
             calls,
-            artifacts,
+            files,
             blobs,
             bus,
             cancel,
@@ -458,17 +458,17 @@ impl World {
     /// The bytes of the recording one settled record points at.
     async fn recording_of(&self, call: &Call) -> Vec<u8> {
         let id = call
-            .recording_artifact_id
+            .recording_file_id
             .clone()
             .expect("the record points at a recording");
-        let artifact = self
-            .artifacts
+        let file = self
+            .files
             .get(&self.workspace_id, &id)
             .await
             .unwrap()
-            .expect("the Artifact row");
-        assert_eq!(artifact.mime, RECORDING_MIME);
-        let path = object_store::path::Path::from(artifact.storage_key);
+            .expect("the File row");
+        assert_eq!(file.mime, RECORDING_MIME);
+        let path = object_store::path::Path::from(file.storage_key);
         self.blobs
             .get(&path)
             .await
@@ -583,7 +583,7 @@ async fn a_killed_daemon_settles_its_calls_at_the_next_start(pool: SqlitePool) {
         classification: None,
         message_left: false,
         transcript: Vec::new(),
-        recording_artifact_id: None,
+        recording_file_id: None,
         created_at: now_ms(),
         ringing_at: None,
         answered_at: Some(now_ms()),
@@ -602,7 +602,7 @@ async fn a_killed_daemon_settles_its_calls_at_the_next_start(pool: SqlitePool) {
     assert_settled(&settled, DAEMON_RESTART);
     // The call left no audio on the disk, so it has no recording; the
     // record still settles, because every Call ends with a reason.
-    assert!(settled.recording_artifact_id.is_none());
+    assert!(settled.recording_file_id.is_none());
     assert!(world.calls.list_unsettled().await.unwrap().is_empty());
 }
 

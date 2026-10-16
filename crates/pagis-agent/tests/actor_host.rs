@@ -169,7 +169,7 @@ impl ActorHost {
             requests: self.stores.requests.clone(),
             grants: self.stores.grants.clone(),
             connections: self.stores.connections.clone(),
-            artifacts: self.stores.artifacts.clone(),
+            files: self.stores.files.clone(),
             blobs: Arc::new(object_store::memory::InMemory::new()),
             memory: self.memory.clone(),
             pending_evidence: self.stores.pending_evidence.clone(),

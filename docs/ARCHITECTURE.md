@@ -37,7 +37,7 @@ record, so the database refuses a record of another Workspace.
 │  Mail         Agent Mailboxes, mail tools                                        │
 │  Audit        append-only event log                                              │
 │                                                                                  │
-│  Storage: SQLite or Postgres · artifact store · git repositories ·               │
+│  Storage: SQLite or Postgres · file store · git repositories ·                   │
 │           secrets.enc, sealed by the Installation Key                            │
 │           (a keychain or Secret Service item, or the Key File)                   │
 └──────┬──────────────────────────────┬──────────────────────────────┬─────────────┘

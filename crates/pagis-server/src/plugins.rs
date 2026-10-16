@@ -15,8 +15,7 @@ use axum::http::StatusCode;
 use object_store::ObjectStoreExt as _;
 use object_store::path::Path as BlobPath;
 use pagis_core::{
-    AgentId, ArtifactId, ConnectionId, Plugin, PluginBindingValue, PluginId, PluginSource,
-    PluginTools,
+    AgentId, ConnectionId, FileId, Plugin, PluginBindingValue, PluginId, PluginSource, PluginTools,
 };
 use pagis_plugin::{
     BindingInput, BindingValueInput, ChangeStatus, Installed, McpServer, PluginError, SourceInput,
@@ -28,8 +27,8 @@ use crate::AppState;
 use crate::auth::{Administrator, Tenant};
 use crate::error::ApiError;
 
-/// Where the files of a Plugin come from. An upload arrives as an
-/// Artifact: the desk uploads the tar of the directory first and names
+/// Where the files of a Plugin come from. An upload arrives as a
+/// File: the desk uploads the tar of the directory first and names
 /// it here.
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -41,8 +40,8 @@ pub enum PluginSourceRequest {
         reference: Option<String>,
     },
     Upload {
-        /// The Artifact that holds the plugin directory as one tar.
-        artifact_id: String,
+        /// The File that holds the plugin directory as one tar.
+        file_id: String,
     },
 }
 
@@ -82,7 +81,7 @@ pub struct UpdatePluginRequest {
     /// The new upload, for a Plugin that was uploaded. A Plugin
     /// installed from a repository reads that repository again.
     #[serde(default)]
-    pub artifact_id: Option<String>,
+    pub file_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -331,8 +330,8 @@ pub async fn update_plugin(
     Path(plugin_id): Path<String>,
     Json(request): Json<UpdatePluginRequest>,
 ) -> Result<Json<PluginDto>, ApiError> {
-    let upload = match request.artifact_id {
-        Some(artifact_id) => Some(read_artifact(&state, &tenant, &artifact_id).await?),
+    let upload = match request.file_id {
+        Some(file_id) => Some(read_file(&state, &tenant, &file_id).await?),
         None => None,
     };
     let installed = state
@@ -551,7 +550,7 @@ async fn catalog(state: &AppState, tenant: &Tenant, installed: &Installed) -> Op
         .unwrap_or_default()
 }
 
-/// The upload the request names, read out of its Artifact.
+/// The upload the request names, read out of its File.
 async fn read_source(
     state: &AppState,
     tenant: &Tenant,
@@ -559,28 +558,21 @@ async fn read_source(
 ) -> Result<SourceInput, ApiError> {
     Ok(match source {
         PluginSourceRequest::Git { url, reference } => SourceInput::Git { url, reference },
-        PluginSourceRequest::Upload { artifact_id } => SourceInput::Upload {
-            tar: read_artifact(state, tenant, &artifact_id).await?,
+        PluginSourceRequest::Upload { file_id } => SourceInput::Upload {
+            tar: read_file(state, tenant, &file_id).await?,
         },
     })
 }
 
-async fn read_artifact(
-    state: &AppState,
-    tenant: &Tenant,
-    artifact_id: &str,
-) -> Result<Vec<u8>, ApiError> {
-    let artifact = state
-        .artifacts
-        .get(
-            &tenant.workspace_id,
-            &ArtifactId::from(artifact_id.to_string()),
-        )
+async fn read_file(state: &AppState, tenant: &Tenant, file_id: &str) -> Result<Vec<u8>, ApiError> {
+    let file = state
+        .files
+        .get(&tenant.workspace_id, &FileId::from(file_id.to_string()))
         .await?
-        .ok_or_else(|| ApiError::not_found("artifact"))?;
+        .ok_or_else(|| ApiError::not_found("file"))?;
     let bytes = state
         .blobs
-        .get(&BlobPath::from(artifact.storage_key.clone()))
+        .get(&BlobPath::from(file.storage_key.clone()))
         .await
         .map_err(|_| ApiError::internal())?
         .bytes()

@@ -19,7 +19,7 @@
 
 use async_trait::async_trait;
 use pagis_core::{
-    AgentId, ArtifactId, CallDirection, CallId, CallOutcome, EventMatcher, IngestBatch,
+    AgentId, CallDirection, CallId, CallOutcome, EventMatcher, FileId, IngestBatch,
     NormalizedEvent, PhoneNumber, TrustTier, UnixMillis,
 };
 
@@ -46,7 +46,7 @@ pub struct SettledCall<'a> {
     /// The other party.
     pub remote_e164: &'a str,
     pub report: &'a CallReport,
-    pub transcript_artifact_id: Option<&'a ArtifactId>,
+    pub transcript_file_id: Option<&'a FileId>,
     pub ended_at: UnixMillis,
 }
 
@@ -67,11 +67,8 @@ pub fn call_ended_event(call: &SettledCall<'_>) -> NormalizedEvent {
         "duration_ms".into(),
         (report.duration.as_millis() as i64).into(),
     );
-    if let Some(artifact_id) = call.transcript_artifact_id {
-        metadata.insert(
-            "transcript_artifact_id".into(),
-            artifact_id.to_string().into(),
-        );
+    if let Some(file_id) = call.transcript_file_id {
+        metadata.insert("transcript_file_id".into(), file_id.to_string().into());
     }
     if let Some(answered_at) = report.answered_at {
         metadata.insert("answered_at".into(), answered_at.into());

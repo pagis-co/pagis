@@ -173,7 +173,7 @@ describe('the installed rows', () => {
     await waitFor(() =>
       expect(api.POST).toHaveBeenCalledWith('/api/v1/plugins/{plugin_id}/update', {
         params: { path: { plugin_id: 'pl-1' } },
-        body: { artifact_id: undefined },
+        body: { file_id: undefined },
       }),
     )
   })

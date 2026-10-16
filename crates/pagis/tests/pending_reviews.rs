@@ -120,7 +120,7 @@ async fn send(daemon: &TestDaemon, pending_id: &str, text: &str) -> serde_json::
             "pending_id": pending_id,
             "text": text,
             "parent_message_id": null,
-            "artifact_ids": []
+            "file_ids": []
         }))
         .send()
         .await

@@ -202,7 +202,7 @@ describe('a step summarises to a line', () => {
       summariseResult(
         event({
           event_type: 'tool.completed',
-          payload: { ok: true, artifact_ids: ['a', 'b'] },
+          payload: { ok: true, file_ids: ['a', 'b'] },
         }),
       ),
     ).toBe('Done, with 2 screenshots')

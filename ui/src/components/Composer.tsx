@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Plus, X, ArrowUp } from 'lucide-react'
 
-import { uploadArtifact, type ApiClient } from '../api/client'
+import { uploadFile, type ApiClient } from '../api/client'
 import { useSendMessage } from '../queries'
 import { selectDraft, useComposerDraft } from '../state/composerDraft'
 import { useSpeaking } from '../state/stores'
@@ -101,7 +101,7 @@ export function Composer({
     setUploadError(null)
     for (const file of files) {
       setUploading((n) => n + 1)
-      uploadArtifact(file)
+      uploadFile(file)
         .then((dto) =>
           setAttachments((list) =>
             list.some((a) => a.id === dto.id)
@@ -168,7 +168,7 @@ export function Composer({
     send.mutate({
       pendingId: randomId(),
       text: text.trim(),
-      artifactIds: attachments.map((a) => a.id),
+      fileIds: attachments.map((a) => a.id),
     })
     setText('')
     setAttachments([])

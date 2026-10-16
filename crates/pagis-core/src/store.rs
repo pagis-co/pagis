@@ -4,22 +4,21 @@ use async_trait::async_trait;
 
 use crate::block::Block;
 use crate::domain::{
-    Agent, AgentMailbox, AgentMailboxState, Artifact, ArtifactKind, AuthorKind, Call,
-    CapabilitySnapshotRecord, Channel, ChannelParticipant, Connection, Contribution,
-    ContributionStatus, Credential, EventDeclaration, EventSubscription, Grant, IncomingEvent,
-    MailboxCursor, Message, MessageStatus, MessagingReadiness, ModelAlias,
-    OnboardingModelVerification, PhoneNumber, Plugin, PluginBinding, PluginState, PluginTools,
-    PurchaseIntent, Request, RequestState, RetentionPolicy, Run, RunSlots, Schedule,
-    ScheduleOccurrence, ScheduleRevision, SentMail, SoftwarePackage, SoftwareVersion, SourceBatch,
-    TelnyxRelayState, TextConversation, TextDeliveryStatus, TextRecord, Wakeup, WakeupClaim,
-    WakeupLanding, Workspace,
+    Agent, AgentMailbox, AgentMailboxState, AuthorKind, Call, CapabilitySnapshotRecord, Channel,
+    ChannelParticipant, Connection, Contribution, ContributionStatus, Credential, EventDeclaration,
+    EventSubscription, File, FileKind, Grant, IncomingEvent, MailboxCursor, Message, MessageStatus,
+    MessagingReadiness, ModelAlias, OnboardingModelVerification, PhoneNumber, Plugin,
+    PluginBinding, PluginState, PluginTools, PurchaseIntent, Request, RequestState,
+    RetentionPolicy, Run, RunSlots, Schedule, ScheduleOccurrence, ScheduleRevision, SentMail,
+    SoftwarePackage, SoftwareVersion, SourceBatch, TelnyxRelayState, TextConversation,
+    TextDeliveryStatus, TextRecord, Wakeup, WakeupClaim, WakeupLanding, Workspace,
 };
 use crate::event::{Event, NewEvent};
 use crate::id::{
-    AgentId, AgentMailboxId, ArtifactId, CallId, ChannelId, ConnectionId, ContributionId, EventId,
-    EventSubscriptionId, GrantId, HostId, IncomingEventId, MessageId, PhoneNumberId, PluginId,
-    PurchaseIntentId, RequestId, RunId, ScheduleId, ScheduleOccurrenceId, SoftwarePackageId,
-    TextRecordId, UserId, WakeupId, WorkspaceId,
+    AgentId, AgentMailboxId, CallId, ChannelId, ConnectionId, ContributionId, EventId,
+    EventSubscriptionId, FileId, GrantId, HostId, IncomingEventId, MessageId, PhoneNumberId,
+    PluginId, PurchaseIntentId, RequestId, RunId, ScheduleId, ScheduleOccurrenceId,
+    SoftwarePackageId, TextRecordId, UserId, WakeupId, WorkspaceId,
 };
 use crate::time::UnixMillis;
 
@@ -1066,44 +1065,43 @@ pub trait CapabilitySnapshotStore: Send + Sync {
     ) -> Result<Option<CapabilitySnapshotRecord>, StoreError>;
 }
 
-/// The result of an artifact insert with content dedup.
+/// The result of a file insert with content dedup.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ArtifactOutcome {
-    Created(Artifact),
-    /// An artifact with the same (workspace_id, sha256) already exists;
-    /// this is that original artifact.
-    Deduplicated(Artifact),
+pub enum FileOutcome {
+    Created(File),
+    /// A file with the same (workspace_id, sha256) already exists;
+    /// this is that original file.
+    Deduplicated(File),
 }
 
 #[async_trait]
-pub trait ArtifactStore: Send + Sync {
-    /// Insert one artifact. When the workspace already holds the same
+pub trait FileStore: Send + Sync {
+    /// Insert one file. When the workspace already holds the same
     /// sha256, nothing is written and the stored original is returned.
-    async fn insert(&self, artifact: &Artifact) -> Result<ArtifactOutcome, StoreError>;
+    async fn insert(&self, file: &File) -> Result<FileOutcome, StoreError>;
     async fn get(
         &self,
         workspace_id: &WorkspaceId,
-        id: &ArtifactId,
-    ) -> Result<Option<Artifact>, StoreError>;
-    /// Artifacts of one class made before `cutoff`, oldest first — the
+        id: &FileId,
+    ) -> Result<Option<File>, StoreError>;
+    /// Files of one class made before `cutoff`, oldest first — the
     /// retention sweep's work list.
     async fn expired_before(
         &self,
         workspace_id: &WorkspaceId,
-        kind: ArtifactKind,
+        kind: FileKind,
         cutoff: UnixMillis,
         limit: u32,
-    ) -> Result<Vec<Artifact>, StoreError>;
-    /// Delete one artifact row. `false` when it is already gone.
-    async fn delete(&self, workspace_id: &WorkspaceId, id: &ArtifactId)
-    -> Result<bool, StoreError>;
+    ) -> Result<Vec<File>, StoreError>;
+    /// Delete one file row. `false` when it is already gone.
+    async fn delete(&self, workspace_id: &WorkspaceId, id: &FileId) -> Result<bool, StoreError>;
 }
 
-/// The retention window the user sets for each Artifact class.
+/// The retention window the user sets for each File class.
 /// A class with no stored row is kept for ever.
 #[async_trait]
 pub trait RetentionPolicyStore: Send + Sync {
-    /// The policy for every class, in `ArtifactKind::ALL` order. A
+    /// The policy for every class, in `FileKind::ALL` order. A
     /// class the user has not set reads back as "keep for ever".
     async fn list(&self, workspace_id: &WorkspaceId) -> Result<Vec<RetentionPolicy>, StoreError>;
     /// Set one class's window. `retain_days` of `None` returns the
@@ -1111,7 +1109,7 @@ pub trait RetentionPolicyStore: Send + Sync {
     async fn set(
         &self,
         workspace_id: &WorkspaceId,
-        kind: ArtifactKind,
+        kind: FileKind,
         retain_days: Option<i64>,
         now: UnixMillis,
     ) -> Result<(), StoreError>;

@@ -18,7 +18,7 @@ use pagis_core::{Block, KnownBlock, RunId};
 /// Blocks one message carries.
 pub const MAX_BLOCKS: usize = 20;
 
-/// Rows one table carries. Past this the agent writes a CSV artifact
+/// Rows one table carries. Past this the agent writes a CSV file
 /// and posts a `file` block.
 pub const MAX_TABLE_ROWS: usize = 100;
 
@@ -107,7 +107,7 @@ fn parse(block: &serde_json::Value) -> Result<KnownBlock, ToolResult> {
     {
         return Err(too_big(format!(
             "a table carries at most {MAX_TABLE_ROWS} rows, not {}. \
-             Write a CSV artifact and post a file block instead.",
+             Write a CSV file and post a file block instead.",
             rows.len()
         )));
     }

@@ -18,7 +18,7 @@ use pagis_testkit::browser::{Browser, Outcome};
 use wiremock::matchers::method;
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-use crate::artifacts::upload;
+use crate::files::upload;
 
 /// A PNG that a browser decodes.
 fn png() -> Vec<u8> {
@@ -33,15 +33,12 @@ fn png() -> Vec<u8> {
 #[tokio::test]
 async fn the_product_app_shows_its_own_images_and_loads_none_from_another_host() {
     let daemon = TestDaemon::start().await;
-    let artifact: serde_json::Value = upload(&daemon, "shot.png", "image/png", png())
+    let file: serde_json::Value = upload(&daemon, "shot.png", "image/png", png())
         .await
         .json()
         .await
-        .expect("the Artifact");
-    let artifact = format!(
-        "/api/v1/artifacts/{}",
-        artifact["id"].as_str().expect("an Artifact id")
-    );
+        .expect("the File");
+    let file = format!("/api/v1/files/{}", file["id"].as_str().expect("a File id"));
     // The host that the author of the text chooses. It answers with an
     // image, so an image that the browser asks it for shows.
     let host = MockServer::start().await;
@@ -71,7 +68,7 @@ async fn the_product_app_shows_its_own_images_and_loads_none_from_another_host()
                     }});
                     setTimeout(() => resolve('no violation within 5 s'), 5000);
                 }});
-                const bytes = await (await fetch({artifact:?})).blob();
+                const bytes = await (await fetch({file:?})).blob();
                 const canvas = document.createElement('canvas');
                 canvas.width = 4;
                 canvas.height = 4;
@@ -79,7 +76,7 @@ async fn the_product_app_shows_its_own_images_and_loads_none_from_another_host()
                 const otherHost = await load({other_host:?});
                 return {{
                     objectUrl: await load(URL.createObjectURL(bytes)),
-                    ownOrigin: await load({artifact:?}),
+                    ownOrigin: await load({file:?}),
                     dataUrl: await load(canvas.toDataURL('image/png')),
                     otherHost,
                     violation: otherHost === 'shown' ? null : await violation,
@@ -91,7 +88,7 @@ async fn the_product_app_shows_its_own_images_and_loads_none_from_another_host()
 
     assert_eq!(
         shown["objectUrl"], "shown",
-        "an Artifact from an object URL, as the image Block, the Run screenshot \
+        "a File from an object URL, as the image Block, the Run screenshot \
          and the Computer preview show it"
     );
     assert_eq!(

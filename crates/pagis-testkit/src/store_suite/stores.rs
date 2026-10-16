@@ -9,15 +9,15 @@
 // trait reads without the trait in scope. Only the values a body builds
 // are named here.
 use pagis_core::{
-    AgentId, Artifact, ArtifactId, ArtifactOutcome, Block, CapabilitySnapshotRecord, ChannelId,
-    ConnectionId, DecideOutcome, Grant, GrantId, HostId, MemoryExposure, MessageId, MessageStatus,
-    NewEvent, Plugin, PluginBinding, PluginBindingValue, PluginId, PluginSource, PluginState,
-    PluginTool, PluginTools, RequestState, RunState, Schedule, ScheduleId, ScheduleState,
-    SendOutcome, TrustEntry, TrustEntryId, TrustSubject, TrustTier, WorkspaceId,
+    AgentId, Block, CapabilitySnapshotRecord, ChannelId, ConnectionId, DecideOutcome, File, FileId,
+    FileOutcome, Grant, GrantId, HostId, MemoryExposure, MessageId, MessageStatus, NewEvent,
+    Plugin, PluginBinding, PluginBindingValue, PluginId, PluginSource, PluginState, PluginTool,
+    PluginTools, RequestState, RunState, Schedule, ScheduleId, ScheduleState, SendOutcome,
+    TrustEntry, TrustEntryId, TrustSubject, TrustTier, WorkspaceId,
 };
 
 use crate::fixture::{
-    agent, agent_message, agent_participant, artifact, channel, credential_grant, host_grant,
+    agent, agent_message, agent_participant, channel, credential_grant, file, host_grant,
     missed_call, pending_form_request, pending_request, queued_run, software_package,
     software_version, user_message, user_participant,
 };
@@ -873,50 +873,47 @@ pub async fn a_dismissed_call_keeps_its_first_dismissal(backend: &Backend) {
     assert_eq!(read.dismissed_at, Some(10));
 }
 
-pub async fn artifact_roundtrips_through_store(backend: &Backend) {
+pub async fn file_roundtrips_through_store(backend: &Backend) {
     let ws = backend.seeded_workspace().await;
 
-    let store = &backend.stores().artifacts;
-    let a = artifact(&ws.id, "aa11");
+    let store = &backend.stores().files;
+    let a = file(&ws.id, "aa11");
 
     let outcome = store.insert(&a).await.unwrap();
 
-    assert_eq!(outcome, ArtifactOutcome::Created(a.clone()));
+    assert_eq!(outcome, FileOutcome::Created(a.clone()));
     assert_eq!(store.get(&ws.id, &a.id).await.unwrap(), Some(a));
-    assert_eq!(
-        store.get(&ws.id, &ArtifactId::generate()).await.unwrap(),
-        None
-    );
+    assert_eq!(store.get(&ws.id, &FileId::generate()).await.unwrap(), None);
 }
 
-pub async fn duplicate_content_dedups_to_the_original_artifact(backend: &Backend) {
+pub async fn duplicate_content_dedups_to_the_original_file(backend: &Backend) {
     let ws = backend.seeded_workspace().await;
 
-    let store = &backend.stores().artifacts;
-    let original = artifact(&ws.id, "aa11");
+    let store = &backend.stores().files;
+    let original = file(&ws.id, "aa11");
     store.insert(&original).await.unwrap();
 
-    let mut retry = artifact(&ws.id, "aa11");
+    let mut retry = file(&ws.id, "aa11");
     retry.filename = Some("copy.png".to_string());
 
     let outcome = store.insert(&retry).await.unwrap();
 
-    assert_eq!(outcome, ArtifactOutcome::Deduplicated(original));
+    assert_eq!(outcome, FileOutcome::Deduplicated(original));
     assert_eq!(store.get(&ws.id, &retry.id).await.unwrap(), None);
 }
 
-pub async fn same_content_in_another_workspace_is_a_new_artifact(backend: &Backend) {
+pub async fn same_content_in_another_workspace_is_a_new_file(backend: &Backend) {
     let ws = backend.seeded_workspace().await;
     let other_ws = backend.seeded_workspace().await;
 
-    let store = &backend.stores().artifacts;
-    store.insert(&artifact(&ws.id, "aa11")).await.unwrap();
+    let store = &backend.stores().files;
+    store.insert(&file(&ws.id, "aa11")).await.unwrap();
 
-    let elsewhere = artifact(&other_ws.id, "aa11");
+    let elsewhere = file(&other_ws.id, "aa11");
 
     assert_eq!(
         store.insert(&elsewhere).await.unwrap(),
-        ArtifactOutcome::Created(elsewhere)
+        FileOutcome::Created(elsewhere)
     );
 }
 
@@ -1525,12 +1522,12 @@ pub async fn events_list_by_types_pages_newest_first(backend: &Backend) {
     );
 }
 
-pub async fn artifacts_page_by_class_and_age_and_delete(backend: &Backend) {
+pub async fn files_page_by_class_and_age_and_delete(backend: &Backend) {
     let ws = backend.seeded_workspace().await;
     let other = backend.seeded_workspace().await;
-    let store = &backend.stores().artifacts;
-    let stored = |kind: pagis_core::ArtifactKind, age: i64, sha: &str| Artifact {
-        id: ArtifactId::generate(),
+    let store = &backend.stores().files;
+    let stored = |kind: pagis_core::FileKind, age: i64, sha: &str| File {
+        id: FileId::generate(),
         workspace_id: ws.id.clone(),
         creator_agent_id: None,
         run_id: None,
@@ -1542,28 +1539,24 @@ pub async fn artifacts_page_by_class_and_age_and_delete(backend: &Backend) {
         storage_key: format!("{}/{sha}", ws.id),
         created_at: age,
     };
-    use pagis_core::ArtifactKind;
-    let old_shot = stored(ArtifactKind::Screenshot, 100, "a");
-    let fresh_shot = stored(ArtifactKind::Screenshot, 900, "b");
-    let old_file = stored(ArtifactKind::File, 100, "c");
-    for artifact in [&old_shot, &fresh_shot, &old_file] {
-        store.insert(artifact).await.unwrap();
+    use pagis_core::FileKind;
+    let old_shot = stored(FileKind::Screenshot, 100, "a");
+    let fresh_shot = stored(FileKind::Screenshot, 900, "b");
+    let old_file = stored(FileKind::Other, 100, "c");
+    for file in [&old_shot, &fresh_shot, &old_file] {
+        store.insert(file).await.unwrap();
     }
 
-    // Only artifacts of the named class older than the cutoff are work.
+    // Only files of the named class older than the cutoff are work.
     let due = store
-        .expired_before(&ws.id, ArtifactKind::Screenshot, 500, 100)
+        .expired_before(&ws.id, FileKind::Screenshot, 500, 100)
         .await
         .unwrap();
     assert_eq!(
         due.iter().map(|a| a.id.clone()).collect::<Vec<_>>(),
         vec![old_shot.id.clone()]
     );
-    assert_eq!(
-        due[0].kind,
-        ArtifactKind::Screenshot,
-        "the class reads back"
-    );
+    assert_eq!(due[0].kind, FileKind::Screenshot, "the class reads back");
 
     assert!(store.delete(&ws.id, &old_shot.id).await.unwrap());
     assert!(
@@ -1572,7 +1565,7 @@ pub async fn artifacts_page_by_class_and_age_and_delete(backend: &Backend) {
     );
     assert!(
         store
-            .expired_before(&ws.id, ArtifactKind::Screenshot, 500, 100)
+            .expired_before(&ws.id, FileKind::Screenshot, 500, 100)
             .await
             .unwrap()
             .is_empty()
@@ -1583,7 +1576,7 @@ pub async fn artifacts_page_by_class_and_age_and_delete(backend: &Backend) {
     // Another workspace never reads this workspace's work list.
     assert!(
         store
-            .expired_before(&other.id, ArtifactKind::File, 500, 100)
+            .expired_before(&other.id, FileKind::Other, 500, 100)
             .await
             .unwrap()
             .is_empty()
@@ -1593,7 +1586,7 @@ pub async fn artifacts_page_by_class_and_age_and_delete(backend: &Backend) {
 /// Every class starts at "keep for ever", a set window reads back, and
 /// clearing it returns the class to the default.
 pub async fn retention_policies_default_to_keep_for_ever(backend: &Backend) {
-    use pagis_core::ArtifactKind;
+    use pagis_core::FileKind;
 
     let ws = backend.seeded_workspace().await;
     let store = &backend.stores().retention_policies;
@@ -1601,22 +1594,22 @@ pub async fn retention_policies_default_to_keep_for_ever(backend: &Backend) {
     let policies = store.list(&ws.id).await.unwrap();
     assert_eq!(
         policies.iter().map(|p| p.kind).collect::<Vec<_>>(),
-        ArtifactKind::ALL.to_vec()
+        FileKind::ALL.to_vec()
     );
     assert!(policies.iter().all(|p| p.retain_days.is_none()));
 
     store
-        .set(&ws.id, ArtifactKind::CallRecording, Some(30), 1)
+        .set(&ws.id, FileKind::CallRecording, Some(30), 1)
         .await
         .unwrap();
     store
-        .set(&ws.id, ArtifactKind::CallRecording, Some(7), 2)
+        .set(&ws.id, FileKind::CallRecording, Some(7), 2)
         .await
         .unwrap();
     let policies = store.list(&ws.id).await.unwrap();
     let recording = policies
         .iter()
-        .find(|p| p.kind == ArtifactKind::CallRecording)
+        .find(|p| p.kind == FileKind::CallRecording)
         .unwrap();
     assert_eq!(recording.retain_days, Some(7), "the second set wins");
     assert_eq!(
@@ -1625,7 +1618,7 @@ pub async fn retention_policies_default_to_keep_for_ever(backend: &Backend) {
     );
 
     store
-        .set(&ws.id, ArtifactKind::CallRecording, None, 3)
+        .set(&ws.id, FileKind::CallRecording, None, 3)
         .await
         .unwrap();
     assert!(
@@ -2690,9 +2683,9 @@ macro_rules! store_suite_stores {
             run_roundtrips_and_updates_through_store,
             a_dismissed_run_keeps_its_first_dismissal,
             a_dismissed_call_keeps_its_first_dismissal,
-            artifact_roundtrips_through_store,
-            duplicate_content_dedups_to_the_original_artifact,
-            same_content_in_another_workspace_is_a_new_artifact,
+            file_roundtrips_through_store,
+            duplicate_content_dedups_to_the_original_file,
+            same_content_in_another_workspace_is_a_new_file,
             participants_resolve_channel_agents,
             dm_lookups_resolve_user_and_agent_dms,
             participants_list_for_channel_returns_all_kinds,
@@ -2709,7 +2702,7 @@ macro_rules! store_suite_stores {
             revoke_lands_once_and_hides_the_grant_from_live_reads,
             one_live_grant_per_agent_and_resource,
             events_list_by_types_pages_newest_first,
-            artifacts_page_by_class_and_age_and_delete,
+            files_page_by_class_and_age_and_delete,
             retention_policies_default_to_keep_for_ever,
             a_credential_round_trips_and_lists_by_domain,
             archiving_an_agent_hands_its_credentials_to_the_user,

@@ -89,7 +89,7 @@ pub struct InboundText {
     pub received_at: UnixMillis,
     /// The MMS media, as the carrier addresses it. The collector
     /// fetches each one with [`TextTransport::fetch_media`] and stores
-    /// it as an Artifact before it raises the event.
+    /// it as a File before it raises the event.
     pub media_urls: Vec<String>,
 }
 

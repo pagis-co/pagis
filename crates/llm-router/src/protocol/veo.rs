@@ -1,7 +1,7 @@
 //! The `veo` codec: Google Veo video generation on the Gemini API.
 //!
 //! Video only. Submitting starts a long-running operation
-//! (`:predictLongRunning`); polling reads the operation; the artifact is a
+//! (`:predictLongRunning`); polling reads the operation; the file is a
 //! signed URI fetched with the API key. Chat and the other modalities report
 //! as unsupported.
 
@@ -116,7 +116,7 @@ impl Protocol for Veo {
             .pointer("/error/message")
             .and_then(Value::as_str)
             .map(str::to_owned);
-        // The signed artifact URI, wherever the API version puts it.
+        // The signed file URI, wherever the API version puts it.
         let video_url = wire
             .pointer("/response/generateVideoResponse/generatedSamples/0/video/uri")
             .or_else(|| wire.pointer("/response/generatedVideos/0/video/uri"))
@@ -182,14 +182,14 @@ impl Protocol for Veo {
         // carries the API key: require the provider's own host over a
         // secure scheme, so a hostile response cannot pull the key to
         // another host.
-        validate_artifact_url(provider_key, provider, url)?;
+        validate_file_url(provider_key, provider, url)?;
         auth(provider_key, provider, http.get(url))
     }
 }
 
-/// Require the artifact URI to sit on the provider's host, over `https` (or
+/// Require the file URI to sit on the provider's host, over `https` (or
 /// `http` to a loopback host, matching the base-URL rule).
-fn validate_artifact_url(
+fn validate_file_url(
     provider_key: &str,
     provider: &ProviderConfig,
     url: &str,

@@ -808,7 +808,7 @@ async fn a_one_shot_in_an_existing_thread_reads_its_current_context() {
             "pending_id": "schedule-context-root",
             "text": "Context to remember",
             "parent_message_id": null,
-            "artifact_ids": []
+            "file_ids": []
         }))
         .send()
         .await

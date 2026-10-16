@@ -12,10 +12,10 @@ use async_trait::async_trait;
 use object_store::{ObjectStore, ObjectStoreExt as _};
 use pagis_broker::{AuthorizedCall, CoreTool, ToolDef, ToolExecutor, ToolResult, ToolRoute};
 use pagis_core::{
-    AgentId, AgentStore, Artifact, ArtifactId, ArtifactOutcome, ArtifactStore, AuthorKind, Block,
-    CallId, CallStore, EventBus, KnownBlock, Message, MessageId, MessageStatus, MessageStore,
-    NewEvent, PhoneNumber, RunId, RunStore, TrustListStore, Untrusted, WorkspaceId, blocks_text,
-    now_ms, render_transcript,
+    AgentId, AgentStore, AuthorKind, Block, CallId, CallStore, EventBus, File, FileId, FileOutcome,
+    FileStore, KnownBlock, Message, MessageId, MessageStatus, MessageStore, NewEvent, PhoneNumber,
+    RunId, RunStore, TrustListStore, Untrusted, WorkspaceId, blocks_text, now_ms,
+    render_transcript,
 };
 
 use crate::bridge::{CallBridge, CallLog, CallReport, PlacedCall};
@@ -71,7 +71,7 @@ pub struct PhoneToolDeps {
     pub transport: Arc<dyn CallTransport>,
     pub bridge: Arc<dyn CallBridge>,
     pub live: Arc<LiveCalls>,
-    pub artifacts: Arc<dyn ArtifactStore>,
+    pub files: Arc<dyn FileStore>,
     pub blobs: Arc<dyn ObjectStore>,
     pub bus: Arc<dyn EventBus>,
 }
@@ -137,7 +137,7 @@ impl PhoneToolRuntime {
                     record.tier.as_str(),
                     &render_transcript(&record.transcript),
                 ),
-                "recording_artifact_id": record.recording_artifact_id.as_ref().map(ArtifactId::as_str),
+                "recording_file_id": record.recording_file_id.as_ref().map(FileId::as_str),
             })
             .to_string(),
         ))
@@ -224,7 +224,7 @@ impl PhoneToolRuntime {
             }
         };
         let transcript_id = store_transcript(
-            self.deps.artifacts.as_ref(),
+            self.deps.files.as_ref(),
             self.deps.blobs.as_ref(),
             &call.workspace_id,
             &call.agent_id,
@@ -244,14 +244,14 @@ impl PhoneToolRuntime {
                 "classification": report.classification,
                 "message_left": report.message_left,
                 "duration_s": report.duration.as_secs(),
-                "transcript_artifact_id": transcript_id.as_str(),
+                "transcript_file_id": transcript_id.as_str(),
                 "tier": tier.as_str(),
                 "transcript": Untrusted::text(
                     REMOTE_PARTY_SOURCE,
                     tier.as_str(),
                     &render_transcript(&report.transcript),
                 ),
-                "recording_artifact_id": report.recording_artifact_id.as_ref().map(ArtifactId::as_str),
+                "recording_file_id": report.recording_file_id.as_ref().map(FileId::as_str),
             })
             .to_string(),
         ))
@@ -354,28 +354,28 @@ pub(crate) async fn mint_strip(
     }
 }
 
-/// The transcript is an ordinary Artifact (ADR-0020): bytes to the
+/// The transcript is an ordinary File (ADR-0020): bytes to the
 /// blob store, metadata to the row.
 pub(crate) async fn store_transcript(
-    artifacts: &dyn ArtifactStore,
+    files: &dyn FileStore,
     blobs: &dyn ObjectStore,
     workspace_id: &WorkspaceId,
     agent_id: &AgentId,
     run_id: &RunId,
     report: &CallReport,
-) -> Result<ArtifactId, String> {
+) -> Result<FileId, String> {
     use sha2::Digest as _;
 
     let transcript = render_transcript(&report.transcript);
     let bytes = transcript.as_bytes();
     let sha256 = format!("{:x}", sha2::Sha256::digest(bytes));
     let storage_key = format!("{workspace_id}/{sha256}");
-    let artifact = Artifact {
-        id: ArtifactId::generate(),
+    let file = File {
+        id: FileId::generate(),
         workspace_id: workspace_id.clone(),
         creator_agent_id: Some(agent_id.clone()),
         run_id: Some(run_id.clone()),
-        kind: pagis_core::ArtifactKind::CallTranscript,
+        kind: pagis_core::FileKind::CallTranscript,
         filename: Some("transcript.txt".to_string()),
         mime: "text/plain".to_string(),
         size_bytes: bytes.len() as i64,
@@ -390,14 +390,12 @@ pub(crate) async fn store_transcript(
         )
         .await
         .map_err(|error| error.to_string())?;
-    match artifacts
-        .insert(&artifact)
+    match files
+        .insert(&file)
         .await
         .map_err(|error| error.to_string())?
     {
-        ArtifactOutcome::Created(artifact) | ArtifactOutcome::Deduplicated(artifact) => {
-            Ok(artifact.id)
-        }
+        FileOutcome::Created(file) | FileOutcome::Deduplicated(file) => Ok(file.id),
     }
 }
 

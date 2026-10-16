@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use pagis_core::{
-    ArtifactKind, RetentionPolicy, RetentionPolicyStore, StoreError, UnixMillis, WorkspaceId,
+    FileKind, RetentionPolicy, RetentionPolicyStore, StoreError, UnixMillis, WorkspaceId,
 };
 use sqlx::{PgPool, Row};
 
@@ -21,14 +21,14 @@ impl PostgresRetentionPolicyStore {
 impl RetentionPolicyStore for PostgresRetentionPolicyStore {
     async fn list(&self, workspace_id: &WorkspaceId) -> Result<Vec<RetentionPolicy>, StoreError> {
         let rows = sqlx::query(
-            "SELECT kind, retain_days FROM artifact_retention_policies WHERE workspace_id = $1",
+            "SELECT kind, retain_days FROM file_retention_policies WHERE workspace_id = $1",
         )
         .bind(workspace_id.as_str())
         .fetch_all(&self.pool)
         .await
         .map_err(db_err)?;
-        let mut policies = Vec::with_capacity(ArtifactKind::ALL.len());
-        for kind in ArtifactKind::ALL {
+        let mut policies = Vec::with_capacity(FileKind::ALL.len());
+        for kind in FileKind::ALL {
             let retain_days = rows
                 .iter()
                 .find(|row| row.get::<String, _>("kind") == kind.as_str())
@@ -41,7 +41,7 @@ impl RetentionPolicyStore for PostgresRetentionPolicyStore {
     async fn set(
         &self,
         workspace_id: &WorkspaceId,
-        kind: ArtifactKind,
+        kind: FileKind,
         retain_days: Option<i64>,
         now: UnixMillis,
     ) -> Result<(), StoreError> {
@@ -49,7 +49,7 @@ impl RetentionPolicyStore for PostgresRetentionPolicyStore {
         // a delete and not a stored sentinel.
         let Some(days) = retain_days else {
             sqlx::query(
-                "DELETE FROM artifact_retention_policies WHERE workspace_id = $1 AND kind = $2",
+                "DELETE FROM file_retention_policies WHERE workspace_id = $1 AND kind = $2",
             )
             .bind(workspace_id.as_str())
             .bind(kind.as_str())
@@ -59,7 +59,7 @@ impl RetentionPolicyStore for PostgresRetentionPolicyStore {
             return Ok(());
         };
         sqlx::query(
-            "INSERT INTO artifact_retention_policies (workspace_id, kind, retain_days, updated_at) \
+            "INSERT INTO file_retention_policies (workspace_id, kind, retain_days, updated_at) \
              VALUES ($1, $2, $3, $4) \
              ON CONFLICT (workspace_id, kind) \
              DO UPDATE SET retain_days = excluded.retain_days, updated_at = excluded.updated_at",

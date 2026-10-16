@@ -12,14 +12,14 @@ use async_trait::async_trait;
 use pagis_audit::AuditEventBus;
 use pagis_broker::ToolDef;
 use pagis_core::{
-    Agent, AgentId, AgentStatus, AgentStore, ArtifactId, ArtifactStore, Block, CallId, Channel,
-    ChannelId, ChannelKind, ChannelStore, ConnectionId, Event, EventLog, KnownBlock, MessageStore,
+    Agent, AgentId, AgentStatus, AgentStore, Block, CallId, Channel, ChannelId, ChannelKind,
+    ChannelStore, ConnectionId, Event, EventLog, FileId, FileStore, KnownBlock, MessageStore,
     PhoneNumber, PhoneNumberId, PhoneNumberStore, PurchaseIntent, PurchaseIntentId,
     PurchaseIntentState, Run, RunId, RunState, RunStore, TriggerKind, WorkspaceId, WorkspaceStore,
     now_ms,
 };
 use pagis_storage_sqlite::{
-    SqliteAgentStore, SqliteArtifactStore, SqliteChannelStore, SqliteEventLog, SqliteMessageStore,
+    SqliteAgentStore, SqliteChannelStore, SqliteEventLog, SqliteFileStore, SqliteMessageStore,
     SqlitePhoneNumberStore, SqliteRunStore, SqliteWorkspaceStore,
 };
 use pagis_telephony::fake::{
@@ -150,7 +150,7 @@ struct World {
     transport: Arc<FakeCallTransport>,
     numbers: Arc<SqlitePhoneNumberStore>,
     agents: Arc<SqliteAgentStore>,
-    artifacts: Arc<SqliteArtifactStore>,
+    files: Arc<SqliteFileStore>,
     messages: Arc<SqliteMessageStore>,
     runs: Arc<RecordingRuns>,
     run_records: Arc<SqliteRunStore>,
@@ -236,7 +236,7 @@ impl World {
         let live = Arc::new(LiveCalls::default());
         let bridge = Arc::new(bridge);
         let messages = Arc::new(SqliteMessageStore::new(pool.clone()));
-        let artifacts = Arc::new(SqliteArtifactStore::new(pool.clone()));
+        let files = Arc::new(SqliteFileStore::new(pool.clone()));
         let call_events = Arc::new(RecordingEvents::default());
         let calls = InboundCalls::new(InboundCallsDeps {
             numbers: Arc::clone(&numbers) as _,
@@ -250,7 +250,7 @@ impl World {
             transport: Arc::clone(&transport) as _,
             bridge: Arc::clone(&bridge) as _,
             live: Arc::clone(&live),
-            artifacts: Arc::clone(&artifacts) as _,
+            files: Arc::clone(&files) as _,
             blobs: Arc::new(object_store::memory::InMemory::new()),
             bus,
             events: Arc::clone(&call_events) as _,
@@ -262,7 +262,7 @@ impl World {
             transport,
             numbers,
             agents,
-            artifacts,
+            files,
             messages,
             runs,
             run_records,
@@ -419,7 +419,7 @@ async fn an_answered_call_runs_under_the_agent_that_holds_the_number(pool: Sqlit
     );
 
     // The audit trail: placed as inbound, answered, ended with the
-    // transcript Artifact.
+    // transcript File.
     let placed_events = world.events_of("call.placed").await;
     assert_eq!(placed_events.len(), 1);
     assert_eq!(placed_events[0].payload["direction"], "inbound");
@@ -431,19 +431,19 @@ async fn an_answered_call_runs_under_the_agent_that_holds_the_number(pool: Sqlit
     let ended = world.events_of("call.ended").await;
     assert_eq!(ended.len(), 1);
     assert_eq!(ended[0].payload["outcome"], "answered");
-    let transcript_id = ended[0].payload["transcript_artifact_id"]
+    let transcript_id = ended[0].payload["transcript_file_id"]
         .as_str()
         .expect("the transcript was stored");
     let transcript = world
-        .artifacts
+        .files
         .get(
             &world.workspace_id,
-            &ArtifactId::from(transcript_id.to_string()),
+            &FileId::from(transcript_id.to_string()),
         )
         .await
         .unwrap()
         .expect("the transcript row exists");
-    assert_eq!(transcript.kind, pagis_core::ArtifactKind::CallTranscript);
+    assert_eq!(transcript.kind, pagis_core::FileKind::CallTranscript);
     assert_eq!(transcript.run_id, Some(placed.run_id.clone()));
 
     // The line is free again, and the Remote Party heard the end.
@@ -506,7 +506,7 @@ async fn a_bridge_that_fails_settles_the_call_and_the_run(pool: SqlitePool) {
     assert!(world.live.session_tools(&number.id).is_none());
     assert!(matches!(party.state(), PartyState::Ended(_)));
     assert_eq!(
-        ended[0].payload["transcript_artifact_id"],
+        ended[0].payload["transcript_file_id"],
         serde_json::Value::Null
     );
 }
@@ -549,7 +549,7 @@ async fn a_settled_call_reaches_the_trigger_module_as_an_envelope(pool: SqlitePo
     assert_eq!(event.metadata["from"], REMOTE);
     assert_eq!(event.metadata["trust_tier"], "unknown");
     assert_eq!(event.metadata["outcome"], "answered");
-    assert!(event.metadata["transcript_artifact_id"].is_string());
+    assert!(event.metadata["transcript_file_id"].is_string());
     // The envelope carries no words: the Agent reads those with
     // `call_transcript`.
     assert!(

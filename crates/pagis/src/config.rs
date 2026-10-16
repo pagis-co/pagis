@@ -23,7 +23,7 @@ pub const DEFAULT_ADMINISTRATION_PORT: u16 = 4401;
 /// an administrator reaches it over an SSH tunnel, or names an address
 /// here on purpose.
 pub const DEFAULT_ADMINISTRATION_BIND: &str = "127.0.0.1";
-pub const DEFAULT_ARTIFACT_MAX_BYTES: u64 = 50 * 1024 * 1024;
+pub const DEFAULT_FILE_MAX_BYTES: u64 = 50 * 1024 * 1024;
 pub const DEFAULT_COMPUTER_IDLE_STOP_MINUTES: u64 = 30;
 /// The level of the daemon's own crates (ADR-0024); every other crate
 /// logs warnings and errors alone (`logging::filter`). `PAGIS_LOG`
@@ -91,8 +91,8 @@ pub struct Config {
     pub administration: Administration,
     /// The links the operator names for the Product App.
     pub product_app: ProductApp,
-    /// The artifact upload size cap, 50 MB by default.
-    pub artifact_max_bytes: u64,
+    /// The file upload size cap, 50 MB by default.
+    pub file_max_bytes: u64,
     /// What one agent computer may take, and how many may be awake.
     pub computer: Computer,
     /// The Docker endpoint the user typed in System settings
@@ -334,7 +334,7 @@ impl Secrets {
 /// kind of installation to its backend (ADR-0024).
 ///
 /// The files stay on the server's disk either way: the memory
-/// repositories, the artifacts, the recordings, the sealed secrets, the
+/// repositories, the files, the recordings, the sealed secrets, the
 /// Plugins and the Software. Postgres holds the records, not the files.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -651,7 +651,7 @@ impl Default for Config {
             remote_access: RemoteAccess::default(),
             administration: Administration::default(),
             product_app: ProductApp::default(),
-            artifact_max_bytes: DEFAULT_ARTIFACT_MAX_BYTES,
+            file_max_bytes: DEFAULT_FILE_MAX_BYTES,
             computer: Computer::default(),
             docker_endpoint: String::new(),
             log_level: DEFAULT_LOG_LEVEL.to_string(),

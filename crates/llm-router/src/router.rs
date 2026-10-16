@@ -56,7 +56,7 @@ pub(crate) const MAX_BODY_BYTES: usize = 64 * 1024 * 1024;
 /// ends cannot hold the caller in a loop.
 const MAX_MODEL_PAGES: usize = 20;
 
-/// Cap on buffered video artifacts, which run larger than JSON bodies.
+/// Cap on buffered video files, which run larger than JSON bodies.
 const MAX_VIDEO_BODY_BYTES: usize = 512 * 1024 * 1024;
 
 impl Router {
@@ -247,7 +247,7 @@ impl Router {
 
     /// Submit a video-generation job, with the same retry/fallback loop as
     /// chat. The returned job carries a router-scoped id; poll it with
-    /// [`Router::video_status`] and fetch the artifact with
+    /// [`Router::video_status`] and fetch the file with
     /// [`Router::video_content`].
     pub async fn create_video(&self, req: &VideoRequest) -> Result<VideoJob, Error> {
         self.run(&req.model, |candidate| {
@@ -271,9 +271,9 @@ impl Router {
         Ok(job)
     }
 
-    /// Fetch the artifact of a completed video job as buffered bytes. Polls
-    /// the job first; a job without an artifact yet returns
-    /// [`Error::JobNotReady`]. Signed artifact URLs (Veo) fetch with the
+    /// Fetch the file of a completed video job as buffered bytes. Polls
+    /// the job first; a job without a file yet returns
+    /// [`Error::JobNotReady`]. Signed file URLs (Veo) fetch with the
     /// provider's auth.
     pub async fn video_content(&self, job_id: &str) -> Result<bytes::Bytes, Error> {
         let job = self.video_status(job_id).await?;

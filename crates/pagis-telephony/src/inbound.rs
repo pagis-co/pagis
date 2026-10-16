@@ -12,7 +12,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use object_store::ObjectStore;
 use pagis_core::{
-    AgentId, AgentStore, ArtifactId, ArtifactStore, CallDirection, CallId, EventBus, IngestBatch,
+    AgentId, AgentStore, CallDirection, CallId, EventBus, FileId, FileStore, IngestBatch,
     MessageStore, PhoneNumber, PhoneNumberId, PhoneNumberStore, Run, RunId, RunStore, TrustTier,
     WorkspaceId, now_ms,
 };
@@ -58,7 +58,7 @@ pub struct InboundCallsDeps {
     pub transport: Arc<dyn CallTransport>,
     pub bridge: Arc<dyn CallBridge>,
     pub live: Arc<LiveCalls>,
-    pub artifacts: Arc<dyn ArtifactStore>,
+    pub files: Arc<dyn FileStore>,
     pub blobs: Arc<dyn ObjectStore>,
     pub bus: Arc<dyn EventBus>,
     /// Where the `call.ended` event goes when the call settles. It is
@@ -203,7 +203,7 @@ impl InboundCalls {
             }
         };
         let transcript_id = store_transcript(
-            self.deps.artifacts.as_ref(),
+            self.deps.files.as_ref(),
             self.deps.blobs.as_ref(),
             &run.workspace_id,
             &agent.id,
@@ -248,7 +248,7 @@ impl InboundCalls {
         call_id: &CallId,
         from_e164: &str,
         report: &crate::bridge::CallReport,
-        transcript_id: Option<&ArtifactId>,
+        transcript_id: Option<&FileId>,
     ) {
         let at = now_ms();
         let batch = IngestBatch {
@@ -265,7 +265,7 @@ impl InboundCalls {
                 number,
                 remote_e164: from_e164,
                 report,
-                transcript_artifact_id: transcript_id,
+                transcript_file_id: transcript_id,
                 ended_at: at,
             })],
             received_at: at,

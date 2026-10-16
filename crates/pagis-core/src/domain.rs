@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::block::Block;
 use crate::coding_session::{SessionAllowRule, SessionApprovalMode};
 use crate::id::{
-    AgentId, ArtifactId, ChannelId, CodingSessionId, ConnectionId, EventSubscriptionId, GrantId,
+    AgentId, ChannelId, CodingSessionId, ConnectionId, EventSubscriptionId, FileId, GrantId,
     HostId, IncomingEventId, MessageId, ParticipantId, RequestId, RunId, ScheduleId,
     ScheduleOccurrenceId, SourceBatchId, UserId, WakeupId, WorkspaceId,
 };
@@ -1360,12 +1360,12 @@ pub struct CapabilitySnapshotRecord {
     pub created_at: UnixMillis,
 }
 
-/// The class of an Artifact. One retention policy applies to
+/// The class of a File. One retention policy applies to
 /// one class, so the class is written when the row is made and is
 /// never guessed from the filename.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
-pub enum ArtifactKind {
+pub enum FileKind {
     /// A screen capture of an Agent Computer.
     Screenshot,
     /// The recorded audio of a Call.
@@ -1373,53 +1373,53 @@ pub enum ArtifactKind {
     /// The written record of a Call.
     CallTranscript,
     /// Anything else: an upload, or a file an Agent wrote.
-    File,
+    Other,
 }
 
-impl ArtifactKind {
+impl FileKind {
     /// Every class, in the order the settings page shows them.
-    pub const ALL: [ArtifactKind; 4] = [
-        ArtifactKind::Screenshot,
-        ArtifactKind::CallRecording,
-        ArtifactKind::CallTranscript,
-        ArtifactKind::File,
+    pub const ALL: [FileKind; 4] = [
+        FileKind::Screenshot,
+        FileKind::CallRecording,
+        FileKind::CallTranscript,
+        FileKind::Other,
     ];
 
     pub fn as_str(&self) -> &'static str {
         match self {
-            ArtifactKind::Screenshot => "screenshot",
-            ArtifactKind::CallRecording => "call_recording",
-            ArtifactKind::CallTranscript => "call_transcript",
-            ArtifactKind::File => "file",
+            FileKind::Screenshot => "screenshot",
+            FileKind::CallRecording => "call_recording",
+            FileKind::CallTranscript => "call_transcript",
+            FileKind::Other => "other",
         }
     }
 
     /// The class for one stored name, or `None` when the name is not a
     /// class the daemon knows.
     pub fn parse(value: &str) -> Option<Self> {
-        ArtifactKind::ALL
+        FileKind::ALL
             .into_iter()
             .find(|kind| kind.as_str() == value)
     }
 }
 
-impl std::fmt::Display for ArtifactKind {
+impl std::fmt::Display for FileKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.as_str())
     }
 }
 
-/// How long one Artifact class is kept in one Workspace.
+/// How long one File class is kept in one Workspace.
 /// `retain_days` of `None` keeps the class for ever, which is the
 /// default for every class (ADR-0020).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RetentionPolicy {
-    pub kind: ArtifactKind,
+    pub kind: FileKind,
     pub retain_days: Option<i64>,
 }
 
 impl RetentionPolicy {
-    /// The instant before which an Artifact of this class has expired,
+    /// The instant before which a File of this class has expired,
     /// or `None` when the class is kept for ever.
     pub fn cutoff(&self, now: UnixMillis) -> Option<UnixMillis> {
         self.retain_days
@@ -1431,11 +1431,11 @@ impl RetentionPolicy {
 /// metadata; the bytes live in the workspace blob store under
 /// `storage_key`. Duplicate content dedups on (workspace_id, sha256).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Artifact {
-    pub id: ArtifactId,
+pub struct File {
+    pub id: FileId,
     pub workspace_id: WorkspaceId,
     /// The retention class of the bytes.
-    pub kind: ArtifactKind,
+    pub kind: FileKind,
     pub creator_agent_id: Option<AgentId>,
     pub run_id: Option<RunId>,
     pub filename: Option<String>,
@@ -1448,7 +1448,7 @@ pub struct Artifact {
     pub created_at: UnixMillis,
 }
 
-impl Artifact {
+impl File {
     /// True when the bytes are an image the model can see.
     pub fn is_image(&self) -> bool {
         self.mime.starts_with("image/")
@@ -2350,7 +2350,7 @@ impl TranscriptLine {
 }
 
 /// The transcript as prose, one line per turn. The model, the
-/// transcript Artifact and the tool result read this.
+/// transcript File and the tool result read this.
 pub fn render_transcript(lines: &[TranscriptLine]) -> String {
     lines
         .iter()
@@ -2365,7 +2365,7 @@ pub fn render_transcript(lines: &[TranscriptLine]) -> String {
 ///
 /// `outcome` and `ended_reason` are two fields, because they answer two
 /// questions. A call can reach its purpose and still end with
-/// `media_timeout`. The recording is one Artifact, and the record
+/// `media_timeout`. The recording is one File, and the record
 /// keeps its pointer.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Call {
@@ -2400,7 +2400,7 @@ pub struct Call {
     pub transcript: Vec<TranscriptLine>,
     /// The stereo WAV of the call: the Remote Party on the left and
     /// the Agent on the right. It is written when the call settles.
-    pub recording_artifact_id: Option<ArtifactId>,
+    pub recording_file_id: Option<FileId>,
     pub created_at: UnixMillis,
     pub ringing_at: Option<UnixMillis>,
     pub answered_at: Option<UnixMillis>,
@@ -2535,9 +2535,9 @@ pub struct TextRecord {
     /// How many segments the carrier billed. The Outgoing Cap counts
     /// texts and never these.
     pub segments: u32,
-    /// The MMS media, fetched at ingest and stored as Artifacts.
+    /// The MMS media, fetched at ingest and stored as Files.
     #[serde(default)]
-    pub media_artifact_ids: Vec<ArtifactId>,
+    pub media_file_ids: Vec<FileId>,
     /// The carrier's own id for the message. Ingest deduplicates on
     /// it, and the delivery poll reads it.
     pub carrier_message_id: String,

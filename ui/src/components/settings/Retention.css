@@ -1,5 +1,5 @@
 /* The Retention section: a title line, a framed list of one row
- * per artifact class, and a closing hint. Every value comes from `tokens.css`. */
+ * per file class, and a closing hint. Every value comes from `tokens.css`. */
 
 .settings-retention {
   display: flex;

@@ -109,7 +109,7 @@ export function shellResponse(path: string): { data: unknown } {
         classification: null,
         message_left: false,
         transcript: [],
-        recording_artifact_id: null,
+        recording_file_id: null,
         created_at: 0,
         answered_at: 1,
         ended_at: null,

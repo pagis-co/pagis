@@ -8,8 +8,8 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use pagis_core::{
-    AgentId, AgentStatus, Artifact, ArtifactId, AuthorKind, Block, Channel, ChannelId, ChannelKind,
-    ChannelParticipant, KnownBlock, Message, MessageId, MessageStatus, NewEvent, ParticipantId,
+    AgentId, AgentStatus, AuthorKind, Block, Channel, ChannelId, ChannelKind, ChannelParticipant,
+    File, FileId, KnownBlock, Message, MessageId, MessageStatus, NewEvent, ParticipantId,
     ParticipantKind, SendOutcome, TimelineEntry, blocks_text, now_ms,
 };
 use serde::{Deserialize, Serialize};
@@ -222,7 +222,7 @@ pub struct SendMessageRequest {
     /// Pre-uploaded attachments, rendered as `image`/`file`
     /// blocks after the text.
     #[serde(default)]
-    pub artifact_ids: Vec<String>,
+    pub file_ids: Vec<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -491,26 +491,20 @@ async fn pointer_agent(state: &AppState, channel: &Channel) -> Result<Option<Age
 
 /// The block array of a user send (ADR-0004): one `markdown` block for
 /// the text, then one `image` or `file` block per attachment.
-fn user_blocks(text: &str, attachments: &[Artifact]) -> Vec<Block> {
+fn user_blocks(text: &str, attachments: &[File]) -> Vec<Block> {
     let mut blocks = Vec::new();
     if !text.trim().is_empty() {
         blocks.push(Block::markdown(text));
     }
-    for artifact in attachments {
-        if artifact.is_image() {
-            blocks.push(Block::image(
-                artifact.id.as_str(),
-                artifact.filename.clone(),
-            ));
+    for file in attachments {
+        if file.is_image() {
+            blocks.push(Block::image(file.id.as_str(), file.filename.clone()));
         } else {
             blocks.push(Block::file(
-                artifact.id.as_str(),
-                artifact
-                    .filename
-                    .clone()
-                    .unwrap_or_else(|| "file".to_string()),
-                Some(artifact.mime.clone()),
-                Some(artifact.size_bytes),
+                file.id.as_str(),
+                file.filename.clone().unwrap_or_else(|| "file".to_string()),
+                Some(file.mime.clone()),
+                Some(file.size_bytes),
             ));
         }
     }
@@ -616,9 +610,9 @@ pub async fn send_message(
     if request.pending_id.is_empty() {
         return Err(ApiError::validation("pending_id must not be empty"));
     }
-    if request.text.trim().is_empty() && request.artifact_ids.is_empty() {
+    if request.text.trim().is_empty() && request.file_ids.is_empty() {
         return Err(ApiError::validation(
-            "message needs text or at least one artifact",
+            "message needs text or at least one file",
         ));
     }
     let channel_id = ChannelId::from(channel_id);
@@ -661,13 +655,13 @@ pub async fn send_message(
     };
 
     let mut attachments = Vec::new();
-    for artifact_id in &request.artifact_ids {
-        let artifact = state
-            .artifacts
-            .get(&tenant.workspace_id, &ArtifactId::from(artifact_id.clone()))
+    for file_id in &request.file_ids {
+        let file = state
+            .files
+            .get(&tenant.workspace_id, &FileId::from(file_id.clone()))
             .await?
-            .ok_or_else(|| ApiError::validation("artifact does not exist"))?;
-        attachments.push(artifact);
+            .ok_or_else(|| ApiError::validation("file does not exist"))?;
+        attachments.push(file);
     }
 
     // Use the daemon's logical time for the stored owner message.

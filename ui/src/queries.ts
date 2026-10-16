@@ -2327,11 +2327,11 @@ export function useSendMessage(
     mutationFn: ({
       pendingId,
       text,
-      artifactIds,
+      fileIds,
     }: {
       pendingId: string;
       text: string;
-      artifactIds?: string[];
+      fileIds?: string[];
     }) =>
       unwrap(
         api.POST("/api/v1/channels/{channel_id}/messages", {
@@ -2340,7 +2340,7 @@ export function useSendMessage(
             pending_id: pendingId,
             text,
             parent_message_id: rootId,
-            artifact_ids: artifactIds ?? [],
+            file_ids: fileIds ?? [],
           },
         }),
       ),
@@ -2647,7 +2647,7 @@ export function useUpdateSubscription(api: ApiClient) {
   });
 }
 
-/** The retention window per artifact class. */
+/** The retention window per file class. */
 export function useRetentionPolicies(api: ApiClient) {
   const workspaceId = useCurrentWorkspaceId();
   return useQuery({
@@ -3485,11 +3485,11 @@ export function useUpdatePlugin(api: ApiClient, pluginId: string) {
   const workspaceId = useCurrentWorkspaceId();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (artifactId?: string) =>
+    mutationFn: (fileId?: string) =>
       unwrap(
         api.POST("/api/v1/plugins/{plugin_id}/update", {
           params: { path: { plugin_id: pluginId } },
-          body: { artifact_id: artifactId },
+          body: { file_id: fileId },
         }),
       ),
     onSuccess: (plugin) => {

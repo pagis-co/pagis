@@ -7,12 +7,12 @@ import { errorMessage, useRetentionPolicies, useSetRetentionPolicy } from '../..
 
 import './Retention.css'
 
-/** The name each artifact class shows under. */
+/** The name each file class shows under. */
 const CLASS_NAMES: Record<string, string> = {
   screenshot: 'Screenshots',
   call_recording: 'Call recordings',
   call_transcript: 'Call transcripts',
-  file: 'Files',
+  other: 'Other files',
 }
 
 function className(kind: string): string {
@@ -65,7 +65,7 @@ function PolicyRow({ api, policy }: { api: ApiClient; policy: RetentionPolicyDto
   )
 }
 
-/** The Retention section: one row per artifact class from
+/** The Retention section: one row per file class from
  * `/api/v1/settings/retention`, with a days field and a Save per row.
  * An empty field keeps the class for ever. */
 export function Retention({ api }: { api: ApiClient }) {

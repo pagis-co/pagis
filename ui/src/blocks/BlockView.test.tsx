@@ -11,19 +11,19 @@ import { QueryClientProvider } from '../test/QueryClientProvider'
 import { render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { fetchArtifactBlob, type ApiClient, type MessageDto } from '../api/client'
+import { fetchFileBlob, type ApiClient, type MessageDto } from '../api/client'
 import { externalImages } from '../test/images'
 import { renderInRouter } from '../test/router'
 import { Blocks } from './BlockView'
 
 vi.mock('../api/client', () => ({
-  fetchArtifactBlob: vi.fn(),
+  fetchFileBlob: vi.fn(),
 }))
 
 const api = { GET: vi.fn(async () => ({ data: undefined })) }
 
 beforeEach(() => {
-  vi.mocked(fetchArtifactBlob).mockReset()
+  vi.mocked(fetchFileBlob).mockReset()
   URL.createObjectURL = vi.fn(() => 'blob:fake-url')
   URL.revokeObjectURL = vi.fn()
 })
@@ -56,15 +56,15 @@ function mount(blocks: unknown) {
 
 describe('Blocks', () => {
   it('renders an image block from bytes fetched through the daemon', async () => {
-    vi.mocked(fetchArtifactBlob).mockResolvedValue(
+    vi.mocked(fetchFileBlob).mockResolvedValue(
       new Blob(['png'], { type: 'image/png' }),
     )
 
-    mount([{ type: 'image', artifact_id: 'A1', alt: 'shot.png' }])
+    mount([{ type: 'image', file_id: 'A1', alt: 'shot.png' }])
 
     const image = await waitFor(() => screen.getByAltText('shot.png'))
     expect(image.getAttribute('src')).toBe('blob:fake-url')
-    expect(fetchArtifactBlob).toHaveBeenCalledWith('A1')
+    expect(fetchFileBlob).toHaveBeenCalledWith('A1')
   })
 
   // An object URL has the Product App origin, so an SVG or HTML Blob
@@ -81,12 +81,12 @@ describe('Blocks', () => {
         type: 'text/html',
       }),
     }
-    vi.mocked(fetchArtifactBlob).mockImplementation(async (id) => blobs[id])
+    vi.mocked(fetchFileBlob).mockImplementation(async (id) => blobs[id])
 
     mount([
-      { type: 'image', artifact_id: 'PNG', alt: 'shot.png' },
-      { type: 'image', artifact_id: 'SVG', alt: 'chart.svg' },
-      { type: 'image', artifact_id: 'HTML', alt: 'page.html' },
+      { type: 'image', file_id: 'PNG', alt: 'shot.png' },
+      { type: 'image', file_id: 'SVG', alt: 'chart.svg' },
+      { type: 'image', file_id: 'HTML', alt: 'page.html' },
     ])
     // Each block has its bytes when it offers Save.
     await waitFor(() =>
@@ -105,9 +105,9 @@ describe('Blocks', () => {
   })
 
   it('shows a placeholder when the image bytes cannot load', async () => {
-    vi.mocked(fetchArtifactBlob).mockRejectedValue(new Error('gone'))
+    vi.mocked(fetchFileBlob).mockRejectedValue(new Error('gone'))
 
-    mount([{ type: 'image', artifact_id: 'A1' }])
+    mount([{ type: 'image', file_id: 'A1' }])
 
     await waitFor(() =>
       expect(screen.getByTestId('image-block').textContent).toContain(
@@ -118,7 +118,7 @@ describe('Blocks', () => {
 
   it('renders a file block with its name, its size and one Save', () => {
     mount([
-      { type: 'file', artifact_id: 'A2', name: 'report.pdf', mime: 'application/pdf', size_bytes: 188416 },
+      { type: 'file', file_id: 'A2', name: 'report.pdf', mime: 'application/pdf', size_bytes: 188416 },
     ])
 
     const block = screen.getByTestId('file-block')
@@ -126,7 +126,7 @@ describe('Blocks', () => {
     expect(block.textContent).toContain('application/pdf · 184 KB')
     expect(screen.getAllByRole('button', { name: 'Save' })).toHaveLength(1)
     // Rendering alone never fetches; the download is on demand.
-    expect(fetchArtifactBlob).not.toHaveBeenCalled()
+    expect(fetchFileBlob).not.toHaveBeenCalled()
   })
 
   it('renders a markdown block as markup', () => {

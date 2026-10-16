@@ -175,7 +175,7 @@ async fn from_source(e: &Embedder) -> Value {
     )
     .await
 }
-async fn upload(e: &Embedder, workspace: &WorkspaceId, files: &PackageFiles) -> ArtifactId {
+async fn upload(e: &Embedder, workspace: &WorkspaceId, files: &PackageFiles) -> FileId {
     let mut archive = tar::Builder::new(Vec::new());
     for (path, file) in files.iter() {
         let mut header = tar::Header::new_gnu();
@@ -187,7 +187,7 @@ async fn upload(e: &Embedder, workspace: &WorkspaceId, files: &PackageFiles) -> 
             .unwrap();
     }
     let tar = archive.into_inner().unwrap();
-    let id = ArtifactId::generate();
+    let id = FileId::generate();
     let key = format!("{workspace}/{id}");
     e.routers
         .state
@@ -199,11 +199,11 @@ async fn upload(e: &Embedder, workspace: &WorkspaceId, files: &PackageFiles) -> 
         .await
         .unwrap();
     e.stores
-        .artifacts
-        .insert(&Artifact {
+        .files
+        .insert(&File {
             id: id.clone(),
             workspace_id: workspace.clone(),
-            kind: ArtifactKind::File,
+            kind: FileKind::Other,
             creator_agent_id: None,
             run_id: None,
             filename: Some("weather.tar".into()),
@@ -256,8 +256,8 @@ async fn installs_from_the_embedders_source() {
 #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
 async fn installs_an_uploaded_package_without_a_source() {
     let e = embedder(Arc::new(RefusingSource)).await;
-    let artifact = upload(&e, &e.workspace, &package("Upload")).await;
-    let body = install(&e, json!({"kind": "upload", "artifact_id": artifact})).await;
+    let file = upload(&e, &e.workspace, &package("Upload")).await;
+    let body = install(&e, json!({"kind": "upload", "file_id": file})).await;
     assert_eq!(body["source_kind"], "upload");
     assert_eq!(body["state"], "enabled");
     let path = format!("/api/v1/plugins/{}", body["id"].as_str().unwrap());
@@ -516,14 +516,14 @@ async fn freezes_and_starts_http_through_the_embedders_transport() {
 #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
 async fn refuses_another_workspaces_upload() {
     let (e, _) = fixed().await;
-    let artifact = upload(&e, &e.other_workspace, &package("Private")).await;
+    let file = upload(&e, &e.other_workspace, &package("Private")).await;
     let (status, _) = response(
         &e,
         true,
         &e.cookie,
         "POST",
         "/api/v1/plugins",
-        json!({"source": {"kind": "upload", "artifact_id": artifact}}),
+        json!({"source": {"kind": "upload", "file_id": file}}),
     )
     .await;
     assert_eq!(status, StatusCode::NOT_FOUND);

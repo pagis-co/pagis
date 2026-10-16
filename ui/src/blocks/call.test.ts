@@ -36,7 +36,7 @@ function call(overrides: Partial<CallDto> = {}): CallDto {
     classification: null,
     message_left: false,
     transcript: [],
-    recording_artifact_id: null,
+    recording_file_id: null,
     created_at: 1_000,
     answered_at: 2_000,
     ended_at: null,

@@ -10,7 +10,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use pagis_broker::ToolDef;
 use pagis_core::{
-    AgentId, ArtifactId, CallId, CallOutcome, Classification, EventBus, KeypadFailures, NewEvent,
+    AgentId, CallId, CallOutcome, Classification, EventBus, FileId, KeypadFailures, NewEvent,
     RunId, StoreError, TranscriptLine, TrustTier, UnixMillis, WorkspaceId,
 };
 
@@ -50,7 +50,7 @@ pub struct CallReport {
     pub answered_at: Option<UnixMillis>,
     /// The conversation, one line per turn, with the time it was said.
     pub transcript: Vec<TranscriptLine>,
-    pub recording_artifact_id: Option<ArtifactId>,
+    pub recording_file_id: Option<FileId>,
 }
 
 /// The bridge did not carry the call to an end of its own. The reason
@@ -145,7 +145,7 @@ impl CallLog {
     pub async fn ended(
         &self,
         report: &CallReport,
-        transcript_artifact_id: Option<&ArtifactId>,
+        transcript_file_id: Option<&FileId>,
     ) -> Result<(), StoreError> {
         self.publish(
             "call.ended",
@@ -155,8 +155,8 @@ impl CallLog {
                 "classification": report.classification,
                 "message_left": report.message_left,
                 "duration_s": report.duration.as_secs(),
-                "transcript_artifact_id": transcript_artifact_id.map(ArtifactId::as_str),
-                "recording_artifact_id": report.recording_artifact_id.as_ref().map(ArtifactId::as_str),
+                "transcript_file_id": transcript_file_id.map(FileId::as_str),
+                "recording_file_id": report.recording_file_id.as_ref().map(FileId::as_str),
             }),
         )
         .await
@@ -307,7 +307,7 @@ impl FakeCallBridge {
                 pagis_core::Speaker::Caller,
                 transcript,
             )],
-            recording_artifact_id: None,
+            recording_file_id: None,
         }
     }
 

@@ -2,7 +2,7 @@
 //!
 //! An installation is two things that have to be captured together: the
 //! **state directory**, which holds the sealed secrets, the memory
-//! repositories, the artifacts, the recordings, the Plugins and the
+//! repositories, the files, the recordings, the Plugins and the
 //! Software, and the **database**, which is SQLite inside that
 //! directory or a Postgres a server runs beside it. A copy of
 //! one without the other restores nothing: the records name files that

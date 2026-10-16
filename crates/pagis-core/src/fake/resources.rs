@@ -472,48 +472,39 @@ impl CapabilitySnapshotStore for FakeCapabilitySnapshotStore {
 }
 
 #[async_trait::async_trait]
-impl ArtifactStore for FakeArtifactStore {
-    async fn insert(&self, artifact: &Artifact) -> Result<ArtifactOutcome, StoreError> {
+impl FileStore for FakeFileStore {
+    async fn insert(&self, file: &File) -> Result<FileOutcome, StoreError> {
         let mut data = self.0.lock().unwrap();
         if let Some(row) = data
-            .artifacts
-            .rows(&artifact.workspace_id)
-            .find(|row| row.sha256 == artifact.sha256)
+            .files
+            .rows(&file.workspace_id)
+            .find(|row| row.sha256 == file.sha256)
         {
-            return Ok(ArtifactOutcome::Deduplicated(row.clone()));
+            return Ok(FileOutcome::Deduplicated(row.clone()));
         }
-        data.artifacts.insert(
-            &artifact.workspace_id,
-            artifact.id.clone(),
-            artifact.clone(),
-        )?;
-        Ok(ArtifactOutcome::Created(artifact.clone()))
+        data.files
+            .insert(&file.workspace_id, file.id.clone(), file.clone())?;
+        Ok(FileOutcome::Created(file.clone()))
     }
     async fn get(
         &self,
         workspace_id: &WorkspaceId,
-        id: &ArtifactId,
-    ) -> Result<Option<Artifact>, StoreError> {
-        Ok(self
-            .0
-            .lock()
-            .unwrap()
-            .artifacts
-            .get(workspace_id, id)
-            .cloned())
+        id: &FileId,
+    ) -> Result<Option<File>, StoreError> {
+        Ok(self.0.lock().unwrap().files.get(workspace_id, id).cloned())
     }
     async fn expired_before(
         &self,
         workspace_id: &WorkspaceId,
-        kind: ArtifactKind,
+        kind: FileKind,
         cutoff: UnixMillis,
         limit: u32,
-    ) -> Result<Vec<Artifact>, StoreError> {
+    ) -> Result<Vec<File>, StoreError> {
         let mut rows: Vec<_> = self
             .0
             .lock()
             .unwrap()
-            .artifacts
+            .files
             .rows(workspace_id)
             .filter(|row| row.kind == kind && row.created_at < cutoff)
             .cloned()
@@ -522,16 +513,12 @@ impl ArtifactStore for FakeArtifactStore {
         rows.truncate(limit as usize);
         Ok(rows)
     }
-    async fn delete(
-        &self,
-        workspace_id: &WorkspaceId,
-        id: &ArtifactId,
-    ) -> Result<bool, StoreError> {
+    async fn delete(&self, workspace_id: &WorkspaceId, id: &FileId) -> Result<bool, StoreError> {
         Ok(self
             .0
             .lock()
             .unwrap()
-            .artifacts
+            .files
             .remove(workspace_id, id)
             .is_some())
     }
@@ -541,7 +528,7 @@ impl ArtifactStore for FakeArtifactStore {
 impl RetentionPolicyStore for FakeRetentionPolicyStore {
     async fn list(&self, workspace_id: &WorkspaceId) -> Result<Vec<RetentionPolicy>, StoreError> {
         let data = self.0.lock().unwrap();
-        Ok(ArtifactKind::ALL
+        Ok(FileKind::ALL
             .into_iter()
             .map(|kind| RetentionPolicy {
                 kind,
@@ -556,7 +543,7 @@ impl RetentionPolicyStore for FakeRetentionPolicyStore {
     async fn set(
         &self,
         workspace_id: &WorkspaceId,
-        kind: ArtifactKind,
+        kind: FileKind,
         retain_days: Option<i64>,
         now: UnixMillis,
     ) -> Result<(), StoreError> {

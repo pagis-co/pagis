@@ -314,7 +314,7 @@ pub trait Protocol: Send + Sync {
         })
     }
 
-    /// Build a request that fetches the artifact of a completed job. `job`
+    /// Build a request that fetches the file of a completed job. `job`
     /// carries the fresh status, for providers that deliver a signed URL in
     /// it (Veo); others fetch by native id.
     fn build_video_content_request(

@@ -12,8 +12,8 @@ use futures::StreamExt;
 use object_store::ObjectStore;
 use pagis_broker::Broker;
 use pagis_core::{
-    AgentId, AgentStatus, AgentStore, ArtifactStore, AuthorKind, Block, BriefStore, ChannelKind,
-    ChannelStore, ConnectionStore, EventBus, EventScope, FailureKind, GrantStore, KnownBlock,
+    AgentId, AgentStatus, AgentStore, AuthorKind, Block, BriefStore, ChannelKind, ChannelStore,
+    ConnectionStore, EventBus, EventScope, FailureKind, FileStore, GrantStore, KnownBlock,
     MemoryStore, Message, MessageId, MessageStore, ModelAliasStore, NewEvent, ParticipantStore,
     RequestStore, Run, RunId, RunOrigin, RunSlots, RunState, RunStore, ScheduleStore, TriggerKind,
     TriggerStore, WorkspaceStore,
@@ -107,7 +107,7 @@ pub struct AgentDeps {
     /// The alias of each Connection, which names a synced knowledge
     /// source in the turn's prompt.
     pub connections: Arc<dyn ConnectionStore>,
-    pub artifacts: Arc<dyn ArtifactStore>,
+    pub files: Arc<dyn FileStore>,
     pub blobs: Arc<dyn ObjectStore>,
     pub memory: Arc<dyn MemoryStore>,
     /// Durable reasons for a later evidence review.

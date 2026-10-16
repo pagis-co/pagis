@@ -2,7 +2,7 @@
 //! call into its provider vocabulary, surface OpenAI safety checks,
 //! and execute the normalized actions against the agent's computer —
 //! sequentially, stopping at the first failure. Screenshots come back
-//! as display-space PNGs the caller stores as artifacts.
+//! as display-space PNGs the caller stores as files.
 
 use std::sync::Arc;
 

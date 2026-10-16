@@ -159,8 +159,8 @@ pub struct TestDaemonOptions {
     /// no test may reach the machine's Docker. Keep an `Arc` to script
     /// the ping.
     pub docker_discovery: Arc<pagis_computer::DockerDiscovery>,
-    /// The artifact upload cap; tests shrink it for the 413 scenario.
-    pub artifact_max_bytes: u64,
+    /// The file upload cap; tests shrink it for the 413 scenario.
+    pub file_max_bytes: u64,
     /// The computer runtime; a fresh fake without an image by
     /// default. Keep an `Arc` to script it from the test.
     pub computer: Arc<dyn pagis_computer::ComputerRuntime>,
@@ -257,7 +257,7 @@ impl Default for TestDaemonOptions {
                 Arc::new(RefusingDockerPing),
                 None,
             )),
-            artifact_max_bytes: 50 * 1024 * 1024,
+            file_max_bytes: 50 * 1024 * 1024,
             computer: Arc::new(pagis_computer::fake::FakeComputerRuntime::default()),
             computer_idle_stop: std::time::Duration::from_secs(1800),
             computer_awake_caps: pagis_computer::AwakeCaps {
@@ -572,7 +572,7 @@ impl TestDaemon {
                 docker_discovery: Arc::clone(&options.docker_discovery),
                 system: Arc::new(pagis::FileSystemConfig::new(home.path())),
                 restart: Arc::clone(&restart),
-                artifact_max_bytes: options.artifact_max_bytes,
+                file_max_bytes: options.file_max_bytes,
                 computer: Some(options.computer),
                 computer_idle_stop: options.computer_idle_stop,
                 computer_limits: pagis_computer::ComputerLimits::default(),

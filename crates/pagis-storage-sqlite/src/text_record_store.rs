@@ -12,9 +12,9 @@
 
 use async_trait::async_trait;
 use pagis_core::{
-    AgentId, ArtifactId, ChannelId, MessageId, PhoneNumberId, RunId, StoreError,
-    TEXT_THREAD_WINDOW_MS, TextConversation, TextDeliveryStatus, TextDirection, TextRecord,
-    TextRecordId, TextRecordStore, TrustTier, UnixMillis, WorkspaceId,
+    AgentId, ChannelId, FileId, MessageId, PhoneNumberId, RunId, StoreError, TEXT_THREAD_WINDOW_MS,
+    TextConversation, TextDeliveryStatus, TextDirection, TextRecord, TextRecordId, TextRecordStore,
+    TrustTier, UnixMillis, WorkspaceId,
 };
 use sqlx::{Row, SqlitePool};
 
@@ -32,12 +32,12 @@ impl SqliteTextRecordStore {
 }
 
 const COLUMNS: &str = "id, workspace_id, agent_id, phone_number_id, counterpart_e164, direction, \
-     tier, body, segments, media_artifact_ids, carrier_message_id, run_id, channel_id, thread_id, \
+     tier, body, segments, media_file_ids, carrier_message_id, run_id, channel_id, thread_id, \
      delivery_state, delivery_code, delivery_reason, occurred_at";
 
 /// The media pointers go to the row as JSON, as the Call transcript
 /// does.
-fn media_json(ids: &[ArtifactId]) -> Result<String, StoreError> {
+fn media_json(ids: &[FileId]) -> Result<String, StoreError> {
     serde_json::to_string(ids)
         .map_err(|error| StoreError::Corrupt(format!("the media list does not serialize: {error}")))
 }
@@ -69,7 +69,7 @@ fn from_row(row: &sqlx::sqlite::SqliteRow) -> Result<TextRecord, StoreError> {
         tier: parse::<TrustTier>(&row.get::<String, _>("tier"))?,
         body: row.get("body"),
         segments: row.get::<i64, _>("segments") as u32,
-        media_artifact_ids: serde_json::from_str(&row.get::<String, _>("media_artifact_ids"))
+        media_file_ids: serde_json::from_str(&row.get::<String, _>("media_file_ids"))
             .map_err(|error| StoreError::Corrupt(format!("the media list is not JSON: {error}")))?,
         carrier_message_id: row.get("carrier_message_id"),
         run_id: row.get::<Option<String>, _>("run_id").map(RunId::from),
@@ -108,7 +108,7 @@ impl TextRecordStore for SqliteTextRecordStore {
         .bind(record.tier.as_str())
         .bind(&record.body)
         .bind(i64::from(record.segments))
-        .bind(media_json(&record.media_artifact_ids)?)
+        .bind(media_json(&record.media_file_ids)?)
         .bind(&record.carrier_message_id)
         .bind(record.run_id.as_ref().map(RunId::as_str))
         .bind(record.channel_id.as_ref().map(ChannelId::as_str))

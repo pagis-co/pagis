@@ -159,7 +159,7 @@ async fn run_transcript_keeps_unknown_events_and_sums_turn_usage() {
                 "turn": 0,
                 "name": "computer",
                 "duration_ms": 125,
-                "artifact_ids": ["shot-1"]
+                "file_ids": ["shot-1"]
             }),
         ),
         (
@@ -198,7 +198,7 @@ async fn run_transcript_keeps_unknown_events_and_sums_turn_usage() {
     assert_eq!(body["usage"]["output_tokens"], 12);
     assert_eq!(body["events"][0]["event_type"], "turn.started");
     assert_eq!(body["events"][1]["payload"]["duration_ms"], 125);
-    assert_eq!(body["events"][1]["payload"]["artifact_ids"][0], "shot-1");
+    assert_eq!(body["events"][1]["payload"]["file_ids"][0], "shot-1");
     assert_eq!(body["events"][3]["event_type"], "plugin.future_event");
     assert_eq!(body["events"][3]["payload"]["detail"], "keep this");
 }
@@ -400,7 +400,7 @@ async fn deleting_connections_and_credentials_revokes_their_grants() {
     }
 }
 
-/// Artifact retention: every class starts at "keep for ever",
+/// File retention: every class starts at "keep for ever",
 /// the user sets a window per class, and an unknown class is a 404.
 #[tokio::test]
 async fn retention_policies_read_back_and_accept_a_window_per_class() {
@@ -422,7 +422,7 @@ async fn retention_policies_read_back_and_accept_a_window_per_class() {
             .iter()
             .map(|item| item["kind"].as_str().unwrap())
             .collect::<Vec<_>>(),
-        vec!["screenshot", "call_recording", "call_transcript", "file"]
+        vec!["screenshot", "call_recording", "call_transcript", "other"]
     );
     assert!(
         items.iter().all(|item| item["retain_days"].is_null()),
@@ -467,7 +467,7 @@ async fn retention_policies_read_back_and_accept_a_window_per_class() {
 
     let zero = client
         .put(format!(
-            "{}/api/v1/settings/retention/file",
+            "{}/api/v1/settings/retention/other",
             daemon.base_url
         ))
         .header("cookie", daemon.cookie())

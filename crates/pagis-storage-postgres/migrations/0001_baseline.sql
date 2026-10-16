@@ -165,7 +165,7 @@ CREATE INDEX idx_events_workspace_created ON events (workspace_id, created_at);
 -- receives the events of its own tenant and no other.
 CREATE INDEX idx_events_workspace_seq ON events (workspace_id, seq);
 
-CREATE TABLE artifacts (
+CREATE TABLE files (
     id TEXT COLLATE "C" PRIMARY KEY,
     workspace_id TEXT COLLATE "C" NOT NULL REFERENCES workspaces (id),
     creator_agent_id TEXT COLLATE "C" REFERENCES agents (id),
@@ -176,12 +176,12 @@ CREATE TABLE artifacts (
     sha256 TEXT COLLATE "C" NOT NULL,
     storage_key TEXT COLLATE "C" NOT NULL,
     created_at BIGINT NOT NULL,
-    -- One retention workflow for every artifact class. The class
+    -- One retention workflow for every file class. The class
     -- is a stored column, because the sweep must not guess a class from
     -- a filename.
-    kind TEXT COLLATE "C" NOT NULL DEFAULT 'file'
+    kind TEXT COLLATE "C" NOT NULL DEFAULT 'other'
 );
-CREATE UNIQUE INDEX idx_artifacts_dedup ON artifacts (workspace_id, sha256);
+CREATE UNIQUE INDEX idx_files_dedup ON files (workspace_id, sha256);
 
 CREATE TABLE model_aliases (
     id TEXT COLLATE "C" PRIMARY KEY,
@@ -538,7 +538,7 @@ CREATE TABLE calls (
     ringing_at BIGINT,
     answered_at BIGINT,
     ended_at BIGINT,
-    recording_artifact_id TEXT COLLATE "C" REFERENCES artifacts (id),
+    recording_file_id TEXT COLLATE "C" REFERENCES files (id),
     -- The call brief: who called (the Agent and its own line), what the
     -- call was for, and which tools the call could use. The number
     -- record is a tombstone after a release, so own_e164 must live here.
@@ -553,12 +553,12 @@ CREATE TABLE calls (
 CREATE INDEX idx_calls_workspace ON calls (workspace_id, created_at);
 CREATE INDEX idx_calls_number ON calls (phone_number_id, state);
 CREATE INDEX idx_calls_run ON calls (run_id);
-CREATE INDEX idx_artifacts_retention ON artifacts (workspace_id, kind, created_at);
+CREATE INDEX idx_files_retention ON files (workspace_id, kind, created_at);
 
-CREATE TABLE artifact_retention_policies (
+CREATE TABLE file_retention_policies (
     workspace_id TEXT COLLATE "C" NOT NULL REFERENCES workspaces (id),
     kind TEXT COLLATE "C" NOT NULL CHECK (
-        kind IN ('screenshot', 'call_recording', 'call_transcript', 'file')
+        kind IN ('screenshot', 'call_recording', 'call_transcript', 'other')
     ),
     retain_days BIGINT NOT NULL CHECK (retain_days > 0),
     updated_at BIGINT NOT NULL,
@@ -824,8 +824,8 @@ CREATE TABLE text_records (
     tier TEXT COLLATE "C" NOT NULL CHECK (tier IN ('owner', 'trusted', 'unknown')),
     body TEXT COLLATE "C" NOT NULL,
     segments BIGINT NOT NULL,
-    -- The MMS media, as a JSON array of Artifact ids.
-    media_artifact_ids TEXT COLLATE "C" NOT NULL DEFAULT '[]',
+    -- The MMS media, as a JSON array of File ids.
+    media_file_ids TEXT COLLATE "C" NOT NULL DEFAULT '[]',
     carrier_message_id TEXT COLLATE "C" NOT NULL,
     -- The Run, the Channel and the Thread of an outbound text, as the
     -- sent_mail row holds them for a mail.

@@ -1,7 +1,7 @@
 //! The Contributions of a Workspace (ADR-0016).
 //!
 //! A record opens once and closes once. The patch is text in the row,
-//! not an Artifact: the author reads it as a message, and the record
+//! not a File: the author reads it as a message, and the record
 //! is what the desk shows later.
 
 use async_trait::async_trait;

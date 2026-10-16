@@ -270,7 +270,7 @@ export function summariseResult(completed: RunEventDto | null): string {
     const error = typeof payload.error === 'string' ? payload.error : 'no reason given'
     return clamp(`Failed: ${error}`)
   }
-  const shots = Array.isArray(payload.artifact_ids) ? payload.artifact_ids.length : 0
+  const shots = Array.isArray(payload.file_ids) ? payload.file_ids.length : 0
   if (shots === 1) return 'Done, with 1 screenshot'
   if (shots > 1) return `Done, with ${shots} screenshots`
   return 'Done'

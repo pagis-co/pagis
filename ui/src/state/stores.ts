@@ -417,7 +417,7 @@ export const useWidgetTeardowns = create<WidgetTeardownState>((set) => ({
 }))
 
 /** The screenshot the Desk panel shows. A step of the work
- *  record carries the Artifact of a screen it took; the tile asks the
+ *  record carries the File of a screen it took; the tile asks the
  *  panel to scroll to that screenshot. The panel owns the scrolling,
  *  so the store holds only the wish. */
 export interface DeskFocusState {

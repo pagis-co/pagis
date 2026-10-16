@@ -227,7 +227,7 @@ async fn a_foreign_job_id_is_rejected() {
 async fn a_video_uri_outside_the_provider_host_is_rejected() {
     let server = MockServer::start().await;
     let operation = "models/concrete-model/operations/op9";
-    // The completed operation points its artifact at a foreign host; the
+    // The completed operation points its file at a foreign host; the
     // fetch would carry the API key, so the router must refuse.
     Mock::given(method("GET"))
         .and(path(format!("/{operation}")))

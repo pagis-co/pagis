@@ -391,10 +391,10 @@ async fn a_thread_speaks_the_markdown_block_in_the_agent_voice_and_stores_nothin
         ]
     );
 
-    // Nothing spoken is stored: no artifact, no blob, no event, and
+    // Nothing spoken is stored: no file, no blob, no event, and
     // the message is the same record it was.
-    assert_eq!(desk.count("SELECT COUNT(*) FROM artifacts").await, 0);
-    let blob_dir = desk.daemon.booted.home.join("artifacts");
+    assert_eq!(desk.count("SELECT COUNT(*) FROM files").await, 0);
+    let blob_dir = desk.daemon.booted.home.join("files");
     let blobs = std::fs::read_dir(&blob_dir)
         .map(|entries| entries.count())
         .unwrap_or(0);

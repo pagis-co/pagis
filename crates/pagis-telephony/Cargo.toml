@@ -15,7 +15,7 @@ bytes.workspace = true
 # Twilio writes RFC 2822 in an answer and reads ISO-8601 in a filter.
 chrono.workspace = true
 hound.workspace = true
-# The call tool's transcript is an ordinary Artifact (ADR-0020).
+# The call tool's transcript is an ordinary File (ADR-0020).
 object_store.workspace = true
 llm-router.workspace = true
 pagis-broker.workspace = true

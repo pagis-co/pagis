@@ -178,7 +178,7 @@ async fn every_block_variant_survives_the_store_and_the_timeline() {
 async fn a_user_send_projects_its_blocks_into_text_content() {
     let daemon = TestDaemon::start().await;
     let upload = reqwest::Client::new()
-        .post(format!("{}/api/v1/artifacts", daemon.base_url))
+        .post(format!("{}/api/v1/files", daemon.base_url))
         .header("cookie", daemon.cookie())
         .multipart(
             reqwest::multipart::Form::new().part(
@@ -192,7 +192,7 @@ async fn a_user_send_projects_its_blocks_into_text_content() {
         .send()
         .await
         .unwrap();
-    let artifact: serde_json::Value = upload.json().await.unwrap();
+    let file: serde_json::Value = upload.json().await.unwrap();
 
     let sent: serde_json::Value = reqwest::Client::new()
         .post(format!(
@@ -203,7 +203,7 @@ async fn a_user_send_projects_its_blocks_into_text_content() {
         .json(&serde_json::json!({
             "pending_id": "p1",
             "text": "Keep this.",
-            "artifact_ids": [artifact["id"]],
+            "file_ids": [file["id"]],
         }))
         .send()
         .await
