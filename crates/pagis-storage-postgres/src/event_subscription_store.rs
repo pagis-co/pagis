@@ -305,6 +305,23 @@ impl EventSubscriptionStore for PostgresEventSubscriptionStore {
         rows.iter().map(row_to_subscription).collect()
     }
 
+    async fn system_for_source(
+        &self,
+        workspace_id: &WorkspaceId,
+        agent: &AgentId,
+        source: &EventSource,
+        event_kind: &str,
+        name: &str,
+    ) -> Result<Option<EventSubscription>, StoreError> {
+        let (column, source_id) = source_column(source);
+        let row = sqlx::query(&format!(
+            "SELECT {SUBSCRIPTION_COLUMNS} FROM event_subscriptions WHERE {column} = $1 AND workspace_id = $2 AND event_kind = $3 AND agent_id = $4 AND name = $5 AND created_by_kind = 'system' AND state = 'active' AND approved_revision = revision ORDER BY id LIMIT 1"
+        ))
+        .bind(source_id).bind(workspace_id.as_str()).bind(event_kind).bind(agent.as_str())
+        .bind(name)
+        .fetch_optional(&self.pool).await.map_err(db_err)?;
+        row.as_ref().map(row_to_subscription).transpose()
+    }
     async fn list_for_source(
         &self,
         workspace_id: &WorkspaceId,

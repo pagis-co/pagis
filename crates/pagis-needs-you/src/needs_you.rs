@@ -96,6 +96,16 @@ pub struct NeedsYouFailed {
     pub failure_kind: Option<FailureKind>,
 }
 
+/// One Workspace Mailbox message that needs the Person.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct NeedsYouMail {
+    pub id: String,
+    pub line: String,
+    pub url: String,
+    pub at: i64,
+    pub message_id: String,
+}
+
 /// One item of the Needs-You Queue. The variants are in the order of
 /// the queue: a decision first, then a question, then the keypad delay,
 /// then a missed Call, then a failure.
@@ -107,6 +117,7 @@ pub enum NeedsYouItem {
     Keypad(NeedsYouKeypad),
     Call(NeedsYouCall),
     Failed(NeedsYouFailed),
+    Mail(NeedsYouMail),
 }
 
 /// The Needs-You Queue of one Workspace.
@@ -126,6 +137,7 @@ impl NeedsYouItem {
             Self::Keypad(_) => 2,
             Self::Call(_) => 3,
             Self::Failed(_) => 4,
+            Self::Mail(_) => 5,
         }
     }
 
@@ -137,6 +149,7 @@ impl NeedsYouItem {
             Self::Keypad(item) => &item.id,
             Self::Call(item) => &item.id,
             Self::Failed(item) => &item.id,
+            Self::Mail(item) => &item.id,
         }
     }
 
@@ -148,6 +161,7 @@ impl NeedsYouItem {
             Self::Keypad(_) => "keypad",
             Self::Call(_) => "call",
             Self::Failed(_) => "failed",
+            Self::Mail(_) => "mail",
         }
     }
 
@@ -156,7 +170,7 @@ impl NeedsYouItem {
         match self {
             Self::Approval(item) => Some(&item.agent_id),
             Self::Waiting(item) => Some(&item.agent_id),
-            Self::Keypad(_) => None,
+            Self::Keypad(_) | Self::Mail(_) => None,
             Self::Call(item) => Some(&item.agent_id),
             Self::Failed(item) => Some(&item.agent_id),
         }
@@ -170,6 +184,7 @@ impl NeedsYouItem {
             Self::Keypad(item) => &item.line,
             Self::Call(item) => &item.line,
             Self::Failed(item) => &item.line,
+            Self::Mail(item) => &item.line,
         }
     }
 
@@ -181,6 +196,7 @@ impl NeedsYouItem {
             Self::Keypad(item) => &item.url,
             Self::Call(item) => &item.url,
             Self::Failed(item) => &item.url,
+            Self::Mail(item) => &item.url,
         }
     }
 
@@ -191,6 +207,7 @@ impl NeedsYouItem {
             Self::Keypad(item) => item.at,
             Self::Call(item) => item.at,
             Self::Failed(item) => item.at,
+            Self::Mail(item) => item.at,
         }
     }
 }
@@ -201,6 +218,8 @@ const PAGE: u32 = 100;
 /// The reader of the Needs-You Queue. It holds the stores of every
 /// source and derives the queue of one Workspace on each call.
 pub struct NeedsYou {
+    mailboxes: Arc<dyn pagis_core::WorkspaceMailboxRecordStore>,
+    triggers: Arc<dyn pagis_core::TriggerStore>,
     requests: Arc<dyn RequestStore>,
     runs: Arc<dyn RunStore>,
     calls: Arc<dyn CallStore>,
@@ -213,6 +232,8 @@ pub struct NeedsYou {
 impl NeedsYou {
     pub fn new(stores: &Stores) -> Self {
         Self {
+            mailboxes: stores.workspace_mailboxes.clone(),
+            triggers: stores.triggers.clone(),
             requests: Arc::clone(&stores.requests),
             runs: Arc::clone(&stores.runs),
             calls: Arc::clone(&stores.calls),
@@ -268,7 +289,27 @@ impl NeedsYou {
         now: UnixMillis,
     ) -> Result<NeedsYouQueue, StoreError> {
         let records = self.read(workspace_id, now).await?;
-        Ok(queue(&records, now))
+        let mut result = queue(&records, now);
+        if self.is_private(workspace_id).await {
+            for (key, triage) in self
+                .mailboxes
+                .open_needs_you(workspace_id, None, PAGE)
+                .await?
+            {
+                let mut url = url::Url::parse("https://pagis.invalid/mail").expect("static URL");
+                url.query_pairs_mut()
+                    .append_pair("message", &triage.message_id);
+                result.items.push(NeedsYouItem::Mail(NeedsYouMail {
+                    id: format!("mail:{key}"),
+                    line: triage.note,
+                    url: format!("/mail?{}", url.query().unwrap()),
+                    at: triage.recorded_at,
+                    message_id: triage.message_id,
+                }));
+            }
+        }
+        result.count = result.items.len();
+        Ok(result)
     }
 
     pub(crate) async fn is_private(&self, workspace_id: &WorkspaceId) -> bool {
@@ -321,6 +362,28 @@ impl NeedsYou {
                 runs.push(run);
             }
         }
+        let mut visible_runs = Vec::new();
+        for run in runs {
+            let triage_run = if run.trigger_kind == pagis_core::TriggerKind::Event
+                && let Some(reference) = &run.trigger_ref
+            {
+                self.triggers
+                    .event_context(workspace_id, &pagis_core::WakeupId::from(reference.clone()))
+                    .await?
+                    .is_some_and(|context| {
+                        context
+                            .events
+                            .iter()
+                            .any(|event| event.metadata["triage_key"].is_string())
+                    })
+            } else {
+                false
+            };
+            if !triage_run || run.state != RunState::Failed {
+                visible_runs.push(run);
+            }
+        }
+        let runs = visible_runs;
         let calls = self
             .ended_inbound_calls(workspace_id, &today, &timezone)
             .await?;
@@ -609,10 +672,11 @@ pub const NEEDS_YOU_REMOVED: &str = "needs_you.removed";
 /// every other event, and so it ignores its own `needs_you.*` events.
 /// A cancel or a recovery expires the pending Requests of a Run, and a
 /// `run.state_changed` follows.
-pub(crate) const QUEUE_EVENTS: [&str; 12] = [
+pub(crate) const QUEUE_EVENTS: [&str; 13] = [
     "workspace.member_added",
     "workspace.member_changed",
     "workspace.member_removed",
+    "workspace_mail.triaged",
     "request.created",
     "request.decided",
     "request.superseded",

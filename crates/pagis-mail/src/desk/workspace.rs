@@ -69,6 +69,56 @@ impl MailboxDesk {
         Ok(())
     }
 
+    pub async fn record_triage(
+        &self,
+        workspace: &WorkspaceId,
+        message: &str,
+        triage: &pagis_core::MailTriage,
+    ) -> Result<(), MailboxError> {
+        self.workspace_mailboxes
+            .record_triage(workspace, message, triage)
+            .await?;
+        self.bus
+            .publish(NewEvent {
+                workspace_id: workspace.clone(),
+                event_type: "workspace_mail.triaged".into(),
+                agent_id: match &triage.author {
+                    pagis_core::Author::Agent(id) => Some(id.clone()),
+                    _ => None,
+                },
+                run_id: None,
+                channel_id: None,
+                payload: serde_json::json!({"message_id": message, "outcome":triage.outcome}),
+            })
+            .await?;
+        Ok(())
+    }
+
+    pub async fn resolve_triage(
+        &self,
+        workspace: &WorkspaceId,
+        key: &str,
+    ) -> Result<(), MailboxError> {
+        let at = now_ms();
+        if self
+            .workspace_mailboxes
+            .resolve_triage(workspace, key, at)
+            .await?
+        {
+            self.bus
+                .publish(NewEvent {
+                    workspace_id: workspace.clone(),
+                    event_type: "workspace_mail.triaged".into(),
+                    agent_id: None,
+                    run_id: None,
+                    channel_id: None,
+                    payload: serde_json::json!({"message_id": key, "resolved_at": at}),
+                })
+                .await?;
+        }
+        Ok(())
+    }
+
     /// A Workspace Mailbox message reads through the Workspace mail host,
     /// and an Agent Mailbox message through the Embedder's `Mailboxes`.
     pub async fn read_quarantine(
@@ -242,6 +292,10 @@ impl MailboxDesk {
                 context,
                 self.workspace_mailboxes.as_ref(),
             )
+            .await?;
+        let head = store.folder_state("INBOX").await?.cursor_here();
+        self.workspace_mailboxes
+            .set_triage_cursor(workspace, &head)
             .await?;
         let _ = store.close().await;
         self.bus

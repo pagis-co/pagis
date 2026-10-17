@@ -12917,6 +12917,21 @@
         "operationId": "list_workspace_mail_messages",
         "parameters": [
           {
+            "name": "view",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/components/schemas/WorkspaceMailView"
+                }
+              ]
+            }
+          },
+          {
             "name": "folder",
             "in": "query",
             "required": false,
@@ -13261,6 +13276,40 @@
           }
         },
         "x-workspace-role": "reader"
+      }
+    },
+    "/api/v1/workspace/mail/messages/{message_id}/done": {
+      "post": {
+        "tags": [
+          "workspace_mail"
+        ],
+        "operationId": "done_workspace_mail",
+        "parameters": [
+          {
+            "name": "message_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "x-workspace-role": "responder"
       }
     },
     "/api/v1/workspace/mail/messages/{message_id}/forward": {
@@ -13935,6 +13984,95 @@
             }
           },
           "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "x-workspace-role": "manager"
+      }
+    },
+    "/api/v1/workspace/mailbox/triage-rules": {
+      "get": {
+        "tags": [
+          "workspace_mail"
+        ],
+        "operationId": "list_mail_triage_rules",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MailTriageRule"
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "x-workspace-role": "manager"
+      },
+      "put": {
+        "tags": [
+          "workspace_mail"
+        ],
+        "operationId": "replace_mail_triage_rules",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/MailTriageRule"
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MailTriageRule"
+                  }
+                }
+              }
+            }
+          },
+          "403": {
             "description": "",
             "content": {
               "application/json": {
@@ -19968,6 +20106,84 @@
           "move_to_junk"
         ]
       },
+      "MailTriage": {
+        "type": "object",
+        "description": "The one Mail Triage outcome of a message.",
+        "required": [
+          "outcome",
+          "note",
+          "author",
+          "recorded_at",
+          "message_id"
+        ],
+        "properties": {
+          "assignee": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "author": {
+            "$ref": "#/components/schemas/Author"
+          },
+          "message_id": {
+            "type": "string",
+            "description": "The host id opens the message from the Needs-You Queue."
+          },
+          "note": {
+            "type": "string"
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/MailTriageOutcome"
+          },
+          "recorded_at": {
+            "$ref": "#/components/schemas/i64"
+          },
+          "resolved_at": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/i64"
+              }
+            ]
+          }
+        }
+      },
+      "MailTriageAction": {
+        "type": "string",
+        "enum": [
+          "needs_you",
+          "agent"
+        ]
+      },
+      "MailTriageOutcome": {
+        "type": "string",
+        "enum": [
+          "handled",
+          "replied",
+          "assigned",
+          "needs_you"
+        ]
+      },
+      "MailTriageRule": {
+        "type": "object",
+        "description": "Rules match in list order, without case or subdomain matching.",
+        "required": [
+          "sender",
+          "action"
+        ],
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/MailTriageAction"
+          },
+          "sender": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
       "MailVisibility": {
         "type": "string",
         "enum": [
@@ -21395,6 +21611,27 @@
                 }
               }
             ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NeedsYouMail"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "mail"
+                    ]
+                  }
+                }
+              }
+            ]
           }
         ],
         "description": "One item of the Needs-You Queue. The variants are in the order of\nthe queue: a decision first, then a question, then the keypad delay,\nthen a missed Call, then a failure."
@@ -21431,6 +21668,35 @@
             "type": "integer",
             "format": "int64",
             "description": "The end of the latest delay."
+          },
+          "url": {
+            "type": "string"
+          }
+        }
+      },
+      "NeedsYouMail": {
+        "type": "object",
+        "description": "One Workspace Mailbox message that needs the Person.",
+        "required": [
+          "id",
+          "line",
+          "url",
+          "at",
+          "message_id"
+        ],
+        "properties": {
+          "at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "id": {
+            "type": "string"
+          },
+          "line": {
+            "type": "string"
+          },
+          "message_id": {
+            "type": "string"
           },
           "url": {
             "type": "string"
@@ -27126,6 +27392,16 @@
               "type": "string"
             }
           },
+          "triage": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/MailTriage"
+              }
+            ]
+          },
           "trust_tier": {
             "type": "string"
           }
@@ -27144,6 +27420,13 @@
             }
           }
         }
+      },
+      "WorkspaceMailView": {
+        "type": "string",
+        "enum": [
+          "all",
+          "needs_you"
+        ]
       },
       "WorkspaceMailboxDto": {
         "type": "object",

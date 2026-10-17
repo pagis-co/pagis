@@ -4821,6 +4821,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+ "url",
  "utoipa",
  "wasm-bindgen-test",
 ]

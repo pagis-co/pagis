@@ -2057,6 +2057,7 @@ async fn every_workspace_mail_message_route_checks_visibility() {
                 ("delete", "" | "/labels/{label}") => (Value::Null, StatusCode::NO_CONTENT),
                 ("post", "/move") => (json!({"name":"Records"}), StatusCode::NO_CONTENT),
                 ("post", "/labels") => (json!({"name":"Accounts"}), StatusCode::NO_CONTENT),
+                ("post", "/done") => (Value::Null, StatusCode::NO_CONTENT),
                 ("post", "/spam") => (json!({"spam":false}), StatusCode::NO_CONTENT),
                 // Plain mail carries no invitation, so a visible message
                 // answers with the invitation's own 404 body.
@@ -2088,10 +2089,18 @@ async fn every_workspace_mail_message_route_checks_visibility() {
                         embedder
                             .stores
                             .workspace_mailboxes
-                            .escalate(
+                            .record_triage(
                                 &shared.id,
                                 message.message.summary.assessment_key(),
-                                shared.chief_of_staff_agent_id.as_ref().unwrap(),
+                                &pagis_core::MailTriage {
+                                    outcome: pagis_core::MailTriageOutcome::NeedsYou,
+                                    note: "Please decide.".into(),
+                                    author: pagis_core::Author::System,
+                                    assignee: None,
+                                    recorded_at: pagis_core::now_ms(),
+                                    resolved_at: None,
+                                    message_id: id.to_string(),
+                                },
                             )
                             .await
                             .unwrap();
@@ -2150,4 +2159,174 @@ async fn every_workspace_mail_message_route_checks_visibility() {
             }
         }
     }
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+async fn workspace_mail_open_pages_and_person_actions_resolve_needs_you() {
+    use pagis_mail::WorkspaceMailReader;
+    let host = std::sync::Arc::new(pagis_mail::fake::MemoryWorkspaceMailHost::default());
+    let e = Embedder::with_workspace_mail(host.clone()).await;
+    let connection = provider(&e).await;
+    assert_eq!(
+        response(
+            &e,
+            "POST",
+            "/api/v1/workspace/mailbox",
+            json!({"connection_id": connection, "local_part": "reader"})
+        )
+        .await
+        .0,
+        StatusCode::CREATED
+    );
+    let mut mail = host.store(&e.workspace).unwrap();
+    let root = "/api/v1/workspace/mail/messages";
+    assert_eq!(
+        response(
+            &e,
+            "POST",
+            "/api/v1/workspace/mail/folders",
+            json!({"name":"Records"})
+        )
+        .await
+        .0,
+        StatusCode::NO_CONTENT
+    );
+    for (index, action) in ["done", "reply", "forward", "move", "delete"]
+        .into_iter()
+        .enumerate()
+    {
+        let id = mail.deliver("sender@example.com", action, "Body");
+        let summary = mail.message(&id).await.unwrap().message.summary;
+        e.stores
+            .workspace_mailboxes
+            .record_triage(
+                &e.workspace,
+                summary.assessment_key(),
+                &pagis_core::MailTriage {
+                    outcome: pagis_core::MailTriageOutcome::NeedsYou,
+                    note: "Please decide.".into(),
+                    author: Author::System,
+                    assignee: None,
+                    recorded_at: index as i64,
+                    resolved_at: None,
+                    message_id: id.to_string(),
+                },
+            )
+            .await
+            .unwrap();
+        // More than one host page separates the outcome from the INBOX head.
+        for _ in 0..55 {
+            mail.deliver("sender@example.com", "Other mail", "Body");
+        }
+        let (status, page) =
+            response(&e, "GET", &format!("{root}?view=needs_you"), Value::Null).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(page["items"][0]["id"], id.as_str());
+        let (method, path, body) = match action {
+            "delete" => ("DELETE", format!("{root}/{id}"), Value::Null),
+            "move" => (
+                "POST",
+                format!("{root}/{id}/move"),
+                json!({"name":"Records"}),
+            ),
+            "reply" | "forward" => (
+                "POST",
+                format!("{root}/{id}/{action}"),
+                json!({"to":["sender@example.com"],"body":"Answer"}),
+            ),
+            _ => ("POST", format!("{root}/{id}/done"), Value::Null),
+        };
+        let result = response(&e, method, &path, body).await;
+        assert!(result.0.is_success(), "{action}: {result:?}");
+        assert!(
+            e.stores
+                .workspace_mailboxes
+                .triage(&e.workspace, summary.assessment_key())
+                .await
+                .unwrap()
+                .unwrap()
+                .resolved_at
+                .is_some()
+        );
+        let (_, page) = response(&e, "GET", &format!("{root}?view=needs_you"), Value::Null).await;
+        assert_eq!(page["items"], json!([]));
+        let events = e
+            .routers
+            .state
+            .events
+            .list_after(Some(&e.workspace), 0, 200)
+            .await
+            .unwrap();
+        assert!(
+            events
+                .iter()
+                .any(|event| event.event_type == "workspace_mail.triaged"
+                    && event.payload["message_id"] == summary.assessment_key()
+                    && event.payload["resolved_at"].is_i64())
+        );
+        let queue = pagis_needs_you::NeedsYou::new(&e.stores)
+            .derive(&e.workspace, now_ms())
+            .await
+            .unwrap();
+        assert!(
+            !queue
+                .items
+                .iter()
+                .any(|item| matches!(item, pagis_needs_you::NeedsYouItem::Mail(_)))
+        );
+    }
+    for index in 0..58 {
+        let id = mail.deliver("sender@example.com", "Open mail", "Body");
+        let summary = mail.message(&id).await.unwrap().message.summary;
+        let host_id = if index == 57 { "missing" } else { id.as_str() };
+        e.stores
+            .workspace_mailboxes
+            .record_triage(
+                &e.workspace,
+                summary.assessment_key(),
+                &pagis_core::MailTriage {
+                    outcome: pagis_core::MailTriageOutcome::NeedsYou,
+                    note: "Please decide.".into(),
+                    author: Author::System,
+                    assignee: None,
+                    recorded_at: index,
+                    resolved_at: None,
+                    message_id: host_id.into(),
+                },
+            )
+            .await
+            .unwrap();
+        if index == 56 {
+            e.stores
+                .junk
+                .observe(&pagis_core::JunkMessage {
+                    workspace_id: e.workspace.clone(),
+                    mailbox: "reader@example.com".into(),
+                    message_key: summary.assessment_key().into(),
+                    host_id: id.to_string(),
+                    from: summary.from,
+                    subject: summary.subject,
+                    reasons: vec!["CLAM_VIRUS".into()],
+                    person_mark: None,
+                    quarantined: true,
+                    released: false,
+                })
+                .await
+                .unwrap();
+        }
+    }
+    let (_, first) = response(&e, "GET", &format!("{root}?view=needs_you"), Value::Null).await;
+    assert_eq!(first["items"].as_array().unwrap().len(), 48);
+    let cursor: String =
+        url::form_urlencoded::byte_serialize(first["next"].as_str().unwrap().as_bytes()).collect();
+    let (_, second) = response(
+        &e,
+        "GET",
+        &format!("{root}?view=needs_you&cursor={cursor}"),
+        Value::Null,
+    )
+    .await;
+    assert_eq!(second["items"].as_array().unwrap().len(), 8);
+    assert!(second["next"].is_null());
 }

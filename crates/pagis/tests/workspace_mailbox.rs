@@ -1028,7 +1028,7 @@ async fn shared_workspace_mail_visibility_limits_reads_and_audits_searches() {
 }
 
 #[tokio::test]
-async fn shared_workspace_mail_escalation_opens_only_one_message_and_limits_apply_live() {
+async fn shared_workspace_mail_needs_you_opens_only_one_message_and_limits_apply_live() {
     let app = MailboxApp::start().await;
     let (_, shared) = app
         .post(
@@ -1085,8 +1085,8 @@ async fn shared_workspace_mail_escalation_opens_only_one_message_and_limits_appl
     .await;
     app.brain.push(Script::tool_call(
         &[],
-        "workspace_mail_escalate",
-        json!({"message_id":id}),
+        "workspace_mail_triage",
+        json!({"message_id":id,"outcome":"needs_you","note":"Please decide."}),
     ));
     app.brain.push(Script::reply(&["This message needs you."]));
     assert_eq!(
@@ -1650,5 +1650,278 @@ async fn quarantine_blocks_every_product_read_and_release_is_audited() {
             .unwrap()
             .iter()
             .any(|item| item["action"] == "mail.quarantine_released")
+    );
+}
+
+impl MailboxApp {
+    async fn triage_poll(&self) {
+        pagis::mail_triage::MailTriagePoll::new(
+            self.daemon.stores().clone(),
+            self.daemon.state.mailbox_desk.clone(),
+            self.daemon.state.trigger.clone(),
+            self.daemon.state.person_activity.clone(),
+            self.daemon.state.clock.clone(),
+        )
+        .poll_workspace(&self.daemon.workspace_id)
+        .await
+        .unwrap();
+    }
+
+    async fn wait_triage(&self, id: &str) -> Value {
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let message = self
+                    .get(&format!("/api/v1/workspace/mail/messages/{id}"))
+                    .await;
+                if !message["triage"].is_null() {
+                    break message;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .unwrap()
+    }
+
+    async fn rules(&self, rules: Value) {
+        assert_eq!(
+            self.request(
+                reqwest::Method::PUT,
+                "/api/v1/workspace/mailbox/triage-rules",
+                Some(rules)
+            )
+            .await
+            .0,
+            200
+        );
+    }
+}
+
+#[tokio::test]
+async fn chief_reads_mail_first_and_records_handled_without_a_needs_you_item() {
+    let app = MailboxApp::with_mailbox().await;
+    let id = app
+        .transport
+        .deliver("sender@example.com", "Receipt", "No action is needed.");
+    app.brain.push(Script::tool_call_as(
+        "read-mail",
+        &[],
+        "workspace_mail_get_message",
+        json!({"message_id":id.to_string()}),
+    ));
+    app.brain.push(Script::tool_call_as(
+        "triage-mail",
+        &[],
+        "workspace_mail_triage",
+        json!({"message_id":id.to_string(),"outcome":"handled","note":"Read the receipt."}),
+    ));
+    app.brain.push(Script::reply(&["Done."]));
+    app.triage_poll().await;
+    let message = app.wait_triage(id.as_str()).await;
+    assert_eq!(message["triage"]["outcome"], "handled");
+    assert_eq!(message["triage"]["note"], "Read the receipt.");
+    assert!(
+        app.get("/api/v1/needs-you").await["items"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn chief_needs_you_outcome_makes_exactly_one_queue_item() {
+    let app = MailboxApp::with_mailbox().await;
+    let id = app
+        .transport
+        .deliver("sender@example.com", "Decision", "Please decide.");
+    app.brain.push(Script::tool_call(
+        &[],
+        "workspace_mail_triage",
+        json!({"message_id":id.to_string(),"outcome":"needs_you","note":"Please decide."}),
+    ));
+    app.brain.push(Script::reply(&["Done."]));
+    app.triage_poll().await;
+    app.wait_triage(id.as_str()).await;
+    app.triage_poll().await;
+    let queue = app.get("/api/v1/needs-you").await;
+    assert_eq!(queue["items"].as_array().unwrap().len(), 1);
+    assert!(queue["items"][0]["url"].as_str().unwrap().contains("mail"));
+    assert_eq!(
+        app.request(
+            reqwest::Method::POST,
+            &format!("/api/v1/workspace/mail/messages/{id}/done"),
+            None
+        )
+        .await
+        .0,
+        204
+    );
+    assert!(
+        app.get("/api/v1/needs-you").await["items"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    let message = app
+        .get(&format!("/api/v1/workspace/mail/messages/{id}"))
+        .await;
+    assert!(message["triage"]["resolved_at"].is_i64());
+}
+
+#[tokio::test]
+async fn needs_you_rule_has_no_run_and_first_match_wins() {
+    let app = MailboxApp::with_mailbox().await;
+    app.rules(json!([
+        {"sender":"sender@example.com","action":"needs_you"},
+        {"sender":"example.com","action":"agent"}
+    ]))
+    .await;
+    let id = app
+        .transport
+        .deliver("SENDER@EXAMPLE.COM", "Decision", "Please decide.");
+    app.triage_poll().await;
+    let message = app.wait_triage(id.as_str()).await;
+    assert_eq!(message["triage"]["outcome"], "needs_you");
+    assert!(
+        message["triage"]["note"]
+            .as_str()
+            .unwrap()
+            .contains("sender@example.com")
+    );
+    assert!(
+        app.get("/api/v1/runs").await["items"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        app.get("/api/v1/workspace/mail/messages?view=needs_you")
+            .await["items"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn active_person_gets_mail_unless_delegate_everything_or_an_agent_rule_applies() {
+    for (delegate, rule) in [(false, false), (true, false), (false, true)] {
+        let app = MailboxApp::with_mailbox().await;
+        app.daemon
+            .state
+            .person_activity
+            .record(&app.daemon.user_id, app.daemon.state.clock.now_ms());
+        if delegate {
+            assert_eq!(
+                app.request(
+                    reqwest::Method::PUT,
+                    "/api/v1/workspace/delegate-everything",
+                    Some(json!({"enabled":true}))
+                )
+                .await
+                .0,
+                200
+            );
+        }
+        if rule {
+            app.rules(json!([{"sender":"example.com","action":"agent"}]))
+                .await;
+        }
+        let id = app
+            .transport
+            .deliver("sender@example.com", "Receipt", "Receipt.");
+        if delegate || rule {
+            app.brain.push(Script::tool_call(
+                &[],
+                "workspace_mail_triage",
+                json!({"message_id":id.to_string(),"outcome":"handled","note":"Read the receipt."}),
+            ));
+            app.brain.push(Script::reply(&["Done."]));
+        }
+        app.triage_poll().await;
+        let message = app.wait_triage(id.as_str()).await;
+        assert_eq!(
+            message["triage"]["outcome"],
+            if delegate || rule {
+                "handled"
+            } else {
+                "needs_you"
+            }
+        );
+        if !delegate && !rule {
+            assert!(
+                app.get("/api/v1/runs").await["items"]
+                    .as_array()
+                    .unwrap()
+                    .is_empty()
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn chief_run_without_an_outcome_gets_a_system_needs_you_outcome() {
+    let app = MailboxApp::with_mailbox().await;
+    let id = app
+        .transport
+        .deliver("sender@example.com", "Decision", "Please decide.");
+    app.brain.push(Script::reply(&["I read the message."]));
+    app.triage_poll().await;
+    let message = app.wait_triage(id.as_str()).await;
+    assert_eq!(message["triage"]["outcome"], "needs_you");
+    assert_eq!(
+        message["triage"]["note"],
+        "The Chief of Staff recorded no outcome."
+    );
+}
+
+#[tokio::test]
+async fn junk_and_quarantine_have_no_mail_triage_in_score_only_mode() {
+    let app = MailboxApp::with_mailbox().await;
+    for header in [
+        "X-Spamd-Result: default: False [20 / 15]; SPAM(20)[]",
+        "X-Spamd-Result: default: False [20.0 / 15.0]; CLAM_VIRUS(20.0)[virus]",
+    ] {
+        app.transport.deliver_raw(format!("From: sender@example.com\r\nTo: person@example.com\r\nSubject: Junk\r\n{header}\r\n\r\nBad mail.").as_bytes());
+    }
+    app.triage_poll().await;
+    assert!(
+        app.daemon
+            .stores()
+            .workspace_mailboxes
+            .open_needs_you(&app.daemon.workspace_id, None, 100)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        app.get("/api/v1/runs").await["items"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn failed_chief_mail_run_has_one_system_needs_you_item() {
+    let app = MailboxApp::with_mailbox().await;
+    let id = app
+        .transport
+        .deliver("sender@example.com", "Decision", "Please decide.");
+    app.brain.push(Script::fail_after(&[], "The model failed."));
+    app.triage_poll().await;
+    let message = app.wait_triage(id.as_str()).await;
+    assert_eq!(message["triage"]["outcome"], "needs_you");
+    assert_eq!(
+        message["triage"]["note"],
+        "The Chief of Staff recorded no outcome."
+    );
+    assert_eq!(
+        app.get("/api/v1/needs-you").await["items"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
     );
 }

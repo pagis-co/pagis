@@ -313,7 +313,7 @@ impl World {
         }));
         let mail = Arc::new(pagis_mail::MailCollector::new(
             pagis_mail::MailCollectorDeps {
-                desk,
+                desk: desk.clone(),
                 sent: stores.sent_mail.clone(),
                 ingest: mail_ingest.clone(),
                 idle_turn: Duration::from_secs(60),
@@ -323,6 +323,13 @@ impl World {
             workspaces: stores.workspaces.clone(),
             bus,
             mail,
+            mail_triage: Arc::new(pagis::mail_triage::MailTriagePoll::new(
+                stores.clone(),
+                desk,
+                trigger.clone(),
+                Arc::new(pagis_needs_you::PersonActivity::new()),
+                Arc::new(pagis_core::SystemClock),
+            )),
             knowledge: worker.clone(),
             trigger,
             connections: connections.clone(),

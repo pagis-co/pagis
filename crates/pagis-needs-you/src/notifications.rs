@@ -113,7 +113,7 @@ pub fn options(item: &NeedsYouItem) -> Options {
         NeedsYouItem::Approval(_) | NeedsYouItem::Waiting(_) | NeedsYouItem::Keypad(_) => {
             Urgency::High
         }
-        NeedsYouItem::Call(_) | NeedsYouItem::Failed(_) => Urgency::Normal,
+        NeedsYouItem::Call(_) | NeedsYouItem::Failed(_) | NeedsYouItem::Mail(_) => Urgency::Normal,
     };
     Options {
         ttl: TTL,

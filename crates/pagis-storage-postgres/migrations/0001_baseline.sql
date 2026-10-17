@@ -1777,11 +1777,31 @@ CREATE TABLE agent_versions (
 );
 CREATE INDEX idx_agent_versions_agent ON agent_versions(workspace_id, agent_id, version DESC);
 
-CREATE TABLE workspace_mail_escalations (
+CREATE TABLE workspace_mail_triage (
     workspace_id TEXT COLLATE "C" NOT NULL REFERENCES workspace_mailboxes (workspace_id) ON DELETE CASCADE,
     message_id TEXT COLLATE "C" NOT NULL,
-    agent_id TEXT COLLATE "C" NOT NULL,
+    record TEXT COLLATE "C" NOT NULL,
     PRIMARY KEY (workspace_id, message_id)
+);
+CREATE INDEX workspace_mail_open_needs_you ON workspace_mail_triage
+    (workspace_id, ((record::jsonb->>'recorded_at')::bigint) DESC, message_id DESC)
+    WHERE record::jsonb->>'outcome' = 'needs_you' AND record::jsonb->>'resolved_at' IS NULL;
+CREATE TABLE workspace_mail_pending_triage (
+    workspace_id TEXT COLLATE "C" NOT NULL REFERENCES workspace_mailboxes(workspace_id) ON DELETE CASCADE,
+    message_key TEXT COLLATE "C" NOT NULL,
+    host_id TEXT COLLATE "C" NOT NULL,
+    wakeup_id TEXT COLLATE "C" NOT NULL,
+    PRIMARY KEY (workspace_id, message_key)
+);
+CREATE INDEX workspace_mail_pending_wakeup ON workspace_mail_pending_triage (workspace_id, wakeup_id);
+CREATE TABLE workspace_mail_triage_rules (
+    workspace_id TEXT COLLATE "C" PRIMARY KEY REFERENCES workspace_mailboxes (workspace_id) ON DELETE CASCADE,
+    rules TEXT COLLATE "C" NOT NULL
+);
+CREATE TABLE workspace_mail_triage_cursors (
+    workspace_id TEXT COLLATE "C" PRIMARY KEY REFERENCES workspace_mailboxes (workspace_id) ON DELETE CASCADE,
+    uid_validity BIGINT NOT NULL,
+    last_uid BIGINT NOT NULL
 );
 
 CREATE TABLE junk_policies (

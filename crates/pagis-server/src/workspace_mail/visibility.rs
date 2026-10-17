@@ -51,8 +51,9 @@ pub async fn can_read_workspace_mail(
         state
             .mailbox_desk
             .workspace_mailbox_records()
-            .is_escalated(&tenant.workspace_id, message.assessment_key())
+            .triage(&tenant.workspace_id, message.assessment_key())
             .await?
+            .is_some_and(|triage| triage.outcome == pagis_core::MailTriageOutcome::NeedsYou)
     } else {
         false
     };

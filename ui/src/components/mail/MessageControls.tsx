@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useCurrentWorkspaceId } from '../../workspace'
-import { workspaceMailKey } from '../../queries'
+import { needsYouKey, workspaceMailKey } from '../../queries'
 import type { ApiClient } from '../../api/client'
 import { Button, Input, Select } from '../../primitives'
 import {
@@ -13,11 +13,13 @@ export function MessageControls({
   api,
   id,
   labels,
+  needsYou = false,
   onMove,
 }: {
   api: ApiClient
   id: string
   labels: string[]
+  needsYou?: boolean
   onMove?: () => void
 }) {
   const workspace = useCurrentWorkspaceId()
@@ -29,12 +31,29 @@ export function MessageControls({
     await client.invalidateQueries({ queryKey: workspaceMailKey(workspace) })
     onMove?.()
   } })
+  const done = useMutation({
+    mutationFn: async () => {
+      const result = await api.POST('/api/v1/workspace/mail/messages/{message_id}/done', {
+        params: { path: { message_id: id } },
+      })
+      if (result.error) throw result.error
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        client.invalidateQueries({ queryKey: workspaceMailKey(workspace) }),
+        client.invalidateQueries({ queryKey: needsYouKey(workspace) }),
+      ])
+      onMove?.()
+    },
+  })
   const [label, setLabel] = useState('')
   const [folder, setFolder] = useState('')
   const folders = useWorkspaceMailFolders(api)
   const mutation = useOrganizeWorkspaceMail(api, id)
   return (
     <div className="mail-controls">
+      {needsYou && <Button disabled={done.isPending} onClick={() => done.mutate()}>Done</Button>}
+      {done.isError && <p role="alert">Could not mark the message as done. Try again.</p>}
       <Button
         disabled={mutation.isPending}
         onClick={() => mutation.mutate({ action: 'delete' }, { onSuccess: onMove })}

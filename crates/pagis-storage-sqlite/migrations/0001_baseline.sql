@@ -1629,11 +1629,31 @@ CREATE TABLE agent_versions (
 );
 CREATE INDEX idx_agent_versions_agent ON agent_versions(workspace_id, agent_id, version DESC);
 
-CREATE TABLE workspace_mail_escalations (
+CREATE TABLE workspace_mail_triage (
     workspace_id TEXT NOT NULL REFERENCES workspace_mailboxes (workspace_id) ON DELETE CASCADE,
     message_id TEXT NOT NULL,
-    agent_id TEXT NOT NULL,
+    record TEXT NOT NULL,
     PRIMARY KEY (workspace_id, message_id)
+);
+CREATE INDEX workspace_mail_open_needs_you ON workspace_mail_triage
+    (workspace_id, json_extract(record, '$.recorded_at') DESC, message_id DESC)
+    WHERE json_extract(record, '$.outcome') = 'needs_you' AND json_extract(record, '$.resolved_at') IS NULL;
+CREATE TABLE workspace_mail_pending_triage (
+    workspace_id TEXT NOT NULL REFERENCES workspace_mailboxes(workspace_id) ON DELETE CASCADE,
+    message_key TEXT NOT NULL,
+    host_id TEXT NOT NULL,
+    wakeup_id TEXT NOT NULL,
+    PRIMARY KEY (workspace_id, message_key)
+);
+CREATE INDEX workspace_mail_pending_wakeup ON workspace_mail_pending_triage (workspace_id, wakeup_id);
+CREATE TABLE workspace_mail_triage_rules (
+    workspace_id TEXT PRIMARY KEY REFERENCES workspace_mailboxes (workspace_id) ON DELETE CASCADE,
+    rules TEXT NOT NULL
+);
+CREATE TABLE workspace_mail_triage_cursors (
+    workspace_id TEXT PRIMARY KEY REFERENCES workspace_mailboxes (workspace_id) ON DELETE CASCADE,
+    uid_validity BIGINT NOT NULL,
+    last_uid BIGINT NOT NULL
 );
 
 CREATE TABLE junk_policies (

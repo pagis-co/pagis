@@ -161,7 +161,10 @@ pub use run_journal::{JournalCall, RunCheckpoint, RunJournal, RunJournalEntry};
 
 mod workspace_mailbox;
 pub use workspace_mailbox::reconcile_workspace_mailbox_grants;
-pub use workspace_mailbox::{MailScoringMode, WorkspaceMailbox, WorkspaceMailboxRecordStore};
+pub use workspace_mailbox::{
+    MailScoringMode, MailTriage, MailTriageAction, MailTriageOutcome, MailTriageRule,
+    PendingMailTriage, WorkspaceMailbox, WorkspaceMailboxRecordStore, validate_triage_rules,
+};
 
 mod workspace_members;
 pub use calendar::{

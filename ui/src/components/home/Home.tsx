@@ -123,11 +123,13 @@ export function Home({
   api,
   onOpenChannel,
   onOpenRun,
+  onOpenMail,
   desk = null,
 }: {
   api: ApiClient
   onOpenChannel: (channelId: string) => void
   onOpenRun: (runId: string) => void
+  onOpenMail: (messageId: string) => void
   /** The Desk Panel toggle, where the person opens the panel; `null`
    *  where the route keeps it open. */
   desk?: { open: boolean; onToggle: () => void } | null
@@ -182,6 +184,7 @@ export function Home({
    *  clears the failed-attempt count of the Workspace (ADR-0021). A
    *  missed call or a failure the reader acts on leaves the queue. */
   const openItem = (item: QueueItem) => {
+    if (item.kind === 'mail') return onOpenMail(item.message_id)
     if (item.kind === 'approval') return
     if (item.kind === 'keypad') return clearKeypad.mutate()
     if (item.kind === 'call') {

@@ -67,6 +67,7 @@ export function MailThread({
                     {formatMoment(item.date)}
                   </time>
                 </p>
+                {item.triage && <p aria-label="Mail Triage note">{item.triage.outcome.replaceAll('_', ' ')}: {item.triage.note}</p>}
                 <details>
                   <summary>
                     Spam score {item.spam_verdict.score} · {item.spam_verdict.action}
@@ -137,6 +138,7 @@ export function MailThread({
                   api={api}
                   id={item.id}
                   labels={item.labels}
+                  needsYou={item.triage?.outcome === 'needs_you' && item.triage.resolved_at == null}
                   onMove={onBack}
                 /></>}
               </article>

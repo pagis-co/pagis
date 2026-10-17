@@ -32,18 +32,74 @@ pub trait WorkspaceMailboxRecordStore: Send + Sync {
         workspace: &WorkspaceId,
         visibility: crate::MailVisibility,
     ) -> Result<(), StoreError>;
-    /// Record an Agent escalation by the stable Message-ID header or host id.
-    async fn escalate(
+    async fn triage(
         &self,
         workspace: &WorkspaceId,
         message: &str,
-        agent: &crate::AgentId,
+    ) -> Result<Option<MailTriage>, StoreError>;
+    async fn record_triage(
+        &self,
+        workspace: &WorkspaceId,
+        message: &str,
+        triage: &MailTriage,
     ) -> Result<(), StoreError>;
-    async fn is_escalated(
+    /// Keep the outcome and its link when the host moves the message.
+    async fn relocate_triage(
+        &self,
+        workspace: &WorkspaceId,
+        old_key: &str,
+        new_key: &str,
+        message_id: &str,
+    ) -> Result<(), StoreError>;
+    /// Open Needs-You outcomes, newest first. The key breaks time ties.
+    async fn open_needs_you(
+        &self,
+        workspace: &WorkspaceId,
+        before: Option<(UnixMillis, &str)>,
+        limit: u32,
+    ) -> Result<Vec<(String, MailTriage)>, StoreError>;
+    /// Resolve an open outcome once. Keep its first resolved time.
+    async fn resolve_triage(
         &self,
         workspace: &WorkspaceId,
         message: &str,
+        at: UnixMillis,
     ) -> Result<bool, StoreError>;
+    async fn put_pending_triage(
+        &self,
+        workspace: &WorkspaceId,
+        pending: &PendingMailTriage,
+    ) -> Result<(), StoreError>;
+    async fn pending_triage(
+        &self,
+        workspace: &WorkspaceId,
+        wakeup: Option<&crate::WakeupId>,
+        after: Option<&str>,
+        limit: u32,
+    ) -> Result<Vec<PendingMailTriage>, StoreError>;
+    async fn remove_pending_triage(
+        &self,
+        workspace: &WorkspaceId,
+        key: &str,
+    ) -> Result<(), StoreError>;
+    async fn triage_rules(
+        &self,
+        workspace: &WorkspaceId,
+    ) -> Result<Vec<MailTriageRule>, StoreError>;
+    async fn replace_triage_rules(
+        &self,
+        workspace: &WorkspaceId,
+        rules: &[MailTriageRule],
+    ) -> Result<(), StoreError>;
+    async fn triage_cursor(
+        &self,
+        workspace: &WorkspaceId,
+    ) -> Result<Option<crate::MailboxCursor>, StoreError>;
+    async fn set_triage_cursor(
+        &self,
+        workspace: &WorkspaceId,
+        cursor: &crate::MailboxCursor,
+    ) -> Result<(), StoreError>;
     async fn set_spam_mode(
         &self,
         workspace: &WorkspaceId,
@@ -171,4 +227,85 @@ fn workspace_mailbox_grant_event(grant: &crate::Grant, kind: &str) -> crate::New
         payload: serde_json::json!({"grant_id":grant.id,"resource_kind":grant.resource_kind,
             "resource_id":grant.resource_id,"allow":grant.allow_rules(),"revision":grant.revision}),
     }
+}
+
+/// The one Mail Triage outcome of a message.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+pub struct MailTriage {
+    pub outcome: MailTriageOutcome,
+    pub note: String,
+    pub author: crate::Author,
+    #[schema(value_type = Option<String>)]
+    pub assignee: Option<crate::AgentId>,
+    pub recorded_at: UnixMillis,
+    pub resolved_at: Option<UnixMillis>,
+    /// The host id opens the message from the Needs-You Queue.
+    pub message_id: String,
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, utoipa::ToSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum MailTriageOutcome {
+    Handled,
+    Replied,
+    Assigned,
+    NeedsYou,
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, utoipa::ToSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum MailTriageAction {
+    NeedsYou,
+    Agent,
+}
+
+/// Rules match in list order, without case or subdomain matching.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MailTriageRule {
+    pub sender: String,
+    pub action: MailTriageAction,
+}
+impl MailTriageRule {
+    pub fn matches(&self, address: &str) -> bool {
+        self.sender.eq_ignore_ascii_case(address)
+            || address
+                .rsplit_once('@')
+                .is_some_and(|(_, domain)| self.sender.eq_ignore_ascii_case(domain))
+    }
+}
+
+pub fn validate_triage_rules(rules: &[MailTriageRule]) -> Result<(), StoreError> {
+    crate::MailLists {
+        allow: rules.iter().map(|rule| rule.sender.clone()).collect(),
+        block: vec![],
+    }
+    .validate()
+}
+
+impl MailTriage {
+    pub fn validate(&self) -> Result<(), StoreError> {
+        if self.note.trim().is_empty()
+            || self.note.chars().count() > 2_000
+            || (self.outcome == MailTriageOutcome::Assigned) != self.assignee.is_some()
+            || !matches!(self.author, crate::Author::Agent(_) | crate::Author::System)
+        {
+            return Err(StoreError::Conflict(
+                "Use a short note and an assignee only for assigned mail.".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// A message that waits for its Chief of Staff Run to end.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingMailTriage {
+    pub key: String,
+    pub message_id: String,
+    pub wakeup_id: crate::WakeupId,
 }

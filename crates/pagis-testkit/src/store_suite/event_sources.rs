@@ -137,6 +137,37 @@ pub async fn subscriptions_keep_person_agent_and_system_authors(backend: &Backen
                 .created_by,
             author
         );
+        let found = backend
+            .stores()
+            .subscriptions
+            .system_for_source(
+                &world.workspace.id,
+                &world.agent_id,
+                &subscription.source,
+                KIND,
+                &subscription.name,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            found.map(|row| row.id),
+            (author == pagis_core::Author::System).then(|| subscription.id.clone())
+        );
+        assert!(
+            backend
+                .stores()
+                .subscriptions
+                .system_for_source(
+                    &world.workspace.id,
+                    &world.agent_id,
+                    &subscription.source,
+                    KIND,
+                    "Other rule",
+                )
+                .await
+                .unwrap()
+                .is_none()
+        );
     }
 }
 

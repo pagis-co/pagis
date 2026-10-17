@@ -144,6 +144,7 @@ function HomeView() {
         void navigate({ to: '/c/$channelId', params: { channelId }, search: {} })
       }
       onOpenRun={(runId) => void navigate({ to: '/runs/$runId', params: { runId } })}
+      onOpenMail={(messageId) => void navigate({ to: '/mail', search: { message: messageId } })}
     />
   )
 }

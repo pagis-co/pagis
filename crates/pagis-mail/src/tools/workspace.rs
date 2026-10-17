@@ -104,22 +104,46 @@ impl MailToolRuntime {
     ) -> Result<serde_json::Value, ToolResult> {
         use pagis_broker::WorkspaceMailTool;
         match tool {
-            WorkspaceMailTool::Escalate => {
+            WorkspaceMailTool::Triage => {
                 let message = store
                     .message(&MessageId::new(text(&call.arguments, "message_id")))
                     .await
                     .map_err(transport_error)?;
+                let outcome = serde_json::from_value::<pagis_core::MailTriageOutcome>(
+                    call.arguments["outcome"].clone(),
+                )
+                .map_err(|_| {
+                    ToolResult::error("invalid_arguments", "Select a Mail Triage outcome.")
+                })?;
+                let assignee = call.arguments["assignee"]
+                    .as_str()
+                    .map(|id| pagis_core::AgentId::from(id.to_string()));
+                if let Some(agent) = &assignee {
+                    self.deps
+                        .workspace
+                        .require_workspace_grant(&call.workspace_id, agent)
+                        .await
+                        .map_err(workspace_error)?;
+                }
+                let triage = pagis_core::MailTriage {
+                    outcome,
+                    note: text(&call.arguments, "note"),
+                    author: pagis_core::Author::Agent(call.agent_id.clone()),
+                    assignee,
+                    recorded_at: pagis_core::now_ms(),
+                    resolved_at: None,
+                    message_id: message.message.summary.id.to_string(),
+                };
                 self.deps
                     .workspace
-                    .workspace_mailbox_records()
-                    .escalate(
+                    .record_triage(
                         &call.workspace_id,
                         message.message.summary.assessment_key(),
-                        &call.agent_id,
+                        &triage,
                     )
                     .await
-                    .map_err(|e| workspace_error(MailboxError::Store(e)))?;
-                Ok(serde_json::json!({"outcome":"needs_you"}))
+                    .map_err(workspace_error)?;
+                Ok(serde_json::json!(triage))
             }
             WorkspaceMailTool::Search => {
                 let page = store

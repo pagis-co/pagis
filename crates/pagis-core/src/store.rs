@@ -541,6 +541,15 @@ pub trait EventSubscriptionStore: Send + Sync {
         source: &crate::EventSource,
         event_kind: &str,
     ) -> Result<Vec<EventSubscription>, StoreError>;
+    /// The active System subscription for one Agent, source and event kind.
+    async fn system_for_source(
+        &self,
+        workspace_id: &WorkspaceId,
+        agent: &AgentId,
+        source: &crate::EventSource,
+        event_kind: &str,
+        name: &str,
+    ) -> Result<Option<EventSubscription>, StoreError>;
     /// Every subscription of one source in the given states.
     async fn list_for_source(
         &self,

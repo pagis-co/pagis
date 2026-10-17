@@ -66,23 +66,183 @@ impl WorkspaceMailboxRecordStore for PostgresWorkspaceMailboxStore {
             .map_err(db_err)?;
         Ok(())
     }
-    async fn escalate(
+    async fn triage(
         &self,
         workspace: &WorkspaceId,
         message: &str,
-        agent: &pagis_core::AgentId,
+    ) -> Result<Option<pagis_core::MailTriage>, StoreError> {
+        let value: Option<String> = sqlx::query_scalar(
+            "SELECT record FROM workspace_mail_triage WHERE workspace_id = $1 AND message_id = $2",
+        )
+        .bind(workspace.as_str())
+        .bind(message)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(db_err)?;
+        value
+            .map(|v| serde_json::from_str(&v).map_err(|e| StoreError::Corrupt(e.to_string())))
+            .transpose()
+    }
+    async fn record_triage(
+        &self,
+        workspace: &WorkspaceId,
+        message: &str,
+        triage: &pagis_core::MailTriage,
     ) -> Result<(), StoreError> {
-        sqlx::query("INSERT INTO workspace_mail_escalations (workspace_id, message_id, agent_id) VALUES ($1, $2, $3) ON CONFLICT (workspace_id, message_id) DO NOTHING")
-            .bind(workspace.as_str()).bind(message).bind(agent.as_str()).execute(&self.pool).await.map_err(db_err)?;
+        triage.validate()?;
+        sqlx::query("INSERT INTO workspace_mail_triage (workspace_id, message_id, record) VALUES ($1, $2, $3) ON CONFLICT (workspace_id, message_id) DO UPDATE SET record = excluded.record")
+            .bind(workspace.as_str()).bind(message).bind(serde_json::to_string(triage).map_err(|e| StoreError::Corrupt(e.to_string()))?).execute(&self.pool).await.map_err(db_err)?;
         Ok(())
     }
-    async fn is_escalated(
+    async fn relocate_triage(
+        &self,
+        workspace: &WorkspaceId,
+        old_key: &str,
+        new_key: &str,
+        message_id: &str,
+    ) -> Result<(), StoreError> {
+        let mut transaction = self.pool.begin().await.map_err(db_err)?;
+        sqlx::query("UPDATE workspace_mail_triage SET message_id = $3, record = jsonb_set(record::jsonb, '{message_id}', to_jsonb($4::text))::text WHERE workspace_id = $1 AND message_id = $2").bind(workspace.as_str()).bind(old_key).bind(new_key).bind(message_id).execute(&mut *transaction).await.map_err(db_err)?;
+        sqlx::query("UPDATE workspace_mail_pending_triage SET message_key = $3, host_id = $4 WHERE workspace_id = $1 AND message_key = $2")
+            .bind(workspace.as_str()).bind(old_key).bind(new_key).bind(message_id).execute(&mut *transaction).await.map_err(db_err)?;
+        transaction.commit().await.map_err(db_err)?;
+        Ok(())
+    }
+    async fn open_needs_you(
+        &self,
+        workspace: &WorkspaceId,
+        before: Option<(pagis_core::UnixMillis, &str)>,
+        limit: u32,
+    ) -> Result<Vec<(String, pagis_core::MailTriage)>, StoreError> {
+        let mut query = sqlx::QueryBuilder::<sqlx::Postgres>::new(
+            "SELECT message_id, record FROM workspace_mail_triage WHERE workspace_id = ",
+        );
+        query.push_bind(workspace.as_str());
+        query.push(" AND record::jsonb->>'outcome' = 'needs_you' AND record::jsonb->>'resolved_at' IS NULL");
+        if let Some((at, key)) = before {
+            query
+                .push(" AND ((record::jsonb->>'recorded_at')::bigint, message_id) < (")
+                .push_bind(at)
+                .push(", ")
+                .push_bind(key)
+                .push(")");
+        }
+        query
+            .push(" ORDER BY (record::jsonb->>'recorded_at')::bigint DESC, message_id DESC LIMIT ")
+            .push_bind(i64::from(limit));
+        let rows = query.build().fetch_all(&self.pool).await.map_err(db_err)?;
+        rows.into_iter()
+            .map(|row| {
+                Ok((
+                    row.get("message_id"),
+                    serde_json::from_str(&row.get::<String, _>("record"))
+                        .map_err(|e| StoreError::Corrupt(e.to_string()))?,
+                ))
+            })
+            .collect()
+    }
+    async fn resolve_triage(
         &self,
         workspace: &WorkspaceId,
         message: &str,
+        at: pagis_core::UnixMillis,
     ) -> Result<bool, StoreError> {
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM workspace_mail_escalations WHERE workspace_id = $1 AND message_id = $2)")
-            .bind(workspace.as_str()).bind(message).fetch_one(&self.pool).await.map_err(db_err)
+        let result = sqlx::query("UPDATE workspace_mail_triage SET record = jsonb_set(record::jsonb, '{resolved_at}', to_jsonb($3::bigint))::text WHERE workspace_id = $1 AND message_id = $2 AND record::jsonb->>'outcome' = 'needs_you' AND record::jsonb->>'resolved_at' IS NULL")
+            .bind(workspace.as_str()).bind(message).bind(at).execute(&self.pool).await.map_err(db_err)?;
+        Ok(result.rows_affected() != 0)
+    }
+    async fn put_pending_triage(
+        &self,
+        workspace: &WorkspaceId,
+        pending: &pagis_core::PendingMailTriage,
+    ) -> Result<(), StoreError> {
+        sqlx::query("INSERT INTO workspace_mail_pending_triage (workspace_id, message_key, host_id, wakeup_id) VALUES ($1, $2, $3, $4) ON CONFLICT (workspace_id, message_key) DO UPDATE SET host_id = excluded.host_id, wakeup_id = excluded.wakeup_id")
+            .bind(workspace.as_str()).bind(&pending.key).bind(&pending.message_id).bind(pending.wakeup_id.as_str()).execute(&self.pool).await.map_err(db_err)?;
+        Ok(())
+    }
+    async fn pending_triage(
+        &self,
+        workspace: &WorkspaceId,
+        wakeup: Option<&pagis_core::WakeupId>,
+        after: Option<&str>,
+        limit: u32,
+    ) -> Result<Vec<pagis_core::PendingMailTriage>, StoreError> {
+        let mut query = sqlx::QueryBuilder::<sqlx::Postgres>::new(
+            "SELECT message_key, host_id, wakeup_id FROM workspace_mail_pending_triage WHERE workspace_id = ",
+        );
+        query.push_bind(workspace.as_str());
+        if let Some(wakeup) = wakeup {
+            query.push(" AND wakeup_id = ").push_bind(wakeup.as_str());
+        }
+        if let Some(after) = after {
+            query.push(" AND message_key > ").push_bind(after);
+        }
+        query
+            .push(" ORDER BY message_key LIMIT ")
+            .push_bind(i64::from(limit));
+        let rows = query.build().fetch_all(&self.pool).await.map_err(db_err)?;
+        Ok(rows
+            .into_iter()
+            .map(|row| pagis_core::PendingMailTriage {
+                key: row.get("message_key"),
+                message_id: row.get("host_id"),
+                wakeup_id: pagis_core::WakeupId::from(row.get::<String, _>("wakeup_id")),
+            })
+            .collect())
+    }
+    async fn remove_pending_triage(
+        &self,
+        workspace: &WorkspaceId,
+        key: &str,
+    ) -> Result<(), StoreError> {
+        sqlx::query("DELETE FROM workspace_mail_pending_triage WHERE workspace_id = $1 AND message_key = $2").bind(workspace.as_str()).bind(key).execute(&self.pool).await.map_err(db_err)?;
+        Ok(())
+    }
+    async fn triage_rules(
+        &self,
+        workspace: &WorkspaceId,
+    ) -> Result<Vec<pagis_core::MailTriageRule>, StoreError> {
+        let value: Option<String> = sqlx::query_scalar(
+            "SELECT rules FROM workspace_mail_triage_rules WHERE workspace_id = $1",
+        )
+        .bind(workspace.as_str())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(db_err)?;
+        value
+            .map(|v| serde_json::from_str(&v).map_err(|e| StoreError::Corrupt(e.to_string())))
+            .transpose()
+            .map(Option::unwrap_or_default)
+    }
+    async fn replace_triage_rules(
+        &self,
+        workspace: &WorkspaceId,
+        rules: &[pagis_core::MailTriageRule],
+    ) -> Result<(), StoreError> {
+        pagis_core::validate_triage_rules(rules)?;
+        sqlx::query("INSERT INTO workspace_mail_triage_rules (workspace_id, rules) VALUES ($1, $2) ON CONFLICT (workspace_id) DO UPDATE SET rules = excluded.rules")
+            .bind(workspace.as_str()).bind(serde_json::to_string(rules).map_err(|e| StoreError::Corrupt(e.to_string()))?).execute(&self.pool).await.map_err(db_err)?;
+        Ok(())
+    }
+    async fn triage_cursor(
+        &self,
+        workspace: &WorkspaceId,
+    ) -> Result<Option<pagis_core::MailboxCursor>, StoreError> {
+        let row = sqlx::query("SELECT uid_validity, last_uid FROM workspace_mail_triage_cursors WHERE workspace_id = $1").bind(workspace.as_str()).fetch_optional(&self.pool).await.map_err(db_err)?;
+        Ok(row.map(|row| pagis_core::MailboxCursor {
+            folder: "INBOX".into(),
+            uid_validity: row.get::<i64, _>("uid_validity") as u32,
+            last_uid: row.get::<i64, _>("last_uid") as u32,
+        }))
+    }
+    async fn set_triage_cursor(
+        &self,
+        workspace: &WorkspaceId,
+        cursor: &pagis_core::MailboxCursor,
+    ) -> Result<(), StoreError> {
+        sqlx::query("INSERT INTO workspace_mail_triage_cursors (workspace_id, uid_validity, last_uid) VALUES ($1, $2, $3) ON CONFLICT (workspace_id) DO UPDATE SET uid_validity = excluded.uid_validity, last_uid = CASE WHEN workspace_mail_triage_cursors.uid_validity = excluded.uid_validity THEN GREATEST(workspace_mail_triage_cursors.last_uid, excluded.last_uid) ELSE excluded.last_uid END")
+            .bind(workspace.as_str()).bind(i64::from(cursor.uid_validity)).bind(i64::from(cursor.last_uid)).execute(&self.pool).await.map_err(db_err)?;
+        Ok(())
     }
     async fn set_spam_mode(
         &self,
