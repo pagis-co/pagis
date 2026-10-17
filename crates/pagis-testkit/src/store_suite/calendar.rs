@@ -245,6 +245,13 @@ pub async fn calendar_range_does_not_read_unrelated_event_data(backend: &Backend
             .unwrap()
             .is_empty()
     );
+    assert!(
+        store
+            .attendee_events(&workspace.id, "reader@example.com", from, from + 86_400_000)
+            .await
+            .unwrap()
+            .is_empty()
+    );
     backend
         .rows()
         .execute(
@@ -296,6 +303,22 @@ pub async fn calendar_authors_use_checked_columns(backend: &Backend) {
                 .unwrap(),
             Some(row.clone())
         );
+        row.created_by = if row.created_by == Author::System {
+            Author::Person(workspace.user_id.clone().unwrap())
+        } else {
+            Author::System
+        };
+        row.data.title = "Changed".into();
+        assert!(backend.stores().calendar.change(&row).await.unwrap());
+        assert_eq!(
+            backend
+                .stores()
+                .calendar
+                .get(&workspace.id, &row.id)
+                .await
+                .unwrap(),
+            Some(row.clone())
+        );
         assert!(
             backend
                 .rows()
@@ -307,6 +330,66 @@ pub async fn calendar_authors_use_checked_columns(backend: &Backend) {
                 .is_err()
         );
     }
+}
+
+pub async fn calendar_attendee_range(backend: &Backend) {
+    let workspace = backend.seeded_workspace().await;
+    let store = &backend.stores().calendar;
+    let row = event(workspace.id.clone());
+    store.create(&row).await.unwrap();
+    let range =
+        pagis_core::CalendarRange::parse("2026-03-07T14:00:00Z", "2026-03-07T15:00:00Z").unwrap();
+    assert_eq!(
+        store
+            .attendee_events(
+                &workspace.id,
+                "READER@example.com",
+                range.from(),
+                range.to()
+            )
+            .await
+            .unwrap(),
+        vec![row]
+    );
+    for (owner, email, from, to) in [
+        (
+            workspace.id.clone(),
+            "absent@example.com",
+            range.from(),
+            range.to(),
+        ),
+        (
+            WorkspaceId::generate(),
+            "reader@example.com",
+            range.from(),
+            range.to(),
+        ),
+        (
+            workspace.id.clone(),
+            "reader@example.com",
+            range.from() - 1,
+            range.from(),
+        ),
+    ] {
+        assert!(
+            store
+                .attendee_events(&owner, email, from, to)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
+    assert!(
+        store
+            .attendee_events(
+                &workspace.id,
+                "reader@example.com",
+                range.to(),
+                range.from()
+            )
+            .await
+            .is_err()
+    );
 }
 
 pub async fn calendar_free_busy(backend: &Backend) {
@@ -522,6 +605,7 @@ macro_rules! store_suite_calendar {
             calendar_invitation_sequence_and_uid,
             calendar_search_matches_stored_text_and_bounds_results,
             calendar_free_busy,
+            calendar_attendee_range,
             legal_hold_preserves_events_and_occurrences,
             calendar_crud_and_workspace_boundary,
             calendar_recurrence_dst_exdate_and_range,

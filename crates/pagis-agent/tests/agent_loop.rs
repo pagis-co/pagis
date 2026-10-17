@@ -532,6 +532,7 @@ where
     let host_presence = Arc::new(pagis_broker::HostPresence::new());
     let blobs: Arc<dyn object_store::ObjectStore> = Arc::new(object_store::memory::InMemory::new());
     let tool_runtime = Arc::new(CoreToolRuntime::new(ToolRuntimeDeps {
+        workspace_members: pagis_storage_sqlite::stores(pool.clone()).workspace_members,
         users: pagis_storage_sqlite::stores(pool.clone()).users,
         orgs: pagis_storage_sqlite::stores(pool.clone()).orgs,
         files: files.clone(),

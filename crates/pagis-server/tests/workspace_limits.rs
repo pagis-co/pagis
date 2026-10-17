@@ -1369,3 +1369,126 @@ async fn workspace_mail_visibility_checks_every_human_read_and_current_limits() 
             .any(|entry| entry["action"] == "mail.message.read")
     );
 }
+
+#[tokio::test]
+async fn calendar_grant_requires_manager_and_active_agent_and_has_no_allow_rules() {
+    let e = Embedder::new().await;
+    let (workspace, owner, agent) = team(&e).await;
+    let member = e
+        .stores
+        .workspaces
+        .get(&e.other_workspace)
+        .await
+        .unwrap()
+        .unwrap()
+        .user_id
+        .unwrap();
+    let prefix = format!("/api/v1/workspaces/{workspace}");
+    for role in [WorkspaceRole::Reader, WorkspaceRole::Responder] {
+        if role == WorkspaceRole::Reader {
+            e.stores
+                .workspace_members
+                .add(&WorkspaceMember {
+                    workspace_id: workspace.clone(),
+                    person_id: member.clone(),
+                    role,
+                    author: Author::Person(owner.clone()),
+                })
+                .await
+                .unwrap();
+        } else {
+            e.stores
+                .workspace_members
+                .change(&WorkspaceMember {
+                    workspace_id: workspace.clone(),
+                    person_id: member.clone(),
+                    role,
+                    author: Author::Person(owner.clone()),
+                })
+                .await
+                .unwrap();
+        }
+        assert_eq!(
+            call(
+                &e,
+                false,
+                "POST",
+                &format!("{prefix}/grants/calendar"),
+                json!({
+                    "agent_id": agent
+                }),
+                &e.other_cookie
+            )
+            .await
+            .0,
+            StatusCode::FORBIDDEN
+        );
+    }
+    let (status, grant) = call(
+        &e,
+        false,
+        "POST",
+        &format!("{prefix}/grants/calendar"),
+        json!({
+            "agent_id": agent
+        }),
+        &e.cookie,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{grant}");
+    assert_eq!(grant["resource_kind"], "calendar");
+    assert_eq!(grant["resource_id"], workspace.as_str());
+    assert_eq!(grant["created_by"]["id"], owner.as_str());
+    assert_eq!(
+        call(
+            &e,
+            false,
+            "PUT",
+            &format!("{prefix}/grants/{}/rules", grant["id"].as_str().unwrap()),
+            json!({
+                "allow": ["example.com"]
+            }),
+            &e.cookie
+        )
+        .await
+        .0,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    assert_eq!(
+        call(
+            &e,
+            false,
+            "DELETE",
+            &format!("{prefix}/grants/{}", grant["id"].as_str().unwrap()),
+            Value::Null,
+            &e.cookie
+        )
+        .await
+        .0,
+        StatusCode::NO_CONTENT
+    );
+    let mut archived = e
+        .stores
+        .agents
+        .get(&workspace, &agent)
+        .await
+        .unwrap()
+        .unwrap();
+    archived.status = AgentStatus::Archived;
+    e.stores.agents.update(&archived).await.unwrap();
+    assert_eq!(
+        call(
+            &e,
+            false,
+            "POST",
+            &format!("{prefix}/grants/calendar"),
+            json!({
+                "agent_id": agent
+            }),
+            &e.cookie
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
+}

@@ -145,6 +145,56 @@ pub async fn create_workspace_mailbox_grant(
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CreateCalendarGrantRequest {
+    pub agent_id: String,
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/grants/calendar",
+    request_body = CreateCalendarGrantRequest,
+    responses(
+        (status = 201, body = GrantDto),
+        (status = 401, body = crate::error::ErrorBody),
+        (status = 404, body = crate::error::ErrorBody),
+        (status = 409, body = crate::error::ErrorBody),
+        (status = 422, body = crate::error::ErrorBody),
+    )
+)]
+pub async fn create_calendar_grant(
+    State(state): State<Arc<AppState>>,
+    tenant: Tenant,
+    Json(request): Json<CreateCalendarGrantRequest>,
+) -> Result<(StatusCode, Json<GrantDto>), ApiError> {
+    let agent = state
+        .agent_store
+        .get(&tenant.workspace_id, &AgentId::from(request.agent_id))
+        .await?
+        .filter(|agent| agent.status == pagis_core::AgentStatus::Active)
+        .ok_or_else(|| ApiError::not_found("Agent"))?;
+    let grant = Grant {
+        id: GrantId::generate(),
+        workspace_id: tenant.workspace_id.clone(),
+        agent_id: agent.id,
+        resource_kind: Grant::CALENDAR_KIND.into(),
+        resource_id: Some(tenant.workspace_id.to_string()),
+        scope: Grant::allow_scope(&[]),
+        revision: 1,
+        created_by: pagis_core::Author::Person(tenant.user_id.clone()),
+        created_at: now_ms(),
+        revoked_at: None,
+    };
+    state.grants.create(&grant).await?;
+    crate::agent_versions::record(&state, &tenant, &grant.agent_id).await?;
+    publish_grant_event(&state, &grant, "grant.created").await?;
+    Ok((
+        StatusCode::CREATED,
+        Json(grant_dto(&state, &grant, &agent.name).await?),
+    ))
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct SetGrantCapabilitiesRequest {
     pub capabilities: Vec<String>,
 }
@@ -486,8 +536,12 @@ pub async fn set_grant_rules(
     if grant.revoked_at.is_some() {
         return Err(ApiError::conflict("grant is revoked"));
     }
-    if [Grant::CONNECTION_KIND, Grant::WORKSPACE_NUMBER_KIND]
-        .contains(&grant.resource_kind.as_str())
+    if [
+        Grant::CONNECTION_KIND,
+        Grant::WORKSPACE_NUMBER_KIND,
+        Grant::CALENDAR_KIND,
+    ]
+    .contains(&grant.resource_kind.as_str())
     {
         return Err(ApiError::validation(
             "only Host, Credential and Workspace Mailbox Grants have Allow Rules",

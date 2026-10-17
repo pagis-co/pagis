@@ -1342,6 +1342,7 @@ impl Grant {
     pub const COLLEAGUES_KIND: &'static str = "colleagues";
 
     /// Access to the Workspace Mailbox, with recipient-domain Allow Rules.
+    pub const CALENDAR_KIND: &'static str = "calendar";
     pub const WORKSPACE_MAILBOX_KIND: &'static str = "workspace_mailbox";
 
     /// A Grant to place outbound Calls from the Workspace Number.

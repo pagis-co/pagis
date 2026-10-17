@@ -92,6 +92,19 @@ pub struct CalendarOccurrence {
     pub end: String,
 }
 
+impl CalendarOccurrence {
+    /// The occurrence start in UTC milliseconds, including an all-day Event's zone.
+    pub fn start_ms(&self) -> Result<i64, CalendarError> {
+        if self.event.data.all_day {
+            Ok(self.event.data.at(&self.start)?.timestamp_millis())
+        } else {
+            DateTime::parse_from_rfc3339(&self.start)
+                .map(|start| start.timestamp_millis())
+                .map_err(|_| invalid("Invalid occurrence start."))
+        }
+    }
+}
+
 impl CalendarEvent {
     pub fn new(workspace_id: WorkspaceId, created_by: Author, data: CalendarEventData) -> Self {
         let id = CalendarEventId::generate();
@@ -469,6 +482,15 @@ pub fn free_busy(
 
 #[async_trait]
 pub trait CalendarStore: Send + Sync {
+    /// Read master Events for one attendee within the indexed Workspace range.
+    async fn attendee_events(
+        &self,
+        workspace_id: &WorkspaceId,
+        email: &str,
+        from: i64,
+        to: i64,
+    ) -> Result<Vec<CalendarEvent>, StoreError>;
+
     async fn linked_occurrences(
         &self,
         workspace_id: &WorkspaceId,
@@ -510,6 +532,8 @@ pub trait CalendarStore: Send + Sync {
         id: &CalendarEventId,
         data: &CalendarEventData,
     ) -> Result<bool, StoreError>;
+    /// Change data and record the author of this change in one transaction.
+    async fn change(&self, event: &CalendarEvent) -> Result<bool, StoreError>;
     async fn delete(
         &self,
         workspace_id: &WorkspaceId,
@@ -650,6 +674,20 @@ mod tests {
             MAX_OCCURRENCES
         );
     }
+    #[test]
+    fn occurrence_start_uses_the_offset_and_all_day_zone() {
+        let event = CalendarEvent::new(WorkspaceId::generate(), Author::System, data());
+        let range = CalendarRange::parse("2026-03-07T00:00:00Z", "2026-03-08T00:00:00Z").unwrap();
+        let timed = occurrences(vec![event.clone()], range).unwrap();
+        assert_eq!(timed[0].start_ms().unwrap(), ms("2026-03-07T14:00:00Z"));
+        let mut all_day = event;
+        all_day.data.all_day = true;
+        all_day.data.start = "2026-03-07".into();
+        all_day.data.end = "2026-03-08".into();
+        let found = occurrences(vec![all_day], range).unwrap();
+        assert_eq!(found[0].start_ms().unwrap(), ms("2026-03-07T05:00:00Z"));
+    }
+
     #[test]
     fn calendar_range_is_half_open_and_includes_overlaps() {
         let row = CalendarEvent::new(WorkspaceId::generate(), Author::System, data());

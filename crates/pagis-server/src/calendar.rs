@@ -19,24 +19,67 @@ pub struct CalendarRangeQuery {
     pub to: i64,
 }
 
-#[utoipa::path(get, path = "/api/v1/calendar/events", params(CalendarRangeQuery), responses((status = 200, body = Vec<CalendarOccurrence>)), tag = "calendar")]
+#[derive(serde::Serialize, utoipa::ToSchema)]
+pub struct CalendarOccurrenceDto {
+    #[serde(flatten)]
+    pub occurrence: CalendarOccurrence,
+    pub workspace_name: Option<String>,
+    pub read_only: bool,
+}
+
+#[utoipa::path(get, path = "/api/v1/calendar/events", params(CalendarRangeQuery), responses((status = 200, body = Vec<CalendarOccurrenceDto>)), tag = "calendar")]
 pub async fn list_calendar_events(
     State(state): State<Arc<AppState>>,
     who: Tenant,
     Query(range): Query<CalendarRangeQuery>,
-) -> Result<Json<Vec<CalendarOccurrence>>, ApiError> {
+) -> Result<Json<Vec<CalendarOccurrenceDto>>, ApiError> {
     let range = pagis_core::CalendarRange::new(range.from, range.to)?;
     state
         .mailbox_desk
         .poll_workspace_calendar(&who.workspace_id)
         .await
         .map_err(crate::mailboxes::mailbox_error)?;
-    Ok(Json(
-        state
-            .calendar
-            .list(&who.workspace_id, range.from(), range.to())
-            .await?,
-    ))
+    let mut events: Vec<_> = state
+        .calendar
+        .list(&who.workspace_id, range.from(), range.to())
+        .await?
+        .into_iter()
+        .map(|occurrence| CalendarOccurrenceDto {
+            occurrence,
+            workspace_name: None,
+            read_only: who.workspace_role == Some(pagis_core::WorkspaceRole::Reader),
+        })
+        .collect();
+    if who.is_private() {
+        for (owner, rows) in pagis_core::calendar_access::member_events(
+            state.calendar.as_ref(),
+            state.workspaces.as_ref(),
+            state.workspace_members.as_ref(),
+            state.users.as_ref(),
+            &who.workspace_id,
+            range,
+        )
+        .await?
+        {
+            events.extend(
+                pagis_core::calendar::occurrences(rows, range)?
+                    .into_iter()
+                    .map(|occurrence| CalendarOccurrenceDto {
+                        occurrence,
+                        workspace_name: Some(owner.name.clone()),
+                        read_only: true,
+                    }),
+            );
+        }
+    }
+    events.sort_by_cached_key(|value| {
+        (
+            value.occurrence.start_ms().expect("validated occurrence"),
+            value.occurrence.event.id.clone(),
+        )
+    });
+    events.truncate(pagis_core::calendar::MAX_OCCURRENCES);
+    Ok(Json(events))
 }
 
 #[utoipa::path(post, path = "/api/v1/calendar/events", request_body = CalendarEventData, responses((status = 201, body = CalendarEvent)), tag = "calendar")]
@@ -231,16 +274,21 @@ pub async fn query_free_busy(
         let Some(workspace) = addresses.get(&address.trim().to_lowercase()) else {
             continue;
         };
-        let busy = state
-            .calendar
-            .free_busy(workspace, range.from(), range.to())
-            .await?
-            .into_iter()
-            .map(|interval| {
-                let (start, end) = interval.rfc3339();
-                FreeBusyInterval { start, end }
-            })
-            .collect();
+        let busy = pagis_core::calendar_access::free_busy(
+            state.calendar.as_ref(),
+            state.workspaces.as_ref(),
+            state.workspace_members.as_ref(),
+            state.users.as_ref(),
+            workspace,
+            range,
+        )
+        .await?
+        .into_iter()
+        .map(|interval| {
+            let (start, end) = interval.rfc3339();
+            FreeBusyInterval { start, end }
+        })
+        .collect();
         items.push(FreeBusyItem { address, busy });
     }
     Ok(Json(FreeBusyResponse { items }))

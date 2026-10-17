@@ -11,7 +11,8 @@ fn category(entry: &SnapshotTool) -> Option<DisclosureCategory> {
             tool:
                 CoreTool::CalendarFreeBusy | CoreTool::ColleaguesList | CoreTool::MessageColleagues,
         } => None,
-        ToolRoute::Core {
+        ToolRoute::Calendar { .. }
+        | ToolRoute::Core {
             tool: CoreTool::CalendarRead,
         } => Some(DisclosureCategory::CalendarDetails),
         ToolRoute::Core {

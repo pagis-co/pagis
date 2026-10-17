@@ -252,6 +252,12 @@ impl World {
         }));
         let memory = Arc::new(MemoryMailbox::default());
         let runtime = MailToolRuntime::new(MailToolDeps {
+            calendar: Arc::new(pagis_storage_sqlite::SqliteCalendarStore::new(pool.clone())),
+            users: Arc::new(pagis_storage_sqlite::SqliteUserStore::new(pool.clone())),
+            grants: Arc::new(pagis_storage_sqlite::SqliteGrantStore::new(pool.clone())),
+            workspaces: Arc::new(pagis_storage_sqlite::SqliteWorkspaceStore::new(
+                pool.clone(),
+            )),
             workspace: desk.clone(),
             mailboxes: Arc::clone(&memory) as _,
             records: Arc::clone(&mailboxes) as _,
@@ -1092,4 +1098,297 @@ async fn workspace_mailbox_tools_read_and_send_with_the_outgoing_cap(pool: Sqlit
         sent[0].in_reply_to.as_deref(),
         Some("<question@example.com>")
     );
+}
+
+#[sqlx::test(migrations = "./../pagis-storage-sqlite/migrations")]
+async fn calendar_tool_creates_changes_and_deletes_with_agent_author(pool: SqlitePool) {
+    use pagis_core::{CalendarStore, Grant, GrantId, GrantStore};
+    let world = World::new(pool.clone()).await;
+    let grants = pagis_storage_sqlite::SqliteGrantStore::new(pool.clone());
+    let grant = Grant {
+        id: GrantId::generate(),
+        workspace_id: world.workspace_id.clone(),
+        agent_id: world.agent_id.clone(),
+        resource_kind: Grant::CALENDAR_KIND.into(),
+        resource_id: Some(world.workspace_id.to_string()),
+        scope: serde_json::json!({}),
+        revision: 1,
+        created_by: pagis_core::Author::System,
+        created_at: now_ms(),
+        revoked_at: None,
+    };
+    grants.create(&grant).await.unwrap();
+    let mut data = serde_json::json!({
+        "title": "Review",
+        "description": "Plan",
+        "location": "Office",
+        "start": "2026-03-08T09:00:00",
+        "end": "2026-03-08T10:00:00",
+        "timezone": "UTC",
+        "all_day": false,
+        "rrule": null,
+        "exdates": [],
+        "attendees": [],
+        "reminders": [],
+        "meeting_url": null
+    });
+    let call = |tool, arguments| AuthorizedCall {
+        workspace_id: world.workspace_id.clone(),
+        agent_id: world.agent_id.clone(),
+        run_id: world.run_id.clone(),
+        tool_name: "calendar".into(),
+        source_version: "test".into(),
+        route: ToolRoute::Calendar { tool },
+        arguments,
+        selected_connection: None,
+        grant_id: Some(grant.id.clone()),
+        grant_revision: Some(1),
+        call_timeout: None,
+        tool_call_id: None,
+        host: None,
+        approved_by_rule: false,
+    };
+    let mut id = String::new();
+    for tool in [
+        pagis_broker::CalendarTool::Create,
+        pagis_broker::CalendarTool::Update,
+        pagis_broker::CalendarTool::Delete,
+    ] {
+        let route = ToolRoute::Calendar { tool };
+        let arguments = world
+            .runtime
+            .prepare(
+                &world.workspace_id,
+                &world.agent_id,
+                &route,
+                serde_json::json!({
+                    "event": data,
+                    "event_id": id,
+                    "to": ["spoof@outside.test"]
+                }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(arguments["to"], serde_json::json!([]));
+        let result = world.runtime.execute(call(tool, arguments)).await;
+        assert!(!result.is_error, "{}", result.content);
+        let event: pagis_core::CalendarEvent = serde_json::from_str(&result.content).unwrap();
+        assert_eq!(
+            event.created_by,
+            pagis_core::Author::Agent(world.agent_id.clone())
+        );
+        id = event.id.to_string();
+        let stored = pagis_storage_sqlite::SqliteCalendarStore::new(pool.clone())
+            .get(&world.workspace_id, &event.id)
+            .await
+            .unwrap();
+        if tool == pagis_broker::CalendarTool::Delete {
+            assert!(stored.is_none());
+        } else {
+            assert_eq!(stored, Some(event));
+        }
+        data["title"] = serde_json::json!("Changed");
+    }
+    grants
+        .revoke(&world.workspace_id, &grant.id, now_ms())
+        .await
+        .unwrap();
+    assert!(
+        world
+            .runtime
+            .prepare(
+                &world.workspace_id,
+                &world.agent_id,
+                &ToolRoute::Calendar {
+                    tool: pagis_broker::CalendarTool::Create
+                },
+                serde_json::json!({"event": data})
+            )
+            .await
+            .is_err()
+    );
+}
+
+#[sqlx::test(migrations = "./../pagis-storage-sqlite/migrations")]
+async fn calendar_tool_outside_attendees_need_mailbox_grant_and_send_imip(pool: SqlitePool) {
+    use pagis_core::{Grant, GrantId, GrantStore};
+    let world = World::new(pool.clone()).await;
+    let grants = pagis_storage_sqlite::SqliteGrantStore::new(pool.clone());
+    let mut grant = Grant {
+        id: GrantId::generate(),
+        workspace_id: world.workspace_id.clone(),
+        agent_id: world.agent_id.clone(),
+        resource_kind: Grant::CALENDAR_KIND.into(),
+        resource_id: Some(world.workspace_id.to_string()),
+        scope: serde_json::json!({}),
+        revision: 1,
+        created_by: pagis_core::Author::System,
+        created_at: now_ms(),
+        revoked_at: None,
+    };
+    grants.create(&grant).await.unwrap();
+    let route = ToolRoute::Calendar {
+        tool: pagis_broker::CalendarTool::Create,
+    };
+    let args = serde_json::json!({
+        "event": {
+            "title": "Review",
+            "description": "Plan",
+            "location": "Office",
+            "start": "2026-03-08T09:00:00",
+            "end": "2026-03-08T10:00:00",
+            "timezone": "UTC",
+            "all_day": false,
+            "rrule": null,
+            "exdates": [],
+            "attendees": [{
+                    "email": "guest@other.test",
+                    "name": "Guest",
+                    "status": "needs-action"
+                }],
+            "reminders": [],
+            "meeting_url": null
+        }
+    });
+    assert!(
+        world
+            .runtime
+            .prepare(&world.workspace_id, &world.agent_id, &route, args.clone())
+            .await
+            .unwrap_err()
+            .content
+            .contains("Create a Workspace Mailbox")
+    );
+    world
+        .desk
+        .provision_workspace(
+            &world.workspace_id,
+            world
+                .desk
+                .prepare_workspace(NewMailbox {
+                    connection_id: world.connection_id.clone(),
+                    local_part: "team".into(),
+                    outgoing_cap: Some(20),
+                    password: None,
+                })
+                .await
+                .unwrap(),
+            pagis_core::Author::System,
+        )
+        .await
+        .unwrap();
+    assert!(
+        world
+            .runtime
+            .prepare(&world.workspace_id, &world.agent_id, &route, args.clone())
+            .await
+            .is_err()
+    );
+    grant.id = GrantId::generate();
+    grant.resource_kind = Grant::WORKSPACE_MAILBOX_KIND.into();
+    grants.create(&grant).await.unwrap();
+    let arguments = world
+        .runtime
+        .prepare(&world.workspace_id, &world.agent_id, &route, args)
+        .await
+        .unwrap();
+    assert_eq!(arguments["to"], serde_json::json!(["guest@other.test"]));
+    let result = world
+        .runtime
+        .execute(AuthorizedCall {
+            workspace_id: world.workspace_id.clone(),
+            agent_id: world.agent_id.clone(),
+            run_id: world.run_id.clone(),
+            tool_name: "calendar_create_event".into(),
+            source_version: "test".into(),
+            route,
+            arguments,
+            selected_connection: None,
+            grant_id: None,
+            grant_revision: None,
+            call_timeout: None,
+            tool_call_id: None,
+            host: None,
+            approved_by_rule: false,
+        })
+        .await;
+    assert!(!result.is_error, "{}", result.content);
+    use pagis_core::CalendarStore;
+    let created: pagis_core::CalendarEvent = serde_json::from_str(&result.content).unwrap();
+    let mut incoming = pagis_core::CalendarEvent::new(
+        world.workspace_id.clone(),
+        pagis_core::Author::System,
+        created.data,
+    );
+    incoming.data.invitation.as_mut().unwrap().organizer = "guest@other.test".into();
+    incoming.data.attendees = vec![pagis_core::CalendarAttendee {
+        email: "team@example.com".into(),
+        name: "Team".into(),
+        status: pagis_core::ParticipationStatus::NeedsAction,
+    }];
+    let calendar = pagis_storage_sqlite::SqliteCalendarStore::new(pool);
+    calendar.create(&incoming).await.unwrap();
+    for status in ["accepted", "tentative", "declined"] {
+        let route = ToolRoute::Calendar {
+            tool: pagis_broker::CalendarTool::Respond,
+        };
+        let arguments = world
+            .runtime
+            .prepare(
+                &world.workspace_id,
+                &world.agent_id,
+                &route,
+                serde_json::json!({
+                    "event_id": incoming.id,
+                    "status": status
+                }),
+            )
+            .await
+            .unwrap();
+        let reply = world
+            .runtime
+            .execute(AuthorizedCall {
+                workspace_id: world.workspace_id.clone(),
+                agent_id: world.agent_id.clone(),
+                run_id: world.run_id.clone(),
+                tool_name: "calendar_respond".into(),
+                source_version: "test".into(),
+                route,
+                arguments,
+                selected_connection: None,
+                grant_id: None,
+                grant_revision: None,
+                call_timeout: None,
+                tool_call_id: None,
+                host: None,
+                approved_by_rule: false,
+            })
+            .await;
+        assert!(!reply.is_error, "{}", reply.content);
+        let stored = calendar
+            .get(&world.workspace_id, &incoming.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            stored.created_by,
+            pagis_core::Author::Agent(world.agent_id.clone())
+        );
+        assert_eq!(
+            serde_json::to_value(stored.data.attendees[0].status.clone()).unwrap(),
+            status
+        );
+        assert!(
+            String::from_utf8_lossy(&world.transport.sent().last().unwrap().attachments[0].data)
+                .contains("METHOD:REPLY")
+        );
+    }
+    let received = world.transport.received("guest@other.test");
+    assert_eq!(received[0].summary.from, "team@example.com");
+    let sent = world.transport.sent();
+    assert_eq!(
+        sent[0].attachments[0].content_type,
+        "text/calendar; method=REQUEST; charset=utf-8"
+    );
+    assert!(String::from_utf8_lossy(&sent[0].attachments[0].data).contains("Review"));
 }

@@ -17,7 +17,7 @@ import {
 } from '../../queries'
 import { CONNECTION_CAPABILITIES } from '../ConnectionCapabilities'
 import { NavBar } from '../phone/TopBar'
-import { GrantRow, WorkspaceMailboxAccess } from '../GrantsSettings'
+import { GrantRow, CalendarAccess, WorkspaceMailboxAccess } from '../GrantsSettings'
 import { CodingSessionAccessPhone } from './CodingSessionAccessPhone'
 
 function capabilityLabels(names: string[]) {
@@ -203,8 +203,9 @@ export function AgentAccessPhone({
               </p>
             </div>
             <section className="phone-section">
-              <WorkspaceMailboxAccess api={api} agent={agent} />
-              {own.filter((row) => row.resource_kind === 'workspace_mailbox').map((row) => (
+              <CalendarAccess api={api} agent={agent} />
+      <WorkspaceMailboxAccess api={api} agent={agent} />
+              {own.filter((row) => ['workspace_mailbox', 'calendar'].includes(row.resource_kind)).map((row) => (
                 <GrantRow key={row.id} api={api} grant={row} />
               ))}
             </section>

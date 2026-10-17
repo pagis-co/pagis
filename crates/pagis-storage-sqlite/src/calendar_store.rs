@@ -36,6 +36,27 @@ fn encode(value: &CalendarEventData) -> Result<String, StoreError> {
 }
 #[async_trait]
 impl CalendarStore for SqliteCalendarStore {
+    async fn attendee_events(
+        &self,
+        workspace: &WorkspaceId,
+        email: &str,
+        from: i64,
+        to: i64,
+    ) -> Result<Vec<CalendarEvent>, StoreError> {
+        let range = CalendarRange::new(from, to)?;
+        sqlx::query("SELECT * FROM calendar_events WHERE workspace_id = ? AND starts_at < ? AND (ends_by IS NULL OR ends_by > ?) AND EXISTS (SELECT 1 FROM json_each(data, '$.attendees') WHERE lower(json_extract(value, '$.email')) = lower(?)) ORDER BY starts_at, id")
+            .bind(workspace.as_str())
+            .bind(range.to())
+            .bind(range.from())
+            .bind(email)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(db_err)?
+            .into_iter()
+            .map(decode)
+            .collect()
+    }
+
     async fn linked_occurrences(
         &self,
         workspace: &WorkspaceId,
@@ -105,6 +126,16 @@ impl CalendarStore for SqliteCalendarStore {
         id: &CalendarEventId,
         data: &CalendarEventData,
     ) -> Result<bool, StoreError> {
+        let Some(mut event) = self.get(workspace, id).await? else {
+            return Ok(false);
+        };
+        event.data = data.clone();
+        self.change(&event).await
+    }
+    async fn change(&self, event: &CalendarEvent) -> Result<bool, StoreError> {
+        let workspace = &event.workspace_id;
+        let id = &event.id;
+        let data = &event.data;
         let bounds = data.bounds()?;
         let mut tx = crate::begin_write(&self.pool).await.map_err(db_err)?;
         let previous = sqlx::query("SELECT * FROM calendar_events WHERE workspace_id=?1 AND id=?2")
@@ -128,8 +159,8 @@ impl CalendarStore for SqliteCalendarStore {
         {
             crate::audit_log::refuse_delete(&mut tx, workspace).await?;
         }
-        let updated = sqlx::query("UPDATE calendar_events SET data = ?, starts_at = ?, ends_by = ? WHERE workspace_id = ? AND id = ?")
-            .bind(encode(data)?).bind(bounds.starts_at).bind(bounds.ends_by).bind(workspace.as_str()).bind(id.as_str())
+        let updated = sqlx::query("UPDATE calendar_events SET data = ?, starts_at = ?, ends_by = ?, author_kind = ?, author_person_id = ?, author_agent_id = ? WHERE workspace_id = ? AND id = ?")
+            .bind(encode(data)?).bind(bounds.starts_at).bind(bounds.ends_by).bind(event.created_by.kind()).bind(event.created_by.person_id().map(|id| id.as_str())).bind(event.created_by.agent_id().map(|id| id.as_str())).bind(workspace.as_str()).bind(id.as_str())
             .execute(&mut *tx).await.map_err(db_err)?.rows_affected() == 1;
         tx.commit().await.map_err(db_err)?;
         Ok(updated)
