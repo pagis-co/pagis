@@ -242,6 +242,23 @@ impl MessageStore for FakeMessageStore {
             .get(workspace_id, id)
             .cloned())
     }
+    async fn list_channel(
+        &self,
+        workspace_id: &WorkspaceId,
+        channel_id: &ChannelId,
+        before: Option<&MessageId>,
+        limit: u32,
+    ) -> Result<Vec<Message>, StoreError> {
+        let data = self.0.lock().unwrap();
+        let rows = data
+            .messages
+            .rows(workspace_id)
+            .filter(|m| &m.channel_id == channel_id)
+            .map(|m| (m.id.clone(), m.clone()))
+            .collect();
+        Ok(page(rows, before, limit))
+    }
+
     async fn list_top_level(
         &self,
         workspace_id: &WorkspaceId,

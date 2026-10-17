@@ -649,7 +649,16 @@ an Approval unless its colleague Grant covers every recipient Workspace.
 Always on the Approval writes these Workspaces as Allow Rules. The reply
 wakes the asking Agent and returns to the DM Channel or Thread where it
 owes an answer. Each Run spends from its own Workspace.
-Not built: away Notifications and group answer rules.
+In a conversation with more than two participant Workspaces, a Chief of Staff
+answers only when its Person is named or asked. Named means an explicit
+`@Person name` or `@Workspace name`, with the existing case-insensitive name
+boundary rule. Asked means a reply to a message from that Workspace's Person
+or Agent. An Agent reply does not itself ask for another answer. A reply to
+an Agent request wakes the asking Agent through its Delegation origin.
+The `message_colleagues` tool names each selected recipient with an `@` mention.
+Client activity, Delegate everything, For the person only and the Delegation
+hop cap still apply.
+Not built: away Notifications.
 
 ### Chief of Staff
 The main Agent of a Workspace: the active Agent it addresses by default.

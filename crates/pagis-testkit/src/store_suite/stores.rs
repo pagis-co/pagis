@@ -768,6 +768,30 @@ pub async fn timeline_pages_newest_first_with_exclusive_cursor(backend: &Backend
     reply.parent_message_id = Some(sent[0].id.clone());
     store.insert(&reply).await.unwrap();
 
+    // The complete Channel read includes replies and uses the same cursor.
+    let all = store.list_channel(&ws.id, &ch.id, None, 2).await.unwrap();
+    assert_eq!(all, vec![reply.clone(), sent[4].clone()]);
+    let rest = store
+        .list_channel(&ws.id, &ch.id, Some(&all[1].id), 10)
+        .await
+        .unwrap();
+    assert_eq!(
+        rest,
+        vec![
+            sent[3].clone(),
+            sent[2].clone(),
+            sent[1].clone(),
+            sent[0].clone()
+        ]
+    );
+    assert!(
+        store
+            .list_channel(&WorkspaceId::generate(), &ch.id, None, 10)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+
     let page = store.list_top_level(&ws.id, &ch.id, None, 2).await.unwrap();
     let messages: Vec<_> = page.iter().map(|e| e.message.clone()).collect();
     assert_eq!(messages, vec![sent[4].clone(), sent[3].clone()]);

@@ -859,6 +859,15 @@ pub trait MessageStore: Send + Sync {
         workspace_id: &WorkspaceId,
         id: &MessageId,
     ) -> Result<Option<Vec<crate::MemoryExposure>>, StoreError>;
+    /// One page of all messages in a Channel, including replies, newest first.
+    /// `before` is an exclusive ULID cursor.
+    async fn list_channel(
+        &self,
+        workspace_id: &WorkspaceId,
+        channel_id: &ChannelId,
+        before: Option<&MessageId>,
+        limit: u32,
+    ) -> Result<Vec<Message>, StoreError>;
     /// One timeline page of top-level messages (no thread replies) with
     /// their thread rollups, newest first. `before` is an exclusive
     /// ULID cursor.

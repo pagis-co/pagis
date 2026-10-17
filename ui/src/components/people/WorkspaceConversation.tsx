@@ -1,9 +1,10 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ApiClient } from '../../api/client'
 import { randomId } from '../../ids'
 import { Button } from '../../primitives'
 import {
   useConversationMessages,
+  useConversations,
   useSendConversationMessage,
   useUser,
 } from '../../queries'
@@ -22,10 +23,16 @@ export function WorkspaceConversation({
   conversationId: string
   targetMessageId?: string
 }) {
+  const person = useUser(api).data
+  const [reply, setReply] = useState<{ id: string; name: string; conversationId: string }>()
+  const conversations = useConversations(api)
+  const participants = conversations.data
+    ?.find((item) => item.id === conversationId)
+    ?.participants.filter((item) => item.person_id !== person?.id)
+  const replyTarget = reply?.conversationId === conversationId ? reply : undefined
   const messages = useConversationMessages(api, conversationId)
   const send = useSendConversationMessage(api, conversationId)
   const pending = usePendingSends(selectPendingSends(conversationId))
-  const person = useUser(api).data
   const rows = mergeTimeline(
     messages.data?.pages.flatMap((page) => page.items) ?? [],
     pending,
@@ -72,17 +79,42 @@ export function WorkspaceConversation({
             role={row.key === targetMessageId ? 'region' : undefined}
             aria-label={row.key === targetMessageId ? 'Selected message' : undefined}
             tabIndex={row.key === targetMessageId ? -1 : undefined}>
-          <MessageRow
-            api={api}
-            row={row}
-            personId={person?.id}
-            onRetry={(pendingId, text) => send.mutate({ pendingId, text, forPersonOnly: pending.find(item => item.pending_id === pendingId)?.for_person_only ?? false })}
-          />
+            <MessageRow
+              api={api}
+              row={row}
+              personId={person?.id}
+              onRetry={(pendingId, text) => {
+                const previous = pending.find((item) => item.pending_id === pendingId)
+                send.mutate({
+                  pendingId,
+                  text,
+                  forPersonOnly: previous?.for_person_only ?? false,
+                  parentMessageId: previous?.parent_message_id,
+                })
+              }}
+            />
+            {row.kind === 'message' && row.sendState === 'sent' && (
+              <Button onClick={() => setReply({ id: row.key, name: row.authorName, conversationId })}>
+                Reply to {row.authorName}
+              </Button>
+            )}
           </div>
         ))}
       </div>
       <ConversationComposer
-        onSend={(text, forPersonOnly) => send.mutate({ pendingId: randomId(), text, forPersonOnly })}
+        key={conversationId}
+        participants={participants}
+        replyTo={replyTarget?.name}
+        onCancelReply={() => setReply(undefined)}
+        onSend={(text, forPersonOnly) => {
+          send.mutate({
+            pendingId: randomId(),
+            text,
+            forPersonOnly,
+            parentMessageId: replyTarget?.id,
+          })
+          setReply(undefined)
+        }}
       />
     </section>
   )

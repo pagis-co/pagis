@@ -450,6 +450,25 @@ impl MessageStore for SqliteMessageStore {
         rows.iter().map(row_to_message).collect()
     }
 
+    async fn list_channel(
+        &self,
+        workspace_id: &WorkspaceId,
+        channel_id: &ChannelId,
+        before: Option<&MessageId>,
+        limit: u32,
+    ) -> Result<Vec<Message>, StoreError> {
+        let rows = sqlx::query(&format!(
+            "SELECT {COLUMNS} FROM messages WHERE channel_id = ? AND workspace_id = ? AND (? IS NULL OR id < ?) ORDER BY id DESC LIMIT ?"
+        ))
+        .bind(channel_id.as_str())
+        .bind(workspace_id.as_str())
+        .bind(before.map(|id| id.as_str().to_owned()))
+        .bind(before.map(|id| id.as_str().to_owned()))
+        .bind(i64::from(limit))
+        .fetch_all(&self.pool).await.map_err(db_err)?;
+        rows.iter().map(row_to_message).collect()
+    }
+
     async fn list_top_level(
         &self,
         workspace_id: &WorkspaceId,
