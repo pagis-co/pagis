@@ -227,6 +227,28 @@ impl Mailbox for MemoryMailbox {
             .ok_or(TransportError(TransportErrorCode::StaleId))
     }
 
+    async fn quarantined_message(
+        &mut self,
+        id: &MessageId,
+    ) -> Result<crate::WorkspaceMailMessage, TransportError> {
+        let state = self.state.lock().unwrap();
+        state.check()?;
+        state
+            .messages
+            .iter()
+            .find(|stored| stored.message.summary.id == *id)
+            .map(|stored| crate::WorkspaceMailMessage {
+                message: stored.message.clone(),
+                flags: crate::MailMetadata {
+                    seen: stored.flags.seen,
+                    flagged: stored.flags.flagged,
+                    labels: Vec::new(),
+                },
+                labels: Vec::new(),
+            })
+            .ok_or(TransportError(TransportErrorCode::StaleId))
+    }
+
     async fn thread(
         &mut self,
         id: &str,

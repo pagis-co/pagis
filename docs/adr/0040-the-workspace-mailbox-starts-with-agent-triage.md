@@ -110,7 +110,9 @@ score of at least 15.0 points. Quarantine is a read and write
 restriction, independent of folder location and scoring mode. Lists,
 search, direct message reads, threads, attachments, message writes and
 Agent intake enforce it. Only Administrator routes read quarantine
-content or release a message. Release and its Org Audit Log entry share
+content or release a message. The quarantine read of a Workspace Mailbox
+message goes through `WorkspaceMailHost`, and of an Agent Mailbox message
+through the Embedder's `Mailboxes`. Release and its Org Audit Log entry share
 one storage transaction. The release keeps a durable record so the same
 host evidence does not quarantine that message again.
 
