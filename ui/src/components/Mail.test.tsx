@@ -17,7 +17,7 @@ beforeEach(() => {
   device.phone = false
 })
 
-function setup(mailbox: object | null = { address: 'person@example.com' }, role: 'manager' | 'responder' | 'reader' = 'manager') {
+function setup(mailbox: object | null = { address: 'person@example.com' }, role: 'manager' | 'responder' | 'reader' = 'manager', needsYou = false) {
   const current = { id: 'team', name: 'Support', kind: 'shared' as const, role }
   const message = {
     id: 'INBOX:1',
@@ -29,17 +29,19 @@ function setup(mailbox: object | null = { address: 'person@example.com' }, role:
     seen: false,
     labels: [],
     flagged: false,
+    triage: { outcome: 'needs_you', note: 'Please check the invoice.', author: { kind: 'system' }, assignee: null, recorded_at: 1000 },
     spam_verdict: {
       score: 7.2, action: 'add header', reasons: ['GTUBE'],
       opinion: { label: 'spam', confidence: 80, reasons: ['Unwanted offer'] },
     },
   }
+  const POST = vi.fn(async () => ({ data: undefined }))
   let seen = false
   const GET = vi.fn(
     async (
       path: string,
       options?: {
-        params?: { query?: { q?: string; cursor?: string } }
+        params?: { query?: { q?: string; cursor?: string; view?: string } }
       },
     ) => {
       if (path === '/api/v1/workspace/mailbox')
@@ -51,7 +53,7 @@ function setup(mailbox: object | null = { address: 'person@example.com' }, role:
         return {
           data: {
             items:
-              query?.q === 'absent'
+              (query?.view === 'needs_you' && !needsYou) || query?.q === 'absent'
                 ? []
                 : query?.cursor
                   ? [
@@ -97,11 +99,12 @@ function setup(mailbox: object | null = { address: 'person@example.com' }, role:
       }
     >
       <WorkspaceSelectionContext value={{ items: [current], current, select: () => {} }}>
-        <Mail api={{ GET } as unknown as ApiClient} />
+        <Mail api={{ GET, POST } as unknown as ApiClient} />
       </WorkspaceSelectionContext>
     </QueryClientProvider>,
   )
-  return GET
+  Object.assign(GET, { POST })
+  return Object.assign(GET, { POST })
 }
 
 async function allMail() {
@@ -140,7 +143,7 @@ it('shows one column on a phone and refreshes Seen when the reader goes back', a
   expect(screen.queryByRole('button', { name: /Invoice/ })).toBeNull()
   const listCalls = () =>
     get.mock.calls.filter(
-      ([path]) => path === '/api/v1/workspace/mail/messages',
+      ([path, options]) => path === '/api/v1/workspace/mail/messages' && options?.params?.query?.view === 'all',
     )
   expect(listCalls()).toHaveLength(1)
   fireEvent.click(screen.getByRole('button', { name: 'Mail' }))
@@ -157,7 +160,7 @@ it('searches All mail', async () => {
   })
   expect(await screen.findByText('No mail found.')).toBeTruthy()
   expect(get).toHaveBeenCalledWith('/api/v1/workspace/mail/messages', {
-    params: { query: { folder: '', q: 'absent', cursor: undefined } },
+    params: { query: { folder: '', q: 'absent', cursor: undefined, view: 'all' } },
   })
 })
 
@@ -169,7 +172,7 @@ it('reads older-mail pages and returns to the newest page', async () => {
     await screen.findByRole('button', { name: /Older invoice/ }),
   ).toBeTruthy()
   expect(get).toHaveBeenCalledWith('/api/v1/workspace/mail/messages', {
-    params: { query: { folder: '', q: '', cursor: 'older-page' } },
+    params: { query: { folder: '', q: '', cursor: 'older-page', view: 'all' } },
   })
   fireEvent.click(screen.getByRole('button', { name: 'Newest mail' }))
   expect(await screen.findByRole('button', { name: /Invoice/ })).toBeTruthy()
@@ -213,7 +216,7 @@ it('requires a reason before a search at Escalations', async () => {
   fireEvent.change(screen.getByLabelText('Search reason'), { target: { value: 'Customer request' } })
   fireEvent.click(screen.getByRole('button', { name: 'Search' }))
   await waitFor(() => expect(GET).toHaveBeenCalledWith('/api/v1/workspace/mail/messages', {
-    params: { query: { folder: '', q: 'invoice', cursor: undefined, reason: 'Customer request' } },
+    params: { query: { folder: '', q: 'invoice', cursor: undefined, reason: 'Customer request', view: 'all' } },
   }))
 })
 
@@ -232,4 +235,24 @@ it('keeps compose available to a Responder at Sprite only', async () => {
   setup({ address: 'support@example.com', effective_visibility: 'agent_only' }, 'responder')
   expect(await screen.findByText('Sprites work this mailbox. Mail is hidden.')).toBeTruthy()
   expect(screen.getByRole('button', { name: 'Compose' })).toBeTruthy()
+})
+
+it('lists Needs you mail and shows its Mail Triage note', async () => {
+  const GET = setup(undefined, 'manager', true)
+  expect(await screen.findByText('Invoice')).toBeTruthy()
+  expect(screen.getByText('Please check the invoice.')).toBeTruthy()
+  expect(screen.queryByLabelText('Search mail')).toBeNull()
+  expect(screen.queryByLabelText('Folder')).toBeNull()
+  expect(GET).toHaveBeenCalledWith('/api/v1/workspace/mail/messages', expect.objectContaining({
+    params: { query: expect.objectContaining({ view: 'needs_you' }) },
+  }))
+})
+
+it('resolves a Needs you message with Done', async () => {
+  const api = setup(undefined, 'manager', true)
+  fireEvent.click(await screen.findByRole('button', { name: /Invoice/ }))
+  fireEvent.click((await screen.findAllByRole('button', { name: 'Done' }))[0])
+  await waitFor(() => expect(api.POST).toHaveBeenCalledWith('/api/v1/workspace/mail/messages/{message_id}/done', {
+    params: { path: { message_id: 'INBOX:1' } },
+  }))
 })

@@ -104,6 +104,25 @@ impl MailReadContext {
         id: &crate::MessageId,
     ) -> Result<(), TransportError> {
         let old_key = summary.assessment_key();
+        if self
+            .intake
+            .workspace_mailboxes
+            .get(&self.workspace)
+            .await
+            .map_err(store_error)?
+            .is_some_and(|mailbox| mailbox.address.eq_ignore_ascii_case(&self.address))
+        {
+            let new_key = if summary.message_id.is_empty() {
+                id.as_str()
+            } else {
+                old_key
+            };
+            self.intake
+                .workspace_mailboxes
+                .relocate_triage(&self.workspace, old_key, new_key, id.as_str())
+                .await
+                .map_err(store_error)?;
+        }
         let Some(mut message) = self
             .intake
             .junk

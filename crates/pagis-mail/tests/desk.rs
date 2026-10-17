@@ -1350,7 +1350,12 @@ async fn workspace_mailbox_provision_uses_the_host_and_secret_without_a_standing
         .unwrap();
     assert!(store.folders().await.unwrap().contains(&"INBOX".into()));
     store.close().await.unwrap();
-    assert_eq!(world.transport.logins(), ["person@example.com"]);
+    // Provisioning logs in once to start the Mail Triage cursor at the
+    // INBOX head, and the open logs in again.
+    assert_eq!(
+        world.transport.logins(),
+        ["person@example.com", "person@example.com"]
+    );
 }
 
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]

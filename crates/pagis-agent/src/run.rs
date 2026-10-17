@@ -6001,7 +6001,11 @@ async fn channel_briefing(deps: &AgentDeps, agent: &Agent, run: &Run, person_nam
         tiers.push(tier);
         rows.push_str(&format!(
             "- message_id: {} | from: {} | subject: {} | received_at: {} | trust_tier: {}\n",
-            event.provider_event_id,
+            if event.metadata["mailbox"] == "workspace" {
+                event.metadata["message_id"].as_str().unwrap_or_default()
+            } else {
+                &event.provider_event_id
+            },
             event.metadata["from"].as_str().unwrap_or("unknown"),
             event.metadata["subject"].as_str().unwrap_or(""),
             event.metadata["received_at"]

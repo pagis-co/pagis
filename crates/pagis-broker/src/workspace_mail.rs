@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum WorkspaceMailTool {
-    Escalate,
+    Triage,
     Search,
     GetMessage,
     GetThread,
@@ -56,11 +56,14 @@ pub fn workspace_mail_manifest() -> CapabilityManifest {
         source_version: env!("CARGO_PKG_VERSION").into(),
         tools: vec![
             tool(
-                WorkspaceMailTool::Escalate,
-                "workspace_mail_escalate",
-                "Mark a Workspace Mailbox message as Needs you. This permits human reads at Escalations.",
-                serde_json::json!({"message_id":{"type":"string","minLength":1}}),
-                vec!["message_id"],
+                WorkspaceMailTool::Triage,
+                "workspace_mail_triage",
+                "Record one Mail Triage outcome and a short note for this message. Assigned needs an active Agent with a Workspace Mailbox Grant.",
+                serde_json::json!({"message_id":{"type":"string","minLength":1},
+                    "outcome":{"type":"string","enum":["handled","replied","assigned","needs_you"]},
+                    "note":{"type":"string","minLength":1,"maxLength":crate::DECISION_NOTE_CHARS},
+                    "assignee":{"type":"string","minLength":1}}),
+                vec!["message_id", "outcome", "note"],
             ),
             tool(
                 WorkspaceMailTool::Search,

@@ -3699,7 +3699,7 @@ export function useWorkspaceMailFolders(api: ApiClient) {
 
 export function useWorkspaceMailMessages(
   api: ApiClient,
-  query: { folder: string; q: string; cursor?: string; reason?: string },
+  query: { folder: string; q: string; cursor?: string; reason?: string; view?: "all" | "needs_you" },
 ) {
   const workspaceId = useCurrentWorkspaceId();
   return useQuery({

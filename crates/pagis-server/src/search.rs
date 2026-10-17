@@ -230,6 +230,7 @@ async fn search_workspace(
                 state,
                 &tenant,
                 crate::workspace_mail::WorkspaceMailQuery {
+                    view: None,
                     folder: None,
                     q: Some(query.into()),
                     cursor: None,

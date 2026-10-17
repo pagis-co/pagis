@@ -47,6 +47,7 @@ pub const RESPONDER_WRITES: &[(&str, &str)] = &[
         "/api/v1/workspace/mail/messages/{message_id}/forward",
         "post",
     ),
+    ("/api/v1/workspace/mail/messages/{message_id}/done", "post"),
     ("/api/v1/workspace/mail/messages/{message_id}/move", "post"),
     (
         "/api/v1/workspace/mail/messages/{message_id}/labels",
@@ -63,7 +64,10 @@ impl Route {
         use pagis_core::WorkspaceRole::{Manager, Reader, Responder};
         if !self.shared || !self.methods.contains(&method) {
             None
-        } else if self.path == "/api/v1/workspace/mail/audit" {
+        } else if matches!(
+            self.path,
+            "/api/v1/workspace/mail/audit" | "/api/v1/workspace/mailbox/triage-rules"
+        ) {
             Some(Manager)
         } else if method == "get" || self.path == "/api/v1/calendar/events/{event_id}/response" {
             Some(Reader)
@@ -719,6 +723,13 @@ pub const ROUTES: &[Route] = &[
     },
     Route {
         shared: true,
+        path: "/api/v1/workspace/mail/messages/{message_id}/done",
+        methods: &["post"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
+        shared: true,
         path: "/api/v1/workspace/mail/messages/{message_id}/move",
         methods: &["post"],
         authenticated: true,
@@ -763,6 +774,13 @@ pub const ROUTES: &[Route] = &[
         shared: true,
         path: "/api/v1/workspaces/{workspace_id}/members/{person_id}",
         methods: &["delete", "patch"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
+        shared: true,
+        path: "/api/v1/workspace/mailbox/triage-rules",
+        methods: &["get", "put"],
         authenticated: true,
         part: None,
     },

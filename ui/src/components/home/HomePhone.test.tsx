@@ -159,13 +159,14 @@ function stubApi(queue: NeedsYouItem[]) {
 }
 
 function mount(api: ApiClient) {
-  const opened = { channel: [] as string[], run: [] as string[] }
+  const opened = { channel: [] as string[], run: [] as string[], mail: [] as string[] }
   const history = renderInRouter(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <Home
         api={api}
         onOpenChannel={(id) => opened.channel.push(id)}
         onOpenRun={(id) => opened.run.push(id)}
+        onOpenMail={(id) => opened.mail.push(id)}
       />
     </QueryClientProvider>,
   )

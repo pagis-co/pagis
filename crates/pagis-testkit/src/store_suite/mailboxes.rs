@@ -528,32 +528,216 @@ pub async fn workspace_mailbox_record_and_ledger(backend: &Backend) {
         assert_eq!(stored.visibility, level);
         assert_eq!(stored.author, record.author);
     }
+    use pagis_core::{Author, MailTriage, MailTriageAction, MailTriageOutcome, MailTriageRule};
     assert!(
-        !store
-            .is_escalated(&ws.id, "<mail@example.com>")
+        store
+            .triage(&ws.id, "<mail@example.com>")
+            .await
+            .unwrap()
+            .is_none()
+    );
+    let mut triage = MailTriage {
+        message_id: "INBOX:1:1".into(),
+        outcome: MailTriageOutcome::NeedsYou,
+        note: "Please decide.".into(),
+        author: Author::Agent(agent.id.clone()),
+        assignee: None,
+        recorded_at: now_ms(),
+        resolved_at: None,
+    };
+    store
+        .record_triage(&ws.id, "<mail@example.com>", &triage)
+        .await
+        .unwrap();
+    assert_eq!(
+        store.triage(&ws.id, "<mail@example.com>").await.unwrap(),
+        Some(triage.clone())
+    );
+    for outcome in [
+        MailTriageOutcome::Handled,
+        MailTriageOutcome::Replied,
+        MailTriageOutcome::Assigned,
+        MailTriageOutcome::NeedsYou,
+    ] {
+        triage.outcome = outcome;
+        triage.note = "Read the message.".into();
+        triage.recorded_at += 1;
+        triage.assignee = (outcome == MailTriageOutcome::Assigned).then(|| agent.id.clone());
+        store
+            .record_triage(&ws.id, "<mail@example.com>", &triage)
+            .await
+            .unwrap();
+        assert_eq!(
+            store.triage(&ws.id, "<mail@example.com>").await.unwrap(),
+            Some(triage.clone())
+        );
+        assert_eq!(
+            store.open_needs_you(&ws.id, None, 100).await.unwrap().len(),
+            usize::from(outcome == MailTriageOutcome::NeedsYou)
+        );
+    }
+    store
+        .relocate_triage(
+            &ws.id,
+            "<mail@example.com>",
+            "<mail@example.com>",
+            "Filed:7",
+        )
+        .await
+        .unwrap();
+    triage.message_id = "Filed:7".into();
+    assert_eq!(
+        store.triage(&ws.id, "<mail@example.com>").await.unwrap(),
+        Some(triage.clone())
+    );
+    store
+        .relocate_triage(&ws.id, "<mail@example.com>", "Filed:8", "Filed:8")
+        .await
+        .unwrap();
+    triage.message_id = "Filed:8".into();
+    assert!(
+        store
+            .triage(&ws.id, "<mail@example.com>")
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        store.open_needs_you(&ws.id, None, 100).await.unwrap(),
+        vec![("Filed:8".into(), triage.clone())]
+    );
+    assert!(
+        store
+            .triage(&WorkspaceId::generate(), "<mail@example.com>")
+            .await
+            .unwrap()
+            .is_none()
+    );
+    let rules = vec![
+        MailTriageRule {
+            sender: "Ada@Example.com".into(),
+            action: MailTriageAction::NeedsYou,
+        },
+        MailTriageRule {
+            sender: "example.com".into(),
+            action: MailTriageAction::Agent,
+        },
+    ];
+    // Open outcomes use a stable order and a bounded page.
+    let base = triage.recorded_at;
+    for key in ["open-a", "open-b", "open-c"] {
+        let mut open = triage.clone();
+        open.resolved_at = None;
+        open.outcome = MailTriageOutcome::NeedsYou;
+        open.assignee = None;
+        open.recorded_at = base + 1;
+        store.record_triage(&ws.id, key, &open).await.unwrap();
+    }
+    let page = store.open_needs_you(&ws.id, None, 2).await.unwrap();
+    assert_eq!(
+        page.iter().map(|(key, _)| key.as_str()).collect::<Vec<_>>(),
+        ["open-c", "open-b"]
+    );
+    let next = store
+        .open_needs_you(&ws.id, Some((base + 1, "open-b")), 2)
+        .await
+        .unwrap();
+    assert_eq!(
+        next.iter().map(|(key, _)| key.as_str()).collect::<Vec<_>>(),
+        ["open-a", "Filed:8"]
+    );
+    assert!(
+        store
+            .resolve_triage(&ws.id, "open-b", base + 2)
             .await
             .unwrap()
     );
+    assert!(
+        !store
+            .resolve_triage(&ws.id, "open-b", base + 3)
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        store
+            .triage(&ws.id, "open-b")
+            .await
+            .unwrap()
+            .unwrap()
+            .resolved_at,
+        Some(base + 2)
+    );
+    assert_eq!(
+        store.open_needs_you(&ws.id, None, 10).await.unwrap().len(),
+        3
+    );
+    assert!(
+        store
+            .open_needs_you(&WorkspaceId::generate(), None, 10)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    let pending = pagis_core::PendingMailTriage {
+        key: "pending-a".into(),
+        message_id: "INBOX:9".into(),
+        wakeup_id: pagis_core::WakeupId::generate(),
+    };
+    store.put_pending_triage(&ws.id, &pending).await.unwrap();
+    assert_eq!(
+        store
+            .pending_triage(&ws.id, Some(&pending.wakeup_id), None, 1)
+            .await
+            .unwrap(),
+        std::slice::from_ref(&pending)
+    );
+    assert!(
+        store
+            .pending_triage(&WorkspaceId::generate(), None, None, 1)
+            .await
+            .unwrap()
+            .is_empty()
+    );
     store
-        .escalate(&ws.id, "<mail@example.com>", &agent.id)
+        .relocate_triage(&ws.id, &pending.key, "pending-b", "Filed:9")
         .await
         .unwrap();
+    let relocated = store.pending_triage(&ws.id, None, None, 1).await.unwrap();
+    assert_eq!(relocated[0].key, "pending-b");
+    assert_eq!(relocated[0].message_id, "Filed:9");
     store
-        .escalate(&ws.id, "<mail@example.com>", &agent.id)
+        .remove_pending_triage(&ws.id, "pending-b")
         .await
         .unwrap();
     assert!(
         store
-            .is_escalated(&ws.id, "<mail@example.com>")
+            .pending_triage(&ws.id, None, None, 1)
             .await
             .unwrap()
+            .is_empty()
     );
+    assert!(store.triage_rules(&ws.id).await.unwrap().is_empty());
+    store.replace_triage_rules(&ws.id, &rules).await.unwrap();
+    assert_eq!(store.triage_rules(&ws.id).await.unwrap(), rules);
     assert!(
-        !store
-            .is_escalated(&WorkspaceId::generate(), "<mail@example.com>")
+        store
+            .triage_rules(&WorkspaceId::generate())
             .await
             .unwrap()
+            .is_empty()
     );
+    store
+        .replace_triage_rules(&ws.id, &rules[1..])
+        .await
+        .unwrap();
+    assert_eq!(store.triage_rules(&ws.id).await.unwrap(), rules[1..]);
+    let cursor = MailboxCursor {
+        folder: "INBOX".into(),
+        uid_validity: 10,
+        last_uid: 50,
+    };
+    store.set_triage_cursor(&ws.id, &cursor).await.unwrap();
+    assert_eq!(store.triage_cursor(&ws.id).await.unwrap(), Some(cursor));
     store
         .set_spam_mode(&ws.id, pagis_core::MailScoringMode::MoveToJunk)
         .await

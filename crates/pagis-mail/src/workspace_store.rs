@@ -41,8 +41,12 @@ pub trait WorkspaceMailWriter: Send {
     async fn rename_folder(&mut self, name: &str, new_name: &str) -> Result<(), TransportError>;
     async fn delete_folder(&mut self, name: &str) -> Result<(), TransportError>;
     /// Move mail to Trash, or remove it for good when it is in Trash.
-    async fn delete_message(&mut self, id: &MessageId) -> Result<(), TransportError>;
-    async fn move_message(&mut self, id: &MessageId, folder: &str) -> Result<(), TransportError>;
+    async fn delete_message(&mut self, id: &MessageId) -> Result<MessageId, TransportError>;
+    async fn move_message(
+        &mut self,
+        id: &MessageId,
+        folder: &str,
+    ) -> Result<MessageId, TransportError>;
     async fn set_label(
         &mut self,
         id: &MessageId,
@@ -241,21 +245,29 @@ impl WorkspaceMailWriter for ImapWorkspaceMailStore {
         }
         self.session().await?.delete_folder(name).await
     }
-    async fn delete_message(&mut self, id: &MessageId) -> Result<(), TransportError> {
+    async fn delete_message(&mut self, id: &MessageId) -> Result<MessageId, TransportError> {
         self.message(id).await?;
         let folder = id.as_str().parse::<ImapMessageId>()?.folder;
         let trash = self.ensure_trash().await?;
         if folder.eq_ignore_ascii_case(&trash) {
-            self.session().await?.expunge_message(id).await
+            self.session().await?.expunge_message(id).await?;
+            Ok(id.clone())
         } else {
             self.move_message(id, &trash).await
         }
     }
-    async fn move_message(&mut self, id: &MessageId, folder: &str) -> Result<(), TransportError> {
+    async fn move_message(
+        &mut self,
+        id: &MessageId,
+        folder: &str,
+    ) -> Result<MessageId, TransportError> {
         valid_folder(folder)?;
         let message = self.message(id).await?;
         let moved = self.session().await?.move_message(id, folder).await?;
-        self.intake.relocate(&message.message.summary, &moved).await
+        self.intake
+            .relocate(&message.message.summary, &moved)
+            .await?;
+        Ok(moved)
     }
     async fn set_label(
         &mut self,

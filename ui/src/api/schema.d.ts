@@ -3644,6 +3644,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspace/mail/messages/{message_id}/done": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["done_workspace_mail"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspace/mail/messages/{message_id}/forward": {
         parameters: {
             query?: never;
@@ -3798,6 +3814,22 @@ export interface paths {
         get: operations["get_workspace_mailbox"];
         put?: never;
         post: operations["create_workspace_mailbox"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspace/mailbox/triage-rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_mail_triage_rules"];
+        put: operations["replace_mail_triage_rules"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -5895,6 +5927,26 @@ export interface components {
          * @enum {string}
          */
         MailScoringMode: "score_only" | "move_to_junk";
+        /** @description The one Mail Triage outcome of a message. */
+        MailTriage: {
+            assignee?: string | null;
+            author: components["schemas"]["Author"];
+            /** @description The host id opens the message from the Needs-You Queue. */
+            message_id: string;
+            note: string;
+            outcome: components["schemas"]["MailTriageOutcome"];
+            recorded_at: components["schemas"]["i64"];
+            resolved_at?: null | components["schemas"]["i64"];
+        };
+        /** @enum {string} */
+        MailTriageAction: "needs_you" | "agent";
+        /** @enum {string} */
+        MailTriageOutcome: "handled" | "replied" | "assigned" | "needs_you";
+        /** @description Rules match in list order, without case or subdomain matching. */
+        MailTriageRule: {
+            action: components["schemas"]["MailTriageAction"];
+            sender: string;
+        };
         /** @enum {string} */
         MailVisibility: "agent_only" | "escalations" | "all_mail";
         /**
@@ -6444,6 +6496,9 @@ export interface components {
         }) | (components["schemas"]["NeedsYouFailed"] & {
             /** @enum {string} */
             kind: "failed";
+        }) | (components["schemas"]["NeedsYouMail"] & {
+            /** @enum {string} */
+            kind: "mail";
         });
         /**
          * @description Callers entered so many wrong keypad codes that a delay started
@@ -6463,6 +6518,15 @@ export interface components {
              * @description The end of the latest delay.
              */
             suspended_until: number;
+            url: string;
+        };
+        /** @description One Workspace Mailbox message that needs the Person. */
+        NeedsYouMail: {
+            /** Format: int64 */
+            at: number;
+            id: string;
+            line: string;
+            message_id: string;
             url: string;
         };
         /** @description The Needs-You Queue of one Workspace. */
@@ -8471,11 +8535,14 @@ export interface components {
             subject: string;
             thread_id: string;
             to: string[];
+            triage?: null | components["schemas"]["MailTriage"];
             trust_tier: string;
         };
         WorkspaceMailThread: {
             items: components["schemas"]["WorkspaceMailMessageDto"][];
         };
+        /** @enum {string} */
+        WorkspaceMailView: "all" | "needs_you";
         WorkspaceMailboxDto: {
             address: string;
             connection_id: string;
@@ -18115,6 +18182,7 @@ export interface operations {
     list_workspace_mail_messages: {
         parameters: {
             query?: {
+                view?: null | components["schemas"]["WorkspaceMailView"];
                 folder?: string | null;
                 q?: string | null;
                 reason?: string | null;
@@ -18344,6 +18412,33 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MailComposerDto"];
+                };
+            };
+        };
+    };
+    done_workspace_mail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                message_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
                 };
             };
         };
@@ -18843,6 +18938,72 @@ export interface operations {
                 };
             };
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_mail_triage_rules: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MailTriageRule"][];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    replace_mail_triage_rules: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MailTriageRule"][];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MailTriageRule"][];
+                };
+            };
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

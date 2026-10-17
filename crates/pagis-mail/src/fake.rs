@@ -1141,7 +1141,7 @@ impl crate::SpamVerdictSource for FakeSpamVerdicts {
         } else {
             "INBOX".into()
         };
-        store.move_message(id, &folder).await
+        store.move_message(id, &folder).await.map(|_| ())
     }
     async fn verdict(
         &self,

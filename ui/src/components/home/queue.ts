@@ -32,6 +32,7 @@ export function queueDetail(item: QueueItem, now: number = Date.now()): string |
       return failureKindText(item.failure_kind)
     case 'approval':
     case 'waiting':
+    case 'mail':
       return null
   }
 }
@@ -57,5 +58,6 @@ export function isDismissible(item: QueueItem): boolean {
 export function queueAction(item: QueueItem): string {
   if (item.kind === 'call') return 'Call back'
   if (item.kind === 'keypad') return 'Clear the count'
+  if (item.kind === 'mail') return 'Open mail'
   return item.kind === 'failed' ? 'Open run' : 'Open conversation'
 }

@@ -49,3 +49,5 @@ pub use system::{
 pub use tailscale::TailscaleCommand;
 
 mod text_events;
+
+pub mod mail_triage;

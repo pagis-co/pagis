@@ -496,6 +496,18 @@ impl EventSubscriptionStore for BlockedRuleReader {
             .live_for_source(workspace_id, source, event_kind)
             .await
     }
+    async fn system_for_source(
+        &self,
+        workspace_id: &WorkspaceId,
+        agent: &AgentId,
+        source: &EventSource,
+        event_kind: &str,
+        name: &str,
+    ) -> Result<Option<EventSubscription>, StoreError> {
+        self.inner
+            .system_for_source(workspace_id, agent, source, event_kind, name)
+            .await
+    }
     async fn list_for_source(
         &self,
         workspace_id: &WorkspaceId,

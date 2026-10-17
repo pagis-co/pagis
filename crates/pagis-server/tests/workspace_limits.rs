@@ -810,6 +810,29 @@ async fn workspace_mail_visibility_checks_every_human_read_and_current_limits() 
     )
     .await;
     assert_eq!(status, StatusCode::CREATED, "{body}");
+    let rules = json!([{"sender":"sender@example.com","action":"needs_you"}, {"sender":"example.com","action":"agent"}]);
+    let (status, saved) = call(
+        &e,
+        false,
+        "PUT",
+        &format!("{prefix}/mailbox/triage-rules"),
+        rules.clone(),
+        &e.cookie,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(saved, rules);
+    let (status, listed) = call(
+        &e,
+        false,
+        "GET",
+        &format!("{prefix}/mailbox/triage-rules"),
+        Value::Null,
+        &e.cookie,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(listed, rules);
     let mut mail = host.store(&workspace).unwrap();
     let hidden = mail.deliver("sender@example.com", "Hidden", "private body");
     let visible = mail.deliver("sender@example.com", "Escalated", "human body");
@@ -840,7 +863,7 @@ async fn workspace_mail_visibility_checks_every_human_read_and_current_limits() 
         .unwrap()["thread_id"]
         .as_str()
         .unwrap();
-    // Agent triage and assignments store the same escalation identity.
+    // Mail Triage outcomes use the stable message identity.
     let summary = e
         .routers
         .state
@@ -858,7 +881,37 @@ async fn workspace_mail_visibility_checks_every_human_read_and_current_limits() 
     let message = store.message(&visible).await.unwrap();
     e.stores
         .workspace_mailboxes
-        .escalate(&workspace, message.message.summary.assessment_key(), &agent)
+        .record_triage(
+            &workspace,
+            message.message.summary.assessment_key(),
+            &pagis_core::MailTriage {
+                outcome: pagis_core::MailTriageOutcome::NeedsYou,
+                note: "Please decide.".into(),
+                author: pagis_core::Author::Agent(agent.clone()),
+                assignee: None,
+                recorded_at: pagis_core::now_ms(),
+                resolved_at: None,
+                message_id: message.message.summary.id.to_string(),
+            },
+        )
+        .await
+        .unwrap();
+    let hidden_message = store.message(&hidden).await.unwrap();
+    e.stores
+        .workspace_mailboxes
+        .record_triage(
+            &workspace,
+            hidden_message.message.summary.assessment_key(),
+            &pagis_core::MailTriage {
+                outcome: pagis_core::MailTriageOutcome::Handled,
+                note: "Read the receipt.".into(),
+                author: pagis_core::Author::System,
+                assignee: None,
+                recorded_at: pagis_core::now_ms(),
+                resolved_at: None,
+                message_id: hidden.to_string(),
+            },
+        )
         .await
         .unwrap();
     store.close().await.unwrap();
@@ -891,6 +944,37 @@ async fn workspace_mail_visibility_checks_every_human_read_and_current_limits() 
                 _ => 0,
             }
         );
+        let (status, needs_you) = call(
+            &e,
+            false,
+            "GET",
+            &format!("{prefix}/mail/messages?view=needs_you"),
+            Value::Null,
+            &e.cookie,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            needs_you["items"].as_array().unwrap().len(),
+            usize::from(level != "agent_only")
+        );
+        if level != "agent_only" {
+            assert_eq!(needs_you["items"][0]["triage"]["note"], "Please decide.");
+        }
+        if level == "all_mail" {
+            let (status, handled) = call(
+                &e,
+                false,
+                "GET",
+                &format!("{prefix}/mail/messages/{hidden}"),
+                Value::Null,
+                &e.cookie,
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK);
+            assert_eq!(handled["triage"]["outcome"], "handled");
+            assert_eq!(handled["triage"]["note"], "Read the receipt.");
+        }
         for (id, allowed) in [
             (&visible, level != "agent_only"),
             (&hidden, level == "all_mail"),
@@ -1175,7 +1259,19 @@ async fn workspace_mail_visibility_checks_every_human_read_and_current_limits() 
         let message = mail.message(&disposable).await.unwrap();
         e.stores
             .workspace_mailboxes
-            .escalate(&workspace, message.message.summary.assessment_key(), &agent)
+            .record_triage(
+                &workspace,
+                message.message.summary.assessment_key(),
+                &pagis_core::MailTriage {
+                    outcome: pagis_core::MailTriageOutcome::NeedsYou,
+                    note: "Please decide.".into(),
+                    author: pagis_core::Author::Agent(agent.clone()),
+                    assignee: None,
+                    recorded_at: pagis_core::now_ms(),
+                    resolved_at: None,
+                    message_id: message.message.summary.id.to_string(),
+                },
+            )
             .await
             .unwrap();
         let (status, body) = call(
