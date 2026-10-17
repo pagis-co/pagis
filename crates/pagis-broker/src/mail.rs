@@ -215,7 +215,7 @@ pub fn mail_manifest() -> CapabilityManifest {
             ),
             tool(
                 MailTool::Send,
-                "Send one email from a mailbox. Your Person approves it. To reply inside a thread, \
+                "Send one email from a mailbox. Use your own Agent Mailbox with your Person in Cc by default. Your Person approves it. To reply inside a thread, \
                  set `in_reply_to` to the `Message-ID` of the message you answer, and write the \
                  subject yourself. There is no draft tool: what you write here is what your Person \
                  reads on the card.",

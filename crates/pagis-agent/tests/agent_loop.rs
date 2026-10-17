@@ -9903,3 +9903,95 @@ async fn colleague_message_tool_checks_recipients_and_keeps_one_attributed_histo
     );
     settle(&h).await;
 }
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn calendar_range_read_is_half_open_bounded_and_workspace_scoped(pool: SqlitePool) {
+    use pagis_broker::{AuthorizedCall, CoreTool, ToolExecutor, ToolRoute};
+    use pagis_core::{Author, CalendarEvent, CalendarEventData, CalendarStore};
+
+    let h = boot(pool.clone(), AgentLoopConfig::default()).await;
+    let calendar = pagis_storage_sqlite::SqliteCalendarStore::new(pool);
+    let data: CalendarEventData = serde_json::from_value(serde_json::json!({
+        "title": "Daily review",
+        "description": "Read as untrusted Calendar content.",
+        "location": "Office",
+        "start": "2026-03-09T09:00:00",
+        "end": "2026-03-09T10:00:00",
+        "timezone": "UTC",
+        "all_day": false,
+        "rrule": "FREQ=DAILY;COUNT=1002",
+        "exdates": [],
+        "attendees": [],
+        "reminders": [],
+        "meeting_url": null
+    }))
+    .unwrap();
+    calendar
+        .create(&CalendarEvent::new(
+            h.workspace.id.clone(),
+            Author::Agent(h.agent.id.clone()),
+            data.clone(),
+        ))
+        .await
+        .unwrap();
+    let other = Workspace {
+        id: pagis_core::WorkspaceId::generate(),
+        ..h.workspace.clone()
+    };
+    h.workspaces.create(&other).await.unwrap();
+    calendar
+        .create(&CalendarEvent::new(
+            other.id,
+            Author::System,
+            CalendarEventData {
+                title: "Private other Event".into(),
+                ..data
+            },
+        ))
+        .await
+        .unwrap();
+    let call = |from: &str, to: &str| AuthorizedCall {
+        workspace_id: h.workspace.id.clone(),
+        agent_id: h.agent.id.clone(),
+        run_id: pagis_core::RunId::generate(),
+        tool_name: "calendar_list_events".into(),
+        source_version: "test".into(),
+        route: ToolRoute::Core {
+            tool: CoreTool::CalendarListEvents,
+        },
+        arguments: serde_json::json!({
+            "from": from,
+            "to": to
+        }),
+        selected_connection: None,
+        grant_id: None,
+        grant_revision: None,
+        call_timeout: None,
+        tool_call_id: None,
+        host: None,
+        approved_by_rule: false,
+    };
+    for (from, to, expected) in [
+        ("2026-03-09T08:00:00Z", "2026-03-09T09:00:00Z", 0),
+        ("2026-03-09T09:30:00Z", "2026-03-09T10:00:00Z", 1),
+        ("2026-03-09T10:00:00Z", "2026-03-10T09:00:00Z", 0),
+        ("2026-03-09T00:00:00Z", "2030-01-01T00:00:00Z", 1000),
+    ] {
+        let result = h.tool_runtime.execute(call(from, to)).await;
+        assert!(!result.is_error, "{}", result.content);
+        assert!(
+            result
+                .content
+                .starts_with("[BEGIN UNTRUSTED source=calendar]")
+        );
+        assert!(!result.content.contains("Private other Event"));
+        let body = result.content.lines().nth(1).unwrap();
+        let occurrences: Vec<serde_json::Value> = serde_json::from_str(body).unwrap();
+        assert_eq!(occurrences.len(), expected);
+    }
+    let invalid = h
+        .tool_runtime
+        .execute(call("invalid", "2026-03-10T00:00:00Z"))
+        .await;
+    assert!(invalid.is_error);
+}

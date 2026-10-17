@@ -199,6 +199,7 @@ it('shows Calendar Grant access and revokes it without Allow Rule fields', async
   const api = stubApi()
   mount(api, [{ ...grant, resource_kind: 'calendar', allow: [] }])
   expect(screen.getByText('Calendar')).toBeTruthy()
+  expect(screen.getByText('Read Free/Busy and Events, create and change Events, and answer invitations.')).toBeTruthy()
   expect(screen.queryByPlaceholderText('Add a command prefix, e.g. git status')).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Revoke' }))
   await waitFor(() => expect(api.DELETE).toHaveBeenCalled())

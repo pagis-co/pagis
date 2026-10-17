@@ -179,6 +179,7 @@ impl CoreToolRuntime {
         match tool {
             CoreTool::FileRead => self.execute_file_read(&call).await,
             CoreTool::CalendarFreeBusy => self.execute_calendar_free_busy(&call).await,
+            CoreTool::CalendarListEvents => self.execute_calendar_list_events(&call).await,
             CoreTool::CalendarRead => self.execute_calendar_read(&call).await,
             CoreTool::HostShell => self.execute_host(&call).await,
             CoreTool::ComputerShell => self.execute_computer_shell(&call).await,
@@ -263,6 +264,31 @@ impl CoreToolRuntime {
                 )
                 .to_string(),
             ),
+            Err(error) => ToolResult::error("temporarily_unavailable", error.to_string()),
+        }
+    }
+
+    async fn execute_calendar_list_events(&self, call: &AuthorizedCall) -> ToolResult {
+        let (Some(from), Some(to)) = (
+            call.arguments["from"].as_str(),
+            call.arguments["to"].as_str(),
+        ) else {
+            return ToolResult::error("invalid_request", "from and to are required");
+        };
+        let range = match pagis_core::CalendarRange::parse(from, to) {
+            Ok(range) => range,
+            Err(error) => return ToolResult::error("invalid_request", error.to_string()),
+        };
+        match self
+            .deps
+            .calendar
+            .list(&call.workspace_id, range.from(), range.to())
+            .await
+        {
+            Ok(events) => ToolResult::success(pagis_core::wrap_untrusted(
+                "calendar",
+                &serde_json::to_string(&events).expect("Events serialize"),
+            )),
             Err(error) => ToolResult::error("temporarily_unavailable", error.to_string()),
         }
     }
