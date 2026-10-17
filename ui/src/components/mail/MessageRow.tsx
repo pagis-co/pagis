@@ -32,6 +32,7 @@ export function MessageRow({
         {message.labels.length > 0 && (
           <span aria-label="Labels">{message.labels.join(', ')}</span>
         )}
+        {message.triage && <span aria-label="Mail Triage note">{message.triage.note}</span>}
         <span className="mail-row-snippet">{message.snippet}</span>
       </span>
       <time dateTime={new Date(message.date).toISOString()}>

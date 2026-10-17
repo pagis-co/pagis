@@ -512,6 +512,11 @@ fn product_router(state: Arc<AppState>) -> Router {
             post(calendar_mail::answer_invitation),
         )
         .route(
+            "/api/v1/workspace/mailbox/triage-rules",
+            get(workspace_mail::list_mail_triage_rules)
+                .put(workspace_mail::replace_mail_triage_rules),
+        )
+        .route(
             "/api/v1/workspace/mailbox/visibility",
             put(workspace_mail::set_workspace_mail_visibility),
         )
@@ -575,6 +580,10 @@ fn product_router(state: Arc<AppState>) -> Router {
         .route(
             "/api/v1/workspace/mail/messages/{message_id}/composer",
             get(workspace_mail::prepare_workspace_mail),
+        )
+        .route(
+            "/api/v1/workspace/mail/messages/{message_id}/done",
+            post(workspace_mail::done_workspace_mail),
         )
         .route(
             "/api/v1/workspace/mail/messages/{message_id}/move",

@@ -971,8 +971,20 @@ async fn workspace_mailbox_tools_read_and_send_with_the_outgoing_cap(pool: Sqlit
     let id = world.transport.deliver_raw(b"Message-ID: <question@example.com>\r\nFrom: sender@example.com\r\nTo: person@example.com\r\nSubject: Question\r\n\r\nHello");
     for (tool, args) in [
         (
-            WorkspaceMailTool::Escalate,
-            serde_json::json!({"message_id":id.to_string()}),
+            WorkspaceMailTool::Triage,
+            serde_json::json!({"message_id":id.to_string(),"outcome":"handled","note":"Read the message."}),
+        ),
+        (
+            WorkspaceMailTool::Triage,
+            serde_json::json!({"message_id":id.to_string(),"outcome":"replied","note":"Answered the sender."}),
+        ),
+        (
+            WorkspaceMailTool::Triage,
+            serde_json::json!({"message_id":id.to_string(),"outcome":"assigned","note":"Assigned the message.","assignee":world.agent_id}),
+        ),
+        (
+            WorkspaceMailTool::Triage,
+            serde_json::json!({"message_id":id.to_string(),"outcome":"needs_you","note":"Please decide."}),
         ),
         (
             WorkspaceMailTool::Search,
@@ -995,6 +1007,7 @@ async fn workspace_mailbox_tools_read_and_send_with_the_outgoing_cap(pool: Sqlit
             serde_json::json!({"to":["sender@example.com"],"subject":"Again","body":"Answer"}),
         ),
     ] {
+        let wanted = args["outcome"].clone();
         let route = ToolRoute::WorkspaceMailbox { tool };
         let arguments = world
             .runtime
@@ -1020,15 +1033,20 @@ async fn workspace_mailbox_tools_read_and_send_with_the_outgoing_cap(pool: Sqlit
                 approved_by_rule: false,
             })
             .await;
-        if tool == WorkspaceMailTool::Escalate {
-            assert!(
-                world
-                    .desk
-                    .workspace_mailbox_records()
-                    .is_escalated(&world.workspace_id, "<question@example.com>")
-                    .await
-                    .unwrap()
+        if tool == WorkspaceMailTool::Triage {
+            let triage = world
+                .desk
+                .workspace_mailbox_records()
+                .triage(&world.workspace_id, "<question@example.com>")
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(serde_json::to_value(triage.outcome).unwrap(), wanted);
+            assert_eq!(
+                triage.author,
+                pagis_core::Author::Agent(world.agent_id.clone())
             );
+            assert!(!triage.note.is_empty());
         }
         if tool == WorkspaceMailTool::Send {
             assert!(result.content.contains("outgoing_cap_reached"));
@@ -1036,6 +1054,37 @@ async fn workspace_mailbox_tools_read_and_send_with_the_outgoing_cap(pool: Sqlit
             assert!(!result.is_error, "{}", result.content);
         }
     }
+    let before_move = world
+        .desk
+        .workspace_mailbox_records()
+        .triage(&world.workspace_id, "<question@example.com>")
+        .await
+        .unwrap()
+        .unwrap();
+    let mut store = world
+        .desk
+        .open_workspace(&world.workspace_id)
+        .await
+        .unwrap();
+    store.create_folder("Filed").await.unwrap();
+    store.move_message(&id, "Filed").await.unwrap();
+    let moved = store
+        .messages("Filed", "", &pagis_mail::PageRequest::new(None, 10))
+        .await
+        .unwrap()
+        .items
+        .remove(0);
+    let after_move = world
+        .desk
+        .workspace_mailbox_records()
+        .triage(&world.workspace_id, "<question@example.com>")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(after_move.message_id, moved.summary.id.as_str());
+    assert_eq!(after_move.note, before_move.note);
+    assert_eq!(after_move.recorded_at, before_move.recorded_at);
+    store.close().await.unwrap();
     let sent = world.transport.sent();
     assert_eq!(sent.len(), 1);
     assert_eq!(sent[0].subject, "Re: Question");

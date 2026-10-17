@@ -55,6 +55,7 @@ import {
   credentialsKey,
   agentMailboxKey,
   mailboxesKey,
+  workspaceMailKey,
   phoneNumbersKey,
   grantsKey,
   hostsKey,
@@ -348,6 +349,10 @@ export function AppShell() {
           // The daemon derives the Needs-You Queue, and tells each client
           // when an item enters or leaves it (ADR-0030). Home and the
           // sidebar count read the queue again.
+          if (frame.type === 'workspace_mail.triaged') {
+            void queryClient.invalidateQueries({ queryKey: workspaceMailKey(workspaceId) })
+            void queryClient.invalidateQueries({ queryKey: needsYouKey(workspaceId) })
+          }
           if (frame.type === 'needs_you.added' || frame.type === 'needs_you.removed') {
             void queryClient.invalidateQueries({ queryKey: needsYouKey(workspaceId) })
           }

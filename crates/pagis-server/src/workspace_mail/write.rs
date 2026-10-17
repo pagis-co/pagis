@@ -124,6 +124,9 @@ async fn send(
         }
         None => (open(state, tenant).await?, None),
     };
+    let triage_key = source
+        .as_ref()
+        .map(|(message, _, _)| message.summary.assessment_key().to_owned());
     let result = async {
         let mut mail = match source {
             Some((original, id, action)) => {
@@ -164,6 +167,13 @@ async fn send(
             .send_workspace(&tenant.workspace_id, store.as_mut(), &mail)
             .await
             .map_err(mailbox_error)?;
+        if let Some(key) = triage_key {
+            state
+                .mailbox_desk
+                .resolve_triage(&tenant.workspace_id, &key)
+                .await
+                .map_err(mailbox_error)?;
+        }
         super::audit_read(
             state,
             tenant,
@@ -271,10 +281,20 @@ pub async fn delete_workspace_mail_message(
 ) -> Result<StatusCode, ApiError> {
     let _hold = pagis_core::LegalHold::lock(&tenant.workspace_id).await;
     state.workspaces.refuse_delete(&tenant.workspace_id).await?;
-    let (mut store, _) = open_message(&state, &tenant, &id, "mail.message.delete").await?;
-    let result = store.delete_message(&MessageId::new(id)).await;
+    let (mut store, original) = open_message(&state, &tenant, &id, "mail.message.delete").await?;
+    let result = store.delete_message(&MessageId::new(id.clone())).await;
     let _ = store.close().await;
-    result.map_err(read_error)?;
+    let moved = result.map_err(read_error)?;
+    let key = if !original.message.summary.message_id.is_empty() {
+        original.message.summary.assessment_key()
+    } else {
+        moved.as_str()
+    };
+    state
+        .mailbox_desk
+        .resolve_triage(&tenant.workspace_id, key)
+        .await
+        .map_err(mailbox_error)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -285,10 +305,22 @@ pub async fn move_workspace_mail(
     Path(id): Path<String>,
     Json(request): Json<MailNameRequest>,
 ) -> Result<StatusCode, ApiError> {
-    let (mut store, _) = open_message(&state, &tenant, &id, "mail.message.move").await?;
-    let result = store.move_message(&MessageId::new(id), &request.name).await;
+    let (mut store, original) = open_message(&state, &tenant, &id, "mail.message.move").await?;
+    let result = store
+        .move_message(&MessageId::new(id.clone()), &request.name)
+        .await;
     let _ = store.close().await;
-    result.map_err(read_error)?;
+    let moved = result.map_err(read_error)?;
+    let key = if !original.message.summary.message_id.is_empty() {
+        original.message.summary.assessment_key()
+    } else {
+        moved.as_str()
+    };
+    state
+        .mailbox_desk
+        .resolve_triage(&tenant.workspace_id, key)
+        .await
+        .map_err(mailbox_error)?;
     Ok(StatusCode::NO_CONTENT)
 }
 

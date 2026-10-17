@@ -56,6 +56,7 @@ mod mail_connections;
 mod mail_events;
 mod mail_run_loop;
 mod mail_tools;
+mod mail_triage;
 mod memory;
 mod message_sockets;
 mod model_request_capture;

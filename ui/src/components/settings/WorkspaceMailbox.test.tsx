@@ -8,7 +8,7 @@ import { WorkspaceMailbox } from './WorkspaceMailbox'
 
 it('creates the Workspace Mailbox from the local part and Org mail domain', async () => {
   let mailbox: { address: string } | null = null
-  const GET = vi.fn(async (path: string) => path === '/api/v1/workspace/mail/junk-policy' ? { data: { lists: { allow: [], block: [] }, spam_mode: 'score_only' } } : ({ data: { mailbox, offers: [{ connection_id: 'cn1', domain: 'example.com', password: 'minted' }] } }))
+  const GET = vi.fn(async (path: string) => path === '/api/v1/workspace/mailbox/triage-rules' ? { data: [] } : path === '/api/v1/workspace/mail/junk-policy' ? { data: { lists: { allow: [], block: [] }, spam_mode: 'score_only' } } : ({ data: { mailbox, offers: [{ connection_id: 'cn1', domain: 'example.com', password: 'minted' }] } }))
   const POST = vi.fn(async () => { mailbox = { address: 'person@example.com' }; return { data: mailbox } })
   render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><WorkspaceMailbox api={{ GET, POST } as unknown as ApiClient} /></QueryClientProvider>)
   fireEvent.change(await screen.findByLabelText('Local part'), { target: { value: 'person' } })
@@ -31,7 +31,7 @@ it('asks for the manual mailbox password and shows a refused create', async () =
 
 it('lets a Manager set Mail Visibility within the Administrator limit', async () => {
   const current = { id: 'team', name: 'Support', kind: 'shared' as const, role: 'manager' as const }
-  const GET = vi.fn(async (path: string) => path === '/api/v1/workspace/mail/junk-policy' ? { data: { lists: { allow: [], block: [] }, spam_mode: 'score_only' } } : ({ data: { mailbox: { address: 'support@example.com', visibility: 'all_mail', effective_visibility: 'escalations', max_visibility: 'escalations' }, offers: [] } }))
+  const GET = vi.fn(async (path: string) => path === '/api/v1/workspace/mailbox/triage-rules' ? { data: [] } : path === '/api/v1/workspace/mail/junk-policy' ? { data: { lists: { allow: [], block: [] }, spam_mode: 'score_only' } } : ({ data: { mailbox: { address: 'support@example.com', visibility: 'all_mail', effective_visibility: 'escalations', max_visibility: 'escalations' }, offers: [] } }))
   const PUT = vi.fn(async () => ({ data: {} }))
   render(<QueryClientProvider client={new QueryClient()}><WorkspaceSelectionContext value={{ items: [current], current, select: () => {} }}><WorkspaceMailbox api={{ GET, PUT } as unknown as ApiClient} /></WorkspaceSelectionContext></QueryClientProvider>)
   fireEvent.click(await screen.findByRole('combobox', { name: 'Mail Visibility' }))
@@ -42,7 +42,7 @@ it('lets a Manager set Mail Visibility within the Administrator limit', async ()
 
 it('shows a Reader the level without a setting control', async () => {
   const current = { id: 'team', name: 'Support', kind: 'shared' as const, role: 'reader' as const }
-  const GET = vi.fn(async (path: string) => path === '/api/v1/workspace/mail/junk-policy' ? { data: { lists: { allow: [], block: [] }, spam_mode: 'score_only' } } : ({ data: { mailbox: { address: 'support@example.com', visibility: 'all_mail', effective_visibility: 'agent_only', max_visibility: 'agent_only' }, offers: [] } }))
+  const GET = vi.fn(async (path: string) => path === '/api/v1/workspace/mailbox/triage-rules' ? { data: [] } : path === '/api/v1/workspace/mail/junk-policy' ? { data: { lists: { allow: [], block: [] }, spam_mode: 'score_only' } } : ({ data: { mailbox: { address: 'support@example.com', visibility: 'all_mail', effective_visibility: 'agent_only', max_visibility: 'agent_only' }, offers: [] } }))
   render(<QueryClientProvider client={new QueryClient()}><WorkspaceSelectionContext value={{ items: [current], current, select: () => {} }}><WorkspaceMailbox api={{ GET } as unknown as ApiClient} /></WorkspaceSelectionContext></QueryClientProvider>)
   expect(await screen.findByText('Mail Visibility: Sprite only')).toBeTruthy()
   expect(screen.queryByRole('combobox', { name: 'Mail Visibility' })).toBeNull()

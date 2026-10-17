@@ -660,8 +660,9 @@ designation grants no power (ADR-0022). A Shared
 Workspace has its own seeded Chief of Staff.
 A System default Workspace Mailbox Grant gives it the Workspace Mailbox.
 The daemon moves that Grant when the designation changes and keeps manual
-Grants. Not built: the default Workspace Number Grant and reading mail
-first (ADR-0039, ADR-0040, ADR-0041).
+Grants. It reads each new Workspace Mailbox message after its Spam Verdict
+and Trust Tier, within Mail Triage Rules. Not built: the default Workspace
+Number Grant (ADR-0039, ADR-0040, ADR-0041).
 
 ### Colleague Trust Tier
 The Trust Tier for a colleague or their Agent in a conversation between
@@ -684,8 +685,8 @@ forgotten source message or a changed Grant revision deletes it
 (ADR-0009).
 
 ### Delegate everything
-A Private Workspace setting that routes messages from colleagues to the
-Chief of Staff even while the Person is active. It grants no authority and
+A Private Workspace setting that routes mail and messages from colleagues
+to the Chief of Staff even while the Person is active. It grants no authority and
 does not override For the person only (ADR-0043).
 
 ### Delegation
@@ -1680,16 +1681,36 @@ One of the tools an Agent uses to search, read, send and file mail, in its
 own Agent Mailbox, in a Workspace Mailbox under its Grant, or in one of the
 Person's mail Connections under a Grant (ADR-0019, ADR-0040).
 
+### Mail Triage outcome
+The one recorded result of a Workspace Mailbox message: handled, replied,
+assigned or needs_you. It holds a short note, its Agent or System author,
+the recorded time and, for assigned, an active assignee Agent of that
+Workspace with a Workspace Mailbox Grant. A new record replaces it. The
+Message-ID header is its key within the Workspace, or the host id when
+that header is absent. An open needs_you outcome enters the Private
+Workspace Person's Needs-You Queue. Done, reply, forward, move or delete
+resolves it and records its first resolved time. A Shared Workspace outcome
+marks the message only.
+The Mail place shows the outcome and note (ADR-0040).
+
+### Mail Triage Rule
+One entry in a Workspace's ordered sender rules. It matches an exact
+address or exact domain without case and without subdomains. The first
+match selects needs_you, shown as Always show me, or agent, which lets the
+Chief of Staff handle mail alone. A needs_you rule starts no Run. An agent
+rule permits a Run while the Person is active. The Owner or Manager sets
+the rules in Mail settings (ADR-0040).
+
 ### Mail Visibility
 The ordered human read levels for a Shared Workspace Mailbox: Agent only,
 Escalations and All mail. The product calls Agent only **Sprite only**.
 A Manager selects the level on the Workspace
 Mailbox. Shared Workspace Limits set the highest level. Each human read
 uses the lower of the selected level and the current limit. All mail
-permits every message. Escalations permits only messages an Agent marks
-as Needs you. Agent only hides all messages and keeps mailbox settings
+permits every message. Escalations permits only messages whose Mail Triage
+outcome is needs_you. Agent only hides all messages and keeps mailbox settings
 visible. A search at Escalations needs a stated reason and returns only
-escalated messages. Each message, thread, attachment and search read writes
+messages with needs_you outcomes. Each message, thread, attachment and search read writes
 an Org Audit Log entry with its Person and Workspace. A Manager reads the
 mail entries of that Workspace. Agents use their Grants (ADR-0040, ADR-0047).
 
@@ -1801,15 +1822,15 @@ visibility and quarantine check before it reads or changes the message.
 A hidden message returns the same 404 answer as a message that does not
 exist. A Responder or Manager sends as it, and the send
 records its Person author in the Org Audit Log. An Agent with a live
-Grant marks a message as Needs you through its escalation tool. The
-escalation keeps the Agent author and the message identity across folder
-moves. Deleting a folder first moves its mail to Trash with its flags
+Grant records a Mail Triage outcome through its triage tool. The
+outcome keeps its author and message identity across folder moves. Deleting a folder first moves its mail to Trash with its flags
 and labels. Deleting a message moves it to Trash. Deleting a message
 from Trash removes it for good. The store uses the host's special-use
 Trash folder, or the folder named Trash. It creates Trash when neither
 exists. Folder deletion refuses a folder that contains quarantined mail
-before it moves any message. Not built: automatic Agent triage,
-assignments and saved drafts.
+before it moves any message. The Chief of Staff reads mail first under
+Mail Triage Rules. Needs you lists open needs_you outcomes. Not built:
+assignments to Persons, Delegation from assigned outcomes and saved drafts.
 
 ### Workspace Mailbox calendar intake cursor
 The UIDVALIDITY and highest UID already read for one Workspace Mailbox
@@ -1897,8 +1918,8 @@ Inspector** (one message, read live) are transient tenants. Not built: the
 _Avoid_: side panel
 
 ### Needs-You Queue
-What waits for the Person: approvals, questions, failed Runs, missed
-Calls, the Keypad Code delay after too many failed attempts, and the rules
+What waits for the Person: approvals, questions, needs_you Mail Triage
+outcomes, failed Runs, missed Calls, the Keypad Code delay after too many failed attempts, and the rules
 that wait for an approval. The daemon derives it, and Home, the sidebar
 count, the app badge and each Notification read it. The daemon publishes
 an event when an item enters or leaves the queue. A failed Run or a

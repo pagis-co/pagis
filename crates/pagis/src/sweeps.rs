@@ -18,6 +18,7 @@ pub struct Sweeps {
     pub workspaces: Arc<dyn WorkspaceStore>,
     pub bus: Arc<dyn EventBus>,
     pub mail: Arc<pagis_mail::MailCollector>,
+    pub mail_triage: Arc<crate::mail_triage::MailTriagePoll>,
     pub knowledge: Arc<crate::knowledge::Worker>,
     pub trigger: Arc<Trigger>,
     pub connections: Arc<dyn ConnectionStore>,
@@ -76,6 +77,9 @@ impl Sweeps {
                 Job::MailPoll => {
                     if let Err(error) = sweeps.mail.poll_workspace(workspace_id).await {
                         tracing::warn!(%workspace_id, %error, "mail poll failed");
+                    }
+                    if let Err(error) = sweeps.mail_triage.poll_workspace(workspace_id).await {
+                        tracing::warn!(%workspace_id, %error, "Mail Triage poll failed");
                     }
                 }
                 Job::Publish => {

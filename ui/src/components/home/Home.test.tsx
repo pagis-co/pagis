@@ -223,13 +223,14 @@ function mount(api: ApiClient) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
-  const opened = { channel: [] as string[], run: [] as string[] }
+  const opened = { channel: [] as string[], run: [] as string[], mail: [] as string[] }
   render(
     <QueryClientProvider client={queryClient}>
       <Home
         api={api}
         onOpenChannel={(id) => opened.channel.push(id)}
         onOpenRun={(id) => opened.run.push(id)}
+        onOpenMail={(id) => opened.mail.push(id)}
       />
     </QueryClientProvider>,
   )
@@ -603,4 +604,11 @@ describe('the composer', () => {
     await screen.findByText('No sprite is the chief of staff')
     expect(screen.queryByPlaceholderText(/^Message /)).toBeNull()
   })
+})
+
+it('opens Needs-You mail in the Mail place', async () => {
+  const { api } = stubApi({ queue: [{ kind: 'mail', id: 'mail:message', line: 'Please decide.', url: '/mail?message=INBOX%3A1', at: NOW, message_id: 'INBOX:1' }] })
+  const opened = mount(api)
+  fireEvent.click(await screen.findByRole('button', { name: 'Open mail' }))
+  expect(opened.mail).toEqual(['INBOX:1'])
 })

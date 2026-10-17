@@ -516,7 +516,7 @@ impl WorkspaceMailWriter for MemoryWorkspaceMailStore {
         state.folders.remove(name);
         Ok(())
     }
-    async fn delete_message(&mut self, id: &MessageId) -> Result<(), TransportError> {
+    async fn delete_message(&mut self, id: &MessageId) -> Result<MessageId, TransportError> {
         self.message(id).await?;
         let (folder, trash) = {
             let mut state = self.state.lock().unwrap();
@@ -531,12 +531,16 @@ impl WorkspaceMailWriter for MemoryWorkspaceMailStore {
         if folder == trash {
             self.state.lock().unwrap().entries.remove(id.as_str());
             self.mail.remove(id);
-            Ok(())
+            Ok(id.clone())
         } else {
             self.move_message(id, &trash).await
         }
     }
-    async fn move_message(&mut self, id: &MessageId, folder: &str) -> Result<(), TransportError> {
+    async fn move_message(
+        &mut self,
+        id: &MessageId,
+        folder: &str,
+    ) -> Result<MessageId, TransportError> {
         let message = self.message(id).await?;
         {
             let mut state = self.state.lock().unwrap();
@@ -551,7 +555,7 @@ impl WorkspaceMailWriter for MemoryWorkspaceMailStore {
         if let Some(context) = &self.context {
             context.relocate(&message.message.summary, id).await?;
         }
-        Ok(())
+        Ok(id.clone())
     }
     async fn set_label(
         &mut self,

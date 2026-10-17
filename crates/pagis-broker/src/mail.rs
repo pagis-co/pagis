@@ -295,6 +295,7 @@ pub fn message_received(provider: &str) -> IncomingEventKind {
             "properties": {
                 "mailbox": {"type": "string"},
                 "message_id": {"type": "string"},
+                "triage_key": {"type": "string"},
                 "thread_id": {"type": "string"},
                 "in_reply_to": {"type": "string"},
                 "from": {"type": "string"},

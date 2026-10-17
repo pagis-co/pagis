@@ -3,6 +3,7 @@ import { MessageRow, type MailSummary } from './MessageRow'
 
 export function MessageList({
   messages,
+  emptyText = 'No mail found.',
   loading,
   failed,
   selectedId,
@@ -11,6 +12,7 @@ export function MessageList({
   next,
   onPage,
 }: {
+  emptyText?: string
   messages: MailSummary[] | undefined
   loading: boolean
   failed: boolean
@@ -27,7 +29,7 @@ export function MessageList({
       ) : loading ? (
         <p className="mail-empty">Loading mail…</p>
       ) : messages?.length === 0 ? (
-        <p className="mail-empty">No mail found.</p>
+        <p className="mail-empty">{emptyText}</p>
       ) : (
         <Frame>
           {messages?.map((message) => (

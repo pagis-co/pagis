@@ -13,7 +13,7 @@ mail.
 The Person creates a Workspace Mailbox in Settings and reads it in the
 Mail place of the Product App.
 
-Not built: Agent triage, Needs you items, assignments and saved drafts.
+Not built: assignments to Persons and saved drafts.
 
 ## Decision
 
@@ -73,8 +73,7 @@ dispatch, including a send that waits for an Approval. The stored record
 uses the Message-ID header within its Workspace and mailbox, so a folder
 move or UIDVALIDITY change keeps the assessment key. Mail without that
 header uses its IMAP id. The host's Rspamd result supplies its score and
-weighted symbols as reasons. Mail bodies stay at the host. Not built: the
-Chief of Staff's first read and outcome record.
+weighted symbols as reasons. Mail bodies stay at the host.
 
 Junk goes to the Junk folder at the score threshold. Spam and Not spam
 feed corrections through the verdict seam. The daemon moves the message
@@ -118,11 +117,10 @@ host evidence does not quarantine that message again.
 
 The Person sets what the Chief of Staff can handle alone. It files,
 answers, schedules or assigns within those rules. Delegate everything
-gives it mail even while the Person is active. Mail in the Product App
-and Mobile App shows Needs you, All mail, folders, Junk and search. A
-Person can compose, reply, forward and attach Files. Handled mail shows
-the Agent's note. The Mail place in the Product App shows an empty Needs
-you view, All mail, folders and search. A Person opens a message and
+gives it mail even while the Person is active. The Mail place in the
+Product App shows Needs you, All mail, folders, Junk and search. Each
+message shows its Mail Triage outcome and note. The Mobile App has no
+Mail place. A Person opens a message and
 reads its thread as text. The host's labels and flags travel with each
 message. Opening the message or its thread marks the displayed messages
 as seen. A Person composes, replies, replies to all and forwards mail
@@ -138,8 +136,63 @@ message moves it to Trash. Deleting a message from Trash removes it for
 good. The store uses the host's special-use Trash folder, or the folder
 named Trash. It creates Trash when neither exists. Folder deletion
 refuses a folder that contains quarantined mail before it moves any
-message. Not built: triage, Needs you items, saved drafts and Agent
-notes.
+message. Not built: saved drafts.
+
+A Mail Triage outcome belongs to one message in one Workspace. Its key
+is the Message-ID header, or the host id when the header is absent, as
+for the Spam Verdict. It holds handled, replied, assigned or needs_you,
+a note of at most 2000 characters, the Agent or System author, the recorded
+time and, for assigned, the assignee Agent. The record also keeps the host
+id for its Mail place link. The existing mail move path updates that id. A new record replaces the
+previous outcome. An assignee is an active Agent of the same Workspace
+with a live Workspace Mailbox Grant. Assignment records the Agent only.
+Starting a Delegation from this outcome is not built. Assignment across
+Workspaces is not built.
+
+The triage poll reads INBOX in UID order, at most 50 messages per poll.
+Its cursor is separate from the calendar intake cursor. Mailbox provisioning
+and connection set the cursor to the current INBOX head. A poll without a
+cursor sets it to the head and reads no mail. A changed UIDVALIDITY resets
+the cursor to the current head. The Spam Verdict and Trust Tier are stored before triage. Junk
+verdicts and quarantine get no outcome, also in score-only mode.
+
+Mail Triage Rules are an ordered list for each Workspace. An entry matches
+an exact sender address or exact domain without case; it does not match
+subdomains. The first match wins. A needs_you rule, shown as Always show
+me, records a System outcome whose note names the rule and starts no Run.
+An agent rule lets the Chief of Staff handle mail alone. The Owner of a
+Private Workspace or a Manager of a Shared Workspace replaces these rules.
+
+In a Private Workspace, an active Person receives a System needs_you
+outcome unless Delegate everything is on or an agent rule matches. Activity
+uses the Person's existing hold_until check. A Shared Workspace has no
+single Person, so this check does not apply. Without an active Chief of
+Staff, the System records needs_you with a note. The Chief of Staff needs
+a live Workspace Mailbox Grant.
+
+Otherwise, a System Event Subscription delivers a Wake-up through the
+existing mail Incoming Event path. The Agent reads the message under its
+Trust Tier with the Workspace Mailbox tool, uses existing tools to act,
+and records one outcome through workspace_mail_triage. Any active Agent
+with a live Workspace Mailbox Grant can record an outcome. If a Run ends
+or fails without one, the daemon records needs_you with the System note
+“The Chief of Staff recorded no outcome.” A pending Mail Triage row holds
+the message key, host id and Wake-up id. Run completion checks only its
+pending rows. Each poll checks at most 50 pending rows and moves its repair
+cursor forward. An outcome or a terminal Run removes the pending row. The
+poll repairs a missed completion event without a scan of Run history.
+
+Only open needs_you outcomes enter the Private Workspace Person's Needs-You
+Queue. Each item opens its message in the Mail place. The Person selects
+Done to resolve it. A successful reply, forward, move or delete also resolves
+it. The outcome keeps its first resolved time. A resolve publishes the same
+Mail Triage event that updates the queue and Notifications. The queue and
+Needs you view read bounded pages of open outcomes, newest first. Both store
+baselines index these rows. The Needs you view checks message visibility
+and quarantine and skips mail that the host no longer holds. Replacing the
+outcome changes that same derived queue. Shared Workspace outcomes mark
+the message and add no queue item. The existing Needs-You event path is
+the only Notification path for mail.
 
 A Person's own send needs no Approval. Agents do not use the Person's send
 path.
@@ -164,7 +217,7 @@ A Shared Workspace Mailbox has one visibility level: All mail, Escalations
 or Agent only. The Org sets the highest level a Manager can select. Each
 human read writes an Org Audit Log entry with the Person, Workspace and
 message identity or search query and reason. At Escalations, each search
-needs a stated reason and returns only escalated messages. The reason
+needs a stated reason and returns only messages with a needs_you outcome. The reason
 records intent and gives no extra access. Global Search omits Escalations
 mail unless the request has a stated reason. Workspace roles still apply.
 Readers read, Responders also send, and Managers change the selected
@@ -174,8 +227,8 @@ Shared Workspace route. An Administrator reads them in the Org Audit Log.
 
 The mailbox stores its selected level. Each human read uses the lower of
 that level and the current Shared Workspace Limit. All mail permits every
-message. Escalations permits only messages that an Agent escalates to
-humans. Agent only hides messages and keeps mailbox settings visible.
+message. Escalations permits only messages whose Mail Triage outcome is
+needs_you. Agent only hides messages and keeps mailbox settings visible.
 Lists, threads, message reads, attachments, reply preparation and invitation
 responses from Mail use the same message check. Every route that takes a
 message id opens the store and reads the message through one visibility and
@@ -183,27 +236,19 @@ quarantine check before it reads or changes the message. A hidden message
 returns the same 404 answer as a message that does not exist. Assignment
 links use this check too.
 
-An Agent with a live Workspace Mailbox Grant marks a message as Needs you
-through the escalation tool. The store records the Agent and the stable
-message identity, as it does for a Spam Verdict. An escalation opens only
-that message, not the rest of its thread. Agents read under their Grants
-at every visibility level. Automatic Agent triage and assignments are not
-built.
+A needs_you outcome opens only that message, not the rest of its thread.
+Agents read under their Grants at every visibility level.
 
-### Assignments use Delegation and keep the mail in its Workspace
+### Assignments keep the mail in its Workspace
 
-A Shared Workspace Agent assigns by Delegation to one or more Persons'
-Chiefs of Staff. Each assignment has a role: decide, approve or FYI. The
-assignment conversation stays in the Shared Workspace. A Chief of Staff
-handles it within its rules or puts it in its Person's Needs-You Queue.
-Only that Person's queue makes Notifications.
+An assigned Mail Triage outcome names an active Agent of the same
+Workspace with a live Workspace Mailbox Grant. The outcome and note stay
+on the message. Every human message link uses the shared visibility check.
 
-The Shared Workspace tracks assigned, handled, escalated and timed out
-assignments. A timeout reassigns the work. There is no assignment limit by
-default; a Manager can set one. FYI adds a feed entry and starts no Run.
-Below All mail, an assignment carries a summary and a link, not the mail.
-The link passes the visibility check. Not built: assignments and their
-Delegation across Workspaces.
+Not built: Delegation from assigned outcomes, assignments to Persons'
+Chiefs of Staff, assignment roles, timeouts, limits and FYI feed entries.
+Assignment across Workspaces is not built. Only a Person's own Needs-You
+Queue makes Notifications.
 
 ## Consequences
 

@@ -15,17 +15,19 @@ vi.mock('../../primitives/useMediaQuery', () => ({ useIsMobile: () => true }))
 const message = {
   id: 'INBOX:1', thread_id: 'thread-1', from: 'sender@example.test',
   subject: 'Invoice', text: 'Please read.', snippet: 'Please read.', date: 0,
+  triage: { outcome: 'needs_you', note: 'Please check the invoice.' },
   seen: false, labels: [], spam_verdict: { score: 0, action: 'accept', reasons: [] },
   attachments: [{ name: 'invoice.txt', bytes: 3 }],
 }
-function mount() {
-  const GET = vi.fn(async (path: string, options?: { params?: { query?: { action?: string } } }) => {
+function mount(needsYou = false) {
+  const GET = vi.fn(async (path: string, options?: { params?: { query?: { action?: string; view?: string } } }) => {
     if (path.endsWith('/mailbox')) return { data: { mailbox: { address: 'mail@example.test' } } }
     if (path.endsWith('/folders')) return { data: { items: ['INBOX', 'Paid'] } }
     if (path.endsWith('/composer')) {
       const action = options?.params?.query?.action
       return { data: { to: action === 'forward' ? [] : ['sender@example.test'], cc: action === 'reply-all' ? ['copy@example.test'] : [], subject: action === 'forward' ? 'Fwd: Invoice' : 'Re: Invoice', body: '> Please read.' } }
     }
+    if (path.endsWith('/messages') && options?.params?.query?.view === 'needs_you' && !needsYou) return { data: { items: [] } }
     if (path.endsWith('/{message_id}')) return { data: message }
     return { data: { items: [message] } }
   })
@@ -64,7 +66,7 @@ it('switches views and changes the search and folder query', async () => {
   fireEvent.change(screen.getByLabelText('Search mail'), { target: { value: 'invoice' } })
   fireEvent.keyDown(screen.getByRole('combobox', { name: 'Folder' }), { key: 'ArrowDown' })
   fireEvent.click(await screen.findByRole('option', { name: 'Paid' }))
-  await waitFor(() => expect(GET).toHaveBeenCalledWith('/api/v1/workspace/mail/messages', { params: { query: { folder: 'Paid', q: 'invoice', cursor: undefined } } }))
+  await waitFor(() => expect(GET).toHaveBeenCalledWith('/api/v1/workspace/mail/messages', { params: { query: { folder: 'Paid', q: 'invoice', cursor: undefined, view: 'all' } } }))
   fireEvent.click(screen.getByRole('button', { name: 'Needs you' }))
   expect(screen.getByText('No mail needs you.')).toBeTruthy()
 })
@@ -129,5 +131,15 @@ it.each(['fetch', 'write', 'viewer'])('shows an alert when attachment %s fails',
 it('opens Junk from the Mail views', async () => {
   const { GET } = mount()
   fireEvent.click(await screen.findByRole('button', { name: 'Junk' }))
-  await waitFor(() => expect(GET).toHaveBeenCalledWith('/api/v1/workspace/mail/messages', { params: { query: { folder: 'Junk', q: '', cursor: undefined } } }))
+  await waitFor(() => expect(GET).toHaveBeenCalledWith('/api/v1/workspace/mail/messages', { params: { query: { folder: 'Junk', q: '', cursor: undefined, view: 'all' } } }))
+})
+
+it('opens Needs you mail and shows its outcome note on a phone', async () => {
+  mount(true)
+  fireEvent.click(await screen.findByRole('button', { name: /Invoice/ }))
+  expect(await screen.findByRole('heading', { name: 'Invoice' })).toBeTruthy()
+  expect(screen.getByText('needs you: Please check the invoice.')).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'All mail' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Mail' }))
+  expect(await screen.findByRole('button', { name: /Invoice/ })).toBeTruthy()
 })

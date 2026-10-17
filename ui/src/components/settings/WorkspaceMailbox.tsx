@@ -5,6 +5,8 @@ import type { ApiClient } from '../../api/client'
 import { Button, Input, Select } from '../../primitives'
 import { useWorkspaceMailbox, workspaceMailKey } from '../../queries'
 import { useCurrentWorkspaceId, useWorkspaceAccess } from '../../workspace'
+import { MailTriageRules } from '../mail/MailTriageRules'
+import { DelegateEverything } from '../people/DelegateEverything'
 import { WorkspaceJunkPolicy } from '../mail/JunkPolicy'
 
 export function WorkspaceMailbox({ api }: { api: ApiClient }) {
@@ -89,6 +91,8 @@ export function WorkspaceMailbox({ api }: { api: ApiClient }) {
               {visibility.isError && <p role="alert">{visibility.error.message}</p>}
             </>
           )}
+          {canManage && <MailTriageRules key={`triage:${workspaceId}`} api={api} />}
+          {isPrivate && <DelegateEverything api={api} />}
           {canManage && <WorkspaceJunkPolicy key={workspaceId} api={api} />}
         </>
       ) : (

@@ -1,4 +1,6 @@
 //! The Product API reads the tenant Workspace Mailbox through its store.
+mod triage;
+pub use triage::*;
 mod visibility;
 pub use visibility::*;
 mod write;
@@ -48,6 +50,7 @@ pub struct WorkspaceMailboxPage {
 }
 #[derive(Debug, Serialize, ToSchema)]
 pub struct WorkspaceMailSummaryDto {
+    pub triage: Option<pagis_core::MailTriage>,
     pub junk: bool,
     pub id: String,
     pub thread_id: String,
@@ -69,6 +72,7 @@ impl From<pagis_mail::WorkspaceMailSummary> for WorkspaceMailSummaryDto {
             .assessment
             .expect("Workspace Mailbox intake precedes a read");
         Self {
+            triage: None,
             junk: assessment.junk,
             spam_verdict: assessment.verdict.into(),
             trust_tier: assessment.trust_tier.as_str().into(),
@@ -151,10 +155,18 @@ pub struct WorkspaceMailThread {
 }
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct WorkspaceMailQuery {
+    pub view: Option<WorkspaceMailView>,
     pub folder: Option<String>,
     pub q: Option<String>,
     pub reason: Option<String>,
     pub cursor: Option<String>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspaceMailView {
+    All,
+    NeedsYou,
 }
 
 #[utoipa::path(get, path = "/api/v1/workspace/mailbox", responses(
@@ -317,6 +329,10 @@ pub(crate) async fn human_mail_messages(
             next: None,
         });
     }
+    if matches!(query.view, Some(WorkspaceMailView::NeedsYou)) {
+        return triage::open_needs_you_messages(state, tenant, query.cursor.as_deref(), limit)
+            .await;
+    }
     let mut store = open(state, tenant).await?;
     let result = store
         .messages(
@@ -330,7 +346,14 @@ pub(crate) async fn human_mail_messages(
     let mut items = Vec::new();
     for m in page.items {
         if can_read_workspace_mail(state, tenant, &m.summary).await? {
-            items.push(m.into());
+            let triage = state
+                .mailbox_desk
+                .workspace_mailbox_records()
+                .triage(&tenant.workspace_id, m.summary.assessment_key())
+                .await?;
+            let mut dto = WorkspaceMailSummaryDto::from(m);
+            dto.triage = triage;
+            items.push(dto);
         }
     }
     Ok(WorkspaceMailMessages {
@@ -428,7 +451,16 @@ async fn message_dto(
         .calendar
         .as_deref()
         .and_then(|s| pagis_core::imip::SchedulingMessage::parse(s).ok());
+    let triage = state
+        .mailbox_desk
+        .workspace_mailbox_records()
+        .triage(
+            &tenant.workspace_id,
+            message.message.summary.assessment_key(),
+        )
+        .await?;
     let mut dto = WorkspaceMailMessageDto::from(message);
+    dto.summary.triage = triage;
     if let Some(scheduling) = scheduling {
         dto.invitation = if let Some(id) = scheduling.recurrence_id {
             state

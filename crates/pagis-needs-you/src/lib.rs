@@ -18,7 +18,7 @@ mod vapid;
 pub use loops::{run_needs_you, run_notifications};
 pub use needs_you::{
     NEEDS_YOU_ADDED, NEEDS_YOU_REMOVED, NeedsYou, NeedsYouApproval, NeedsYouCall, NeedsYouFailed,
-    NeedsYouItem, NeedsYouKeypad, NeedsYouQueue, NeedsYouWaiting,
+    NeedsYouItem, NeedsYouKeypad, NeedsYouMail, NeedsYouQueue, NeedsYouWaiting,
 };
 pub use notification_rule::{Action, HeldItem, NotificationRule};
 pub use notifications::{Notifications, QueuedItem, options, payload, test_options, test_payload};

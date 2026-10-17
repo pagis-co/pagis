@@ -1497,10 +1497,19 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     })
     .spawn(options.cancel.clone());
 
+    let mail_triage = Arc::new(crate::mail_triage::MailTriagePoll::new(
+        stores.clone(),
+        mailbox_desk.clone(),
+        trigger.clone(),
+        person_activity.clone(),
+        options.clock.clone(),
+    ));
+    mail_triage.spawn(bus.clone(), options.cancel.clone()).await;
     Arc::new(crate::sweeps::Sweeps {
         workspaces: Arc::clone(&workspaces) as _,
         bus: Arc::clone(&bus),
         mail: mail_collector,
+        mail_triage,
         knowledge: knowledge_worker,
         trigger: Arc::clone(&trigger),
         connections: Arc::clone(&connections) as _,

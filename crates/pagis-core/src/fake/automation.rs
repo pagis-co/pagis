@@ -856,6 +856,31 @@ impl EventSubscriptionStore for FakeEventSubscriptionStore {
             .cloned()
             .collect())
     }
+    async fn system_for_source(
+        &self,
+        workspace_id: &WorkspaceId,
+        agent: &AgentId,
+        source: &crate::EventSource,
+        event_kind: &str,
+        name: &str,
+    ) -> Result<Option<EventSubscription>, StoreError> {
+        Ok(self
+            .0
+            .lock()
+            .unwrap()
+            .subscriptions
+            .rows(workspace_id)
+            .find(|row| {
+                &row.agent_id == agent
+                    && &row.source == source
+                    && row.event_kind == event_kind
+                    && row.name == name
+                    && row.created_by == crate::Author::System
+                    && row.state == EventSubscriptionState::Active
+                    && row.approved_revision == Some(row.revision)
+            })
+            .cloned())
+    }
     async fn list_for_source(
         &self,
         workspace_id: &WorkspaceId,

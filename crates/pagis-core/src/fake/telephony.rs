@@ -872,30 +872,214 @@ impl crate::WorkspaceMailboxRecordStore for FakeWorkspaceMailboxStore {
             .visibility = visibility;
         Ok(())
     }
-    async fn escalate(
+    async fn triage(
         &self,
         workspace: &WorkspaceId,
         message: &str,
-        agent: &AgentId,
-    ) -> Result<(), StoreError> {
-        self.0
-            .lock()
-            .unwrap()
-            .workspace_mail_escalations
-            .insert((workspace.clone(), message.into()), agent.clone());
-        Ok(())
-    }
-    async fn is_escalated(
-        &self,
-        workspace: &WorkspaceId,
-        message: &str,
-    ) -> Result<bool, StoreError> {
+    ) -> Result<Option<crate::MailTriage>, StoreError> {
         Ok(self
             .0
             .lock()
             .unwrap()
-            .workspace_mail_escalations
-            .contains_key(&(workspace.clone(), message.into())))
+            .workspace_mail_triage
+            .get(&(workspace.clone(), message.into()))
+            .cloned())
+    }
+    async fn record_triage(
+        &self,
+        workspace: &WorkspaceId,
+        message: &str,
+        triage: &crate::MailTriage,
+    ) -> Result<(), StoreError> {
+        triage.validate()?;
+        let mut data = self.0.lock().unwrap();
+        if !data.workspace_mailboxes.contains_key(workspace) {
+            return Err(conflict("Workspace Mailbox is missing"));
+        }
+        data.workspace_mail_triage
+            .insert((workspace.clone(), message.into()), triage.clone());
+        Ok(())
+    }
+    async fn relocate_triage(
+        &self,
+        workspace: &WorkspaceId,
+        old_key: &str,
+        new_key: &str,
+        message_id: &str,
+    ) -> Result<(), StoreError> {
+        let mut data = self.0.lock().unwrap();
+        if let Some(mut pending) = data
+            .workspace_mail_pending_triage
+            .remove(&(workspace.clone(), old_key.into()))
+        {
+            pending.key = new_key.into();
+            pending.message_id = message_id.into();
+            data.workspace_mail_pending_triage
+                .insert((workspace.clone(), new_key.into()), pending);
+        }
+        if old_key != new_key
+            && data
+                .workspace_mail_triage
+                .contains_key(&(workspace.clone(), new_key.into()))
+        {
+            return Err(conflict("the message already has an outcome"));
+        }
+        if let Some(mut triage) = data
+            .workspace_mail_triage
+            .remove(&(workspace.clone(), old_key.into()))
+        {
+            triage.message_id = message_id.into();
+            data.workspace_mail_triage
+                .insert((workspace.clone(), new_key.into()), triage);
+        }
+        Ok(())
+    }
+    async fn open_needs_you(
+        &self,
+        workspace: &WorkspaceId,
+        before: Option<(crate::UnixMillis, &str)>,
+        limit: u32,
+    ) -> Result<Vec<(String, crate::MailTriage)>, StoreError> {
+        let data = self.0.lock().unwrap();
+        let mut rows: Vec<_> = data
+            .workspace_mail_triage
+            .iter()
+            .filter(|((ws, key), value)| {
+                ws == workspace
+                    && value.outcome == crate::MailTriageOutcome::NeedsYou
+                    && value.resolved_at.is_none()
+                    && before.is_none_or(|(at, before_key)| {
+                        (value.recorded_at, key.as_str()) < (at, before_key)
+                    })
+            })
+            .map(|((_, key), value)| (key.clone(), value.clone()))
+            .collect();
+        rows.sort_by(|a, b| (b.1.recorded_at, &b.0).cmp(&(a.1.recorded_at, &a.0)));
+        rows.truncate(limit as usize);
+        Ok(rows)
+    }
+    async fn resolve_triage(
+        &self,
+        workspace: &WorkspaceId,
+        message: &str,
+        at: crate::UnixMillis,
+    ) -> Result<bool, StoreError> {
+        let mut data = self.0.lock().unwrap();
+        let Some(triage) = data
+            .workspace_mail_triage
+            .get_mut(&(workspace.clone(), message.into()))
+        else {
+            return Ok(false);
+        };
+        if triage.outcome != crate::MailTriageOutcome::NeedsYou || triage.resolved_at.is_some() {
+            return Ok(false);
+        }
+        triage.resolved_at = Some(at);
+        Ok(true)
+    }
+    async fn put_pending_triage(
+        &self,
+        workspace: &WorkspaceId,
+        pending: &crate::PendingMailTriage,
+    ) -> Result<(), StoreError> {
+        let mut data = self.0.lock().unwrap();
+        if !data.workspace_mailboxes.contains_key(workspace) {
+            return Err(conflict("Workspace Mailbox is missing"));
+        }
+        data.workspace_mail_pending_triage
+            .insert((workspace.clone(), pending.key.clone()), pending.clone());
+        Ok(())
+    }
+    async fn pending_triage(
+        &self,
+        workspace: &WorkspaceId,
+        wakeup: Option<&crate::WakeupId>,
+        after: Option<&str>,
+        limit: u32,
+    ) -> Result<Vec<crate::PendingMailTriage>, StoreError> {
+        Ok(self
+            .0
+            .lock()
+            .unwrap()
+            .workspace_mail_pending_triage
+            .iter()
+            .filter(|((ws, key), pending)| {
+                ws == workspace
+                    && wakeup.is_none_or(|id| &pending.wakeup_id == id)
+                    && after.is_none_or(|after| key.as_str() > after)
+            })
+            .take(limit as usize)
+            .map(|(_, pending)| pending.clone())
+            .collect())
+    }
+    async fn remove_pending_triage(
+        &self,
+        workspace: &WorkspaceId,
+        key: &str,
+    ) -> Result<(), StoreError> {
+        self.0
+            .lock()
+            .unwrap()
+            .workspace_mail_pending_triage
+            .remove(&(workspace.clone(), key.into()));
+        Ok(())
+    }
+    async fn triage_rules(
+        &self,
+        workspace: &WorkspaceId,
+    ) -> Result<Vec<crate::MailTriageRule>, StoreError> {
+        Ok(self
+            .0
+            .lock()
+            .unwrap()
+            .workspace_mail_triage_rules
+            .get(workspace)
+            .cloned()
+            .unwrap_or_default())
+    }
+    async fn replace_triage_rules(
+        &self,
+        workspace: &WorkspaceId,
+        rules: &[crate::MailTriageRule],
+    ) -> Result<(), StoreError> {
+        crate::validate_triage_rules(rules)?;
+        let mut data = self.0.lock().unwrap();
+        if !data.workspace_mailboxes.contains_key(workspace) {
+            return Err(conflict("Workspace Mailbox is missing"));
+        }
+        data.workspace_mail_triage_rules
+            .insert(workspace.clone(), rules.to_vec());
+        Ok(())
+    }
+    async fn triage_cursor(
+        &self,
+        workspace: &WorkspaceId,
+    ) -> Result<Option<crate::MailboxCursor>, StoreError> {
+        Ok(self
+            .0
+            .lock()
+            .unwrap()
+            .workspace_mail_triage_cursors
+            .get(workspace)
+            .cloned())
+    }
+    async fn set_triage_cursor(
+        &self,
+        workspace: &WorkspaceId,
+        cursor: &crate::MailboxCursor,
+    ) -> Result<(), StoreError> {
+        let mut data = self.0.lock().unwrap();
+        if !data.workspace_mailboxes.contains_key(workspace) {
+            return Err(conflict("Workspace Mailbox is missing"));
+        }
+        let entry = data
+            .workspace_mail_triage_cursors
+            .entry(workspace.clone())
+            .or_insert_with(|| cursor.clone());
+        if entry.uid_validity != cursor.uid_validity || entry.last_uid < cursor.last_uid {
+            *entry = cursor.clone();
+        }
+        Ok(())
     }
 
     async fn reserve_send(&self, workspace: &WorkspaceId, day: i64) -> Result<bool, StoreError> {
@@ -969,7 +1153,11 @@ impl crate::WorkspaceMailboxRecordStore for FakeWorkspaceMailboxStore {
             .is_some_and(|m| m.address == address)
         {
             data.workspace_mailboxes.remove(workspace);
-            data.workspace_mail_escalations
+            data.workspace_mail_pending_triage
+                .retain(|(ws, _), _| ws != workspace);
+            data.workspace_mail_triage_rules.remove(workspace);
+            data.workspace_mail_triage_cursors.remove(workspace);
+            data.workspace_mail_triage
                 .retain(|(id, _), _| id != workspace);
             data.workspace_mail_calendar_cursors
                 .retain(|(id, _), _| id != workspace);

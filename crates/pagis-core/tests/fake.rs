@@ -2141,3 +2141,246 @@ async fn legal_hold_and_audit_are_atomic_in_the_fake_store() {
         vec![end, start]
     );
 }
+
+#[tokio::test]
+async fn mail_triage_replaces_one_outcome_and_keeps_workspace_rules_and_cursors_separate() {
+    let stores = pagis_core::fake::stores();
+    let mailbox = WorkspaceMailbox {
+        author: Author::System,
+        workspace_id: owner(),
+        connection_id: ConnectionId::generate(),
+        address: "person@example.com".into(),
+        outgoing_cap: 20,
+        visibility: MailVisibility::AllMail,
+        spam_mode: MailScoringMode::ScoreOnly,
+        created_at: 1,
+    };
+    let store = &stores.workspace_mailboxes;
+    store.create(&mailbox).await.unwrap();
+    let mut triage = MailTriage {
+        outcome: MailTriageOutcome::NeedsYou,
+        note: "Please decide.".into(),
+        author: Author::System,
+        assignee: None,
+        recorded_at: 10,
+        resolved_at: None,
+        message_id: "INBOX:1".into(),
+    };
+    store
+        .record_triage(&owner(), "<message@example.com>", &triage)
+        .await
+        .unwrap();
+    triage.outcome = MailTriageOutcome::Handled;
+    triage.note = "Read the receipt.".into();
+    store
+        .record_triage(&owner(), "<message@example.com>", &triage)
+        .await
+        .unwrap();
+    assert_eq!(
+        store
+            .triage(&owner(), "<message@example.com>")
+            .await
+            .unwrap(),
+        Some(triage.clone())
+    );
+    assert_eq!(
+        store.open_needs_you(&owner(), None, 100).await.unwrap(),
+        vec![]
+    );
+    store
+        .relocate_triage(&owner(), "<message@example.com>", "Filed:7", "Filed:7")
+        .await
+        .unwrap();
+    assert!(
+        store
+            .triage(&owner(), "<message@example.com>")
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        store
+            .triage(&owner(), "Filed:7")
+            .await
+            .unwrap()
+            .unwrap()
+            .message_id,
+        "Filed:7"
+    );
+    assert_eq!(
+        store
+            .open_needs_you(&owner(), None, 100)
+            .await
+            .unwrap()
+            .len(),
+        0
+    );
+    assert!(
+        store
+            .triage(&other(), "<message@example.com>")
+            .await
+            .unwrap()
+            .is_none()
+    );
+    let mut open = store.triage(&owner(), "Filed:7").await.unwrap().unwrap();
+    open.outcome = MailTriageOutcome::NeedsYou;
+    for key in ["a", "b", "c"] {
+        store.record_triage(&owner(), key, &open).await.unwrap();
+    }
+    assert_eq!(
+        store
+            .open_needs_you(&owner(), None, 2)
+            .await
+            .unwrap()
+            .iter()
+            .map(|(key, _)| key.as_str())
+            .collect::<Vec<_>>(),
+        ["c", "b"]
+    );
+    assert_eq!(
+        store
+            .open_needs_you(&owner(), Some((10, "b")), 2)
+            .await
+            .unwrap()[0]
+            .0,
+        "a"
+    );
+    assert!(store.resolve_triage(&owner(), "b", 12).await.unwrap());
+    assert!(!store.resolve_triage(&owner(), "b", 13).await.unwrap());
+    assert_eq!(
+        store
+            .triage(&owner(), "b")
+            .await
+            .unwrap()
+            .unwrap()
+            .resolved_at,
+        Some(12)
+    );
+    assert_eq!(
+        store
+            .open_needs_you(&owner(), None, 100)
+            .await
+            .unwrap()
+            .len(),
+        2
+    );
+    let pending = PendingMailTriage {
+        key: "pending".into(),
+        message_id: "INBOX:8".into(),
+        wakeup_id: WakeupId::generate(),
+    };
+    store.put_pending_triage(&owner(), &pending).await.unwrap();
+    store
+        .relocate_triage(&owner(), "pending", "Filed:8", "Filed:8")
+        .await
+        .unwrap();
+    assert_eq!(
+        store
+            .pending_triage(&owner(), Some(&pending.wakeup_id), None, 1)
+            .await
+            .unwrap()[0]
+            .key,
+        "Filed:8"
+    );
+    store
+        .remove_pending_triage(&owner(), "Filed:8")
+        .await
+        .unwrap();
+    assert!(
+        store
+            .pending_triage(&owner(), None, None, 1)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    let rules = vec![
+        MailTriageRule {
+            sender: "example.com".into(),
+            action: MailTriageAction::Agent,
+        },
+        MailTriageRule {
+            sender: "sender@example.com".into(),
+            action: MailTriageAction::NeedsYou,
+        },
+    ];
+    store.replace_triage_rules(&owner(), &rules).await.unwrap();
+    assert_eq!(store.triage_rules(&owner()).await.unwrap(), rules);
+    assert!(store.triage_rules(&other()).await.unwrap().is_empty());
+    store
+        .replace_triage_rules(&owner(), &rules[1..])
+        .await
+        .unwrap();
+    assert_eq!(store.triage_rules(&owner()).await.unwrap(), rules[1..]);
+    let cursor = MailboxCursor {
+        folder: "INBOX".into(),
+        uid_validity: 1,
+        last_uid: 50,
+    };
+    store.set_triage_cursor(&owner(), &cursor).await.unwrap();
+    store
+        .set_triage_cursor(
+            &owner(),
+            &MailboxCursor {
+                last_uid: 1,
+                ..cursor.clone()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        store.triage_cursor(&owner()).await.unwrap(),
+        Some(cursor.clone())
+    );
+    assert!(store.triage_cursor(&other()).await.unwrap().is_none());
+    let reset = MailboxCursor {
+        uid_validity: 2,
+        last_uid: 3,
+        ..cursor
+    };
+    store.set_triage_cursor(&owner(), &reset).await.unwrap();
+    assert_eq!(store.triage_cursor(&owner()).await.unwrap(), Some(reset));
+}
+
+#[test]
+fn mail_triage_rules_match_exact_addresses_and_domains_without_case() {
+    let rule = MailTriageRule {
+        sender: "Example.com".into(),
+        action: MailTriageAction::Agent,
+    };
+    assert!(rule.matches("SENDER@EXAMPLE.COM"));
+    assert!(!rule.matches("sender@sub.example.com"));
+    assert!(!rule.matches("sender@notexample.com"));
+    let rule = MailTriageRule {
+        sender: "Sender@Example.com".into(),
+        action: MailTriageAction::NeedsYou,
+    };
+    assert!(rule.matches("sender@example.COM"));
+    assert!(!rule.matches("other@example.com"));
+}
+
+#[test]
+fn mail_triage_needs_a_bounded_note_and_an_assignee_only_for_assignment() {
+    let mut triage = MailTriage {
+        outcome: MailTriageOutcome::Handled,
+        note: "Read it.".into(),
+        author: Author::System,
+        assignee: None,
+        recorded_at: 1,
+        resolved_at: None,
+        message_id: "INBOX:1".into(),
+    };
+    assert!(triage.validate().is_ok());
+    triage.note = " ".into();
+    assert!(triage.validate().is_err());
+    triage.note = "é".repeat(2000);
+    assert!(triage.validate().is_ok());
+    triage.note.push('é');
+    assert!(triage.validate().is_err());
+    triage.note = "Assigned it.".into();
+    triage.outcome = MailTriageOutcome::Assigned;
+    assert!(triage.validate().is_err());
+    triage.assignee = Some(AgentId::generate());
+    assert!(triage.validate().is_ok());
+    triage.outcome = MailTriageOutcome::NeedsYou;
+    assert!(triage.validate().is_err());
+}

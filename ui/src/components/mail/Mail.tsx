@@ -38,7 +38,7 @@ export function Mail({
   const [messageId, setMessageId] = useState<string | null>(null)
   const [composing, setComposing] = useState(false)
   const [view, setView] = useState<'needs-you' | 'all' | 'junk'>('needs-you')
-  const reading = phone && messageId !== null && view !== 'needs-you'
+  const reading = phone && messageId !== null
 
   if (searched && !hidden) return <MailThread api={api} messageId={searched} onBack={() => onCloseMessage?.()} />
 
@@ -99,11 +99,7 @@ export function Mail({
               <Button aria-pressed={view === 'junk'} onClick={() => { setView('junk'); setMessageId(null) }}>Junk</Button>
             </nav>
           )}
-          {view === 'needs-you' ? (
-            <p className="mail-empty">No mail needs you.</p>
-          ) : (
-            <AllMail key={view} api={api} initialFolder={view === 'junk' ? 'Junk' : ''} messageId={messageId} onOpen={setMessageId} needsReason={visibility === 'escalations'} />
-          )}
+          <AllMail key={view} api={api} needsYou={view === 'needs-you'} initialFolder={view === 'junk' ? 'Junk' : ''} messageId={messageId} onOpen={setMessageId} needsReason={visibility === 'escalations'} />
         </>
       )}
     </section>
@@ -113,12 +109,14 @@ export function Mail({
 function AllMail({
   api,
   initialFolder,
+  needsYou,
   messageId,
   onOpen,
   needsReason,
 }: {
   api: ApiClient
   initialFolder: string
+  needsYou: boolean
   messageId: string | null
   onOpen: (id: string | null) => void
   needsReason: boolean
@@ -135,7 +133,7 @@ function AllMail({
   const [searchReason, setSearchReason] = useState('')
   const [cursor, setCursor] = useState<string>()
   const folders = useWorkspaceMailFolders(api)
-  const messages = useWorkspaceMailMessages(api, { folder, q, cursor, ...(needsReason && q ? { reason: searchReason } : {}) })
+  const messages = useWorkspaceMailMessages(api, { folder, q, cursor, view: needsYou ? 'needs_you' : 'all', ...(needsReason && q ? { reason: searchReason } : {}) })
 
   function backToMail() {
     onOpen(null)
@@ -146,7 +144,7 @@ function AllMail({
 
   return (
     <>
-      {(!phone || messageId === null) && (
+      {!needsYou && (!phone || messageId === null) && (
         <>
           <div className="mail-controls">
             <label>
@@ -214,6 +212,7 @@ function AllMail({
       <div className={`mail-panes${messageId ? ' mail-panes-open' : ''}`}>
         {(!phone || messageId === null) && (
           <MessageList
+            emptyText={needsYou ? 'No mail needs you.' : 'No mail found.'}
             messages={messages.data?.items}
             loading={messages.isPending}
             failed={messages.isError}
