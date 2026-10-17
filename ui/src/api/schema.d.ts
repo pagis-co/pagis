@@ -4622,9 +4622,10 @@ export interface components {
             person_id: string;
             /**
              * @description `in_a_meeting` during a busy Event in the Private Workspace Calendar;
-             *     otherwise `active` or `away`, from client input.
+             *     otherwise `active` or `away`, from client input. No presence when
+             *     the activity of the Person cannot be read.
              */
-            presence: string;
+            presence?: string | null;
             workspace_id: string;
         };
         ColleaguePage: {

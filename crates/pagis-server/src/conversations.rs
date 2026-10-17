@@ -21,8 +21,9 @@ pub struct ColleagueDto {
     pub workspace_id: String,
     pub name: String,
     /// `in_a_meeting` during a busy Event in the Private Workspace Calendar;
-    /// otherwise `active` or `away`, from client input.
-    pub presence: String,
+    /// otherwise `active` or `away`, from client input. No presence when
+    /// the activity of the Person cannot be read.
+    pub presence: Option<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -68,12 +69,27 @@ async fn person_dto(
     workspace_id: &WorkspaceId,
 ) -> Result<ColleagueDto, ApiError> {
     let now = state.clock.now_ms();
-    let active = state.person_activity.hold_until(&person.id, now).is_some();
     let meeting = !state
         .calendar
         .free_busy(workspace_id, now, now + 1)
         .await?
         .is_empty();
+    let presence = if meeting {
+        Some("in_a_meeting")
+    } else {
+        match state
+            .person_activity_reader
+            .hold_until(&person.id, now)
+            .await
+        {
+            Ok(Some(_)) => Some("active"),
+            Ok(None) => Some("away"),
+            Err(error) => {
+                tracing::warn!(%error, "the activity of a colleague cannot be read");
+                None
+            }
+        }
+    };
     Ok(ColleagueDto {
         person_id: person.id.to_string(),
         workspace_id: workspace_id.to_string(),
@@ -81,14 +97,7 @@ async fn person_dto(
             .name
             .or(person.email)
             .unwrap_or_else(|| "Person".into()),
-        presence: if meeting {
-            "in_a_meeting"
-        } else if active {
-            "active"
-        } else {
-            "away"
-        }
-        .into(),
+        presence: presence.map(Into::into),
     })
 }
 
