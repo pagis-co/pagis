@@ -9,15 +9,17 @@ use std::time::Duration;
 use pagis_audit::AuditEventBus;
 use pagis_core::{
     Agent, AgentId, AgentMailbox, AgentMailboxState, AgentMailboxStore, AgentStatus, AgentStore,
-    Connection, ConnectionId, ConnectionStore, EventLog, MemorySecretStore, SecretStore, Workspace,
-    WorkspaceId, WorkspaceStore, now_ms,
+    Connection, ConnectionId, ConnectionStore, EventLog, JunkMessage, MemorySecretStore,
+    SecretStore, Workspace, WorkspaceId, WorkspaceStore, now_ms,
 };
-use pagis_mail::fake::{FakeMailTransport, FakeMailboxHost, FakeStandingRule, HostCall};
+use pagis_mail::fake::{
+    FakeMailTransport, FakeMailboxHost, FakeStandingRule, HostCall, MemoryMailbox,
+};
 use pagis_mail::{
-    DEFAULT_OUTGOING_CAP, Endpoint, HostCapabilities, MANUAL_PROVIDER, MIGADU_PROVIDER,
+    DEFAULT_OUTGOING_CAP, Endpoint, FlagChange, HostCapabilities, MANUAL_PROVIDER, MIGADU_PROVIDER,
     MailboxCapabilities, MailboxDesk, MailboxDeskDeps, MailboxError, MailboxHost, MailboxProvider,
-    NewMailbox, ProofTiming, TransportErrorCode, host_api_key_secret_name,
-    mailbox_password_secret_name,
+    Mailboxes, MessageChange, NewMailbox, ProofTiming, TransportErrorCode,
+    host_api_key_secret_name, mailbox_password_secret_name,
 };
 use pagis_storage_sqlite::{
     SqliteAgentMailboxStore, SqliteAgentStore, SqliteConnectionStore, SqliteEventLog,
@@ -1076,6 +1078,51 @@ async fn a_mailbox_without_endpoints_has_no_password(pool: SqlitePool) {
         None
     );
     assert!(world.transport.logins().is_empty());
+}
+
+#[sqlx::test(migrations = "./../pagis-storage-sqlite/migrations")]
+async fn the_quarantine_read_of_an_agent_mailbox_uses_the_embedders_mailboxes(pool: SqlitePool) {
+    let world = World::with_endpoints(pool, false).await;
+    let mailbox = world
+        .desk
+        .provision(&world.workspace_id, &world.agent_id, world.hosted("ada"))
+        .await
+        .unwrap();
+    let memory = MemoryMailbox::default();
+    let id = memory.deliver("attacker@example.test", "Invoice", "malware");
+    memory
+        .open(&mailbox)
+        .await
+        .unwrap()
+        .modify(
+            &id,
+            MessageChange {
+                flags: FlagChange {
+                    seen: Some(true),
+                    flagged: None,
+                },
+                archive: false,
+            },
+        )
+        .await
+        .unwrap();
+    let entry = JunkMessage {
+        workspace_id: world.workspace_id.clone(),
+        mailbox: mailbox.address.clone(),
+        message_key: id.as_str().into(),
+        host_id: id.as_str().into(),
+        from: "attacker@example.test".into(),
+        subject: "Invoice".into(),
+        reasons: vec!["MALWARE".into()],
+        person_mark: None,
+        quarantined: true,
+        released: false,
+    };
+    let read = world.desk.read_quarantine(&entry, &memory).await.unwrap();
+    assert_eq!(read.message.summary.id, id);
+    assert_eq!(read.message.text, "malware");
+    assert!(read.flags.seen);
+    assert!(world.transport.logins().is_empty(), "no IMAP login");
 }
 
 #[sqlx::test(migrations = "./../pagis-storage-sqlite/migrations")]
