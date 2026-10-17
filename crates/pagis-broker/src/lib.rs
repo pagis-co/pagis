@@ -247,6 +247,7 @@ pub enum CoreTool {
     SendMessage,
     MessageColleagues,
     ColleaguesList,
+    AssignmentUpdate,
     MemoryRead,
     MemorySearch,
     MemoryWrite,
@@ -4340,6 +4341,11 @@ fn validate_core_arguments(
         CoreTool::MessageColleagues => {
             colleague_workspaces(arguments).is_some() && required_text("text")
         }
+        CoreTool::AssignmentUpdate => {
+            required_text("assignment_id")
+                && required_text("note")
+                && matches!(arguments["state"].as_str(), Some("handled" | "escalated"))
+        }
         CoreTool::ColleaguesList => true,
         CoreTool::MemoryRead | CoreTool::MemoryWrite | CoreTool::MemoryDelete => true,
         CoreTool::MemorySearch => required_text("query"),
@@ -5060,6 +5066,22 @@ fn core_manifest() -> CapabilityManifest {
                     None,
                 )
             },
+            core(
+                "assignment_update",
+                "Handle a Mail Assignment with a note, or escalate it to your Person's Needs-You Queue. Only its member's Chief of Staff can update it. Give the answer in your reply.",
+                serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "assignment_id": {"type": "string", "minLength": 1},
+                        "state": {"type": "string", "enum": ["handled", "escalated"]},
+                        "note": {"type": "string", "minLength": 1, "maxLength": 2000},
+                    },
+                    "required": ["assignment_id", "state", "note"],
+                }),
+                CoreTool::AssignmentUpdate,
+                EffectClass::Free,
+                None,
+            ),
             core(
                 COLLEAGUES_LIST,
                 "List the enabled colleagues of your Org and their Workspace ids. Use these ids with message_colleagues.",

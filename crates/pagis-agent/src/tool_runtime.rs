@@ -22,6 +22,7 @@ mod colleagues;
 
 pub struct ToolRuntimeDeps {
     pub workspace_members: Arc<dyn pagis_core::WorkspaceMemberStore>,
+    pub assignments: Arc<pagis_core::MailAssignments>,
     pub users: Arc<dyn pagis_core::UserStore>,
     pub orgs: Arc<dyn pagis_core::OrgStore>,
     pub files: Arc<dyn pagis_core::FileStore>,
@@ -183,6 +184,36 @@ impl CoreToolRuntime {
             CoreTool::HostShell => self.execute_host(&call).await,
             CoreTool::ComputerShell => self.execute_computer_shell(&call).await,
             CoreTool::MessageColleagues => self.execute_message_colleagues(&call).await,
+            CoreTool::AssignmentUpdate => {
+                let state = serde_json::from_value(call.arguments["state"].clone());
+                match state {
+                    Ok(state) => match self
+                        .deps
+                        .assignments
+                        .update_by_chief(
+                            &call.workspace_id,
+                            &call.agent_id,
+                            &pagis_core::MailAssignmentId::from(
+                                call.arguments["assignment_id"]
+                                    .as_str()
+                                    .unwrap_or_default()
+                                    .to_string(),
+                            ),
+                            state,
+                            call.arguments["note"].as_str().unwrap_or_default(),
+                        )
+                        .await
+                    {
+                        Ok(()) => ToolResult::success(
+                            "Assignment updated. Give the answer in your reply.",
+                        ),
+                        Err(error) => ToolResult::error("assignment_refused", error.to_string()),
+                    },
+                    Err(_) => {
+                        ToolResult::error("invalid_arguments", "Select handled or escalated.")
+                    }
+                }
+            }
             CoreTool::ColleaguesList => self.execute_colleagues_list(&call).await,
             CoreTool::SendMessage => self.execute_send(&call).await,
             CoreTool::MemoryRead => self.execute_memory_read(&call).await,

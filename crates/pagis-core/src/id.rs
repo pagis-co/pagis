@@ -181,3 +181,5 @@ id_type!(
 );
 
 id_type!(AuditEntryId);
+
+id_type!(MailAssignmentId);

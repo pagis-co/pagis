@@ -349,7 +349,13 @@ export function AppShell() {
           // The daemon derives the Needs-You Queue, and tells each client
           // when an item enters or leaves it (ADR-0030). Home and the
           // sidebar count read the queue again.
-          if (frame.type === 'workspace_mail.triaged') {
+          if (frame.type === 'assignment.changed') {
+            void queryClient.invalidateQueries({ queryKey: ['mail-assignments'] })
+            void queryClient.invalidateQueries({ queryKey: ['assignment-feed'] })
+            void queryClient.invalidateQueries({ queryKey: ['conversation-assignment'] })
+            void queryClient.invalidateQueries({ queryKey: conversationsKey })
+          }
+          if (frame.type === 'workspace_mail.triaged' || frame.type === 'assignment.changed') {
             void queryClient.invalidateQueries({ queryKey: workspaceMailKey(workspaceId) })
             void queryClient.invalidateQueries({ queryKey: needsYouKey(workspaceId) })
           }

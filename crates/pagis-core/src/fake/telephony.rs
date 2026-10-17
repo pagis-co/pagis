@@ -896,6 +896,17 @@ impl crate::WorkspaceMailboxRecordStore for FakeWorkspaceMailboxStore {
         if !data.workspace_mailboxes.contains_key(workspace) {
             return Err(conflict("Workspace Mailbox is missing"));
         }
+        if triage.outcome == crate::MailTriageOutcome::Assigned
+            && triage.assignee.is_none()
+            && !data
+                .mail_assignments
+                .values()
+                .any(|a| &a.workspace_id == workspace && a.message_key == message)
+        {
+            return Err(conflict(
+                "Assigned mail needs an Agent or Mail Assignments.",
+            ));
+        }
         data.workspace_mail_triage
             .insert((workspace.clone(), message.into()), triage.clone());
         Ok(())
@@ -931,6 +942,14 @@ impl crate::WorkspaceMailboxRecordStore for FakeWorkspaceMailboxStore {
             triage.message_id = message_id.into();
             data.workspace_mail_triage
                 .insert((workspace.clone(), new_key.into()), triage);
+        }
+        for row in data
+            .mail_assignments
+            .values_mut()
+            .filter(|a| &a.workspace_id == workspace && a.message_key == old_key)
+        {
+            row.message_key = new_key.into();
+            row.message_id = message_id.into();
         }
         Ok(())
     }

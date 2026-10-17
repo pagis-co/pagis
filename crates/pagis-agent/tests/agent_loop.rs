@@ -533,6 +533,11 @@ where
     let blobs: Arc<dyn object_store::ObjectStore> = Arc::new(object_store::memory::InMemory::new());
     let tool_runtime = Arc::new(CoreToolRuntime::new(ToolRuntimeDeps {
         workspace_members: pagis_storage_sqlite::stores(pool.clone()).workspace_members,
+        assignments: Arc::new(pagis_core::MailAssignments::new(
+            pagis_storage_sqlite::stores(pool.clone()),
+            bus.clone(),
+            Arc::new(pagis_core::SystemClock),
+        )),
         users: pagis_storage_sqlite::stores(pool.clone()).users,
         orgs: pagis_storage_sqlite::stores(pool.clone()).orgs,
         files: files.clone(),
@@ -599,6 +604,7 @@ where
         pagis_testkit::test_provider_keys(Vec::new()),
     ));
     let deps = AgentDeps {
+        mail_assignments: pagis_storage_sqlite::stores(pool.clone()).mail_assignments,
         disclosure: Arc::new(pagis_storage_sqlite::SqliteDisclosureStore::new(
             pool.clone(),
         )),

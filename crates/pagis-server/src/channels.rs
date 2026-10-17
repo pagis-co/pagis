@@ -107,16 +107,20 @@ impl MessageDto {
             .await?;
         if let Some(workspace_id) = &m.author_workspace_id
             && let Some(workspace) = state.workspaces.get(workspace_id).await?
-            && let Some(person_id) = workspace.user_id
         {
-            let person = Author::Person(person_id)
-                .resolve(
-                    workspace_id,
-                    state.users.as_ref(),
-                    state.agent_store.as_ref(),
-                )
-                .await?;
-            author.name = format!("{}, for {}", author.name, person.name);
+            let workspace_name = workspace.name.clone();
+            if let Some(person_id) = workspace.user_id {
+                let person = Author::Person(person_id)
+                    .resolve(
+                        workspace_id,
+                        state.users.as_ref(),
+                        state.agent_store.as_ref(),
+                    )
+                    .await?;
+                author.name = format!("{}, for {}", author.name, person.name);
+            } else {
+                author.name = format!("{}, for {}", author.name, workspace_name);
+            }
         }
         Ok(MessageDto {
             for_person_only: m.for_person_only,

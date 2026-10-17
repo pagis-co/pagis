@@ -172,6 +172,7 @@ pub fn stores(pool: sqlx::SqlitePool) -> pagis_core::Stores {
         phone_numbers: Arc::new(SqlitePhoneNumberStore::new(pool.clone())),
         plugin_tools: Arc::new(SqlitePluginToolStore::new(pool.clone())),
         plugins: Arc::new(SqlitePluginStore::new(pool.clone())),
+        mail_assignments: Arc::new(SqliteMailAssignmentStore::new(pool.clone())),
         disclosure: Arc::new(SqliteDisclosureStore::new(pool.clone())),
         calendar: Arc::new(SqliteCalendarStore::new(pool.clone())),
         push_subscriptions: Arc::new(SqlitePushSubscriptionStore::new(pool.clone())),
@@ -207,3 +208,6 @@ pub use workspace_governance::SqliteWorkspaceGovernanceStore;
 
 mod junk_store;
 pub use junk_store::SqliteJunkStore;
+
+mod mail_assignment_store;
+pub use mail_assignment_store::SqliteMailAssignmentStore;

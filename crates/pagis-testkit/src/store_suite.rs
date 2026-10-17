@@ -212,6 +212,7 @@ pub mod installation;
 pub mod keypad_failures;
 pub mod knowledge;
 pub mod knowledge_events;
+pub mod mail_assignments;
 pub mod mailboxes;
 pub mod memory_pages;
 pub mod model_request_captures;
@@ -245,6 +246,7 @@ macro_rules! store_suite {
         $crate::store_suite_keypad_failures!($crate::__store_suite_emit);
         $crate::store_suite_knowledge!($crate::__store_suite_emit);
         $crate::store_suite_knowledge_events!($crate::__store_suite_emit);
+        $crate::store_suite_mail_assignments!($crate::__store_suite_emit);
         $crate::store_suite_mailboxes!($crate::__store_suite_emit);
         $crate::store_suite_memory_pages!($crate::__store_suite_emit);
         $crate::store_suite_model_request_captures!($crate::__store_suite_emit);
@@ -296,6 +298,11 @@ macro_rules! __store_suite_emit {
 /// bodies. The guard test reads both.
 #[cfg(test)]
 const MODULES: &[(&str, &str, &str)] = &[
+    (
+        "mail_assignments",
+        include_str!("store_suite/mail_assignments.rs"),
+        "macro_rules! store_suite_mail_assignments",
+    ),
     (
         "run_journal",
         include_str!("store_suite/run_journal.rs"),

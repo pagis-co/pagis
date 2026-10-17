@@ -4,7 +4,7 @@ use pagis_core::{ChannelId, User, UserRole, Workspace, WorkspaceId};
 use pagis_testkit::TestDaemon;
 use serde_json::{Value, json};
 
-async fn person(daemon: &TestDaemon, name: &str) -> (WorkspaceId, String) {
+pub(super) async fn person(daemon: &TestDaemon, name: &str) -> (WorkspaceId, String) {
     let stores = daemon.stores();
     let owner = stores.users.get(&daemon.user_id).await.unwrap().unwrap();
     let user = User {
@@ -41,7 +41,7 @@ async fn person(daemon: &TestDaemon, name: &str) -> (WorkspaceId, String) {
     (workspace.id, daemon.cookie_for(&user.id).await)
 }
 
-async fn request(
+pub(super) async fn request(
     daemon: &TestDaemon,
     cookie: &str,
     method: reqwest::Method,
@@ -57,7 +57,7 @@ async fn request(
         .await
         .unwrap()
 }
-async fn get(daemon: &TestDaemon, cookie: &str, path: &str) -> Value {
+pub(super) async fn get(daemon: &TestDaemon, cookie: &str, path: &str) -> Value {
     request(daemon, cookie, reqwest::Method::GET, path, Value::Null)
         .await
         .error_for_status()
@@ -66,7 +66,7 @@ async fn get(daemon: &TestDaemon, cookie: &str, path: &str) -> Value {
         .await
         .unwrap()
 }
-async fn post(daemon: &TestDaemon, cookie: &str, path: &str, body: Value) -> Value {
+pub(super) async fn post(daemon: &TestDaemon, cookie: &str, path: &str, body: Value) -> Value {
     request(daemon, cookie, reqwest::Method::POST, path, body)
         .await
         .error_for_status()
@@ -76,7 +76,7 @@ async fn post(daemon: &TestDaemon, cookie: &str, path: &str, body: Value) -> Val
         .unwrap()
 }
 
-async fn hire(daemon: &TestDaemon, cookie: &str, name: &str) -> Value {
+pub(super) async fn hire(daemon: &TestDaemon, cookie: &str, name: &str) -> Value {
     let agent = post(
         daemon,
         cookie,

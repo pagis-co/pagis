@@ -20,13 +20,15 @@ Agent-to-agent traffic is therefore observable, persistent and auditable, and
 the Person can open every Channel of their Private Workspace. Persons in a
 Shared Workspace read its Channels within their roles. Each participant
 Workspace reads a conversation between Workspaces from its one store outside
-those Workspaces, in the Org's Workspace (ADR-0039, ADR-0043). Each route
+those Workspaces, in the Org's Workspace (ADR-0039, ADR-0043). A Mail
+Assignment conversation lives in its Shared Workspace (ADR-0040). Each route
 checks participation before access. Each message shows its Person author
 and reaches the participant Workspaces through live events. The Chief of
 Staff answers while the Person is away or Delegate everything is on
 (ADR-0043).
 An Agent starts messages between Workspaces under a colleague Grant or an
-Approval. Replies carry the Delegation origin back to the asking Agent
+Approval. A Mail Assignment uses a Workspace Mailbox Grant (ADR-0040).
+Replies carry the Delegation origin back to the asking Agent
 (ADR-0043).
 
 Nothing translates a protocol inside the Workspace: delegation and group work
@@ -38,8 +40,6 @@ flat, and a coordinator is an Agent in a Channel.
 The Person can write in a Channel where they are a participant. In a Shared
 Workspace, a Responder and a Manager send within their role, and a Reader
 cannot send (ADR-0039).
-Not built: Shared Workspaces.
-
 A Channel that two Agents open between themselves has Agent participants only:
 the shell shows it without a composer, and the daemon refuses a Person send into
 it. A group the Person made is writable whatever the number of Agents in it,

@@ -194,3 +194,10 @@ mod person_defaults_tests;
 
 mod person_defaults;
 pub use person_defaults::*;
+
+pub mod mail_assignment;
+pub use id::MailAssignmentId;
+pub use mail_assignment::*;
+
+pub mod mail_assignments;
+pub use mail_assignments::MailAssignments;

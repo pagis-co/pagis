@@ -14,8 +14,9 @@ An assistant also needs a rule for what it can disclose in a conversation.
 
 A Channel of kind `conversation` has Workspaces as participants, beside
 Person and Agent participant kinds. The conversation and its messages live
-once in the Org's Workspace (ADR-0023). They are never copied into the
-participant Workspaces. This extends ADR-0003 and follows ADR-0039.
+once in the Org's Workspace (ADR-0023). A Mail Assignment conversation
+lives in its Shared Workspace instead (ADR-0040). Neither kind copies
+messages into the participant Workspaces. This extends ADR-0003 and follows ADR-0039.
 
 A Person lists the other enabled Persons of the Org in People. Each entry
 names the colleague and their Private Workspace. The Person selects one or
@@ -72,7 +73,9 @@ hop cap stops delivery before a new Run enters the queue. There is no second
 counter for Workspaces. The stored author Workspace also selects the sending
 Run and the live Grants for its Exposure Stamp.
 
-An Agent starts or continues a conversation with `message_colleagues`.
+An Agent starts or continues a colleague conversation with
+`message_colleagues`. A Team Agent starts a Mail Assignment conversation
+under its Workspace Mailbox Grant (ADR-0040).
 `colleagues_list` supplies enabled colleagues and their Private Workspace ids.
 The tool uses the same conversation for the same set of Workspaces. It writes
 an Agent message with its author Workspace, Run and Exposure Stamp. The tool

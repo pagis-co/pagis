@@ -1,7 +1,7 @@
 //! The Product API reads the tenant Workspace Mailbox through its store.
 mod triage;
 pub use triage::*;
-mod visibility;
+pub(crate) mod visibility;
 pub use visibility::*;
 mod write;
 pub use write::*;

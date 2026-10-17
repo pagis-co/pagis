@@ -4873,6 +4873,53 @@
         }
       }
     },
+    "/api/v1/conversations/{conversation_id}/assignment": {
+      "get": {
+        "tags": [
+          "mail_assignments"
+        ],
+        "operationId": "conversation_assignment",
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/components/schemas/MailAssignment"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/conversations/{conversation_id}/messages": {
       "get": {
         "tags": [
@@ -6690,6 +6737,69 @@
           }
         },
         "x-workspace-role": "manager"
+      }
+    },
+    "/api/v1/mail-assignments/feed": {
+      "get": {
+        "tags": [
+          "mail_assignments"
+        ],
+        "operationId": "assignment_feed",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MailAssignmentPage"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/mail-assignments/{assignment_id}/done": {
+      "post": {
+        "tags": [
+          "mail_assignments"
+        ],
+        "operationId": "finish_assignment",
+        "parameters": [
+          {
+            "name": "assignment_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/mail/{mailbox}/{message_id}": {
@@ -12619,6 +12729,50 @@
         }
       }
     },
+    "/api/v1/workspace/mail/assignments": {
+      "get": {
+        "tags": [
+          "mail_assignments"
+        ],
+        "operationId": "list_mail_assignments",
+        "parameters": [
+          {
+            "name": "message_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MailAssignmentPage"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "x-workspace-role": "responder"
+      }
+    },
     "/api/v1/workspace/mail/audit": {
       "get": {
         "tags": [
@@ -14065,6 +14219,76 @@
             }
           },
           "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "x-workspace-role": "manager"
+      }
+    },
+    "/api/v1/workspace/mailbox/assignment-settings": {
+      "get": {
+        "tags": [
+          "mail_assignments"
+        ],
+        "operationId": "get_assignment_settings",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MailAssignmentSettings"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "x-workspace-role": "manager"
+      },
+      "put": {
+        "tags": [
+          "mail_assignments"
+        ],
+        "operationId": "set_assignment_settings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MailAssignmentSettings"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MailAssignmentSettings"
+                }
+              }
+            }
+          },
+          "403": {
             "description": "",
             "content": {
               "application/json": {
@@ -20014,6 +20238,132 @@
         ],
         "description": "Frames the daemon sends beside the audio. `ready` names the codec\nof the frames that follow; the socket ends after `ended` or\n`error`."
       },
+      "MailAssignment": {
+        "type": "object",
+        "required": [
+          "id",
+          "workspace_id",
+          "message_key",
+          "message_id",
+          "assignee",
+          "private_workspace_id",
+          "role",
+          "state",
+          "assigning_agent_id",
+          "channel_id",
+          "summary",
+          "note",
+          "due_at",
+          "created_at",
+          "changed_at"
+        ],
+        "properties": {
+          "assignee": {
+            "type": "string"
+          },
+          "assigning_agent_id": {
+            "type": "string"
+          },
+          "assigning_run_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "changed_at": {
+            "$ref": "#/components/schemas/i64"
+          },
+          "channel_id": {
+            "type": "string"
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/i64"
+          },
+          "due_at": {
+            "$ref": "#/components/schemas/i64"
+          },
+          "id": {
+            "type": "string"
+          },
+          "message_id": {
+            "type": "string"
+          },
+          "message_key": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          },
+          "private_workspace_id": {
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/MailAssignmentRole"
+          },
+          "state": {
+            "$ref": "#/components/schemas/MailAssignmentState"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "workspace_id": {
+            "type": "string"
+          }
+        }
+      },
+      "MailAssignmentPage": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MailAssignment"
+            }
+          }
+        }
+      },
+      "MailAssignmentRole": {
+        "type": "string",
+        "enum": [
+          "decide",
+          "approve",
+          "fyi"
+        ]
+      },
+      "MailAssignmentSettings": {
+        "type": "object",
+        "required": [
+          "assignment_timeout_minutes"
+        ],
+        "properties": {
+          "assignment_limit": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "assignment_timeout_minutes": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "MailAssignmentState": {
+        "type": "string",
+        "enum": [
+          "assigned",
+          "handled",
+          "escalated",
+          "timed_out"
+        ]
+      },
       "MailAttachmentDto": {
         "type": "object",
         "description": "One attachment: the name and the size, never the bytes (ADR-0019).",
@@ -21524,6 +21874,39 @@
           }
         }
       },
+      "NeedsYouAssignment": {
+        "type": "object",
+        "description": "A Mail Assignment that the Chief of Staff puts in its Person's queue.",
+        "required": [
+          "id",
+          "line",
+          "url",
+          "at",
+          "assignment_id",
+          "channel_id"
+        ],
+        "properties": {
+          "assignment_id": {
+            "type": "string"
+          },
+          "at": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "channel_id": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "line": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        }
+      },
       "NeedsYouCall": {
         "type": "object",
         "description": "An inbound Call of today that nobody answered.",
@@ -21620,6 +22003,27 @@
       },
       "NeedsYouItem": {
         "oneOf": [
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/NeedsYouAssignment"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "assignment"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
           {
             "allOf": [
               {

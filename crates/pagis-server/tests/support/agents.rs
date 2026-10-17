@@ -258,6 +258,11 @@ impl Embedder {
             Arc::new(object_store::memory::InMemory::new());
         let runtime = Arc::new(CoreToolRuntime::new(ToolRuntimeDeps {
             workspace_members: stores.workspace_members.clone(),
+            assignments: Arc::new(pagis_core::MailAssignments::new(
+                stores.clone(),
+                bus.clone(),
+                clock.clone(),
+            )),
             users: stores.users.clone(),
             orgs: stores.orgs.clone(),
             files: stores.files.clone(),
@@ -316,6 +321,7 @@ impl Embedder {
         ));
         let person_activity = Arc::new(pagis_needs_you::PersonActivity::new());
         let deps = AgentDeps {
+            mail_assignments: stores.mail_assignments.clone(),
             disclosure: stores.disclosure.clone(),
             person_activity: person_activity.clone(),
             run_journal: stores.run_journal.clone(),
@@ -468,6 +474,11 @@ impl Embedder {
             bus: bus.clone(),
         }));
         let state = AppState {
+            assignments: Arc::new(pagis_core::MailAssignments::new(
+                stores.clone(),
+                bus.clone(),
+                clock.clone(),
+            )),
             disclosure: stores.disclosure.clone(),
             governance: stores.governance.clone(),
             audit: stores.audit.clone(),

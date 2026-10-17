@@ -13,7 +13,7 @@ mail.
 The Person creates a Workspace Mailbox in Settings and reads it in the
 Mail place of the Product App.
 
-Not built: assignments to Persons and saved drafts.
+Not built: saved drafts.
 
 ## Decision
 
@@ -146,10 +146,9 @@ for the Spam Verdict. It holds handled, replied, assigned or needs_you,
 a note of at most 2000 characters, the Agent or System author, the recorded
 time and, for assigned, the assignee Agent. The record also keeps the host
 id for its Mail place link. The existing mail move path updates that id. A new record replaces the
-previous outcome. An assignee is an active Agent of the same Workspace
-with a live Workspace Mailbox Grant. Assignment records the Agent only.
-Starting a Delegation from this outcome is not built. Assignment across
-Workspaces is not built.
+previous outcome. An assigned outcome names an active Agent of the same
+Workspace with a live Workspace Mailbox Grant, or the message's Mail
+Assignments to current members of the Shared Workspace.
 
 The triage poll reads INBOX in UID order, at most 50 messages per poll.
 Its cursor is separate from the calendar intake cursor. Mailbox provisioning
@@ -219,7 +218,8 @@ A Shared Workspace Mailbox has one visibility level: All mail, Escalations
 or Agent only. The Org sets the highest level a Manager can select. Each
 human read writes an Org Audit Log entry with the Person, Workspace and
 message identity or search query and reason. At Escalations, each search
-needs a stated reason and returns only messages with a needs_you outcome. The reason
+needs a stated reason and returns only messages with a needs_you outcome
+or a live Mail Assignment to the reader. The reason
 records intent and gives no extra access. Global Search omits Escalations
 mail unless the request has a stated reason. Workspace roles still apply.
 Readers read, Responders also send, and Managers change the selected
@@ -229,8 +229,9 @@ Shared Workspace route. An Administrator reads them in the Org Audit Log.
 
 The mailbox stores its selected level. Each human read uses the lower of
 that level and the current Shared Workspace Limit. All mail permits every
-message. Escalations permits only messages whose Mail Triage outcome is
-needs_you. Agent only hides messages and keeps mailbox settings visible.
+message. Escalations permits messages whose Mail Triage outcome is
+needs_you and messages with an assigned or escalated Mail Assignment to
+the reader. Agent only hides messages and keeps mailbox settings visible.
 Lists, threads, message reads, attachments, reply preparation and invitation
 responses from Mail use the same message check. Every route that takes a
 message id opens the store and reads the message through one visibility and
@@ -243,14 +244,56 @@ Agents read under their Grants at every visibility level.
 
 ### Assignments keep the mail in its Workspace
 
-An assigned Mail Triage outcome names an active Agent of the same
-Workspace with a live Workspace Mailbox Grant. The outcome and note stay
-on the message. Every human message link uses the shared visibility check.
+A Mail Assignment belongs to the Shared Workspace that holds the mail.
+It records the Mail Triage key and host id, the assignee Person and their
+Private Workspace, the role decide, approve or fyi, the state assigned,
+handled, escalated or timed_out, the assigning Agent, the conversation
+Channel, the summary, the due time, the Chief of Staff's note and the
+created and changed times. Both storage baselines index open assignments
+by Workspace and due time, and by assignee.
 
-Not built: Delegation from assigned outcomes, assignments to Persons'
-Chiefs of Staff, assignment roles, timeouts, limits and FYI feed entries.
-Assignment across Workspaces is not built. Only a Person's own Needs-You
-Queue makes Notifications.
+A Team Agent with a live Workspace Mailbox Grant uses
+`workspace_mail_triage` with the assigned outcome, current members' Person
+ids, a role and a short summary. Each member gets one Mail Assignment and
+one conversation in the Shared Workspace. The Shared Workspace and the
+member's Private Workspace participate. The message shows
+"<Agent>, for <Shared Workspace>", the role, the summary and a link to
+the message in the Mail place. It contains no copy of the mail text.
+Every human link uses `open_message`, including its visibility and
+quarantine checks. At Escalations, an assigned or escalated Mail Assignment
+permits its assignee to read that message. At Agent only the link returns
+the same 404 as any hidden message.
+
+For decide and approve, cross-Workspace delivery starts a Delegation to
+the member's Chief of Staff. It carries the assigning Run's Origin and
+hop count. Client activity does not hold an assignment. Each Run spends
+from its own Workspace. The Chief of Staff uses `assignment_update` with
+a short note to record handled or escalated. A handled answer returns
+through the Origin. An escalated assignment makes one derived item in
+its Person's Needs-You Queue that opens the assignment conversation. The
+Person's answer or Done closes it. A Run with no update leaves the
+assignment assigned.
+
+An FYI assignment posts the conversation message and starts no Run. It
+adds no Needs-You item and makes no Notification. Home derives the day's
+FYI feed entries from open assignment rows. The Person dismisses an FYI
+entry to mark it handled. Only a Person's own Needs-You Queue makes
+Notifications.
+
+There is no assignment limit by default. A Manager sets or clears the
+open assignment limit per member and sets the timeout in minutes, whose
+default is 1440. The store checks the limit in the same transaction that
+creates the assignment rows. An over-limit tool call tells the Agent to
+select another member.
+
+The daemon reads at most 50 overdue assigned rows per sweep through the
+due-time index. It marks each timed_out and assigns the same message and
+role to the next current Responder or Manager who has not had that message
+and is under the limit, ordered by Person id. With no such member, it
+records needs_you on the message with a System note. Managers and
+Responders list the Shared Workspace's assignments and their states. The
+Mail place shows a message's assignments, and Managers set their limit
+and timeout in Workspace Mailbox settings.
 
 ## Consequences
 

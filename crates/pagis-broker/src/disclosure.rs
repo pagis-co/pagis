@@ -9,7 +9,10 @@ fn category(entry: &SnapshotTool) -> Option<DisclosureCategory> {
         ToolRoute::Ui { .. }
         | ToolRoute::Core {
             tool:
-                CoreTool::CalendarFreeBusy | CoreTool::ColleaguesList | CoreTool::MessageColleagues,
+                CoreTool::AssignmentUpdate
+                | CoreTool::CalendarFreeBusy
+                | CoreTool::ColleaguesList
+                | CoreTool::MessageColleagues,
         } => None,
         ToolRoute::Calendar { .. }
         | ToolRoute::Core {
@@ -171,6 +174,7 @@ mod tests {
                 ToolRoute::Core {
                     tool:
                         CoreTool::CalendarFreeBusy
+                        | CoreTool::AssignmentUpdate
                         | CoreTool::ColleaguesList
                         | CoreTool::MessageColleagues,
                 } => None,

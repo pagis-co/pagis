@@ -1692,6 +1692,33 @@ and Not spam corrections through the verdict seam. The daemon moves the
 message into or out of the host's Junk folder. Score-only mode records
 verdicts and makes no automatic moves (ADR-0040).
 
+### Mail Assignment
+One Shared Workspace message assigned to one current member by Delegation
+to that member's Chief of Staff. It belongs to the Shared Workspace and
+names the message's Mail Triage key and host id, its assignee Person and
+Private Workspace, the assigning Agent, its conversation Channel, summary,
+due time, note and created and changed times. The conversation stays in
+the Shared Workspace. Below All mail it carries a summary and a link,
+not the mail text. The link uses the visibility check. There is no open
+assignment limit by default; a Manager sets or clears one per member and
+sets the timeout, whose default is 1440 minutes (ADR-0040).
+
+### Mail Assignment role
+The work a Mail Assignment asks for: decide, approve or fyi. Decide and
+approve start a Delegation to the member's Chief of Staff, regardless of
+client activity. FYI adds a feed entry in Home's work record, starts no
+Run and makes no Needs-You item or Notification (ADR-0040).
+
+### Mail Assignment state
+The state of one Mail Assignment: assigned, handled, escalated or
+timed_out. The member's Chief of Staff records handled or escalated with
+a note. Escalated adds one item in its Person's Needs-You Queue until
+the Person answers in the conversation or marks it done. An FYI dismissal
+records handled. A timeout records timed_out and assigns the message to
+the next current Responder or Manager who has not had it and is under
+the limit. With no such member, the message gets a System needs_you Mail
+Triage outcome (ADR-0040).
+
 ### Mail Opinion
 A model's bounded second opinion on Uncertain mail: a label, confidence
 and short reasons. It adjusts the host score by at most 3.0 points and
@@ -1708,7 +1735,7 @@ Person's mail Connections under a Grant (ADR-0019, ADR-0040).
 The one recorded result of a Workspace Mailbox message: handled, replied,
 assigned or needs_you. It holds a short note, its Agent or System author,
 the recorded time and, for assigned, an active assignee Agent of that
-Workspace with a Workspace Mailbox Grant. A new record replaces it. The
+Workspace with a Workspace Mailbox Grant or its Mail Assignments. A new record replaces it. The
 Message-ID header is its key within the Workspace, or the host id when
 that header is absent. An open needs_you outcome enters the Private
 Workspace Person's Needs-You Queue. Done, reply, forward, move or delete
@@ -1731,9 +1758,11 @@ A Manager selects the level on the Workspace
 Mailbox. Shared Workspace Limits set the highest level. Each human read
 uses the lower of the selected level and the current limit. All mail
 permits every message. Escalations permits only messages whose Mail Triage
-outcome is needs_you. Agent only hides all messages and keeps mailbox settings
+outcome is needs_you or with an assigned or escalated Mail Assignment to
+the reader. Agent only hides all messages and keeps mailbox settings
 visible. A search at Escalations needs a stated reason and returns only
-messages with needs_you outcomes. Each message, thread, attachment and search read writes
+messages with needs_you outcomes or a live Mail Assignment to the reader.
+Each message, thread, attachment and search read writes
 an Org Audit Log entry with its Person and Workspace. A Manager reads the
 mail entries of that Workspace. Agents use their Grants (ADR-0040, ADR-0047).
 
@@ -1853,7 +1882,7 @@ Trash folder, or the folder named Trash. It creates Trash when neither
 exists. Folder deletion refuses a folder that contains quarantined mail
 before it moves any message. The Chief of Staff reads mail first under
 Mail Triage Rules. Needs you lists open needs_you outcomes. Not built:
-assignments to Persons, Delegation from assigned outcomes and saved drafts.
+saved drafts.
 
 ### Workspace Mailbox calendar intake cursor
 The UIDVALIDITY and highest UID already read for one Workspace Mailbox
@@ -1941,7 +1970,8 @@ Inspector** (one message, read live) are transient tenants. Not built: the
 _Avoid_: side panel
 
 ### Needs-You Queue
-What waits for the Person: approvals, questions, needs_you Mail Triage
+What waits for the Person: approvals, questions, escalated Mail Assignments,
+needs_you Mail Triage
 outcomes, failed Runs, missed Calls, the Keypad Code delay after too many failed attempts, and the rules
 that wait for an approval. The daemon derives it, and Home, the sidebar
 count, the app badge and each Notification read it. The daemon publishes

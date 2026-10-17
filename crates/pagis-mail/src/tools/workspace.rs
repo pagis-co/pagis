@@ -115,9 +115,56 @@ impl MailToolRuntime {
                 .map_err(|_| {
                     ToolResult::error("invalid_arguments", "Select a Mail Triage outcome.")
                 })?;
+                if call.arguments["members"].is_array() {
+                    if outcome != pagis_core::MailTriageOutcome::Assigned
+                        || !call.arguments["assignee"].is_null()
+                    {
+                        return Err(ToolResult::error(
+                            "invalid_arguments",
+                            "Select assigned and members without an Agent assignee.",
+                        ));
+                    }
+                    let members: Vec<pagis_core::UserId> = serde_json::from_value(
+                        call.arguments["members"].clone(),
+                    )
+                    .map_err(|_| {
+                        ToolResult::error(
+                            "invalid_arguments",
+                            "Select current members by Person id.",
+                        )
+                    })?;
+                    let role =
+                        serde_json::from_value(call.arguments["role"].clone()).map_err(|_| {
+                            ToolResult::error("invalid_arguments", "Select decide, approve or fyi.")
+                        })?;
+                    let rows = self
+                        .deps
+                        .assignments
+                        .assign(
+                            &call.workspace_id,
+                            &call.agent_id,
+                            Some(&call.run_id),
+                            message.message.summary.assessment_key(),
+                            message.message.summary.id.as_str(),
+                            &members,
+                            role,
+                            call.arguments["summary"].as_str().unwrap_or_default(),
+                        )
+                        .await
+                        .map_err(|e| ToolResult::error("assignment_refused", e.to_string()))?;
+                    return Ok(serde_json::json!({
+                        "assignments": rows,
+                    }));
+                }
                 let assignee = call.arguments["assignee"]
                     .as_str()
                     .map(|id| pagis_core::AgentId::from(id.to_string()));
+                if outcome == pagis_core::MailTriageOutcome::Assigned && assignee.is_none() {
+                    return Err(ToolResult::error(
+                        "invalid_arguments",
+                        "Assigned mail needs members or an Agent assignee.",
+                    ));
+                }
                 if let Some(agent) = &assignee {
                     self.deps
                         .workspace

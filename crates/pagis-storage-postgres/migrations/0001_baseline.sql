@@ -1828,3 +1828,23 @@ CREATE TABLE disclosure_rules (
     category TEXT COLLATE "C" NOT NULL CHECK (category IN ('memory', 'mail', 'calendar_details', 'other_private_data')),
     PRIMARY KEY (workspace_id, asker_workspace_id, category)
 );
+
+CREATE TABLE mail_assignment_settings (
+    workspace_id TEXT PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
+    assignment_limit BIGINT CHECK (assignment_limit > 0),
+    assignment_timeout_minutes BIGINT NOT NULL DEFAULT 1440 CHECK (assignment_timeout_minutes > 0)
+);
+CREATE TABLE mail_assignments (
+    id TEXT PRIMARY KEY,
+    workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    message_key TEXT NOT NULL,
+    assignee TEXT NOT NULL,
+    channel_id TEXT NOT NULL UNIQUE,
+    state TEXT NOT NULL CHECK (state IN ('assigned', 'handled', 'escalated', 'timed_out')),
+    due_at BIGINT NOT NULL,
+    record TEXT NOT NULL
+);
+CREATE INDEX mail_assignments_workspace_due ON mail_assignments(workspace_id, due_at, id) WHERE state IN ('assigned', 'escalated');
+CREATE INDEX mail_assignments_due ON mail_assignments(due_at, id) WHERE state = 'assigned';
+CREATE INDEX mail_assignments_assignee ON mail_assignments(assignee, id) WHERE state IN ('assigned', 'escalated');
+CREATE INDEX mail_assignments_message ON mail_assignments(workspace_id, message_key, id);

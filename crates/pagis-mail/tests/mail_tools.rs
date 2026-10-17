@@ -258,6 +258,13 @@ impl World {
             workspaces: Arc::new(pagis_storage_sqlite::SqliteWorkspaceStore::new(
                 pool.clone(),
             )),
+            assignments: Arc::new(pagis_core::MailAssignments::new(
+                pagis_storage_sqlite::stores(pool.clone()),
+                Arc::new(AuditEventBus::new(Arc::new(SqliteEventLog::new(
+                    pool.clone(),
+                )))),
+                Arc::new(pagis_core::SystemClock),
+            )),
             workspace: desk.clone(),
             mailboxes: Arc::clone(&memory) as _,
             records: Arc::clone(&mailboxes) as _,

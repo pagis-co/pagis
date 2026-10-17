@@ -291,7 +291,7 @@ impl MailTriage {
     pub fn validate(&self) -> Result<(), StoreError> {
         if self.note.trim().is_empty()
             || self.note.chars().count() > 2_000
-            || (self.outcome == MailTriageOutcome::Assigned) != self.assignee.is_some()
+            || (self.outcome != MailTriageOutcome::Assigned && self.assignee.is_some())
             || !matches!(self.author, crate::Author::Agent(_) | crate::Author::System)
         {
             return Err(StoreError::Conflict(

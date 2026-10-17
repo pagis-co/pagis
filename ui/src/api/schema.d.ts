@@ -1325,6 +1325,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/conversations/{conversation_id}/assignment": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["conversation_assignment"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/conversations/{conversation_id}/messages": {
         parameters: {
             query?: never;
@@ -1782,6 +1798,38 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["retry"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mail-assignments/feed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["assignment_feed"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mail-assignments/{assignment_id}/done": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["finish_assignment"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3516,6 +3564,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspace/mail/assignments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_mail_assignments"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspace/mail/audit": {
         parameters: {
             query?: never;
@@ -3814,6 +3878,22 @@ export interface paths {
         get: operations["get_workspace_mailbox"];
         put?: never;
         post: operations["create_workspace_mailbox"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspace/mailbox/assignment-settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_assignment_settings"];
+        put: operations["set_assignment_settings"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -5863,6 +5943,37 @@ export interface components {
             /** @enum {string} */
             type: "error";
         };
+        MailAssignment: {
+            assignee: string;
+            assigning_agent_id: string;
+            assigning_run_id?: string | null;
+            changed_at: components["schemas"]["i64"];
+            channel_id: string;
+            created_at: components["schemas"]["i64"];
+            due_at: components["schemas"]["i64"];
+            id: string;
+            message_id: string;
+            message_key: string;
+            note: string;
+            private_workspace_id: string;
+            role: components["schemas"]["MailAssignmentRole"];
+            state: components["schemas"]["MailAssignmentState"];
+            summary: string;
+            workspace_id: string;
+        };
+        MailAssignmentPage: {
+            items: components["schemas"]["MailAssignment"][];
+        };
+        /** @enum {string} */
+        MailAssignmentRole: "decide" | "approve" | "fyi";
+        MailAssignmentSettings: {
+            /** Format: int32 */
+            assignment_limit?: number | null;
+            /** Format: int32 */
+            assignment_timeout_minutes: number;
+        };
+        /** @enum {string} */
+        MailAssignmentState: "assigned" | "handled" | "escalated" | "timed_out";
         /** @description One attachment: the name and the size, never the bytes (ADR-0019). */
         MailAttachmentDto: {
             /** Format: int64 */
@@ -6449,6 +6560,16 @@ export interface components {
             /** @description The Workspace that owns the Request. */
             workspace_id: string;
         };
+        /** @description A Mail Assignment that the Chief of Staff puts in its Person's queue. */
+        NeedsYouAssignment: {
+            assignment_id: string;
+            /** Format: int64 */
+            at: number;
+            channel_id: string;
+            id: string;
+            line: string;
+            url: string;
+        };
         /** @description An inbound Call of today that nobody answered. */
         NeedsYouCall: {
             agent_id: string;
@@ -6482,7 +6603,10 @@ export interface components {
          *     the queue: a decision first, then a question, then the keypad delay,
          *     then a missed Call, then a failure.
          */
-        NeedsYouItem: (components["schemas"]["NeedsYouApproval"] & {
+        NeedsYouItem: (components["schemas"]["NeedsYouAssignment"] & {
+            /** @enum {string} */
+            kind: "assignment";
+        }) | (components["schemas"]["NeedsYouApproval"] & {
             /** @enum {string} */
             kind: "approval";
         }) | (components["schemas"]["NeedsYouWaiting"] & {
@@ -12154,6 +12278,35 @@ export interface operations {
             };
         };
     };
+    conversation_assignment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": null | components["schemas"]["MailAssignment"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     list_conversation_messages: {
         parameters: {
             query?: {
@@ -13483,6 +13636,60 @@ export interface operations {
                 };
             };
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    assignment_feed: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MailAssignmentPage"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    finish_assignment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                assignment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -17900,6 +18107,35 @@ export interface operations {
             };
         };
     };
+    list_mail_assignments: {
+        parameters: {
+            query?: {
+                message_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MailAssignmentPage"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     list_workspace_mail_audit: {
         parameters: {
             query?: {
@@ -18947,6 +19183,64 @@ export interface operations {
                 };
             };
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_assignment_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MailAssignmentSettings"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    set_assignment_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MailAssignmentSettings"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MailAssignmentSettings"];
+                };
+            };
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

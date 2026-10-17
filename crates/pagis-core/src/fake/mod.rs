@@ -23,6 +23,7 @@ mod forget;
 mod governance;
 mod identity;
 mod junk;
+mod mail_assignment;
 use junk::FakeJunkStore;
 mod knowledge;
 mod memory;
@@ -297,6 +298,7 @@ impl FakeDatabase {
             plugin_tools: Arc::new(FakePluginToolStore(self.0.clone())),
             plugins: Arc::new(FakePluginStore(self.0.clone())),
             disclosure: Arc::new(FakeDisclosureStore(self.0.clone())),
+            mail_assignments: Arc::new(FakeMailAssignmentStore(self.0.clone())),
             calendar: Arc::new(FakeCalendarStore(self.0.clone())),
             push_subscriptions: Arc::new(FakePushSubscriptionStore(self.0.clone())),
             requests: Arc::new(FakeRequestStore(self.0.clone())),
@@ -322,6 +324,8 @@ impl FakeDatabase {
 
 #[derive(Default)]
 struct Data {
+    mail_assignments: BTreeMap<crate::MailAssignmentId, crate::MailAssignment>,
+    mail_assignment_settings: BTreeMap<WorkspaceId, crate::MailAssignmentSettings>,
     audit: BTreeMap<AuditEntryId, AuditEntry>,
     limits: BTreeMap<WorkspaceId, crate::SharedWorkspaceLimits>,
     versions: Vec<crate::AgentVersion>,
@@ -491,3 +495,5 @@ impl crate::MailAssessmentStore for FakeMailAssessmentStore {
         Ok(())
     }
 }
+
+pub struct FakeMailAssignmentStore(Shared);

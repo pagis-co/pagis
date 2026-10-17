@@ -58,11 +58,44 @@ pub fn workspace_mail_manifest() -> CapabilityManifest {
             tool(
                 WorkspaceMailTool::Triage,
                 "workspace_mail_triage",
-                "Record one Mail Triage outcome and a short note for this message. Assigned needs an active Agent with a Workspace Mailbox Grant.",
-                serde_json::json!({"message_id":{"type":"string","minLength":1},
-                    "outcome":{"type":"string","enum":["handled","replied","assigned","needs_you"]},
-                    "note":{"type":"string","minLength":1,"maxLength":crate::DECISION_NOTE_CHARS},
-                    "assignee":{"type":"string","minLength":1}}),
+                "Record one Mail Triage outcome and a short note for this message. For assigned, select current members with Person ids, a role and a short summary to delegate to their Chiefs of Staff, or name an active Agent with a Workspace Mailbox Grant.",
+                serde_json::json!({
+                    "message_id": {
+                        "type": "string",
+                        "minLength": 1,
+                    },
+                    "outcome": {
+                        "type": "string",
+                        "enum": ["handled", "replied", "assigned", "needs_you"],
+                    },
+                    "note": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": crate::DECISION_NOTE_CHARS,
+                    },
+                    "assignee": {
+                        "type": "string",
+                        "minLength": 1,
+                    },
+                    "members": {
+                        "type": "array",
+                        "minItems": 1,
+                        "uniqueItems": true,
+                        "items": {
+                            "type": "string",
+                            "minLength": 1,
+                        },
+                    },
+                    "role": {
+                        "type": "string",
+                        "enum": ["decide", "approve", "fyi"],
+                    },
+                    "summary": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 2000,
+                    },
+                }),
                 vec!["message_id", "outcome", "note"],
             ),
             tool(

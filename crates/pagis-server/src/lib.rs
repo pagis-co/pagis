@@ -157,6 +157,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// behind the storage seams. The bus must already be ring-wrapped
 /// (`RingedBus`) so every published event is resumable over `last_seq`.
 pub struct AppState {
+    pub assignments: Arc<pagis_core::MailAssignments>,
     pub disclosure: Arc<dyn pagis_core::DisclosureStore>,
     pub governance: Arc<dyn pagis_core::WorkspaceGovernanceStore>,
     pub audit: Arc<dyn pagis_core::AuditLog>,
@@ -531,6 +532,27 @@ fn product_router(state: Arc<AppState>) -> Router {
         .route(
             "/api/v1/workspace/mail/messages/{message_id}/spam",
             post(junk::correct),
+        )
+        .route(
+            "/api/v1/conversations/{conversation_id}/assignment",
+            get(mail_assignments::conversation_assignment),
+        )
+        .route(
+            "/api/v1/workspace/mail/assignments",
+            get(mail_assignments::list_mail_assignments),
+        )
+        .route(
+            "/api/v1/workspace/mailbox/assignment-settings",
+            get(mail_assignments::get_assignment_settings)
+                .put(mail_assignments::set_assignment_settings),
+        )
+        .route(
+            "/api/v1/mail-assignments/feed",
+            get(mail_assignments::assignment_feed),
+        )
+        .route(
+            "/api/v1/mail-assignments/{assignment_id}/done",
+            post(mail_assignments::finish_assignment),
         )
         .route(
             "/api/v1/workspace/mailbox",
@@ -1104,3 +1126,5 @@ pub mod mail_opinion;
 
 mod junk;
 mod person_defaults;
+
+mod mail_assignments;

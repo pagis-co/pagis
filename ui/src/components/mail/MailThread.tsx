@@ -11,6 +11,7 @@ import {
 import { InvitationActions } from '../calendar/InvitationActions'
 import { useWorkspaceAccess } from '../../workspace'
 import { workspacePath } from '../../api/workspace-path'
+import { MailAssignments } from './MailAssignments'
 import { Composer } from './Composer'
 import { MessageControls } from './MessageControls'
 import { formatMoment } from '../../timeline'
@@ -29,7 +30,7 @@ export function MailThread({
   onBack: () => void
 }) {
   const phone = useIsMobile()
-  const { canRespond } = useWorkspaceAccess()
+  const { canRespond, isPrivate } = useWorkspaceAccess()
   const native = phone && Capacitor.isNativePlatform()
   const [attachmentError, setAttachmentError] = useState(false)
   const [source, setSource] = useState<MailSource>()
@@ -67,6 +68,7 @@ export function MailThread({
                     {formatMoment(item.date)}
                   </time>
                 </p>
+                {!isPrivate && canRespond && <MailAssignments api={api} messageId={item.id} />}
                 {item.triage && <p aria-label="Mail Triage note">{item.triage.outcome.replaceAll('_', ' ')}: {item.triage.note}</p>}
                 <details>
                   <summary>

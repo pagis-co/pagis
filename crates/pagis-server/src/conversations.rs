@@ -128,14 +128,27 @@ pub async fn list_colleagues(
     Ok(Json(ColleaguePage { items }))
 }
 
-async fn participant_ids(state: &AppState, id: &ChannelId) -> Result<Vec<WorkspaceId>, ApiError> {
+async fn participant_ids(
+    state: &AppState,
+    storage: &WorkspaceId,
+    id: &ChannelId,
+) -> Result<Vec<WorkspaceId>, ApiError> {
     Ok(state
         .participants
-        .list_for_channel(&state.org_workspace_id, id)
+        .list_for_channel(storage, id)
         .await?
         .into_iter()
         .filter_map(|p| p.participant_workspace_id)
         .collect())
+}
+
+async fn storage(state: &AppState, id: &ChannelId) -> Result<WorkspaceId, ApiError> {
+    Ok(state
+        .assignments
+        .records()
+        .by_channel(id)
+        .await?
+        .map_or_else(|| state.org_workspace_id.clone(), |a| a.workspace_id))
 }
 
 /// Check access before a route reads or writes conversation content.
@@ -144,14 +157,28 @@ pub(crate) async fn entrance(
     tenant: &Tenant,
     id: &ChannelId,
 ) -> Result<Vec<WorkspaceId>, ApiError> {
+    let storage = storage(state, id).await?;
+    let assignment = state.assignments.records().by_channel(id).await?;
+    if let Some(assignment) = &assignment {
+        let member = state
+            .workspace_members
+            .get(&assignment.workspace_id, &tenant.user_id)
+            .await?;
+        if !member.is_some_and(|member| {
+            assignment.assignee == tenant.user_id
+                || member.role >= pagis_core::WorkspaceRole::Responder
+        }) {
+            return Err(ApiError::not_found("conversation"));
+        }
+    }
     state
         .channels
-        .get(&state.org_workspace_id, id)
+        .get(&storage, id)
         .await?
         .filter(|c| c.kind == ChannelKind::Conversation)
         .ok_or_else(|| ApiError::not_found("conversation"))?;
-    let ids = participant_ids(state, id).await?;
-    if !ids.contains(&tenant.workspace_id) {
+    let ids = participant_ids(state, &storage, id).await?;
+    if assignment.is_none() && !ids.contains(&tenant.workspace_id) {
         return Err(ApiError::not_found("conversation"));
     }
     Ok(ids)
@@ -163,6 +190,7 @@ async fn dto(
     channel: Channel,
 ) -> Result<ConversationDto, ApiError> {
     let ids = entrance(state, tenant, &channel.id).await?;
+    let storage = channel.workspace_id.clone();
     let mut participants = Vec::new();
     for id in ids {
         let workspace = state
@@ -170,21 +198,25 @@ async fn dto(
             .get(&id)
             .await?
             .ok_or_else(|| ApiError::not_found("participant"))?;
+        let Some(person_id) = workspace.user_id else {
+            participants.push(ColleagueDto {
+                person_id: String::new(),
+                workspace_id: workspace.id.to_string(),
+                name: workspace.name,
+                presence: "away".into(),
+            });
+            continue;
+        };
         let person = state
             .users
-            .get(
-                workspace
-                    .user_id
-                    .as_ref()
-                    .ok_or_else(|| ApiError::not_found("participant"))?,
-            )
+            .get(&person_id)
             .await?
             .ok_or_else(|| ApiError::not_found("participant"))?;
         participants.push(person_dto(state, person, &id).await?);
     }
     let last_message = match state
         .messages
-        .list_channel(&state.org_workspace_id, &channel.id, None, 1)
+        .list_channel(&storage, &channel.id, None, 1)
         .await?
         .into_iter()
         .next()
@@ -217,9 +249,31 @@ pub async fn list_conversations(
         .await?
     {
         if channel.kind == ChannelKind::Conversation
-            && participant_ids(&state, &channel.id)
+            && participant_ids(&state, &state.org_workspace_id, &channel.id)
                 .await?
                 .contains(&tenant.workspace_id)
+        {
+            items.push((channel.created_at, dto(&state, &tenant, channel).await?));
+        }
+    }
+    for assignment in state
+        .assignments
+        .records()
+        .for_person(&tenant.user_id, 500)
+        .await?
+    {
+        if state
+            .workspace_members
+            .get(&assignment.workspace_id, &tenant.user_id)
+            .await?
+            .is_none()
+        {
+            continue;
+        }
+        if let Some(channel) = state
+            .channels
+            .get(&assignment.workspace_id, &assignment.channel_id)
+            .await?
         {
             items.push((channel.created_at, dto(&state, &tenant, channel).await?));
         }
@@ -278,11 +332,12 @@ pub async fn list_conversation_messages(
 ) -> Result<Json<ConversationMessages>, ApiError> {
     let id = ChannelId::from(id);
     entrance(&state, &tenant, &id).await?;
+    let storage = storage(&state, &id).await?;
     let limit = query.limit.unwrap_or(50).clamp(1, 200);
     let before = query.before.map(MessageId::from);
     let rows = state
         .messages
-        .list_channel(&state.org_workspace_id, &id, before.as_ref(), limit + 1)
+        .list_channel(&storage, &id, before.as_ref(), limit + 1)
         .await?;
     let more = rows.len() > limit as usize;
     let mut items = Vec::new();
@@ -312,6 +367,18 @@ pub async fn send_conversation_message(
 ) -> Result<(StatusCode, Json<MessageDto>), ApiError> {
     let id = ChannelId::from(id);
     let participants = entrance(&state, &tenant, &id).await?;
+    let storage = storage(&state, &id).await?;
+    let assignment = state.assignments.records().by_channel(&id).await?;
+    let sender = assignment.as_ref().map_or_else(
+        || tenant.workspace_id.clone(),
+        |a| {
+            if a.assignee == tenant.user_id {
+                a.private_workspace_id.clone()
+            } else {
+                a.workspace_id.clone()
+            }
+        },
+    );
     if request.text.trim().is_empty() || request.pending_id.trim().is_empty() {
         return Err(ApiError::validation(
             "text and pending_id must not be empty",
@@ -321,7 +388,7 @@ pub async fn send_conversation_message(
         Some(parent) => {
             let parent = state
                 .messages
-                .get(&state.org_workspace_id, &MessageId::from(parent))
+                .get(&storage, &MessageId::from(parent))
                 .await?
                 .filter(|m| m.channel_id == id)
                 .ok_or_else(|| {
@@ -336,7 +403,7 @@ pub async fn send_conversation_message(
         for_person_only: request.for_person_only,
         author_workspace_id: None,
         id: MessageId::generate(),
-        workspace_id: state.org_workspace_id.clone(),
+        workspace_id: storage.clone(),
         channel_id: id.clone(),
         parent_message_id,
         author: Author::Person(tenant.user_id.clone()),
@@ -355,6 +422,15 @@ pub async fn send_conversation_message(
     };
     let message = MessageDto::read(&state, message).await?;
     if status == StatusCode::CREATED {
+        if let Some(assignment) = state.assignments.records().by_channel(&id).await?
+            && assignment.assignee == tenant.user_id
+            && assignment.state == pagis_core::MailAssignmentState::Escalated
+        {
+            state
+                .assignments
+                .finish_by_person(&tenant.user_id, &assignment.id)
+                .await?;
+        }
         for workspace_id in participants {
             state
                 .bus
@@ -364,7 +440,7 @@ pub async fn send_conversation_message(
                     agent_id: None,
                     run_id: None,
                     channel_id: Some(id.clone()),
-                    payload: serde_json::json!({ "conversation_id": id, "message_id": message.id, "storage_workspace_id": state.org_workspace_id, "sender_workspace_id": tenant.workspace_id }),
+                    payload: serde_json::json!({ "conversation_id": id, "message_id": message.id, "storage_workspace_id": storage, "sender_workspace_id": sender }),
                 })
                 .await?;
         }
