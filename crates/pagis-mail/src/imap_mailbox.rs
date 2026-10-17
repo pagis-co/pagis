@@ -130,6 +130,22 @@ impl Mailbox for ImapMailbox {
         Ok(message)
     }
 
+    async fn quarantined_message(
+        &mut self,
+        id: &MessageId,
+    ) -> Result<crate::WorkspaceMailMessage, TransportError> {
+        let imap = id.as_str().parse::<ImapMessageId>()?;
+        self.session.select(&imap.folder).await?;
+        let mut message = self.session.fetch(id).await?;
+        self.assess(&mut message.summary).await?;
+        let flags = self.session.metadata(id).await?;
+        Ok(crate::WorkspaceMailMessage {
+            labels: flags.labels.clone(),
+            flags,
+            message,
+        })
+    }
+
     async fn thread(
         &mut self,
         id: &str,

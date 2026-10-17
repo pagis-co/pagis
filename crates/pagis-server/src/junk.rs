@@ -157,7 +157,7 @@ pub async fn read_quarantine(
     Ok(Json(
         state
             .mailbox_desk
-            .read_quarantine(&entry)
+            .read_quarantine(&entry, state.mailboxes.as_ref())
             .await
             .map_err(crate::mailboxes::mailbox_error)?
             .into(),

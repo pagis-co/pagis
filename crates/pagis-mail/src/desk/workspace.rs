@@ -69,10 +69,14 @@ impl MailboxDesk {
         Ok(())
     }
 
+    /// A Workspace Mailbox message reads through the Workspace mail host,
+    /// and an Agent Mailbox message through the Embedder's `Mailboxes`.
     pub async fn read_quarantine(
         &self,
         entry: &pagis_core::JunkMessage,
+        mailboxes: &dyn crate::Mailboxes,
     ) -> Result<crate::WorkspaceMailMessage, MailboxError> {
+        let id = crate::MessageId::new(entry.host_id.clone());
         if self
             .workspace_mailboxes
             .get(&entry.workspace_id)
@@ -80,9 +84,7 @@ impl MailboxDesk {
             .is_some_and(|m| m.address == entry.mailbox)
         {
             let mut store = self.open_workspace(&entry.workspace_id).await?;
-            let result = store
-                .quarantined_message(&crate::MessageId::new(entry.host_id.clone()))
-                .await;
+            let result = store.quarantined_message(&id).await;
             let _ = store.close().await;
             return Ok(result?);
         }
@@ -93,28 +95,11 @@ impl MailboxDesk {
             .into_iter()
             .find(|m| m.address == entry.mailbox)
             .ok_or(MailboxError::NotFound)?;
-        let mut session = self.open_session(&mailbox).await?;
-        let result = async {
-            let id = crate::MessageId::new(entry.host_id.clone());
-            session
-                .select(&id.as_str().parse::<crate::ImapMessageId>()?.folder)
-                .await?;
-            let mut message = session.fetch(&id).await?;
-            self.read_context(&mailbox)
-                .await
-                .map_err(|_| crate::TransportError(crate::TransportErrorCode::Unreachable))?
-                .assess(&mut message.summary, false)
-                .await?;
-            let flags = session.metadata(&id).await?;
-            Ok::<_, crate::TransportError>(crate::WorkspaceMailMessage {
-                labels: flags.labels.clone(),
-                flags,
-                message,
-            })
-        }
-        .await;
-        let _ = session.logout().await;
-        Ok(result?)
+        Ok(mailboxes
+            .open(&mailbox)
+            .await?
+            .quarantined_message(&id)
+            .await?)
     }
 
     pub fn junk(&self) -> &dyn pagis_core::JunkStore {

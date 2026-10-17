@@ -65,6 +65,12 @@ pub trait Mailbox: Send {
         page: &PageRequest,
     ) -> Result<Page<MessageSummary>, TransportError>;
     async fn message(&mut self, id: &MessageId) -> Result<Message, TransportError>;
+    /// One message with its flags, quarantined or not. Only the
+    /// Administrator's quarantine read uses it.
+    async fn quarantined_message(
+        &mut self,
+        id: &MessageId,
+    ) -> Result<crate::WorkspaceMailMessage, TransportError>;
     /// The newest page of a thread, oldest first within the page.
     async fn thread(
         &mut self,
