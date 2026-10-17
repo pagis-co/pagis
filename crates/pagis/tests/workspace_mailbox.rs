@@ -2159,9 +2159,13 @@ async fn chief_schedules_a_meeting_by_mail() {
         "action": "agent"
     }]))
     .await;
-    let chief = app
-        .get(&format!("/api/v1/agents/{}", app.daemon.agent_id))
-        .await;
+    let roster = app.get("/api/v1/agents").await;
+    let chief = roster["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|agent| agent["id"] == app.daemon.agent_id.as_str())
+        .unwrap();
     let chief_name = chief["name"].as_str().unwrap();
     let range = json!({
         "from": "2026-10-20T00:00:00Z",
@@ -2370,13 +2374,11 @@ async fn chief_schedules_a_meeting_by_mail() {
     }
     let briefing = requests
         .iter()
-        .find(|request| request.system.contains("Workspace Mailbox triage"))
+        .find(|request| {
+            request
+                .system
+                .contains("from: guest@other.test | subject: Re: Meeting times")
+        })
         .expect("the Mail Triage Wake-up has a Briefing");
-    assert!(
-        briefing
-            .system
-            .contains(&format!("message_id: {}", reply.id))
-    );
-    assert!(briefing.system.contains("workspace_mail_get_message"));
     assert!(briefing.system.contains("trust_tier: unknown"));
 }

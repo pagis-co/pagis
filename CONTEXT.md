@@ -805,9 +805,8 @@ name and only their own response controls. Each Event stays in its owning
 Workspace. The Mobile App shows the same place (ADR-0042, ADR-0032).
 
 ### Calendar Grant
-The Grant that lets one active Agent read Free/Busy, Events and Calendar
-ranges, create, change and delete Events and answer invitations in its
-Workspace. Its resource id is the Workspace id. The Owner or a Shared Workspace Manager adds and revokes it.
+The Grant that lets one active Agent read a Calendar range, create, change
+and delete Events and answer invitations in its Workspace. Its resource id is the Workspace id. The Owner or a Shared Workspace Manager adds and revokes it.
 It has no Allow Rules. A change that sends iMIP to outside attendees also
 needs a live Workspace Mailbox Grant and its send Approval or recipient-domain
 Allow Rules. Each change names the Agent as its author (ADR-0042).

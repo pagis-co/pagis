@@ -156,10 +156,11 @@ does not open the Event, mail or memory that explains it.
 A Calendar Grant gives one active Agent access to the Calendar of its
 Workspace. Its resource id is the Workspace id. The Owner of a Private
 Workspace or a Manager of a Shared Workspace adds or revokes it in Grant
-settings. It has no Allow Rules. The read tools are `calendar_free_busy`,
-`calendar_read` for one Event and `calendar_list_events` for occurrences
-that overlap a half-open range. The range read returns at most 1000
-occurrences from the Agent's own Workspace Calendar. The change tools are
+settings. It has no Allow Rules. Its read tool is `calendar_list_events`
+for occurrences that overlap a half-open range. The range read returns at
+most 1000 occurrences from the Agent's own Workspace Calendar. The
+Free/Busy tool `calendar_free_busy` and the Event read tool `calendar_read`
+need no Grant. The change tools are
 `calendar_create_event`,
 `calendar_update_event`, `calendar_delete_event` and `calendar_respond`.
 A response accepts, answers maybe or declines an invitation the Workspace

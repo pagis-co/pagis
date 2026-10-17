@@ -1645,10 +1645,7 @@ impl Broker {
                             .collect(),
                         ToolRoute::Calendar { .. }
                         | ToolRoute::Core {
-                            tool:
-                                CoreTool::CalendarFreeBusy
-                                | CoreTool::CalendarRead
-                                | CoreTool::CalendarListEvents,
+                            tool: CoreTool::CalendarListEvents,
                         } => grants
                             .iter()
                             .filter(|grant| {
@@ -1714,9 +1711,7 @@ impl Broker {
                             | ToolRoute::WorkspaceMailbox { .. }
                             | ToolRoute::Calendar { .. }
                             | ToolRoute::Core {
-                                tool: CoreTool::CalendarFreeBusy
-                                    | CoreTool::CalendarRead
-                                    | CoreTool::CalendarListEvents,
+                                tool: CoreTool::CalendarListEvents,
                             }
                             | ToolRoute::Core {
                                 tool: CoreTool::PhoneCall
@@ -2806,9 +2801,7 @@ impl Broker {
             context.entry.manifest.route,
             ToolRoute::Calendar { .. }
                 | ToolRoute::Core {
-                    tool: CoreTool::CalendarFreeBusy
-                        | CoreTool::CalendarRead
-                        | CoreTool::CalendarListEvents,
+                    tool: CoreTool::CalendarListEvents,
                 }
         ) {
             let live = self

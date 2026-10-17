@@ -409,6 +409,8 @@ async fn snapshots_are_stable_frozen_and_sorted(pool: SqlitePool) {
             "message_colleagues",
             "send_message",
             "file_read",
+            "calendar_free_busy",
+            "calendar_read",
             "memory_read",
             "memory_search",
             "memory_write",
@@ -453,7 +455,7 @@ async fn snapshots_are_stable_frozen_and_sorted(pool: SqlitePool) {
         .await
         .unwrap();
 
-    assert_eq!(before.tools.len(), 30, "the first snapshot stays frozen");
+    assert_eq!(before.tools.len(), 32, "the first snapshot stays frozen");
     assert_eq!(after.tools.last().unwrap().name, "google__calendar_events");
 
     let third_channel = channel(&harness.workspace.id);
@@ -2862,18 +2864,24 @@ async fn colleague_messages_wait_for_permission_and_check_the_live_grant(pool: S
 }
 
 #[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
-async fn calendar_reads_require_a_live_calendar_grant(pool: SqlitePool) {
+async fn the_calendar_range_read_requires_a_live_calendar_grant(pool: SqlitePool) {
     let h = harness(pool).await;
     let before = h
         .broker
         .prepare_run(&h.workspace.id, &h.agent.id, &h.run.id)
         .await
         .unwrap();
-    assert!(
-        !before
-            .tools
+    let names = |tools: &[pagis_broker::ToolDef]| {
+        tools
             .iter()
-            .any(|tool| tool.name.starts_with("calendar_"))
+            .filter(|tool| tool.name.starts_with("calendar_"))
+            .map(|tool| tool.name.clone())
+            .collect::<Vec<_>>()
+    };
+    // Free/Busy and the one-Event read need no Grant.
+    assert_eq!(
+        names(&before.tools),
+        ["calendar_free_busy", "calendar_read"]
     );
     let grant = Grant {
         id: GrantId::generate(),
@@ -2929,11 +2937,7 @@ async fn calendar_reads_require_a_live_calendar_grant(pool: SqlitePool) {
         .revoke(&h.workspace.id, &grant.id, now_ms())
         .await
         .unwrap();
-    for (name, arguments) in [
-        ("calendar_list_events", arguments),
-        ("calendar_free_busy", arguments),
-        ("calendar_read", r#"{"event_id":"event"}"#),
-    ] {
+    for (name, arguments) in [("calendar_list_events", arguments)] {
         let result = h
             .broker
             .invoke(

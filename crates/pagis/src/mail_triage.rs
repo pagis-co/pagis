@@ -302,19 +302,38 @@ impl MailTriagePoll {
             .chain(&ingested.combined)
             .filter(|wakeup| wakeup.rule.subscription_id() == Some(&subscription.id))
         {
+            let pending = PendingMailTriage {
+                key: summary.assessment_key().into(),
+                message_id: summary.id.to_string(),
+                wakeup_id: wakeup.id.clone(),
+            };
             self.stores
                 .workspace_mailboxes
-                .put_pending_triage(
-                    &workspace.id,
-                    &PendingMailTriage {
-                        key: summary.assessment_key().into(),
-                        message_id: summary.id.to_string(),
-                        wakeup_id: wakeup.id.clone(),
-                    },
-                )
+                .put_pending_triage(&workspace.id, &pending)
                 .await?;
+            // The Run can end before the row exists, and then its end
+            // event finds nothing to finish.
+            self.finish_with_wakeup_run(&workspace.id, &pending).await?;
         }
         Ok(())
+    }
+
+    async fn finish_with_wakeup_run(
+        &self,
+        workspace: &WorkspaceId,
+        pending: &PendingMailTriage,
+    ) -> Result<(), MailboxError> {
+        let run = match self
+            .stores
+            .triggers
+            .get_wakeup(workspace, &pending.wakeup_id)
+            .await?
+            .and_then(|wakeup| wakeup.run_id)
+        {
+            Some(id) => self.stores.runs.get(workspace, &id).await?,
+            None => None,
+        };
+        self.finish_pending(workspace, pending, run.as_ref()).await
     }
 
     async fn system_outcome(
@@ -412,19 +431,7 @@ impl MailTriagePoll {
             None
         };
         for item in pending {
-            let run = match self
-                .stores
-                .triggers
-                .get_wakeup(workspace, &item.wakeup_id)
-                .await?
-            {
-                Some(wakeup) => match wakeup.run_id {
-                    Some(id) => self.stores.runs.get(workspace, &id).await?,
-                    None => None,
-                },
-                None => None,
-            };
-            self.finish_pending(workspace, &item, run.as_ref()).await?;
+            self.finish_with_wakeup_run(workspace, &item).await?;
         }
         Ok(())
     }
