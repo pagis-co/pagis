@@ -25,7 +25,8 @@ broker routes each call to one of four places:
 ### Grants
 
 One Grant joins one Agent to one Workspace resource. A host scope holds
-command allow rules, and a connection scope holds named capabilities. Each
+command allow rules, a connection scope holds named capabilities, and a
+colleague scope holds recipient Workspace ids as Allow Rules (ADR-0043). Each
 scope change increments the Grant revision, and the broker checks the live
 revision before every dispatch.
 

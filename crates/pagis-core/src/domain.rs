@@ -1338,6 +1338,9 @@ pub struct Grant {
 }
 
 impl Grant {
+    /// Permission to message colleague Workspaces named by Allow Rules.
+    pub const COLLEAGUES_KIND: &'static str = "colleagues";
+
     /// Access to the Workspace Mailbox, with recipient-domain Allow Rules.
     pub const WORKSPACE_MAILBOX_KIND: &'static str = "workspace_mailbox";
 

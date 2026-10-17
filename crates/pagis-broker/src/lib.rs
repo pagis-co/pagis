@@ -63,6 +63,8 @@ pub const HOST_SHELL: &str = "host_shell";
 /// The Computer shell tool: one command inside the
 /// agent's own container.
 pub const COMPUTER_SHELL: &str = "computer_shell";
+pub const MESSAGE_COLLEAGUES: &str = "message_colleagues";
+pub const COLLEAGUES_LIST: &str = "colleagues_list";
 pub const SEND_MESSAGE: &str = "send_message";
 pub const SEND_TO_USER: &str = "user";
 pub const MEMORY_READ: &str = "memory_read";
@@ -199,6 +201,7 @@ impl EffectClass {
 #[serde(rename_all = "snake_case")]
 pub enum AllowRuleBuilder {
     HostCommandPrefix,
+    ColleagueWorkspaces,
     /// The registrable domain of the Credential record the call names.
     /// The rule comes from the record, never from an
     /// argument, so an agent cannot widen its own reach by naming a
@@ -240,6 +243,8 @@ pub enum CoreTool {
     /// grant: the container is the sandbox (ADR-0014).
     ComputerShell,
     SendMessage,
+    MessageColleagues,
+    ColleaguesList,
     MemoryRead,
     MemorySearch,
     MemoryWrite,
@@ -1606,6 +1611,13 @@ impl Broker {
                 for tool in &manifest.tools {
                     let bindings: Vec<GrantBinding> = match &tool.route {
                         ToolRoute::Core {
+                            tool: CoreTool::MessageColleagues,
+                        } => grants
+                            .iter()
+                            .filter(|grant| grant.resource_kind == Grant::COLLEAGUES_KIND)
+                            .map(GrantBinding::from)
+                            .collect(),
+                        ToolRoute::Core {
                             tool: CoreTool::HostShell,
                         } => host_bindings(&grants, &shell_hosts),
                         ToolRoute::Core {
@@ -2115,6 +2127,9 @@ impl Broker {
         if matches!(
             context.entry.manifest.route,
             ToolRoute::WorkspaceMailbox { .. }
+                | ToolRoute::Core {
+                    tool: CoreTool::MessageColleagues
+                }
         ) {
             match self.authorize(&context).await? {
                 Ok(binding) => context.selected_grant = binding,
@@ -2702,6 +2717,40 @@ impl Broker {
     ) -> Result<Result<Option<GrantBinding>, ToolResult>, BrokerError> {
         if matches!(
             context.entry.manifest.route,
+            ToolRoute::Core {
+                tool: CoreTool::MessageColleagues
+            }
+        ) {
+            let live = self
+                .deps
+                .grants
+                .live_grant(
+                    &context.workspace_id,
+                    &context.agent_id,
+                    Grant::COLLEAGUES_KIND,
+                )
+                .await?;
+            return Ok(
+                match (
+                    context
+                        .selected_grant
+                        .as_ref()
+                        .or_else(|| context.entry.grants.first()),
+                    live,
+                ) {
+                    (Some(binding), Some(grant)) if binding.id == grant.id => {
+                        Ok(Some(GrantBinding::refreshed(&grant, binding)))
+                    }
+                    (None, grant) => Ok(grant.as_ref().map(GrantBinding::from)),
+                    _ => Err(ToolResult::error(
+                        "permission_revoked",
+                        "the colleague Grant changed or was revoked",
+                    )),
+                },
+            );
+        }
+        if matches!(
+            context.entry.manifest.route,
             ToolRoute::WorkspaceMailbox { .. }
         ) {
             let grants = self
@@ -2909,6 +2958,19 @@ impl Broker {
 
     async fn allowed_by_rule(&self, context: &CallContext) -> Result<bool, BrokerError> {
         match allow_rule_builder(context) {
+            Some(AllowRuleBuilder::ColleagueWorkspaces) => Ok(self
+                .deps
+                .grants
+                .live_grant(
+                    &context.workspace_id,
+                    &context.agent_id,
+                    Grant::COLLEAGUES_KIND,
+                )
+                .await?
+                .is_some_and(|grant| {
+                    colleague_workspaces(&context.arguments)
+                        .is_some_and(|ids| ids.iter().all(|id| grant.allow_rules().contains(id)))
+                })),
             Some(AllowRuleBuilder::HostCommandPrefix) => {
                 let Some(command) = context.arguments["command"].as_str() else {
                     return Ok(false);
@@ -3135,6 +3197,9 @@ impl Broker {
             });
         }
         let proposed_rules = match presentation.allow_rule_builder {
+            Some(AllowRuleBuilder::ColleagueWorkspaces) => {
+                colleague_workspaces(&context.arguments).unwrap_or_default()
+            }
             Some(AllowRuleBuilder::HostCommandPrefix) => context.arguments["command"]
                 .as_str()
                 .map(derive_rules)
@@ -3172,6 +3237,24 @@ impl Broker {
             }
             _ => None,
         };
+        let colleague_label =
+            if presentation.allow_rule_builder == Some(AllowRuleBuilder::ColleagueWorkspaces) {
+                let names = context.arguments["colleague_names"]
+                    .as_array()
+                    .map(|names| {
+                        names
+                            .iter()
+                            .filter_map(|name| name.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    });
+                names.filter(|names| !names.is_empty()).map(|names| {
+                    presentation.action_title = format!("Message {names} for your Person");
+                    format!("Always allow messages to {names}")
+                })
+            } else {
+                None
+            };
         let body = if let (Some(start), Some(host)) = (&context.session_start, &context.host) {
             coding_session_approval_body(
                 start,
@@ -3211,7 +3294,7 @@ impl Broker {
                 // The session Allow Rule that an `always` writes onto the
                 // host Grant, and the words of the card's checkbox.
                 "proposed_session_allow_rule": session_rule.as_ref().map(|(rule, _)| rule),
-                "always_label": session_rule.as_ref().map(|(_, label)| label),
+                "always_label": session_rule.as_ref().map(|(_, label)| label).or(colleague_label.as_ref()),
                 // The Plugin an "always allow" rule belongs to. A
                 // Plugin Grant is per Plugin, so the rule needs the
                 // record and not only the kind.
@@ -4165,6 +4248,10 @@ fn validate_core_arguments(
         CoreTool::CalendarRead => required_text("event_id"),
         CoreTool::HostShell | CoreTool::ComputerShell => required_text("command"),
         CoreTool::SendMessage => required_text("to") && required_text("text"),
+        CoreTool::MessageColleagues => {
+            colleague_workspaces(arguments).is_some() && required_text("text")
+        }
+        CoreTool::ColleaguesList => true,
         CoreTool::MemoryRead | CoreTool::MemoryWrite | CoreTool::MemoryDelete => true,
         CoreTool::MemorySearch => required_text("query"),
         CoreTool::MemoryReview => required_text("subject") && required_text("reason"),
@@ -4885,6 +4972,28 @@ fn core_manifest() -> CapabilityManifest {
                 )
             },
             core(
+                COLLEAGUES_LIST,
+                "List the enabled colleagues of your Org and their Workspace ids. Use these ids with message_colleagues.",
+                serde_json::json!({"type":"object","properties":{}}),
+                CoreTool::ColleaguesList,
+                EffectClass::Free,
+                None,
+            ),
+            core(
+                MESSAGE_COLLEAGUES,
+                "Start or continue one conversation with the named colleague Workspaces. Write as your Agent for your Person. Get Workspace ids from colleagues_list. A Grant or Approval is required. Replies wake you and return to the conversation where you owe an answer. In a conversation you are already answering, use your reply.",
+                serde_json::json!({"type":"object","properties":{
+                    "workspace_ids":{"type":"array","minItems":1,"items":{"type":"string","minLength":1}},
+                    "text":{"type":"string","minLength":1}},"required":["workspace_ids","text"]}),
+                CoreTool::MessageColleagues,
+                EffectClass::Outbound,
+                Some(ApprovalPresentation {
+                    action_title: "Message colleagues for your Person".into(),
+                    body_argument: Some("text".into()),
+                    allow_rule_builder: Some(AllowRuleBuilder::ColleagueWorkspaces),
+                }),
+            ),
+            core(
                 SEND_MESSAGE,
                 "Send a message to another of your Person's sprites, or to your user. Set `to` to the sprite's name to delegate work in your DM channel with that sprite; the sprite answers there and its reply comes back to you. Set `to` to \"user\" to post in your DM with your Person.",
                 serde_json::json!({
@@ -5346,6 +5455,26 @@ impl pagis_core::EventCatalog for WorkspaceEventCatalog {
     ) -> Option<pagis_core::EventDeclaration> {
         self.broker.event_declaration(workspace_id, name, provider)
     }
+}
+
+/// The exact Workspace ids covered by a colleague message Approval.
+fn colleague_workspaces(arguments: &serde_json::Value) -> Option<Vec<String>> {
+    let values = arguments["workspace_ids"].as_array()?;
+    if values.is_empty() {
+        return None;
+    }
+    let mut ids = values
+        .iter()
+        .map(|value| {
+            value
+                .as_str()
+                .filter(|id| !id.trim().is_empty())
+                .map(str::to_string)
+        })
+        .collect::<Option<Vec<_>>>()?;
+    ids.sort();
+    ids.dedup();
+    Some(ids)
 }
 
 #[cfg(test)]

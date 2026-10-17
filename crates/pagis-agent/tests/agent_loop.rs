@@ -520,6 +520,8 @@ where
     let host_presence = Arc::new(pagis_broker::HostPresence::new());
     let blobs: Arc<dyn object_store::ObjectStore> = Arc::new(object_store::memory::InMemory::new());
     let tool_runtime = Arc::new(CoreToolRuntime::new(ToolRuntimeDeps {
+        users: pagis_storage_sqlite::stores(pool.clone()).users,
+        orgs: pagis_storage_sqlite::stores(pool.clone()).orgs,
         files: files.clone(),
         blobs: blobs.clone(),
         calendar: Arc::new(pagis_storage_sqlite::SqliteCalendarStore::new(pool.clone())),
@@ -9766,4 +9768,124 @@ async fn disclosure_file_read_returns_the_attached_file_bytes(pool: SqlitePool) 
         .await;
     assert!(!result.is_error, "{}", result.content);
     assert!(result.content.contains("shared-file-content-827"));
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn colleague_message_tool_checks_recipients_and_keeps_one_attributed_history(
+    pool: SqlitePool,
+) {
+    use pagis_broker::{AuthorizedCall, CoreTool, ToolExecutor, ToolRoute};
+    let stores = pagis_storage_sqlite::stores(pool.clone());
+    let h = boot(pool, AgentLoopConfig::default()).await;
+    let owner = h
+        .deps
+        .users
+        .get(h.workspace.user_id.as_ref().unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    let person = pagis_core::User {
+        name: Some("Alice".into()),
+        ..pagis_core::User::new(owner.org_id, pagis_core::UserRole::Member, now_ms())
+    };
+    h.deps.users.create(&person).await.unwrap();
+    let colleague = Workspace {
+        id: pagis_core::WorkspaceId::generate(),
+        user_id: Some(person.id.clone()),
+        chief_of_staff_agent_id: None,
+        ..h.workspace.clone()
+    };
+    h.workspaces.create(&colleague).await.unwrap();
+    let run = fixture::queued_run(&h.workspace.id, &h.agent.id, &h.dm.id);
+    h.runs.create(&run).await.unwrap();
+    let call = |tool, arguments| AuthorizedCall {
+        workspace_id: h.workspace.id.clone(),
+        agent_id: h.agent.id.clone(),
+        run_id: run.id.clone(),
+        tool_name: "message_colleagues".into(),
+        source_version: "test".into(),
+        route: ToolRoute::Core { tool },
+        arguments,
+        selected_connection: None,
+        grant_id: None,
+        grant_revision: None,
+        call_timeout: None,
+        tool_call_id: Some("one-send".into()),
+        host: None,
+        approved_by_rule: false,
+    };
+    let list = h
+        .tool_runtime
+        .execute(call(CoreTool::ColleaguesList, serde_json::json!({})))
+        .await;
+    assert!(list.content.contains("Alice"), "{list:?}");
+    let args =
+        serde_json::json!({"workspace_ids":[colleague.id,colleague.id],"text":"Can you attend?"});
+    let prepared = h
+        .tool_runtime
+        .prepare(
+            &h.workspace.id,
+            &h.agent.id,
+            &ToolRoute::Core {
+                tool: CoreTool::MessageColleagues,
+            },
+            args.clone(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(prepared["colleague_names"], serde_json::json!(["Alice"]));
+    for _ in 0..2 {
+        let result = h
+            .tool_runtime
+            .execute(call(CoreTool::MessageColleagues, args.clone()))
+            .await;
+        assert!(!result.is_error, "{result:?}");
+    }
+    let org = stores.orgs.list().await.unwrap().remove(0);
+    let channel = h
+        .deps
+        .channels
+        .get_or_create_conversation(
+            &org.workspace_id,
+            &[colleague.id.clone(), h.workspace.id.clone()],
+        )
+        .await
+        .unwrap();
+    let messages = h
+        .messages
+        .list_top_level(&org.workspace_id, &channel.id, None, 20)
+        .await
+        .unwrap();
+    assert_eq!(messages.len(), 1, "a repeated tool call has one effect");
+    let message = &messages[0].message;
+    assert_eq!(message.author, Author::Agent(h.agent.id.clone()));
+    assert_eq!(message.author_workspace_id.as_ref(), Some(&h.workspace.id));
+    assert_eq!(message.run_id.as_ref(), Some(&run.id));
+    for id in [h.workspace.id.as_str(), "unknown"] {
+        let result = h
+            .tool_runtime
+            .execute(call(
+                CoreTool::MessageColleagues,
+                serde_json::json!({"workspace_ids":[id],"text":"Hello"}),
+            ))
+            .await;
+        assert!(
+            result.is_error,
+            "invalid recipients never receive a message"
+        );
+    }
+    h.deps
+        .users
+        .set_disabled(&person.id, Some(now_ms()), now_ms())
+        .await
+        .unwrap();
+    let refused = h
+        .tool_runtime
+        .execute(call(CoreTool::MessageColleagues, prepared))
+        .await;
+    assert!(
+        refused.is_error,
+        "dispatch checks the recipient after preparation"
+    );
+    settle(&h).await;
 }

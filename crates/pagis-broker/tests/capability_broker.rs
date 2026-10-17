@@ -405,6 +405,8 @@ async fn snapshots_are_stable_frozen_and_sorted(pool: SqlitePool) {
         [
             "host_shell",
             "computer_shell",
+            "colleagues_list",
+            "message_colleagues",
             "send_message",
             "file_read",
             "calendar_free_busy",
@@ -453,7 +455,7 @@ async fn snapshots_are_stable_frozen_and_sorted(pool: SqlitePool) {
         .await
         .unwrap();
 
-    assert_eq!(before.tools.len(), 30, "the first snapshot stays frozen");
+    assert_eq!(before.tools.len(), 32, "the first snapshot stays frozen");
     assert_eq!(after.tools.last().unwrap().name, "google__calendar_events");
 
     let third_channel = channel(&harness.workspace.id);
@@ -2767,4 +2769,96 @@ async fn disclosure_other_conversation_reads_need_memory_permission(pool: Sqlite
             "{outcome:?}"
         );
     }
+}
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn colleague_messages_wait_for_permission_and_check_the_live_grant(pool: SqlitePool) {
+    use pagis_broker::{InvokeOutcome, ToolCall};
+    let h = harness(pool).await;
+    let snapshot = h
+        .broker
+        .prepare_run(&h.workspace.id, &h.agent.id, &h.run.id)
+        .await
+        .unwrap();
+    let args = serde_json::json!({"workspace_ids":["colleague"],"text":"When are you free?"});
+    let call = || ToolCall::new("message_colleagues", args.to_string());
+    let InvokeOutcome::Waiting(pending) = h
+        .broker
+        .invoke(&h.workspace.id, &h.run.id, &snapshot.id, call())
+        .await
+        .unwrap()
+    else {
+        panic!("a colleague message needs an Approval");
+    };
+    assert_eq!(
+        pending.request.payload["proposed_rules"],
+        serde_json::json!(["colleague"])
+    );
+    assert!(h.executor.calls.lock().unwrap().is_empty());
+    assert!(matches!(
+        h.broker
+            .resolve(&pending.request.id, RequestState::Denied)
+            .await
+            .unwrap(),
+        InvokeOutcome::Rejected(_)
+    ));
+    let grants = SqliteGrantStore::new(h.pool.clone());
+    let grant = Grant {
+        created_by: pagis_core::Author::System,
+        id: GrantId::generate(),
+        workspace_id: h.workspace.id.clone(),
+        agent_id: h.agent.id.clone(),
+        resource_kind: "colleagues".into(),
+        resource_id: None,
+        scope: Grant::allow_scope(&["colleague".into()]),
+        revision: 1,
+        created_at: now_ms(),
+        revoked_at: None,
+    };
+    grants.create(&grant).await.unwrap();
+    let next = queued_run(
+        &h.workspace.id,
+        &h.agent.id,
+        h.run.channel_id.as_ref().unwrap(),
+    );
+    SqliteRunStore::new(h.pool.clone())
+        .create(&next)
+        .await
+        .unwrap();
+    let snapshot = h
+        .broker
+        .prepare_run(&h.workspace.id, &h.agent.id, &next.id)
+        .await
+        .unwrap();
+    assert!(matches!(
+        h.broker
+            .invoke(&h.workspace.id, &next.id, &snapshot.id, call())
+            .await
+            .unwrap(),
+        InvokeOutcome::Completed(_)
+    ));
+    let added = ToolCall::new(
+        "message_colleagues",
+        serde_json::json!({"workspace_ids":["colleague","other"],"text":"Hello"}).to_string(),
+    );
+    let InvokeOutcome::Waiting(pending) = h
+        .broker
+        .invoke(&h.workspace.id, &next.id, &snapshot.id, added)
+        .await
+        .unwrap()
+    else {
+        panic!("an added Workspace needs permission");
+    };
+    grants
+        .revoke(&h.workspace.id, &grant.id, now_ms())
+        .await
+        .unwrap();
+    assert!(matches!(
+        h.broker
+            .resolve(&pending.request.id, RequestState::Approved)
+            .await
+            .unwrap(),
+        InvokeOutcome::Rejected(_)
+    ));
+    assert_eq!(h.executor.calls.lock().unwrap().len(), 1);
 }

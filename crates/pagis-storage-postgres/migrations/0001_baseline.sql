@@ -705,7 +705,7 @@ CREATE TABLE grants (
     workspace_id TEXT COLLATE "C" NOT NULL REFERENCES workspaces (id),
     agent_id TEXT COLLATE "C" NOT NULL REFERENCES agents (id),
     resource_kind TEXT COLLATE "C" NOT NULL
-        CHECK (resource_kind IN ('connection', 'credential', 'host', 'plugin', 'workspace_number', 'workspace_mailbox')),
+        CHECK (resource_kind IN ('connection', 'credential', 'host', 'plugin', 'workspace_number', 'workspace_mailbox', 'colleagues')),
     resource_id TEXT COLLATE "C",
     scope TEXT COLLATE "C" NOT NULL,
     revision BIGINT NOT NULL DEFAULT 1,

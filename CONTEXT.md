@@ -395,8 +395,9 @@ withheld from every reader (ADR-0004, ADR-0008).
 A scoped permission that lets one Agent use one Workspace resource: a
 Connection with capabilities, the Vault with allowed domains, a Host with
 command Allow Rules, session Allow Rules and the widest Session Approval
-Mode of its Agent on that machine, a Plugin, a Workspace Number, or a
-Workspace Mailbox with recipient-domain Allow Rules. A Grant has numbered
+Mode of its Agent on that machine, a Plugin, a Workspace Number, a
+Workspace Mailbox with recipient-domain Allow Rules, or colleague Workspaces
+with Workspace ids as Allow Rules. A Grant has numbered
 revisions. An action that
 matches the live revision needs no new approval (ADR-0005).
 
@@ -642,8 +643,13 @@ to each participant Workspace. In a conversation between two Workspaces,
 the Chief of Staff answers when the recipient is away or Delegate everything
 is on. For the person only keeps the Agent's context note private. An Agent
 reply shows `<Agent>, for <Person>` (ADR-0039, ADR-0043).
-Not built: away Notifications, Agents that start messages
-for their Person and group answer rules.
+An Agent uses `colleagues_list` to find colleague Workspaces and
+`message_colleagues` to start or continue their conversation. The send needs
+an Approval unless its colleague Grant covers every recipient Workspace.
+Always on the Approval writes these Workspaces as Allow Rules. The reply
+wakes the asking Agent and returns to the DM Channel or Thread where it
+owes an answer. Each Run spends from its own Workspace.
+Not built: away Notifications and group answer rules.
 
 ### Chief of Staff
 The main Agent of a Workspace: the active Agent it addresses by default.

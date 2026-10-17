@@ -25,7 +25,9 @@ checks participation before access. Each message shows its Person author
 and reaches the participant Workspaces through live events. The Chief of
 Staff answers while the Person is away or Delegate everything is on
 (ADR-0043).
-Not built: Agents that start messages between Workspaces for their Person.
+An Agent starts messages between Workspaces under a colleague Grant or an
+Approval. Replies carry the Delegation origin back to the asking Agent
+(ADR-0043).
 
 Nothing translates a protocol inside the Workspace: delegation and group work
 use the chat model. The roster stays

@@ -62,6 +62,18 @@ const credentialGrant = {
 }
 
 describe('GrantRow', () => {
+  it('shows colleague names and removes permission without a command input', async () => {
+    const api = { ...stubApi(), GET: vi.fn(async () => ({ data: { items: [{ workspace_id: 'w-alice', name: 'Alice' }] } })) }
+    mount(api, [{ ...grant, resource_kind: 'colleagues', allow: ['w-alice'] }])
+    expect(await screen.findByText('Messages to colleagues')).toBeTruthy()
+    expect(await screen.findByText('Alice')).toBeTruthy()
+    expect(screen.queryByPlaceholderText('Add a command prefix, e.g. git status')).toBeNull()
+    fireEvent.click(screen.getByLabelText('Remove rule Alice'))
+    await waitFor(() => expect(api.PUT).toHaveBeenCalledWith('/api/v1/grants/{grant_id}/rules', {
+      params: { path: { grant_id: 'g1' } }, body: { allow: [] },
+    }))
+  })
+
   it('shows the default Workspace Mailbox Grant and edits recipient domains', async () => {
     const api = stubApi()
     mount(api, [{ ...credentialGrant, resource_kind: 'workspace_mailbox', is_default: true }])

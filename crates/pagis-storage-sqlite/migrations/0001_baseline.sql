@@ -684,7 +684,7 @@ CREATE TABLE grants (
     workspace_id TEXT NOT NULL REFERENCES workspaces (id),
     agent_id TEXT NOT NULL REFERENCES agents (id),
     resource_kind TEXT NOT NULL
-        CHECK (resource_kind IN ('connection', 'credential', 'host', 'plugin', 'workspace_number', 'workspace_mailbox')),
+        CHECK (resource_kind IN ('connection', 'credential', 'host', 'plugin', 'workspace_number', 'workspace_mailbox', 'colleagues')),
     resource_id TEXT,
     scope TEXT NOT NULL,
     revision INTEGER NOT NULL DEFAULT 1,
