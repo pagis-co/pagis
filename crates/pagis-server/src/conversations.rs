@@ -53,6 +53,7 @@ pub struct ConversationMessageRequest {
     pub for_person_only: bool,
     pub pending_id: String,
     pub text: String,
+    pub parent_message_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -178,8 +179,10 @@ async fn dto(
     }
     let last_message = match state
         .messages
-        .last_message(&state.org_workspace_id, &channel.id)
+        .list_channel(&state.org_workspace_id, &channel.id, None, 1)
         .await?
+        .into_iter()
+        .next()
     {
         Some(message) => Some(
             MessageDto::read(
@@ -274,15 +277,15 @@ pub async fn list_conversation_messages(
     let before = query.before.map(MessageId::from);
     let rows = state
         .messages
-        .list_top_level(&state.org_workspace_id, &id, before.as_ref(), limit + 1)
+        .list_channel(&state.org_workspace_id, &id, before.as_ref(), limit + 1)
         .await?;
     let more = rows.len() > limit as usize;
     let mut items = Vec::new();
-    for entry in rows.into_iter().take(limit as usize) {
+    for message in rows.into_iter().take(limit as usize) {
         items.push(
             MessageDto::read(
                 &state,
-                crate::channels::readable_message(&state, entry.message).await?,
+                crate::channels::readable_message(&state, message).await?,
             )
             .await?,
         );
@@ -309,6 +312,20 @@ pub async fn send_conversation_message(
             "text and pending_id must not be empty",
         ));
     }
+    let parent_message_id = match request.parent_message_id {
+        Some(parent) => {
+            let parent = state
+                .messages
+                .get(&state.org_workspace_id, &MessageId::from(parent))
+                .await?
+                .filter(|m| m.channel_id == id)
+                .ok_or_else(|| {
+                    ApiError::validation("reply must name a message in this conversation")
+                })?;
+            Some(parent.id)
+        }
+        None => None,
+    };
     let now = state.clock.now_ms();
     let message = Message {
         for_person_only: request.for_person_only,
@@ -316,7 +333,7 @@ pub async fn send_conversation_message(
         id: MessageId::generate(),
         workspace_id: state.org_workspace_id.clone(),
         channel_id: id.clone(),
-        parent_message_id: None,
+        parent_message_id,
         author: Author::Person(tenant.user_id.clone()),
         run_id: None,
         status: MessageStatus::Complete,

@@ -5295,7 +5295,7 @@ async fn build_transcript(
             ));
         }
         let history =
-            list_top_level_history(deps, &delivery.workspace_id, &delivery.channel_id).await?;
+            list_conversation_history(deps, &delivery.workspace_id, &delivery.channel_id).await?;
         let mut messages = Vec::new();
         for message in history
             .iter()
@@ -5397,6 +5397,30 @@ async fn build_transcript(
         seen,
         after_exclusive,
     ))
+}
+
+async fn list_conversation_history(
+    deps: &AgentDeps,
+    workspace_id: &pagis_core::WorkspaceId,
+    channel_id: &ChannelId,
+) -> Result<Vec<Message>, pagis_core::StoreError> {
+    const PAGE: u32 = 500;
+    let mut history = Vec::new();
+    let mut before = None;
+    loop {
+        let page = deps
+            .messages
+            .list_channel(workspace_id, channel_id, before.as_ref(), PAGE)
+            .await?;
+        let count = page.len();
+        before = page.last().map(|m| m.id.clone());
+        history.extend(page);
+        if count < PAGE as usize {
+            break;
+        }
+    }
+    history.reverse();
+    Ok(history)
 }
 
 async fn list_top_level_history(
@@ -5740,7 +5764,7 @@ fn reply_target(run: &Run) -> ReplyTarget {
             return ReplyTarget {
                 workspace_id: delivery.workspace_id,
                 channel_id: delivery.channel_id,
-                root_message_id: None,
+                root_message_id: Some(delivery.message_id),
             };
         }
     }

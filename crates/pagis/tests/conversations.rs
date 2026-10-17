@@ -1379,3 +1379,246 @@ async fn conversation_person_reply_wakes_the_asking_agent_and_returns_home() {
     .await
     .expect("a Person's answer returns to the asking Agent's DM Channel");
 }
+
+#[tokio::test]
+async fn group_conversation_five_workspaces_only_the_named_person_answers() {
+    use pagis_testkit::{Script, ScriptedBrain, TestDaemonOptions};
+    use std::sync::Arc;
+    let brain = Arc::new(ScriptedBrain::default());
+    let daemon = TestDaemon::start_in_memory_with(TestDaemonOptions {
+        brain: brain.clone(),
+        ..Default::default()
+    })
+    .await;
+    hire(&daemon, daemon.cookie(), "Sender helper").await;
+    let mut recipients = Vec::new();
+    for name in ["Alex", "Blair", "Casey", "Drew"] {
+        let (workspace, cookie) = person(&daemon, name).await;
+        hire(&daemon, &cookie, &format!("{name} helper")).await;
+        brain.push_for(&format!("{name} helper"), Script::reply(&["One answer."]));
+        recipients.push((workspace, cookie));
+    }
+    let conversation = post(
+        &daemon,
+        daemon.cookie(),
+        "/api/v1/conversations",
+        json!({"workspace_ids":recipients.iter().map(|(id,_)|id).collect::<Vec<_>>()}),
+    )
+    .await;
+    assert_eq!(conversation["participants"].as_array().unwrap().len(), 5);
+    let path = format!(
+        "/api/v1/conversations/{}/messages",
+        conversation["id"].as_str().unwrap()
+    );
+    post(
+        &daemon,
+        daemon.cookie(),
+        &path,
+        json!({
+            "text":"Does anyone know?",
+            "pending_id":"nobody",
+        }),
+    )
+    .await;
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    assert!(brain.requests().is_empty());
+    assert_eq!(
+        get(&daemon, daemon.cookie(), &path).await["items"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    post(
+        &daemon,
+        daemon.cookie(),
+        &path,
+        json!({
+            "text":"@Alex, can you help?",
+            "pending_id":"named",
+        }),
+    )
+    .await;
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            let page = get(&daemon, daemon.cookie(), &path).await;
+            if page.to_string().contains("One answer.") {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the named Person's Chief of Staff answers");
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    let page = get(&daemon, daemon.cookie(), &path).await;
+    let answers: Vec<_> = page["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|m| m["author"]["kind"] == "agent")
+        .collect();
+    assert_eq!(answers.len(), 1);
+    assert_eq!(answers[0]["author"]["name"], "Alex helper, for Alex");
+    for (_, cookie) in &recipients[1..] {
+        assert!(
+            get(&daemon, cookie, "/api/v1/runs").await["items"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+    }
+    assert!(
+        get(&daemon, daemon.cookie(), "/api/v1/runs").await["items"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn group_conversation_replies_address_person_and_agent_authors() {
+    use pagis_testkit::{Script, ScriptedBrain, TestDaemonOptions};
+    use std::sync::Arc;
+    let brain = Arc::new(ScriptedBrain::default());
+    let daemon = TestDaemon::start_in_memory_with(TestDaemonOptions {
+        brain: brain.clone(),
+        ..Default::default()
+    })
+    .await;
+    let (alex, alex_cookie) = person(&daemon, "Alex").await;
+    let (blair, blair_cookie) = person(&daemon, "Blair").await;
+    hire(&daemon, &alex_cookie, "Alex helper").await;
+    hire(&daemon, &blair_cookie, "Blair helper").await;
+    let conversation = post(
+        &daemon,
+        daemon.cookie(),
+        "/api/v1/conversations",
+        json!({"workspace_ids":[alex,blair]}),
+    )
+    .await;
+    let path = format!(
+        "/api/v1/conversations/{}/messages",
+        conversation["id"].as_str().unwrap()
+    );
+    let root = post(
+        &daemon,
+        &alex_cookie,
+        &path,
+        json!({
+            "text":"I have a proposal",
+            "pending_id":"proposal",
+        }),
+    )
+    .await;
+    let mut parent = root["id"].clone();
+    for n in 0..2 {
+        let answer = format!("Explanation {n}");
+        brain.push_for("Alex helper", Script::reply(&[&answer]));
+        post(
+            &daemon,
+            daemon.cookie(),
+            &path,
+            json!({
+                "text":"Please explain the proposal",
+                "pending_id":format!("explain-{n}"),
+                "parent_message_id":parent,
+            }),
+        )
+        .await;
+        parent = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            loop {
+                let page = get(&daemon, daemon.cookie(), &path).await;
+                if let Some(message) = page["items"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|m| m["text_content"] == answer)
+                {
+                    break message["id"].clone();
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("a reply asks the parent author's Chief of Staff");
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    assert!(
+        get(&daemon, &blair_cookie, "/api/v1/runs").await["items"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    assert!(brain.requests().iter().any(|request| {
+        request
+            .messages
+            .iter()
+            .any(|m| m.text.contains("Please explain the proposal"))
+    }));
+}
+
+#[tokio::test]
+async fn group_conversation_agent_mentions_keep_the_delegation_hop_cap() {
+    use pagis_testkit::{Script, ScriptedBrain, TestDaemonOptions};
+    use std::sync::Arc;
+    let brain = Arc::new(ScriptedBrain::default());
+    let daemon = TestDaemon::start_in_memory_with(TestDaemonOptions {
+        brain: brain.clone(),
+        agents: pagis_agent::AgentLoopConfig {
+            max_hops: 1,
+            ..Default::default()
+        },
+        ..Default::default()
+    })
+    .await;
+    let (alex, alex_cookie) = person(&daemon, "Alex").await;
+    let (blair, blair_cookie) = person(&daemon, "Blair").await;
+    hire(&daemon, &alex_cookie, "Alex helper").await;
+    hire(&daemon, &blair_cookie, "Blair helper").await;
+    brain.push_for(
+        "Alex helper",
+        Script::reply(&["@Blair, please check this."]),
+    );
+    brain.push_for("Blair helper", Script::reply(&["@Alex, checked."]));
+    brain.push_for("Alex helper", Script::reply(&["Over the cap"]));
+    let conversation = post(
+        &daemon,
+        daemon.cookie(),
+        "/api/v1/conversations",
+        json!({"workspace_ids":[alex,blair]}),
+    )
+    .await;
+    let path = format!(
+        "/api/v1/conversations/{}/messages",
+        conversation["id"].as_str().unwrap()
+    );
+    post(
+        &daemon,
+        daemon.cookie(),
+        &path,
+        json!({
+            "text":"@Alex, start",
+            "pending_id":"start",
+        }),
+    )
+    .await;
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            if get(&daemon, daemon.cookie(), &path)
+                .await
+                .to_string()
+                .contains("@Alex, checked.")
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+    let page = get(&daemon, daemon.cookie(), &path).await;
+    assert_eq!(page["items"].as_array().unwrap().len(), 3);
+    assert!(!page.to_string().contains("Over the cap"));
+}

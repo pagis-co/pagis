@@ -31,7 +31,16 @@ describe('People', () => {
     const first = new Promise((_, reject) => {
       fail = reject
     })
-    const messages: unknown[] = []
+    const messages: unknown[] = [{
+      id: 'root',
+      channel_id: 'conversation',
+      author: { kind: 'person', id: 'b', name: 'Bob' },
+      text_content: 'A question',
+      blocks: [{ type: 'markdown', text: 'A question' }],
+      status: 'complete',
+      created_at: 1,
+      completed_at: 1,
+    }]
     const send = vi
       .fn()
       .mockImplementationOnce(() => first)
@@ -53,7 +62,15 @@ describe('People', () => {
     const api = {
       GET: vi.fn(async (path: string) => ({
         data:
-          path === '/api/v1/user'
+          path === '/api/v1/conversations' ? {
+            items: [{
+              id: 'conversation',
+              participants: [
+                { person_id: 'alice', workspace_id: 'wa', name: 'Alice', presence: 'active' },
+                colleagues[0],
+              ],
+            }],
+          } : path === '/api/v1/user'
             ? { id: 'alice', name: 'Alice' }
             : { items: messages, next_cursor: null },
       })),
@@ -61,6 +78,10 @@ describe('People', () => {
     } as unknown as ApiClient
     mount(<WorkspaceConversation api={api} conversationId="conversation" />)
     const input = screen.getByRole('textbox', { name: 'Message' })
+    fireEvent.click(await screen.findByRole('button', { name: 'Mention Bob' }))
+    expect((input as HTMLTextAreaElement).value).toBe('@Bob ')
+    expect(screen.queryByRole('button', { name: 'Mention Alice' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Reply to Bob' }))
     fireEvent.click(screen.getByRole('checkbox', { name: 'For the person only' }))
     fireEvent.change(input, { target: { value: 'First send' } })
     fireEvent.click(screen.getByRole('button', { name: 'Send' }))
@@ -69,6 +90,7 @@ describe('People', () => {
     expect((input as HTMLTextAreaElement).value).toBe('')
     const original = send.mock.calls[0][1].body
     expect(original.for_person_only).toBe(true)
+    expect(original.parent_message_id).toBe('root')
     fail(new Error('Connection closed'))
     const retry = await screen.findByRole('button', { name: 'Failed — retry' })
     fireEvent.change(input, { target: { value: 'Second send' } })
@@ -82,6 +104,7 @@ describe('People', () => {
     await waitFor(() => expect(send).toHaveBeenCalledTimes(3))
     expect(send.mock.calls[2][1].body.pending_id).not.toBe(original.pending_id)
     expect(send.mock.calls[2][1].body.text).toBe('Second send')
+    expect(send.mock.calls[2][1].body.parent_message_id).toBeUndefined()
   })
 
   it('lists colleagues with presence and starts a conversation with the selection', async () => {
@@ -151,7 +174,7 @@ describe('People', () => {
     const api = {
       GET: vi.fn(async (path: string) => ({
         data:
-          path === '/api/v1/user'
+          path === '/api/v1/conversations' ? { items: [] } : path === '/api/v1/user'
             ? { id: 'Alice', name: 'Alice' }
             : {
                 items: ['Alice', 'Bob'].map((name, i) => ({
@@ -172,6 +195,8 @@ describe('People', () => {
     mount(<WorkspaceConversation api={api} conversationId="conversation" />)
     expect(await screen.findByText('Alice')).toBeTruthy()
     expect(screen.getByText('Bob')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Reply to Bob' }))
+    expect(screen.getByRole('status').textContent).toContain('Reply to Bob')
     fireEvent.change(screen.getByRole('textbox', { name: 'Message' }), {
       target: { value: 'Hello' },
     })
@@ -180,7 +205,7 @@ describe('People', () => {
       expect(send).toHaveBeenCalledWith(
         '/api/v1/conversations/{conversation_id}/messages',
         expect.objectContaining({
-          body: expect.objectContaining({ text: 'Hello' }),
+          body: expect.objectContaining({ text: 'Hello', parent_message_id: 'm1' }),
         }),
       ),
     )
@@ -189,7 +214,7 @@ describe('People', () => {
 
 it('loads older conversation pages to open a Search result', async () => {
   const message = (id: string, text: string) => ({ id, channel_id: 'conversation', author: { kind: 'person', id: 'alice', name: 'Alice' }, text_content: text, blocks: [{ type: 'markdown', text }], status: 'complete', created_at: 100, completed_at: 100 })
-  const GET = vi.fn(async (path: string, options?: { params?: { query?: { before?: string } } }) => ({ data: path === '/api/v1/user'
+  const GET = vi.fn(async (path: string, options?: { params?: { query?: { before?: string } } }) => ({ data: path === '/api/v1/conversations' ? { items: [] } : path === '/api/v1/user'
     ? { id: 'alice', name: 'Alice' }
     : options?.params?.query?.before === 'cursor'
       ? { items: [message('older', 'Selected message')], next_cursor: null }
@@ -200,7 +225,7 @@ it('loads older conversation pages to open a Search result', async () => {
 })
 
 it('shows the Agent and Person on a shared reply', async () => {
-  const api = { GET: vi.fn(async (path: string) => ({ data: path === '/api/v1/user' ? { id: 'person', name: 'Reader' } : { items: [{
+  const api = { GET: vi.fn(async (path: string) => ({ data: path === '/api/v1/conversations' ? { items: [] } : path === '/api/v1/user' ? { id: 'person', name: 'Reader' } : { items: [{
     id: 'reply', channel_id: 'conversation', author: { kind: 'agent', id: 'helper', name: 'Helper, for Recipient' },
     blocks: [{ type: 'markdown', text: 'An answer' }], text_content: 'An answer', status: 'complete',
     for_person_only: false, pending_id: null, run_id: null, created_at: 1, completed_at: 1,
