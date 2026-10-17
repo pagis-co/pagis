@@ -1590,3 +1590,230 @@ async fn absent_live_call_control_answers_as_a_call_that_is_not_live() {
         "not_found"
     );
 }
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+async fn shared_calendar_member_attendee_reads_answers_and_blocks_time() {
+    let e = Embedder::new().await;
+    let mut shared = e
+        .stores
+        .workspaces
+        .get(&e.workspace)
+        .await
+        .unwrap()
+        .unwrap();
+    let manager = shared.user_id.take().unwrap();
+    shared.id = WorkspaceId::generate();
+    shared.name = "Support".into();
+    shared.kind = WorkspaceKind::Shared;
+    e.stores
+        .workspace_members
+        .create_workspace(
+            &shared,
+            &WorkspaceMember {
+                workspace_id: shared.id.clone(),
+                person_id: manager,
+                role: WorkspaceRole::Manager,
+                author: Author::System,
+            },
+        )
+        .await
+        .unwrap();
+    let reader = e
+        .stores
+        .workspaces
+        .get(&e.other_workspace)
+        .await
+        .unwrap()
+        .unwrap()
+        .user_id
+        .unwrap();
+    let email = "reader@example.com";
+    e.stores
+        .users
+        .set_email_and_password(&reader, email, "hash", now_ms())
+        .await
+        .unwrap();
+    e.stores
+        .workspace_members
+        .add(&WorkspaceMember {
+            workspace_id: shared.id.clone(),
+            person_id: reader.clone(),
+            role: WorkspaceRole::Reader,
+            author: Author::System,
+        })
+        .await
+        .unwrap();
+    let path = format!("/api/v1/workspaces/{}/calendar/events", shared.id);
+    let data = json!({
+        "title": "Team review",
+        "description": "Plan",
+        "location": "Office",
+        "start": "2026-03-08T09:00:00",
+        "end": "2026-03-08T10:00:00",
+        "timezone": "UTC",
+        "all_day": false,
+        "rrule": null,
+        "exdates": [],
+        "attendees": [{
+                    "email": email,
+                    "name": "Reader",
+                    "status": "needs-action"
+                }],
+        "reminders": [],
+        "meeting_url": null
+    });
+    assert_eq!(
+        request(&e, "POST", &path, data.clone(), &e.other_cookie)
+            .await
+            .0,
+        StatusCode::FORBIDDEN
+    );
+    let event = json_response(
+        &e,
+        "POST",
+        &path,
+        data.clone(),
+        &e.cookie,
+        StatusCode::CREATED,
+    )
+    .await;
+    let item = format!("{path}/{}", event["id"].as_str().unwrap());
+    for method in ["PUT", "DELETE"] {
+        assert_eq!(
+            request(&e, method, &item, data.clone(), &e.other_cookie)
+                .await
+                .0,
+            StatusCode::FORBIDDEN
+        );
+    }
+    let private = "/api/v1/calendar/events?from=1772928000000&to=1773014400000";
+    let found = json_response(
+        &e,
+        "GET",
+        private,
+        Value::Null,
+        &e.other_cookie,
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(found[0]["event"]["id"], event["id"]);
+    assert_eq!(found[0]["workspace_name"], "Support");
+    assert_eq!(found[0]["read_only"], true);
+    let query = json!({
+        "from": "2026-03-08T00:00:00Z",
+        "to": "2026-03-09T00:00:00Z",
+        "addresses": [email]
+    });
+    let busy = json_response(
+        &e,
+        "POST",
+        "/api/v1/free-busy",
+        query.clone(),
+        &e.cookie,
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(busy["items"][0]["busy"].as_array().unwrap().len(), 1);
+    e.clock.set(
+        CalendarRange::parse("2026-03-08T09:30:00Z", "2026-03-08T10:00:00Z")
+            .unwrap()
+            .from(),
+    );
+    let colleagues = read(&e, "/api/v1/colleagues").await;
+    assert_eq!(
+        colleagues["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["person_id"] == reader.as_str())
+            .unwrap()["presence"],
+        "in_a_meeting"
+    );
+    let answer = json_response(
+        &e,
+        "POST",
+        &format!("{item}/response"),
+        json!({"status": "declined"}),
+        &e.other_cookie,
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(answer["data"]["attendees"][0]["status"], "declined");
+    let busy = json_response(
+        &e,
+        "POST",
+        "/api/v1/free-busy",
+        query,
+        &e.cookie,
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(busy["items"][0]["busy"], json!([]));
+    let colleagues = read(&e, "/api/v1/colleagues").await;
+    assert_eq!(
+        colleagues["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["person_id"] == reader.as_str())
+            .unwrap()["presence"],
+        "away"
+    );
+    e.stores
+        .workspace_members
+        .change(&WorkspaceMember {
+            workspace_id: shared.id.clone(),
+            person_id: reader.clone(),
+            role: WorkspaceRole::Responder,
+            author: Author::System,
+        })
+        .await
+        .unwrap();
+    let created = json_response(
+        &e,
+        "POST",
+        &path,
+        data.clone(),
+        &e.other_cookie,
+        StatusCode::CREATED,
+    )
+    .await;
+    let created_path = format!("{path}/{}", created["id"].as_str().unwrap());
+    json_response(
+        &e,
+        "PUT",
+        &created_path,
+        data,
+        &e.other_cookie,
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(
+        request(&e, "DELETE", &created_path, Value::Null, &e.other_cookie)
+            .await
+            .0,
+        StatusCode::NO_CONTENT
+    );
+    e.stores
+        .workspace_members
+        .remove(&shared.id, &reader)
+        .await
+        .unwrap();
+    let found = json_response(
+        &e,
+        "GET",
+        private,
+        Value::Null,
+        &e.other_cookie,
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(found, json!([]));
+    assert_eq!(
+        request(&e, "GET", &item, Value::Null, &e.other_cookie)
+            .await
+            .0,
+        StatusCode::NOT_FOUND
+    );
+}

@@ -19,6 +19,7 @@ pub async fn outside_attendees(
     let people = state.users.list_by_org(&person.org_id).await?;
     let mut inside = people
         .iter()
+        .filter(|p| !p.is_disabled())
         .filter_map(|p| p.email.as_ref().map(|s| s.to_lowercase()))
         .collect::<std::collections::HashSet<_>>();
     for workspace in state.workspaces.list().await? {
@@ -169,6 +170,43 @@ pub async fn answer_invitation(
         .get(&who.workspace_id, &id.into())
         .await?
         .ok_or_else(|| ApiError::not_found("Event"))?;
+    if !who.is_private() {
+        let person = state
+            .users
+            .get(&who.user_id)
+            .await?
+            .ok_or_else(ApiError::unauthorized)?;
+        if let Some(email) = person.email.as_ref().filter(|_| !person.is_disabled())
+            && let Some(attendee) = event
+                .data
+                .attendees
+                .iter_mut()
+                .find(|a| a.email.eq_ignore_ascii_case(email))
+        {
+            if event
+                .data
+                .invitation
+                .as_ref()
+                .is_some_and(|i| i.status == EventStatus::Cancelled)
+            {
+                return Err(ApiError::conflict("This Event is cancelled."));
+            }
+            attendee.status = response.status;
+            if !state
+                .calendar
+                .update(&who.workspace_id, &event.id, &event.data)
+                .await?
+            {
+                return Err(ApiError::conflict("The invitation changed. Open it again."));
+            }
+            return Ok(axum::Json(event));
+        }
+        if who.workspace_role == Some(pagis_core::WorkspaceRole::Reader) {
+            return Err(ApiError::forbidden(
+                "Only an attendee can answer this Event.",
+            ));
+        }
+    }
     let invitation = event
         .data
         .invitation

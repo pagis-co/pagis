@@ -131,3 +131,56 @@ it('opens a Calendar Event from a Search result', async () => {
   expect(await screen.findByRole('dialog')).toBeTruthy()
   expect(GET).toHaveBeenCalledWith('/api/v1/calendar/events/{event_id}', { params: { path: { event_id: 'event-1' } } })
 })
+
+it('hides Event writes for a Shared Workspace Reader', async () => {
+  const { WorkspaceSelectionContext } = await import('../../workspace')
+  const GET = vi.fn(async () => ({ data: [{ event, start: event.data.start, end: event.data.end }] }))
+  render(<QueryClientProvider client={new QueryClient()}>
+    <CurrentWorkspaceContext value="workspace-1">
+      <WorkspaceSelectionContext value={{ items: [], current: { id: 'workspace-1', name: 'Support', kind: 'shared', role: 'reader' }, select: vi.fn() }}>
+        <Calendar api={{ GET } as unknown as ApiClient} initialDate="2026-03-09" />
+      </WorkspaceSelectionContext>
+    </CurrentWorkspaceContext>
+  </QueryClientProvider>)
+  expect(screen.queryByRole('button', { name: 'New event' })).toBeNull()
+  fireEvent.click(await screen.findByRole('button', { name: /Review/ }))
+  expect(screen.queryByRole('button', { name: 'Save event' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Delete event' })).toBeNull()
+})
+
+it('labels a member invitation with the team name and shows only response controls', async () => {
+  const GET = vi.fn(async (path: string) => path === '/api/v1/calendar/events' ? ({ data: [{
+    event: { ...event, workspace_id: 'team' },
+    start: event.data.start,
+    end: event.data.end,
+    workspace_name: 'Support',
+    read_only: true,
+  }] }) : ({ data: {} }))
+  render(<QueryClientProvider client={new QueryClient()}>
+    <CurrentWorkspaceContext value="workspace-1">
+      <Calendar api={{ GET } as unknown as ApiClient} initialDate="2026-03-09" />
+    </CurrentWorkspaceContext>
+  </QueryClientProvider>)
+  expect(await screen.findByText('Support')).toBeTruthy()
+  fireEvent.click(await screen.findByRole('button', { name: /Review/ }))
+  expect(screen.queryByRole('button', { name: 'Save event' })).toBeNull()
+  expect(screen.getByRole('button', { name: 'Accept' })).toBeTruthy()
+})
+
+it('keeps a received invitation read-only when an Agent is its author', async () => {
+  const received: CalendarEvent = {
+    ...event,
+    created_by: { kind: 'agent', agent_id: 'aria' },
+    data: {
+      ...event.data,
+      attendees: [{ email: 'local@example.com', name: 'Local', status: 'accepted' }],
+      invitation: { organizer: 'guest@outside.test', sequence: 0, status: 'confirmed', occurrence: null },
+    },
+  }
+  const GET = vi.fn(async () => ({ data: { mailbox: { address: 'local@example.com' } } }))
+  render(<QueryClientProvider client={new QueryClient()}>
+    <EventEditor api={{ GET } as unknown as ApiClient} date="2026-03-09" event={received} onClose={vi.fn()} />
+  </QueryClientProvider>)
+  expect(await screen.findByRole('button', { name: 'Accept' })).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Save event' })).toBeNull()
+})

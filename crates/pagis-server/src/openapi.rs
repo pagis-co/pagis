@@ -218,6 +218,7 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         home_exit::clear_home_exit,
         grants::list_grants,
         grants::create_workspace_mailbox_grant,
+        grants::create_calendar_grant,
         grants::create_connection_grant,
         grants::create_workspace_number_grant,
         grants::set_grant_capabilities,

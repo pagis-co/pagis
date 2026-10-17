@@ -183,7 +183,8 @@ impl ToolExecutor for RoutingExecutor {
             // and every Mailbox route to the mail runtime.
             ToolRoute::Software { .. }
             | ToolRoute::Mailbox { .. }
-            | ToolRoute::WorkspaceMailbox { .. } => ToolResult::error(
+            | ToolRoute::WorkspaceMailbox { .. }
+            | ToolRoute::Calendar { .. } => ToolResult::error(
                 "temporarily_unavailable",
                 "that tool runtime is not registered",
             ),

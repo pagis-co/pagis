@@ -23,7 +23,7 @@ import {
   CapabilityPicker,
   CONNECTION_CAPABILITIES,
 } from '../ConnectionCapabilities'
-import { GrantRow, WorkspaceMailboxAccess } from '../GrantsSettings'
+import { GrantRow, CalendarAccess, WorkspaceMailboxAccess } from '../GrantsSettings'
 import { CodingSessionAccess } from './CodingSessionAccess'
 import type { GrantDto, HostDto } from '../../api/client'
 
@@ -78,6 +78,7 @@ export function AgentAccess({ api, agent }: { api: ApiClient; agent: AgentDto })
         names the capabilities, and you can revoke it at any time.
       </p>
       <SoftwareAccess api={api} />
+      <CalendarAccess api={api} agent={agent} />
       <WorkspaceMailboxAccess api={api} agent={agent} />
       {number && (
         <div className="agent-access-connection">

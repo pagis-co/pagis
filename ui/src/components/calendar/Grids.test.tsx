@@ -9,6 +9,8 @@ function occurrence(title: string, startHour: number, endHour: number): Occurren
   const start = new Date(2026, 2, 9, startHour).toISOString()
   const end = new Date(2026, 2, 9, endHour).toISOString()
   return {
+    read_only: false,
+    workspace_name: null,
     start,
     end,
     event: {

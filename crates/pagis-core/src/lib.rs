@@ -8,6 +8,7 @@ pub use avatar::AvatarAppearance;
 pub mod block;
 pub mod bus;
 pub mod calendar;
+pub mod calendar_access;
 pub mod coding_session;
 pub mod continuation;
 pub mod conversation_evidence;

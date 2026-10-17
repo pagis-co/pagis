@@ -21,6 +21,7 @@ use crate::ui::BlockBuffer;
 mod colleagues;
 
 pub struct ToolRuntimeDeps {
+    pub workspace_members: Arc<dyn pagis_core::WorkspaceMemberStore>,
     pub users: Arc<dyn pagis_core::UserStore>,
     pub orgs: Arc<dyn pagis_core::OrgStore>,
     pub files: Arc<dyn pagis_core::FileStore>,
@@ -240,11 +241,15 @@ impl CoreToolRuntime {
             Ok(range) => range,
             Err(error) => return ToolResult::error("invalid_request", error.to_string()),
         };
-        match self
-            .deps
-            .calendar
-            .free_busy(&call.workspace_id, range.from(), range.to())
-            .await
+        match pagis_core::calendar_access::free_busy(
+            self.deps.calendar.as_ref(),
+            self.deps.workspaces.as_ref(),
+            self.deps.workspace_members.as_ref(),
+            self.deps.users.as_ref(),
+            &call.workspace_id,
+            range,
+        )
+        .await
         {
             Ok(intervals) => ToolResult::success(
                 serde_json::Value::Array(
@@ -1590,7 +1595,8 @@ impl ToolExecutor for CoreToolRuntime {
             // Mailbox call to the mail runtime.
             ToolRoute::Software { .. }
             | ToolRoute::Mailbox { .. }
-            | ToolRoute::WorkspaceMailbox { .. } => ToolResult::error(
+            | ToolRoute::WorkspaceMailbox { .. }
+            | ToolRoute::Calendar { .. } => ToolResult::error(
                 "temporarily_unavailable",
                 "that tool runtime is not registered",
             ),

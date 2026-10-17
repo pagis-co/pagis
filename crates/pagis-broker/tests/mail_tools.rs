@@ -30,6 +30,7 @@ use pagis_storage_sqlite::{
     SqliteConnectionStore, SqliteEventLog, SqliteGrantStore, SqliteRequestStore, SqliteRunStore,
     SqliteWorkspaceStore,
 };
+use serde_json::json;
 use sqlx::SqlitePool;
 
 const ADDRESS: &str = "ada@example.com";
@@ -1002,4 +1003,152 @@ async fn workspace_mailbox_approval_sends_once_and_the_next_message_needs_approv
         .await;
     assert!(matches!(second, InvokeOutcome::Waiting(_)));
     assert_eq!(world.executor.calls.lock().unwrap().len(), 1);
+}
+
+#[sqlx::test(migrations = "./../pagis-storage-sqlite/migrations")]
+async fn calendar_tools_need_a_live_calendar_grant(pool: SqlitePool) {
+    let world = World::build(pool).await;
+    let mut grant = world.grant_workspace_mailbox(&[]).await;
+    SqliteGrantStore::new(world.pool.clone())
+        .revoke(&world.workspace_id, &grant.id, now_ms())
+        .await
+        .unwrap();
+    grant.id = GrantId::generate();
+    grant.resource_kind = "calendar".into();
+    SqliteGrantStore::new(world.pool.clone())
+        .create(&grant)
+        .await
+        .unwrap();
+    let snapshot = world.snapshot().await;
+    for name in [
+        "calendar_create_event",
+        "calendar_update_event",
+        "calendar_delete_event",
+        "calendar_respond",
+    ] {
+        assert!(snapshot.tools.iter().any(|t| t.name == name));
+    }
+    SqliteGrantStore::new(world.pool.clone())
+        .revoke(&world.workspace_id, &grant.id, now_ms())
+        .await
+        .unwrap();
+    let result = world
+        .broker
+        .invoke(
+            &world.workspace_id,
+            &world.run_id,
+            &snapshot.id,
+            ToolCall::new(
+                "calendar_delete_event",
+                json!({"event_id": "event"}).to_string(),
+            ),
+        )
+        .await
+        .unwrap();
+    assert_eq!(error_code(&result).as_deref(), Some("permission_revoked"));
+    assert!(world.executor.calls.lock().unwrap().is_empty());
+}
+
+#[sqlx::test(migrations = "./../pagis-storage-sqlite/migrations")]
+async fn calendar_outside_invitations_use_mailbox_grant_and_approval(pool: SqlitePool) {
+    let world = World::build(pool).await;
+    let mut grant = world.grant_workspace_mailbox(&[]).await;
+    SqliteGrantStore::new(world.pool.clone())
+        .revoke(&world.workspace_id, &grant.id, now_ms())
+        .await
+        .unwrap();
+    grant.id = GrantId::generate();
+    grant.resource_kind = "calendar".into();
+    SqliteGrantStore::new(world.pool.clone())
+        .create(&grant)
+        .await
+        .unwrap();
+    let arguments = json!({
+        "event_id": "event",
+        "to": ["guest@other.test"],
+        "subject": "Team review",
+        "body": "Team review"
+    });
+    let denied = world
+        .invoke_workspace("calendar_delete_event", arguments.clone())
+        .await;
+    assert_eq!(error_code(&denied).as_deref(), Some("permission_revoked"));
+    let mailbox = world.grant_workspace_mailbox(&[]).await;
+    let waiting = world
+        .invoke_workspace("calendar_delete_event", arguments.clone())
+        .await;
+    let request = card(&waiting);
+    assert_eq!(
+        request.payload["workspace_mailbox_grant_id"],
+        mailbox.id.as_str()
+    );
+    assert_eq!(request.payload["arguments"]["subject"], "Team review");
+    SqliteGrantStore::new(world.pool.clone())
+        .set_scope(
+            &world.workspace_id,
+            &mailbox.id,
+            &Grant::allow_scope(&["other.test".into()]),
+        )
+        .await
+        .unwrap();
+    assert!(matches!(
+        world
+            .invoke_workspace("calendar_delete_event", arguments)
+            .await,
+        InvokeOutcome::Completed(_)
+    ));
+    let outside_rules = json!({
+        "event_id": "event",
+        "to": ["guest@other.test", "guest@elsewhere.test"],
+        "subject": "Team review",
+        "body": "Team review"
+    });
+    let waiting = world
+        .invoke_workspace("calendar_delete_event", outside_rules.clone())
+        .await;
+    let request = card(&waiting);
+    SqliteGrantStore::new(world.pool.clone())
+        .revoke(&world.workspace_id, &mailbox.id, now_ms())
+        .await
+        .unwrap();
+    assert!(matches!(
+        world
+            .broker
+            .resolve(&request.id, RequestState::Approved)
+            .await
+            .unwrap(),
+        InvokeOutcome::Rejected(_)
+    ));
+    world.grant_workspace_mailbox(&[]).await;
+    let waiting = world
+        .invoke_workspace("calendar_delete_event", outside_rules)
+        .await;
+    let request = card(&waiting);
+    SqliteGrantStore::new(world.pool.clone())
+        .revoke(&world.workspace_id, &grant.id, now_ms())
+        .await
+        .unwrap();
+    assert!(matches!(
+        world
+            .broker
+            .resolve(&request.id, RequestState::Approved)
+            .await
+            .unwrap(),
+        InvokeOutcome::Rejected(_)
+    ));
+    assert_eq!(world.executor.calls.lock().unwrap().len(), 1);
+}
+
+#[sqlx::test(migrations = "./../pagis-storage-sqlite/migrations")]
+async fn calendar_tools_are_absent_without_a_grant(pool: SqlitePool) {
+    let world = World::build(pool).await;
+    assert!(!world.snapshot().await.tools.iter().any(|t| {
+        [
+            "calendar_create_event",
+            "calendar_update_event",
+            "calendar_delete_event",
+            "calendar_respond",
+        ]
+        .contains(&t.name.as_str())
+    }));
 }

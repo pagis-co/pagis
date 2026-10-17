@@ -396,7 +396,7 @@ A scoped permission that lets one Agent use one Workspace resource: a
 Connection with capabilities, the Vault with allowed domains, a Host with
 command Allow Rules, session Allow Rules and the widest Session Approval
 Mode of its Agent on that machine, a Plugin, a Workspace Number, a
-Workspace Mailbox with recipient-domain Allow Rules, or colleague Workspaces
+Workspace Mailbox with recipient-domain Allow Rules, a Calendar, or colleague Workspaces
 with Workspace ids as Allow Rules. A Grant has numbered
 revisions. An action that
 matches the live revision needs no new approval (ADR-0005).
@@ -475,8 +475,8 @@ visibility level. A Reader cannot send or decide Requests (ADR-0039).
 
 ### Responder
 The role of a Person in a Shared Workspace who reads within its
-visibility level, sends as the Shared Workspace and decides its
-Requests. A Responder does not manage its
+visibility level, sends as the Shared Workspace, changes its Calendar
+Events and decides its Requests. A Responder does not manage its
 People, roles or Agents (ADR-0039).
 
 ### Search
@@ -788,7 +788,19 @@ topic. Threads are one level deep (ADR-0003).
 The Events of one Workspace. The Calendar store holds master Events and
 returns occurrences in a time range, with recurrence and the named time
 zone applied. The Calendar place in the Product App shows day, week and
-month views. The Mobile App shows the same place (ADR-0042, ADR-0032).
+month views. Readers read a Shared Workspace Calendar; Responders and
+Managers change it. A member's Private Calendar also shows the Shared
+Workspace Events where that Person is an attendee, with the Workspace
+name and only their own response controls. Each Event stays in its owning
+Workspace. The Mobile App shows the same place (ADR-0042, ADR-0032).
+
+### Calendar Grant
+The Grant that lets one active Agent create, change and delete Calendar
+Events and answer invitations in its Workspace. Its resource id is the
+Workspace id. The Owner or a Shared Workspace Manager adds and revokes it.
+It has no Allow Rules. A change that sends iMIP to outside attendees also
+needs a live Workspace Mailbox Grant and its send Approval or recipient-domain
+Allow Rules. Each change names the Agent as its author (ADR-0042).
 
 ### Event
 A time range in one Workspace Calendar, with a title, description,
@@ -806,8 +818,10 @@ Timed occurrences are busy unless their Event is cancelled. All-day Events
 are free. Overlapping and touching
 intervals merge. Org members read the start and end times by a Person's
 login email or a Workspace Mailbox address. The answer holds no Event details.
-The Event editor shows attendees and the Person on an hour axis, with the
-chosen time and conflicts (ADR-0042).
+A Person's busy intervals also include timed Events in Shared Workspaces
+where the Person is a member and an attendee who has not declined. Presence
+uses the same intervals. The Event editor shows attendees and the Person
+on an hour axis, with the chosen time and conflicts (ADR-0042).
 
 ### iMIP invitation
 An iCalendar scheduling message that travels through the Workspace Mailbox

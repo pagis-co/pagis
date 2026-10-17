@@ -3,6 +3,34 @@ use async_trait::async_trait;
 
 #[async_trait]
 impl CalendarStore for FakeCalendarStore {
+    async fn attendee_events(
+        &self,
+        workspace: &WorkspaceId,
+        email: &str,
+        from: i64,
+        to: i64,
+    ) -> Result<Vec<CalendarEvent>, StoreError> {
+        let range = CalendarRange::new(from, to)?;
+        Ok(self
+            .0
+            .lock()
+            .unwrap()
+            .calendar
+            .rows(workspace)
+            .filter(|event| {
+                let bounds = event.data.bounds().expect("validated Event");
+                bounds.starts_at < range.to()
+                    && bounds.ends_by.is_none_or(|end| end > range.from())
+                    && event
+                        .data
+                        .attendees
+                        .iter()
+                        .any(|a| a.email.eq_ignore_ascii_case(email))
+            })
+            .cloned()
+            .collect())
+    }
+
     async fn linked_occurrences(
         &self,
         workspace: &WorkspaceId,
@@ -100,6 +128,16 @@ impl CalendarStore for FakeCalendarStore {
         id: &CalendarEventId,
         value: &CalendarEventData,
     ) -> Result<bool, StoreError> {
+        let Some(mut event) = self.get(workspace, id).await? else {
+            return Ok(false);
+        };
+        event.data = value.clone();
+        self.change(&event).await
+    }
+    async fn change(&self, change: &CalendarEvent) -> Result<bool, StoreError> {
+        let workspace = &change.workspace_id;
+        let id = &change.id;
+        let value = &change.data;
         value.bounds()?;
         let mut data = self.0.lock().unwrap();
         if data
@@ -121,6 +159,7 @@ impl CalendarStore for FakeCalendarStore {
             return Ok(false);
         };
         event.data = value.clone();
+        event.created_by = change.created_by.clone();
         Ok(true)
     }
     async fn delete(

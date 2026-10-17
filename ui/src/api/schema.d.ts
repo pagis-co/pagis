@@ -1518,6 +1518,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/grants/calendar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["create_calendar_grant"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/grants/workspace-mailbox": {
         parameters: {
             query?: never;
@@ -4208,6 +4224,10 @@ export interface components {
             /** @description RFC 3339 with the occurrence offset, or an all-day date. */
             start: string;
         };
+        CalendarOccurrenceDto: components["schemas"]["CalendarOccurrence"] & {
+            read_only: boolean;
+            workspace_name?: string | null;
+        };
         /**
          * @description The Call record (ADR-0020). It is the one source of truth the
          *     strip, the call inspector and the settled block read. `outcome` and
@@ -4869,6 +4889,9 @@ export interface components {
              *     declares no voice.
              */
             voice?: string | null;
+        };
+        CreateCalendarGrantRequest: {
+            agent_id: string;
         };
         CreateChannelRequest: {
             /** @description The agent participants of the new group channel. */
@@ -10957,7 +10980,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CalendarOccurrence"][];
+                    "application/json": components["schemas"]["CalendarOccurrenceDto"][];
                 };
             };
         };
@@ -12636,6 +12659,61 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["CreateConnectionGrantRequest"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GrantDto"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    create_calendar_grant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateCalendarGrantRequest"];
             };
         };
         responses: {

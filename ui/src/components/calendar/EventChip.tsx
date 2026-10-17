@@ -18,6 +18,7 @@ export function EventChip({ occurrence, onOpen }: {
         <strong>
           {occurrence.event.data.invitation?.status === 'cancelled' ? `Cancelled: ${title}` : title}
         </strong>
+        {occurrence.workspace_name && <span>{occurrence.workspace_name}</span>}
         <span>
           {eventTime(occurrence)}
         </span>

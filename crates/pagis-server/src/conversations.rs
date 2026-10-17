@@ -68,11 +68,16 @@ async fn person_dto(
 ) -> Result<ColleagueDto, ApiError> {
     let now = state.clock.now_ms();
     let active = state.person_activity.hold_until(&person.id, now).is_some();
-    let meeting = !state
-        .calendar
-        .free_busy(workspace_id, now, now + 1)
-        .await?
-        .is_empty();
+    let meeting = !pagis_core::calendar_access::free_busy(
+        state.calendar.as_ref(),
+        state.workspaces.as_ref(),
+        state.workspace_members.as_ref(),
+        state.users.as_ref(),
+        workspace_id,
+        pagis_core::CalendarRange::new(now, now + 1)?,
+    )
+    .await?
+    .is_empty();
     Ok(ColleagueDto {
         person_id: person.id.to_string(),
         workspace_id: workspace_id.to_string(),

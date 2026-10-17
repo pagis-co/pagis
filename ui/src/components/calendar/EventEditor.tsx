@@ -3,7 +3,7 @@ import type { ApiClient } from '../../api/client'
 import { Button, Combobox, Input, Select, Textarea } from '../../primitives'
 import { InvitationActions } from './InvitationActions'
 import { FreeBusy } from './FreeBusy'
-import { errorMessage } from '../../queries'
+import { errorMessage, useWorkspaceMailbox } from '../../queries'
 import { AttendeesEditor } from './AttendeesEditor'
 import { shiftDate } from './dates'
 import { useDeleteEvent, useSaveEvent } from './queries'
@@ -54,17 +54,21 @@ function inputTime(value: string) {
   return value.length === 16 ? `${value}:00` : value
 }
 
-export function EventEditor({ api, date, event, occurrenceStart, onClose }: {
+export function EventEditor({ api, date, event, occurrenceStart, readOnly = false, workspaceName, memberInvitation = false, onClose }: {
   api: ApiClient
   date: string
   event?: CalendarEvent
   occurrenceStart?: string
+  readOnly?: boolean
+  workspaceName?: string
+  memberInvitation?: boolean
   onClose: () => void
 }) {
   const [draft, setDraft] = useState<EventData>(() => event?.data ?? initialDraft(date))
   const [repeat, setRepeat] = useState(repeatValue(draft.rrule))
   const [reminders, setReminders] = useState(draft.reminders.join(', '))
   const [validation, setValidation] = useState('')
+  const mailbox = useWorkspaceMailbox(api)
   const save = useSaveEvent(api, event)
   const remove = useDeleteEvent(api)
   const busy = save.isPending || remove.isPending
@@ -130,13 +134,14 @@ export function EventEditor({ api, date, event, occurrenceStart, onClose }: {
     })
   }
 
-  if (event?.created_by.kind === 'system' && event.data.invitation) {
+  if (event && (readOnly || (event.data.invitation && event.data.invitation.organizer.toLowerCase() !== mailbox.data?.mailbox?.address.toLowerCase()))) {
     return <section className="calendar-editor" aria-label="Invitation details">
       <h3>{event.data.title}</h3>
+      {workspaceName && <p>{workspaceName}</p>}
       <p>{event.data.start} – {event.data.end} ({event.data.timezone})</p>
       <p>{event.data.location}</p>
       <p>{event.data.description}</p>
-      <InvitationActions api={api} event={event} />
+      <InvitationActions api={api} event={event} memberInvitation={memberInvitation} />
       <Button type="button" onClick={onClose}>Close</Button>
     </section>
   }
@@ -147,7 +152,7 @@ export function EventEditor({ api, date, event, occurrenceStart, onClose }: {
       aria-label="Event editor"
       onSubmit={submit}
     >
-      {event?.data.invitation && <InvitationActions api={api} event={event} />}
+      {event?.data.invitation && <InvitationActions api={api} event={event} memberInvitation={memberInvitation} />}
       {event?.data.rrule && <p>
         Changes apply to the complete series.
       </p>}

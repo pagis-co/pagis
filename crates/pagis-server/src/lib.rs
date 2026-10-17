@@ -723,6 +723,10 @@ fn product_router(state: Arc<AppState>) -> Router {
             get(memory::commit_diff),
         )
         .route(
+            "/api/v1/grants/calendar",
+            post(grants::create_calendar_grant),
+        )
+        .route(
             "/api/v1/grants/workspace-mailbox",
             post(grants::create_workspace_mailbox_grant),
         )

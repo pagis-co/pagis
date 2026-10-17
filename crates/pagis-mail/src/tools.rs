@@ -11,6 +11,7 @@
 //!
 //! A Mailbox makes and reads its own ids and page tokens.
 
+mod calendar;
 mod workspace;
 use workspace::workspace_error;
 
@@ -57,6 +58,10 @@ pub enum ReservedSendError {
 }
 
 pub struct MailToolDeps {
+    pub calendar: Arc<dyn pagis_core::CalendarStore>,
+    pub users: Arc<dyn pagis_core::UserStore>,
+    pub grants: Arc<dyn pagis_core::GrantStore>,
+    pub workspaces: Arc<dyn pagis_core::WorkspaceStore>,
     pub workspace: Arc<crate::MailboxDesk>,
     /// The host opens mail without exposing its credentials.
     pub mailboxes: Arc<dyn Mailboxes>,
@@ -82,7 +87,9 @@ impl MailToolRuntime {
     pub fn owns(route: &ToolRoute) -> bool {
         matches!(
             route,
-            ToolRoute::Mailbox { .. } | ToolRoute::WorkspaceMailbox { .. }
+            ToolRoute::Mailbox { .. }
+                | ToolRoute::WorkspaceMailbox { .. }
+                | ToolRoute::Calendar { .. }
         )
     }
 
@@ -286,10 +293,21 @@ impl ToolExecutor for MailToolRuntime {
         route: &ToolRoute,
         arguments: serde_json::Value,
     ) -> Result<serde_json::Value, ToolResult> {
+        if let ToolRoute::Calendar { tool } = route {
+            return self
+                .prepare_calendar(workspace, agent, *tool, arguments)
+                .await;
+        }
         self.prepare_mail(workspace, agent, route, arguments).await
     }
 
     async fn execute(&self, call: AuthorizedCall) -> ToolResult {
+        if let ToolRoute::Calendar { tool } = call.route {
+            return match self.run_calendar(tool, &call).await {
+                Ok(answer) => ToolResult::success(answer.to_string()),
+                Err(error) => error,
+            };
+        }
         if let ToolRoute::WorkspaceMailbox { tool } = call.route {
             return match self.run_workspace(tool, &call).await {
                 Ok(answer) => ToolResult::success(answer.to_string()),
