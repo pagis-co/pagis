@@ -136,6 +136,12 @@ describe('People', () => {
     expect(await screen.findByLabelText('Bob is in a meeting')).toBeTruthy()
     expect(screen.getByText('In a meeting')).toBeTruthy()
   })
+  it('shows no presence when the presence of a colleague is not known', async () => {
+    const api = { GET: vi.fn(async (path: string) => ({ data: { items: path === '/api/v1/colleagues' ? [{ ...colleagues[0], presence: null }] : [] } })) } as unknown as ApiClient
+    mount(<People api={api} onOpen={vi.fn()} />)
+    expect(await screen.findByText('Bob')).toBeTruthy()
+    expect(screen.queryByRole('img', { name: /Bob is/ })).toBeNull()
+  })
   it('opens an existing conversation', async () => {
     const open = vi.fn()
     const api = {

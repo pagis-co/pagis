@@ -13,7 +13,8 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use pagis_core::{UnixMillis, UserId};
+use async_trait::async_trait;
+use pagis_core::{StoreError, UnixMillis, UserId};
 
 /// How long a new item waits after the last activity of the Person.
 pub const HOLD: UnixMillis = 120_000;
@@ -24,6 +25,19 @@ pub const HOLD: UnixMillis = 120_000;
 pub fn hold_until(last_active_at: UnixMillis, now: UnixMillis) -> Option<UnixMillis> {
     let until = last_active_at + HOLD;
     (now < until).then_some(until)
+}
+
+/// Reads the activity of a Person. A host can keep it with the rest of
+/// that Person's data and read it from elsewhere.
+#[async_trait]
+pub trait PersonActivityReader: Send + Sync {
+    /// Until when a new item for `user_id` waits at `now`, by the rule
+    /// of [`hold_until`]. A Person with no activity holds nothing.
+    async fn hold_until(
+        &self,
+        user_id: &UserId,
+        now: UnixMillis,
+    ) -> Result<Option<UnixMillis>, StoreError>;
 }
 
 /// The time of the last activity of each Person, in memory.
@@ -55,6 +69,17 @@ impl PersonActivity {
             .expect("person activity lock")
             .get(user_id)?;
         hold_until(last_active_at, now)
+    }
+}
+
+#[async_trait]
+impl PersonActivityReader for PersonActivity {
+    async fn hold_until(
+        &self,
+        user_id: &UserId,
+        now: UnixMillis,
+    ) -> Result<Option<UnixMillis>, StoreError> {
+        Ok(PersonActivity::hold_until(self, user_id, now))
     }
 }
 
@@ -101,6 +126,22 @@ mod tests {
             Some(NOW + HOLD)
         );
         assert_eq!(activity.hold_until(&person("w-2"), NOW + SECOND), None);
+    }
+
+    #[tokio::test]
+    async fn the_reader_holds_until_120_s_after_the_last_activity() {
+        let activity = PersonActivity::new();
+        let reader: &dyn PersonActivityReader = &activity;
+        let w = person("w-1");
+
+        activity.record(&w, NOW);
+
+        assert_eq!(
+            reader.hold_until(&w, NOW + HOLD - 1).await.unwrap(),
+            Some(NOW + HOLD)
+        );
+        assert_eq!(reader.hold_until(&w, NOW + HOLD).await.unwrap(), None);
+        assert_eq!(reader.hold_until(&person("w-2"), NOW).await.unwrap(), None);
     }
 
     #[test]

@@ -1645,6 +1645,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         calendar: stores.calendar.clone(),
         push_subscriptions: stores.push_subscriptions.clone(),
         notifications,
+        person_activity_reader: person_activity.clone(),
         person_activity,
         live_connections: pagis_server::LiveConnections::new(Arc::clone(&options.clock)),
         sign_in_links: stores.sign_in_links.clone(),

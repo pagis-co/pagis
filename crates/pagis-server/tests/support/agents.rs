@@ -184,6 +184,32 @@ impl Embedder {
             administration_sections,
             person_notice,
             None,
+            None,
+        )
+        .await
+    }
+
+    #[allow(dead_code)]
+    pub async fn with_activity_reader(
+        brain: Arc<dyn pagis_agent::Brain>,
+        executor: Arc<dyn ToolExecutor>,
+        gate: Arc<dyn pagis_agent::ModelCallGate>,
+        reader: Arc<dyn pagis_needs_you::PersonActivityReader>,
+    ) -> Self {
+        Self::build(
+            brain,
+            executor,
+            gate,
+            Arc::new(pagis_plugin::fake::FixedPackageSource::new(
+                Default::default(),
+            )),
+            Arc::new(pagis_plugins::NoStdioServers),
+            Arc::new(pagis_plugins::ReqwestMcpHttp::default()),
+            Arc::new(pagis_server::NoOrgMenu),
+            Default::default(),
+            Arc::new(pagis_server::NoPersonNotice),
+            None,
+            Some(reader),
         )
         .await
     }
@@ -204,6 +230,7 @@ impl Embedder {
             Default::default(),
             Arc::new(pagis_server::NoPersonNotice),
             Some(host),
+            None,
         )
         .await
     }
@@ -220,6 +247,7 @@ impl Embedder {
         administration_sections: pagis_server::AdministrationSections,
         person_notice: Arc<dyn pagis_server::PersonNotice>,
         workspace_mail: Option<Arc<dyn pagis_mail::WorkspaceMailHost>>,
+        activity_reader: Option<Arc<dyn pagis_needs_you::PersonActivityReader>>,
     ) -> Self {
         let database = FakeDatabase::default();
         let stores = database.stores();
@@ -315,9 +343,11 @@ impl Embedder {
             secrets.clone(),
         ));
         let person_activity = Arc::new(pagis_needs_you::PersonActivity::new());
+        let person_activity_reader =
+            activity_reader.unwrap_or_else(|| person_activity.clone() as _);
         let deps = AgentDeps {
             disclosure: stores.disclosure.clone(),
-            person_activity: person_activity.clone(),
+            person_activity: person_activity_reader.clone(),
             run_journal: stores.run_journal.clone(),
             forget: stores.forget.clone(),
             workspaces: stores.workspaces.clone(),
@@ -540,6 +570,7 @@ impl Embedder {
             capture: deps.capture.clone(),
             notifications,
             person_activity,
+            person_activity_reader,
             live_connections: pagis_server::LiveConnections::new(deps.clock.clone()),
             sign_in_limits: Arc::new(pagis_server::SignInLimits::default()),
             password_verifier: Arc::new(pagis_server::PasswordVerifier::argon2()),

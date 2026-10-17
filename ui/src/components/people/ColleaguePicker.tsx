@@ -4,7 +4,8 @@ import type { ApiClient } from '../../api/client'
 import { Button } from '../../primitives'
 import { useColleagues, useStartConversation } from '../../queries'
 
-function PresenceDot({ name, presence }: { name: string; presence: string }) {
+function PresenceDot({ name, presence }: { name: string; presence: string | null | undefined }) {
+  if (!presence) return null
   return (
     <span
       className={`person-presence person-presence-${presence}`}
