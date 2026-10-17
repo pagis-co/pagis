@@ -7,7 +7,7 @@ import { X } from 'lucide-react'
 
 import type { ApiClient, GrantDto, SessionAllowRule } from '../api/client'
 import { Button, IconButton, Input } from '../primitives'
-import { useColleagues, useRevokeGrant, useSetGrantRules, useWorkspaceMailbox, useCreateWorkspaceMailboxGrant, useGrants } from '../queries'
+import { useColleagues, useRevokeGrant, useSetGrantRules, useWorkspaceMailbox, useCreateWorkspaceMailboxGrant, useCreateCalendarGrant, useGrants } from '../queries'
 
 import './GrantsSettings.css'
 
@@ -16,6 +16,7 @@ const RESOURCE_LABEL: Record<string, string> = {
   colleagues: 'Messages to colleagues',
   credential: 'Vault domains',
   workspace_mailbox: 'Workspace Mailbox',
+  calendar: 'Calendar',
 }
 
 // What one grant's rules are, per resource kind.
@@ -115,6 +116,7 @@ function GrantRulesRow({
         </Button>
       </div>
       {grant.is_default && <p className="settings-hint">Default for the Chief of Staff</p>}
+      {grant.resource_kind === 'calendar' ? <p className="settings-hint">Create and change Events and answer invitations.</p> : <>
       <div className="grant-rules">
         {grant.allow.length === 0 && grant.sessions.length === 0 && (
           <span className="grant-rules-empty">{ruleNames ? 'Every message needs an Approval.' : copy.empty}</span>
@@ -166,6 +168,7 @@ function GrantRulesRow({
           {copy.add}
         </Button>
       </div>}
+      </>}
     </div>
   )
 }
@@ -185,5 +188,22 @@ export function WorkspaceMailboxAccess({ api, agent }: { api: ApiClient; agent: 
       onClick={() => create.mutate({ agent_id: agent.id })}
     >Grant access</Button>}
     {create.isError && <p role="alert">Workspace Mailbox access did not change.</p>}
+  </div>
+}
+
+
+export function CalendarAccess({ api, agent }: { api: ApiClient; agent: { id: string; name: string } }) {
+  const { canManage } = useWorkspaceAccess()
+  const grants = useGrants(api)
+  const create = useCreateCalendarGrant(api)
+  const own = (grants.data ?? []).some(grant => grant.agent_id === agent.id && grant.resource_kind === 'calendar')
+  return <div className="agent-access-connection">
+    <strong>Calendar</strong>
+    {!own && <Button
+      aria-label={`Grant Calendar to ${agent.name}`}
+      disabled={!canManage || grants.isPending || create.isPending}
+      onClick={() => create.mutate({ agent_id: agent.id })}
+    >Grant access</Button>}
+    {create.isError && <p role="alert">Calendar access did not change.</p>}
   </div>
 }

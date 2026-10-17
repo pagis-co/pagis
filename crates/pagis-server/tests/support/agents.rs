@@ -285,6 +285,7 @@ impl Embedder {
         let blobs: Arc<dyn object_store::ObjectStore> =
             Arc::new(object_store::memory::InMemory::new());
         let runtime = Arc::new(CoreToolRuntime::new(ToolRuntimeDeps {
+            workspace_members: stores.workspace_members.clone(),
             users: stores.users.clone(),
             orgs: stores.orgs.clone(),
             files: stores.files.clone(),

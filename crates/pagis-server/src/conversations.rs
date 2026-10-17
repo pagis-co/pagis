@@ -69,11 +69,16 @@ async fn person_dto(
     workspace_id: &WorkspaceId,
 ) -> Result<ColleagueDto, ApiError> {
     let now = state.clock.now_ms();
-    let meeting = !state
-        .calendar
-        .free_busy(workspace_id, now, now + 1)
-        .await?
-        .is_empty();
+    let meeting = !pagis_core::calendar_access::free_busy(
+        state.calendar.as_ref(),
+        state.workspaces.as_ref(),
+        state.workspace_members.as_ref(),
+        state.users.as_ref(),
+        workspace_id,
+        pagis_core::CalendarRange::new(now, now + 1)?,
+    )
+    .await?
+    .is_empty();
     let presence = if meeting {
         Some("in_a_meeting")
     } else {

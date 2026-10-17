@@ -47,3 +47,15 @@ it('answers a mail invitation through the message route', async () => {
     { params: { path: { message_id: 'INBOX:1' } }, body: { status: 'accepted' } },
   ))
 })
+
+it('routes a member response through the Event owner Workspace', async () => {
+  const POST = vi.fn(async () => ({ data: event }))
+  const GET = vi.fn(async () => ({ data: { email: 'reader@example.com' } }))
+  render(<QueryClientProvider client={new QueryClient()}><CurrentWorkspaceContext value="private">
+    <InvitationActions api={{ GET, POST } as unknown as ApiClient} event={{ ...event, workspace_id: 'team' }} memberInvitation />
+  </CurrentWorkspaceContext></QueryClientProvider>)
+  fireEvent.click(await screen.findByRole('button', { name: 'Accept' }))
+  await waitFor(() => expect(POST).toHaveBeenCalled())
+  const options = POST.mock.calls[0] as unknown as [string, { pathSerializer: () => string }]
+  expect(options[1].pathSerializer()).toBe('/api/v1/workspaces/team/calendar/events/event-1/response')
+})

@@ -29,7 +29,9 @@ pub const RESPONDER_WRITES: &[(&str, &str)] = &[
         "/api/v1/workspace/mail/messages/{message_id}/response",
         "post",
     ),
-    ("/api/v1/calendar/events/{event_id}/response", "post"),
+    ("/api/v1/calendar/events", "post"),
+    ("/api/v1/calendar/events/{event_id}", "put"),
+    ("/api/v1/calendar/events/{event_id}", "delete"),
     ("/api/v1/workspace/mail/messages/{message_id}/spam", "post"),
     ("/api/v1/channels/{channel_id}/messages", "post"),
     ("/api/v1/requests/{request_id}/decision", "post"),
@@ -67,7 +69,7 @@ impl Route {
             "/api/v1/workspace/mail/audit" | "/api/v1/workspace/mailbox/triage-rules"
         ) {
             Some(Manager)
-        } else if method == "get" {
+        } else if method == "get" || self.path == "/api/v1/calendar/events/{event_id}/response" {
             Some(Reader)
         } else if RESPONDER_WRITES.contains(&(self.path, method)) {
             Some(Responder)
@@ -614,6 +616,13 @@ pub const ADMINISTRATION_ROUTES: &[Route] = &[
 
 /// Every route the daemon serves.
 pub const ROUTES: &[Route] = &[
+    Route {
+        shared: true,
+        path: "/api/v1/grants/calendar",
+        methods: &["post"],
+        authenticated: true,
+        part: None,
+    },
     Route {
         shared: false,
         path: "/api/v1/disclosure",
@@ -2459,6 +2468,15 @@ mod tests {
         };
         assert_eq!(role("/api/v1/channels", "get"), Some(Reader));
         assert_eq!(role("/api/v1/files", "post"), Some(Responder));
+        for (path, method) in [
+            ("/api/v1/calendar/events", "post"),
+            ("/api/v1/calendar/events/{event_id}", "put"),
+            ("/api/v1/calendar/events/{event_id}", "delete"),
+        ] {
+            assert_eq!(role(path, method), Some(Responder));
+        }
+        assert_eq!(role("/api/v1/calendar/events", "get"), Some(Reader));
+
         for path in [
             "/api/v1/settings/onboarding",
             "/api/v1/settings/models",

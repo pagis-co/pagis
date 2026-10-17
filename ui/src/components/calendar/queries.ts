@@ -5,7 +5,7 @@ import { useCurrentWorkspaceId } from '../../workspace'
 
 export type CalendarEvent = components['schemas']['CalendarEvent']
 export type EventData = components['schemas']['CalendarEventData']
-export type Occurrence = components['schemas']['CalendarOccurrence']
+export type Occurrence = components['schemas']['CalendarOccurrenceDto']
 export const calendarKey = (workspaceId: string) => ['workspace', workspaceId, 'calendar'] as const
 
 export function useCalendar(api: ApiClient, from: number, to: number) {

@@ -193,3 +193,28 @@ describe('GrantRow', () => {
     )
   })
 })
+
+
+it('shows Calendar Grant access and revokes it without Allow Rule fields', async () => {
+  const api = stubApi()
+  mount(api, [{ ...grant, resource_kind: 'calendar', allow: [] }])
+  expect(screen.getByText('Calendar')).toBeTruthy()
+  expect(screen.queryByPlaceholderText('Add a command prefix, e.g. git status')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Revoke' }))
+  await waitFor(() => expect(api.DELETE).toHaveBeenCalled())
+})
+
+it('lets an Owner add Calendar access to an Agent', async () => {
+  const { CalendarAccess } = await import('./GrantsSettings')
+  const api = {
+    GET: vi.fn(async () => ({ data: { items: [] } })),
+    POST: vi.fn(async () => ({ data: { ...grant, resource_kind: 'calendar' } })),
+  }
+  render(<QueryClientProvider client={new QueryClient()}>
+    <CalendarAccess api={api as unknown as ApiClient} agent={{ id: 'ag1', name: 'Sage' }} />
+  </QueryClientProvider>)
+  const button = await screen.findByRole('button', { name: 'Grant Calendar to Sage' })
+  await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false))
+  fireEvent.click(button)
+  await waitFor(() => expect(api.POST).toHaveBeenCalledWith('/api/v1/grants/calendar', { body: { agent_id: 'ag1' } }))
+})

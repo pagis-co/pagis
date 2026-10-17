@@ -652,6 +652,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         Arc::clone(&grants) as _,
     ));
     let tool_runtime = Arc::new(CoreToolRuntime::new(ToolRuntimeDeps {
+        workspace_members: stores.workspace_members.clone(),
         users: stores.users.clone(),
         orgs: stores.orgs.clone(),
         files: stores.files.clone(),
@@ -966,6 +967,10 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     // The mail tool route for runs that pass the broker's authority and
     // effect reservation checks.
     let mail_tools = Arc::new(pagis_mail::MailToolRuntime::new(pagis_mail::MailToolDeps {
+        calendar: stores.calendar.clone(),
+        users: stores.users.clone(),
+        grants: stores.grants.clone(),
+        workspaces: stores.workspaces.clone(),
         workspace: mailbox_desk.clone(),
         mailboxes: Arc::clone(&mailbox_desk) as _,
         records: Arc::clone(&mailbox_store) as _,

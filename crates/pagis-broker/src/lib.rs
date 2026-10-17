@@ -1,10 +1,12 @@
 //! Stable capability manifests, run snapshots, authorization, and dispatch.
 
+pub mod calendar;
 mod call;
 mod coding_session;
 pub mod credentials;
 mod disclosure;
 pub mod workspace_mail;
+pub use calendar::CalendarTool;
 pub use workspace_mail::WorkspaceMailTool;
 pub mod fake;
 mod harness_policy;
@@ -150,7 +152,7 @@ pub const CONTRIBUTION_CLOSE: &str = "contribution_close";
 /// The namespaces Pagis mints itself. A plugin manifest that claimed
 /// one would replace a native tool in every later snapshot, so the
 /// names are refused at install time.
-const NATIVE_NAMESPACES: [&str; 3] = ["core", "mail", "ui"];
+const NATIVE_NAMESPACES: [&str; 4] = ["core", "mail", "ui", "calendar"];
 
 /// The longest namespace or tool name a manifest can install. It comes
 /// from the 64-character tool name limit the supported model providers
@@ -463,6 +465,9 @@ pub enum ToolRoute {
     Mailbox {
         tool: MailTool,
     },
+    Calendar {
+        tool: CalendarTool,
+    },
     WorkspaceMailbox {
         tool: WorkspaceMailTool,
     },
@@ -491,6 +496,7 @@ impl ToolRoute {
             | ToolRoute::Software { .. }
             | ToolRoute::Plugin { .. }
             | ToolRoute::Mailbox { .. }
+            | ToolRoute::Calendar { .. }
             | ToolRoute::WorkspaceMailbox { .. } => true,
             ToolRoute::Core { tool } => {
                 matches!(tool, CoreTool::HostShell | CoreTool::ComputerShell)
@@ -755,6 +761,7 @@ impl Registry {
             coding_session::coding_session_manifest(),
             mail::mail_manifest(),
             workspace_mail::workspace_mail_manifest(),
+            calendar::manifest(),
             ui_manifest(),
         ] {
             registry
@@ -1646,6 +1653,14 @@ impl Broker {
                         // Agent's own identity. One of the Person's
                         // accounts is a Connection, and it needs the
                         // capability that tool acts with (ADR-0019).
+                        ToolRoute::Calendar { .. } => grants
+                            .iter()
+                            .filter(|grant| {
+                                grant.resource_kind == Grant::CALENDAR_KIND
+                                    && grant.resource_id.as_deref() == Some(workspace_id.as_str())
+                            })
+                            .map(GrantBinding::from)
+                            .collect(),
                         ToolRoute::WorkspaceMailbox { .. } => grants
                             .iter()
                             .filter(|grant| {
@@ -1690,6 +1705,7 @@ impl Broker {
                         ToolRoute::Connection { .. }
                             | ToolRoute::Plugin { .. }
                             | ToolRoute::WorkspaceMailbox { .. }
+                            | ToolRoute::Calendar { .. }
                             | ToolRoute::Core {
                                 tool: CoreTool::PhoneCall
                             }
@@ -2119,6 +2135,28 @@ impl Broker {
         self.gate(context).await
     }
 
+    async fn calendar_mail_grant(
+        &self,
+        context: &CallContext,
+    ) -> Result<Option<Grant>, BrokerError> {
+        let grants = self
+            .deps
+            .grants
+            .list_live_for_agent(&context.workspace_id, &context.agent_id)
+            .await?;
+        let mut grants: Vec<_> = grants
+            .into_iter()
+            .filter(|grant| {
+                grant.resource_kind == Grant::WORKSPACE_MAILBOX_KIND
+                    && grant.resource_id.as_deref() == Some(context.workspace_id.as_str())
+            })
+            .collect();
+        grants.sort_by_key(|grant| {
+            !mail::recipients_allowed(&context.arguments, &grant.allow_rules())
+        });
+        Ok(grants.into_iter().next())
+    }
+
     /// The approval gate of one resolved call: a free effect runs, an
     /// allow rule runs, and everything else waits for a card. A host
     /// action reaches it once its machine is settled, so the card it
@@ -2127,6 +2165,7 @@ impl Broker {
         if matches!(
             context.entry.manifest.route,
             ToolRoute::WorkspaceMailbox { .. }
+                | ToolRoute::Calendar { .. }
                 | ToolRoute::Core {
                     tool: CoreTool::MessageColleagues
                 }
@@ -2140,7 +2179,9 @@ impl Broker {
             }
         }
 
-        if !context.entry.manifest.effect.requires_approval()
+        if (matches!(context.entry.manifest.route, ToolRoute::Calendar { .. })
+            && !calendar_sends(&context.arguments))
+            || !context.entry.manifest.effect.requires_approval()
             || is_wake_only_subject_schedule(&context)
             || is_schedule_control_without_revision(&context)
         {
@@ -2749,6 +2790,41 @@ impl Broker {
                 },
             );
         }
+        if matches!(context.entry.manifest.route, ToolRoute::Calendar { .. }) {
+            let live = self
+                .deps
+                .grants
+                .live_for_resource(
+                    &context.workspace_id,
+                    &context.agent_id,
+                    Grant::CALENDAR_KIND,
+                    context.workspace_id.as_str(),
+                )
+                .await?;
+            let binding = live.as_ref().and_then(|grant| {
+                context
+                    .entry
+                    .grants
+                    .iter()
+                    .find(|binding| binding.id == grant.id)
+                    .map(|binding| GrantBinding::refreshed(grant, binding))
+            });
+            if binding.is_none() {
+                return Ok(Err(ToolResult::error(
+                    "permission_revoked",
+                    "The Calendar Grant changed or was revoked.",
+                )));
+            }
+            if calendar_sends(&context.arguments)
+                && self.calendar_mail_grant(context).await?.is_none()
+            {
+                return Ok(Err(ToolResult::error(
+                    "permission_revoked",
+                    "A live Workspace Mailbox Grant is required for outside attendees.",
+                )));
+            }
+            return Ok(Ok(binding));
+        }
         if matches!(
             context.entry.manifest.route,
             ToolRoute::WorkspaceMailbox { .. }
@@ -3026,6 +3102,15 @@ impl Broker {
                     .is_some_and(|grant| grant.allow_rules().iter().any(|rule| rule == name)))
             }
             Some(AllowRuleBuilder::MailRecipientDomain) => {
+                if matches!(context.entry.manifest.route, ToolRoute::Calendar { .. }) {
+                    return Ok(self
+                        .calendar_mail_grant(context)
+                        .await?
+                        .is_some_and(|grant| {
+                            mail::recipients_allowed(&context.arguments, &grant.allow_rules())
+                        }));
+                }
+
                 if matches!(
                     context.entry.manifest.route,
                     ToolRoute::WorkspaceMailbox { .. }
@@ -3302,8 +3387,12 @@ impl Broker {
                 // The record an `always` writes its rules onto. A mail
                 // rule lives on the mailbox, because the Agent holds
                 // that mailbox with no Grant (ADR-0019).
-                "workspace_mailbox_grant_id": matches!(context.entry.manifest.route, ToolRoute::WorkspaceMailbox { .. })
-                    .then(|| context.selected_grant.as_ref().map(|grant| grant.id.as_str())),
+                "workspace_mailbox_grant_id": if matches!(context.entry.manifest.route, ToolRoute::Calendar { .. }) {
+                    self.calendar_mail_grant(context).await?.map(|grant| grant.id.to_string())
+                } else {
+                    matches!(context.entry.manifest.route, ToolRoute::WorkspaceMailbox { .. })
+                        .then(|| context.selected_grant.as_ref().map(|grant| grant.id.to_string())).flatten()
+                },
                 "mailbox_id": context.mailbox.as_ref().map(|mailbox| mailbox.id.as_str()),
                 "mailbox_address": context.mailbox.as_ref().map(|mailbox| mailbox.address.as_str()),
                 // The machine a host Grant is written for, and the name
@@ -5475,6 +5564,12 @@ fn colleague_workspaces(arguments: &serde_json::Value) -> Option<Vec<String>> {
     ids.sort();
     ids.dedup();
     Some(ids)
+}
+
+fn calendar_sends(arguments: &serde_json::Value) -> bool {
+    arguments["to"]
+        .as_array()
+        .is_some_and(|recipients| !recipients.is_empty())
 }
 
 #[cfg(test)]

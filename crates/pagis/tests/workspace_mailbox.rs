@@ -1653,6 +1653,186 @@ async fn quarantine_blocks_every_product_read_and_release_is_audited() {
     );
 }
 
+#[tokio::test]
+async fn shared_calendar_agent_creates_member_event_with_agent_author() {
+    let app = MailboxApp::start().await;
+    let (_, shared) = app
+        .post(
+            "/api/v1/administration/workspaces",
+            json!({
+                "name": "Support",
+                "manager_id": app.daemon.user_id
+            }),
+        )
+        .await;
+    let workspace = shared["id"].as_str().unwrap();
+    let prefix = format!("/api/v1/workspaces/{workspace}");
+    let (_, agent) = app
+        .post(
+            &format!("{prefix}/agents"),
+            json!({
+                "name": "Aria",
+                "job": "Arrange team meetings"
+            }),
+        )
+        .await;
+    let agent_id = pagis_core::AgentId::from(agent["id"].as_str().unwrap().to_owned());
+    let (status, _) = app
+        .post(
+            &format!("{prefix}/grants/calendar"),
+            json!({
+                "agent_id": agent_id
+            }),
+        )
+        .await;
+    assert_eq!(status, 201);
+    let email = "manager@example.com";
+    app.daemon
+        .stores()
+        .users
+        .set_email_and_password(&app.daemon.user_id, email, "hash", pagis_core::now_ms())
+        .await
+        .unwrap();
+    let channel = app
+        .daemon
+        .stores()
+        .channels
+        .find_user_dm(
+            &pagis_core::WorkspaceId::from(workspace.to_owned()),
+            &agent_id,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    app.brain.push(Script::tool_call(
+        &[],
+        "calendar_create_event",
+        json!({
+            "event": {
+                "title": "Team review",
+                "description": "Plan",
+                "location": "Office",
+                "start": "2026-03-08T09:00:00",
+                "end": "2026-03-08T10:00:00",
+                "timezone": "UTC",
+                "all_day": false,
+                "rrule": null,
+                "exdates": [],
+                "attendees": [{
+                    "email": email,
+                    "name": "Manager",
+                    "status": "needs-action"
+                }],
+                "reminders": [],
+                "meeting_url": null
+            }
+        }),
+    ));
+    app.brain
+        .push(Script::reply(&["The Event is in the Calendar."]));
+    assert_eq!(
+        app.post(
+            &format!("{prefix}/channels/{}/messages", channel.id),
+            json!({
+                "pending_id": "calendar-member",
+                "text": "Arrange a team review"
+            })
+        )
+        .await
+        .0,
+        201
+    );
+    let events = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let events = app
+                .get(&format!(
+                    "{prefix}/calendar/events?from=1772928000000&to=1773014400000"
+                ))
+                .await;
+            if !events.as_array().unwrap().is_empty() {
+                break events;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(events[0]["event"]["created_by"]["kind"], "agent");
+    assert_eq!(
+        events[0]["event"]["created_by"]["agent_id"],
+        agent_id.as_str()
+    );
+    assert_eq!(events[0]["event"]["workspace_id"], workspace);
+    let private = app
+        .get("/api/v1/calendar/events?from=1772928000000&to=1773014400000")
+        .await;
+    assert_eq!(private[0]["event"]["id"], events[0]["event"]["id"]);
+    assert_eq!(private[0]["workspace_name"], "Support");
+}
+
+#[tokio::test]
+async fn shared_calendar_outside_invitation_sends_from_team_workspace_mailbox() {
+    let app = MailboxApp::start().await;
+    let (_, shared) = app
+        .post(
+            "/api/v1/administration/workspaces",
+            json!({
+                "name": "Support",
+                "manager_id": app.daemon.user_id
+            }),
+        )
+        .await;
+    let prefix = format!("/api/v1/workspaces/{}", shared["id"].as_str().unwrap());
+    let data = json!({
+        "title": "Team review",
+        "description": "Plan",
+        "location": "Office",
+        "start": "2026-03-08T09:00:00",
+        "end": "2026-03-08T10:00:00",
+        "timezone": "UTC",
+        "all_day": false,
+        "rrule": null,
+        "exdates": [],
+        "attendees": [{
+                    "email": "guest@other.test",
+                    "name": "Guest",
+                    "status": "needs-action"
+                }],
+        "reminders": [],
+        "meeting_url": null
+    });
+    let (status, error) = app
+        .post(&format!("{prefix}/calendar/events"), data.clone())
+        .await;
+    assert_eq!(status, 422);
+    assert!(error.to_string().contains("Create a Workspace Mailbox"));
+    assert_eq!(
+        app.post(
+            &format!("{prefix}/workspace/mailbox"),
+            json!({
+                "connection_id": app.connection_id,
+                "local_part": "support"
+            })
+        )
+        .await
+        .0,
+        201
+    );
+    assert_eq!(
+        app.post(&format!("{prefix}/calendar/events"), data).await.0,
+        201
+    );
+    let sent = app.transport.sent();
+    let mail = sent.last().unwrap();
+    let received = app.transport.received("guest@other.test");
+    assert_eq!(received.last().unwrap().summary.from, "support@example.com");
+    assert_eq!(mail.to, ["guest@other.test"]);
+    assert!(
+        String::from_utf8_lossy(&mail.attachments[0].data)
+            .contains("ORGANIZER:mailto:support@example.com")
+    );
+}
+
 impl MailboxApp {
     async fn triage_poll(&self) {
         pagis::mail_triage::MailTriagePoll::new(

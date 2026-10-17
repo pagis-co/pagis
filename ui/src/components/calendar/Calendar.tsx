@@ -8,7 +8,7 @@ import type { CalendarView } from './dates'
 import { DayWeekGrid } from './DayWeekGrid'
 import { MonthGrid } from './MonthGrid'
 import { EventEditor } from './EventEditor'
-import { useCurrentWorkspaceId } from '../../workspace'
+import { useCurrentWorkspaceId, useWorkspaceAccess } from '../../workspace'
 import './calendar.css'
 
 interface ViewOption {
@@ -27,12 +27,14 @@ export function Calendar({ api, initialDate, eventId }: {
   eventId?: string
   initialDate?: string
 }) {
+  const { canRespond } = useWorkspaceAccess()
+  const workspaceId = useCurrentWorkspaceId()
   const [date, setDate] = useState(initialDate ?? dateKey(new Date()))
   const [view, setView] = useState<CalendarView>('week')
   const [editing, setEditing] = useState<Occurrence | 'new' | null>(null)
   const [linkClosed, setLinkClosed] = useState(false)
   const linked = useQuery({
-    queryKey: ['workspace', useCurrentWorkspaceId(), 'calendar-event', eventId],
+    queryKey: ['workspace', workspaceId, 'calendar-event', eventId],
     enabled: eventId !== undefined && !linkClosed,
     queryFn: async () => {
       const { data, error } = await api.GET('/api/v1/calendar/events/{event_id}', { params: { path: { event_id: eventId! } } })
@@ -40,7 +42,7 @@ export function Calendar({ api, initialDate, eventId }: {
       return data
     },
   })
-  const selected = editing ?? (!linkClosed && linked.data ? { event: linked.data, start: linked.data.data.start, end: linked.data.data.end } : null)
+  const selected = editing ?? (!linkClosed && linked.data ? { event: linked.data, start: linked.data.data.start, end: linked.data.data.end, read_only: !canRespond, workspace_name: null } : null)
   const days = calendarDays(date, view)
   const from = midnight(days[0])
   const to = midnight(shiftDate(days[days.length - 1], 1))
@@ -68,9 +70,9 @@ export function Calendar({ api, initialDate, eventId }: {
         <h2>
           Calendar
         </h2>
-        <Button onClick={() => setEditing('new')}>
+        {canRespond && <Button onClick={() => setEditing('new')}>
           New event
-        </Button>
+        </Button>}
         <nav aria-label="Calendar views">
           {views.map((mode) => (
             <Button
@@ -151,6 +153,9 @@ export function Calendar({ api, initialDate, eventId }: {
             date={date}
             event={selected === 'new' ? undefined : selected.event}
             occurrenceStart={selected === 'new' ? undefined : selected.start}
+            readOnly={!canRespond || (selected !== 'new' && selected.read_only)}
+            workspaceName={selected !== 'new' ? selected.workspace_name ?? undefined : undefined}
+            memberInvitation={selected !== 'new' && selected.event.workspace_id !== workspaceId}
             onClose={closeEditor}
           />
         )}

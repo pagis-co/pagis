@@ -3307,7 +3307,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/CalendarOccurrence"
+                    "$ref": "#/components/schemas/CalendarOccurrenceDto"
                   }
                 }
               }
@@ -3343,7 +3343,7 @@
             }
           }
         },
-        "x-workspace-role": "manager"
+        "x-workspace-role": "responder"
       }
     },
     "/api/v1/calendar/events/{event_id}": {
@@ -3429,7 +3429,7 @@
             }
           }
         },
-        "x-workspace-role": "manager"
+        "x-workspace-role": "responder"
       },
       "delete": {
         "tags": [
@@ -3464,7 +3464,7 @@
             }
           }
         },
-        "x-workspace-role": "manager"
+        "x-workspace-role": "responder"
       }
     },
     "/api/v1/calendar/events/{event_id}/response": {
@@ -3511,7 +3511,7 @@
             "description": ""
           }
         },
-        "x-workspace-role": "responder"
+        "x-workspace-role": "reader"
       }
     },
     "/api/v1/calls": {
@@ -5686,6 +5686,77 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/CreateConnectionGrantRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GrantDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "x-workspace-role": "manager"
+      }
+    },
+    "/api/v1/grants/calendar": {
+      "post": {
+        "tags": [
+          "grants"
+        ],
+        "operationId": "create_calendar_grant",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCalendarGrantRequest"
               }
             }
           },
@@ -15500,6 +15571,30 @@
           }
         }
       },
+      "CalendarOccurrenceDto": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/CalendarOccurrence"
+          },
+          {
+            "type": "object",
+            "required": [
+              "read_only"
+            ],
+            "properties": {
+              "read_only": {
+                "type": "boolean"
+              },
+              "workspace_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        ]
+      },
       "CallDto": {
         "type": "object",
         "description": "The Call record (ADR-0020). It is the one source of truth the\nstrip, the call inspector and the settled block read. `outcome` and\n`ended_reason` stay apart, because they answer two questions.",
@@ -17355,6 +17450,18 @@
             "description": "A name from `GET /api/v1/settings/voices`; absent or empty\ndeclares no voice."
           }
         }
+      },
+      "CreateCalendarGrantRequest": {
+        "type": "object",
+        "required": [
+          "agent_id"
+        ],
+        "properties": {
+          "agent_id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
       },
       "CreateChannelRequest": {
         "type": "object",

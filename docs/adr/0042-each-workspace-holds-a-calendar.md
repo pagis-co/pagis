@@ -9,8 +9,10 @@ a meeting only when they can check availability and answer invitations.
 Mail-based calendar standards let people on separate systems take part in
 the same meeting without sharing a calendar server.
 
-Each Workspace holds a Calendar. The Person reads and changes its Events
-in the Calendar place of the Product App.
+Each Workspace holds a Calendar. The Person reads its Events in the
+Calendar place of the Product App. The Owner changes a Private Workspace
+Calendar. Readers read a Shared Workspace Calendar. Responders and Managers
+create, change and delete its Events.
 
 ## Decision
 
@@ -47,6 +49,21 @@ attendees and their participation status, reminders and an HTTPS meeting
 link. Delete this occurrence adds an EXDATE. Other changes to one occurrence
 are not built. The place works at phone width. The Mobile App shows this
 Product App place (ADR-0032).
+
+### Member invitations keep one owning Workspace
+
+An enabled Person's login email identifies an inside attendee. An Event
+stays in its owning Shared Workspace. A member's Private Calendar also
+shows the Shared Workspace Events where that Person is an attendee. Each
+occurrence names the owning Workspace and shows its name. The view has no
+edit controls. The member can accept, answer maybe or decline on their own
+attendee row through the owner Workspace. Each read and response checks
+current membership. Removal from the Shared Workspace removes this access.
+Readers see no Event edit controls in the Shared Workspace Calendar.
+
+Member invitations need no Workspace Mailbox. Outside attendees receive
+iMIP through the Shared Workspace Mailbox. Without a Workspace Mailbox,
+an Event with outside attendees is refused.
 
 ### Invitations travel through the Workspace Mailbox
 
@@ -124,20 +141,33 @@ intervals merge. Each Org member can read Free/Busy by a Person's login
 email or a Workspace Mailbox address. The answer holds start and end times
 only, with no Event details. The planner shows the Free/Busy of attendees
 and the Person on an hour axis, with the chosen time and conflicts.
-A colleague is in a meeting while a busy interval of their Private Workspace
-Calendar contains the current time. The server computes this status on each read;
+A Person's Free/Busy also includes timed Events in Shared Workspaces where
+the Person is a member and an attendee who has not declined. These Events
+stay in the Shared Workspace. A colleague is in a meeting while a busy
+interval of this combined Calendar read contains the current time. The server computes this status on each read;
 it takes priority over active client input.
 Event details follow Disclosure Rules (ADR-0043). An availability answer
 does not open the Event, mail or memory that explains it.
 
 ### Agents use calendar tools under Grants
 
-An Agent needs a Grant to create or change events and answer invitations.
-It can arrange meetings by mail through the Workspace Mailbox. Calendar
-access does not give mail send authority. Mail Approvals still apply
-(ADR-0040). The Free/Busy tool returns intervals only. The Event read tool checks
-Disclosure Rules for a colleague Run. Not built: calendar change Grants
-and tools.
+A Calendar Grant gives one active Agent access to the Calendar of its
+Workspace. Its resource id is the Workspace id. The Owner of a Private
+Workspace or a Manager of a Shared Workspace adds or revokes it in Grant
+settings. It has no Allow Rules. The tools are `calendar_create_event`,
+`calendar_update_event`, `calendar_delete_event` and `calendar_respond`.
+A response accepts, answers maybe or declines an invitation the Workspace
+receives. Each created or changed Event names the Agent as its author.
+Each dispatch checks the live Calendar Grant.
+
+A tool change that sends iMIP to outside attendees also needs a live
+Workspace Mailbox Grant. It parks the Run on the same tool action Approval
+as a Workspace Mailbox send. The card shows the recipients and the Event
+summary. Recipient-domain Allow Rules on the Workspace Mailbox Grant
+approve a send in advance only when they cover every recipient. Revocation
+stops dispatch, including a change that waits for an Approval (ADR-0040).
+The Free/Busy tool returns intervals only. The Event read tool checks
+Disclosure Rules for a colleague Run.
 
 An Event can hold a free HTTPS meeting link to a service the Person chooses.
 The store and API keep the link, and the Calendar place opens it.
