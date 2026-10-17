@@ -2378,7 +2378,9 @@ fn mail_triage_needs_a_bounded_note_and_an_assignee_only_for_assignment() {
     assert!(triage.validate().is_err());
     triage.note = "Assigned it.".into();
     triage.outcome = MailTriageOutcome::Assigned;
-    assert!(triage.validate().is_err());
+    // Mail Assignments of the message stand in for an assignee Agent; the
+    // store checks that they exist.
+    assert!(triage.validate().is_ok());
     triage.assignee = Some(AgentId::generate());
     assert!(triage.validate().is_ok());
     triage.outcome = MailTriageOutcome::NeedsYou;

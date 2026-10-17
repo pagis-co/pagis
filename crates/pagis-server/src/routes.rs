@@ -66,9 +66,13 @@ impl Route {
             None
         } else if matches!(
             self.path,
-            "/api/v1/workspace/mail/audit" | "/api/v1/workspace/mailbox/triage-rules"
+            "/api/v1/workspace/mailbox/assignment-settings"
+                | "/api/v1/workspace/mail/audit"
+                | "/api/v1/workspace/mailbox/triage-rules"
         ) {
             Some(Manager)
+        } else if self.path == "/api/v1/workspace/mail/assignments" {
+            Some(Responder)
         } else if method == "get" || self.path == "/api/v1/calendar/events/{event_id}/response" {
             Some(Reader)
         } else if RESPONDER_WRITES.contains(&(self.path, method)) {
@@ -619,6 +623,41 @@ pub const ROUTES: &[Route] = &[
     Route {
         shared: true,
         path: "/api/v1/grants/calendar",
+        methods: &["post"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
+        shared: false,
+        path: "/api/v1/conversations/{conversation_id}/assignment",
+        methods: &["get"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
+        shared: true,
+        path: "/api/v1/workspace/mail/assignments",
+        methods: &["get"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
+        shared: true,
+        path: "/api/v1/workspace/mailbox/assignment-settings",
+        methods: &["get", "put"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
+        shared: false,
+        path: "/api/v1/mail-assignments/feed",
+        methods: &["get"],
+        authenticated: true,
+        part: None,
+    },
+    Route {
+        shared: false,
+        path: "/api/v1/mail-assignments/{assignment_id}/done",
         methods: &["post"],
         authenticated: true,
         part: None,

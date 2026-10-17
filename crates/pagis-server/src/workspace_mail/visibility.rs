@@ -57,7 +57,22 @@ pub async fn can_read_workspace_mail(
     } else {
         false
     };
-    Ok(level.permits(escalated))
+    let assigned = if level == MailVisibility::Escalations {
+        state
+            .assignments
+            .records()
+            .list(
+                &tenant.workspace_id,
+                Some(message.assessment_key()),
+                u32::MAX,
+            )
+            .await?
+            .iter()
+            .any(|a| a.assignee == tenant.user_id && a.state.is_open())
+    } else {
+        false
+    };
+    Ok(level.permits(escalated || assigned))
 }
 pub(super) async fn audit_read(
     state: &AppState,

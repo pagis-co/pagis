@@ -21,6 +21,7 @@ use crate::harnesses;
 use crate::hosts;
 use crate::knowledge;
 use crate::mail;
+use crate::mail_assignments;
 use crate::mailboxes;
 use crate::memory;
 use crate::model_lists;
@@ -125,6 +126,12 @@ use crate::ws::{ClientFrame, EventRow, ServerFrame};
         crate::junk::quarantine,
         crate::junk::read_quarantine,
         crate::junk::release,
+        mail_assignments::conversation_assignment,
+        mail_assignments::list_mail_assignments,
+        mail_assignments::get_assignment_settings,
+        mail_assignments::set_assignment_settings,
+        mail_assignments::assignment_feed,
+        mail_assignments::finish_assignment,
         workspace_mail::get_workspace_mailbox,
         workspace_mail::create_workspace_mailbox,
         workspace_mail::list_workspace_mail_folders,

@@ -320,6 +320,12 @@ impl World {
             },
         ));
         let sweeps = Arc::new(pagis::sweeps::Sweeps {
+            assignments: Arc::new(pagis_core::MailAssignments::new(
+                stores.clone(),
+                bus.clone(),
+                Arc::new(pagis_core::SystemClock),
+            )),
+            clock: Arc::new(pagis_core::SystemClock),
             workspaces: stores.workspaces.clone(),
             bus,
             mail,

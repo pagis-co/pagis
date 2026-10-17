@@ -75,7 +75,7 @@ impl AgentSystem {
         &self,
         answer: &pagis_core::Message,
         workspace: &WorkspaceId,
-        person: &pagis_core::UserId,
+        person: Option<&pagis_core::UserId>,
     ) -> Result<Option<pagis_core::Message>, StoreError> {
         let mut before = answer.id.clone();
         loop {
@@ -89,7 +89,7 @@ impl AgentSystem {
             };
             before = last.id.clone();
             for message in page {
-                if message.author.person_id() == Some(person) {
+                if person.is_some() && message.author.person_id() == person {
                     return Ok(None);
                 }
                 if answer
@@ -170,11 +170,37 @@ impl AgentSystem {
         let Some(workspace) = self.deps.workspaces.get(&event.workspace_id).await? else {
             return Ok(());
         };
-        let Some(person) = workspace.user_id else {
+        let assignment = self
+            .deps
+            .mail_assignments
+            .by_channel(&message.channel_id)
+            .await?;
+        if assignment
+            .as_ref()
+            .is_some_and(|a| a.role == pagis_core::MailAssignmentRole::Fyi)
+        {
             return Ok(());
-        };
+        }
+        if let Some(assignment) = &assignment
+            && event.workspace_id == assignment.private_workspace_id
+            && message.author_workspace_id.as_ref() == Some(&assignment.workspace_id)
+            && !assignment.state.is_open()
+        {
+            return Ok(());
+        }
+        if let Some(assignment) = &assignment
+            && self
+                .deps
+                .workspace_members
+                .get(&assignment.workspace_id, &assignment.assignee)
+                .await?
+                .is_none()
+        {
+            return Ok(());
+        }
+        let person = workspace.user_id.clone();
         let request = if message.author.person_id().is_some() {
-            self.last_agent_request(&message, &workspace.id, &person)
+            self.last_agent_request(&message, &workspace.id, person.as_ref())
                 .await?
         } else {
             None
@@ -190,18 +216,26 @@ impl AgentSystem {
         } else {
             None
         };
-        let Some(user) = self.deps.users.get(&person).await? else {
-            return Ok(());
-        };
-        if user.is_disabled() {
+        if person.is_none() && returning_agent.is_none() {
             return Ok(());
         }
+        let user = match &person {
+            Some(person) => match self.deps.users.get(person).await? {
+                Some(user) if !user.is_disabled() => Some(user),
+                _ => return Ok(()),
+            },
+            None => None,
+        };
         let workspace_count = participants
             .iter()
             .filter_map(|p| p.participant_workspace_id.as_ref())
             .collect::<std::collections::HashSet<_>>()
             .len();
         if workspace_count > 2 {
+            // A Workspace without a Person answers no group message.
+            let (Some(person), Some(user)) = (&person, &user) else {
+                return Ok(());
+            };
             let reply = match &message.parent_message_id {
                 Some(id) => self.deps.messages.get(&source, id).await?,
                 None => None,
@@ -215,7 +249,7 @@ impl AgentSystem {
                 user.name.as_deref().or(user.email.as_deref()).unwrap_or(""),
                 &workspace.name,
                 &workspace.id,
-                &person,
+                person,
                 reply,
             ) {
                 return Ok(());
@@ -224,9 +258,13 @@ impl AgentSystem {
         if hop_count > self.deps.config.max_hops {
             return Ok(());
         }
-        if returning_agent.is_none()
+        if assignment.is_none()
+            && returning_agent.is_none()
             && !workspace.delegate_everything
-            && self.person_is_active(&person).await
+            && match &person {
+                Some(person) => self.person_is_active(person).await,
+                None => false,
+            }
         {
             return Ok(());
         }

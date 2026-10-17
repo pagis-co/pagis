@@ -110,9 +110,10 @@ pub fn test_payload(public_origin: &str) -> Vec<u8> {
 /// The delivery options of the Notification of one queue item.
 pub fn options(item: &NeedsYouItem) -> Options {
     let urgency = match item {
-        NeedsYouItem::Approval(_) | NeedsYouItem::Waiting(_) | NeedsYouItem::Keypad(_) => {
-            Urgency::High
-        }
+        NeedsYouItem::Assignment(_)
+        | NeedsYouItem::Approval(_)
+        | NeedsYouItem::Waiting(_)
+        | NeedsYouItem::Keypad(_) => Urgency::High,
         NeedsYouItem::Call(_) | NeedsYouItem::Failed(_) | NeedsYouItem::Mail(_) => Urgency::Normal,
     };
     Options {

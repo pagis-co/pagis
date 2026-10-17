@@ -51,6 +51,8 @@ mod keypad;
 mod knowledge;
 mod legal_hold;
 mod logging;
+mod mail_assignment_daemon;
+mod mail_assignments;
 mod mail_block;
 mod mail_connections;
 mod mail_events;

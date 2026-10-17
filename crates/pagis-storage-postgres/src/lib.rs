@@ -168,6 +168,7 @@ pub fn stores(pool: PgPool) -> pagis_core::Stores {
         phone_numbers: Arc::new(PostgresPhoneNumberStore::new(pool.clone())),
         plugin_tools: Arc::new(PostgresPluginToolStore::new(pool.clone())),
         plugins: Arc::new(PostgresPluginStore::new(pool.clone())),
+        mail_assignments: Arc::new(PostgresMailAssignmentStore::new(pool.clone())),
         disclosure: Arc::new(PostgresDisclosureStore::new(pool.clone())),
         calendar: Arc::new(PostgresCalendarStore::new(pool.clone())),
         push_subscriptions: Arc::new(PostgresPushSubscriptionStore::new(pool.clone())),
@@ -213,3 +214,6 @@ pub use workspace_governance::PostgresWorkspaceGovernanceStore;
 
 mod junk_store;
 pub use junk_store::PostgresJunkStore;
+
+mod mail_assignment_store;
+pub use mail_assignment_store::PostgresMailAssignmentStore;

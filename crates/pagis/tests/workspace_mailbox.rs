@@ -5,17 +5,17 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 use std::time::Duration;
 
-struct MailboxApp {
-    daemon: TestDaemon,
+pub(super) struct MailboxApp {
+    pub(super) daemon: TestDaemon,
     host: Arc<FakeMailboxHost>,
-    transport: Arc<FakeMailTransport>,
-    connection_id: String,
+    pub(super) transport: Arc<FakeMailTransport>,
+    pub(super) connection_id: String,
     client: reqwest::Client,
-    brain: Arc<ScriptedBrain>,
+    pub(super) brain: Arc<ScriptedBrain>,
 }
 
 impl MailboxApp {
-    async fn start() -> Self {
+    pub(super) async fn start() -> Self {
         Self::start_with_source(Arc::new(pagis_mail::HostSpamVerdicts)).await
     }
 
@@ -67,7 +67,7 @@ impl MailboxApp {
         (response.status(), response.json().await.unwrap())
     }
 
-    async fn get(&self, path: &str) -> Value {
+    pub(super) async fn get(&self, path: &str) -> Value {
         let response = self
             .client
             .get(format!("{}{path}", self.daemon.base_url))
@@ -562,7 +562,7 @@ async fn workspace_mailbox_default_grant_moves_with_the_chief_and_keeps_manual_g
 }
 
 impl MailboxApp {
-    async fn request(
+    pub(super) async fn request(
         &self,
         method: reqwest::Method,
         path: &str,
@@ -588,7 +588,7 @@ impl MailboxApp {
         )
     }
 
-    async fn post(
+    pub(super) async fn post(
         &self,
         path: &str,
         body: serde_json::Value,

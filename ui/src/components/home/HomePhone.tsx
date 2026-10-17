@@ -1,3 +1,4 @@
+import { AssignmentFeed } from '../mail/MailAssignments'
 import { useCurrentWorkspaceId } from '../../workspace'
 import { SharedRequest } from './SharedRequest'
 import { useWorkspaceAccess } from '../../workspace'
@@ -316,6 +317,7 @@ export function HomePhone({
               <SectionLabel>Work record</SectionLabel>
               <span className="phone-hint">Today and before</span>
             </div>
+            <AssignmentFeed api={api} />
             <Frame>
               {recordError ? (
                 <Row>

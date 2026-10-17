@@ -1492,3 +1492,292 @@ async fn calendar_grant_requires_manager_and_active_agent_and_has_no_allow_rules
         StatusCode::NOT_FOUND
     );
 }
+
+#[tokio::test]
+async fn mail_assignment_settings_and_lists_follow_workspace_roles() {
+    let e = Embedder::new().await;
+    let (workspace, _, _) = team(&e).await;
+    let settings = format!("/api/v1/workspaces/{workspace}/workspace/mailbox/assignment-settings");
+    let list = format!("/api/v1/workspaces/{workspace}/workspace/mail/assignments");
+    let (status, defaults) = call(&e, false, "GET", &settings, Value::Null, &e.cookie).await;
+    assert_eq!(status, StatusCode::OK, "{defaults}");
+    assert_eq!(defaults["assignment_limit"], Value::Null);
+    assert_eq!(defaults["assignment_timeout_minutes"], 1440);
+    let body = json!({
+        "assignment_limit": 1,
+        "assignment_timeout_minutes": 30,
+    });
+    assert_eq!(
+        call(&e, false, "PUT", &settings, body.clone(), &e.cookie)
+            .await
+            .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        call(&e, false, "GET", &settings, Value::Null, &e.cookie)
+            .await
+            .1,
+        body
+    );
+    let other = e
+        .stores
+        .workspaces
+        .get(&e.other_workspace)
+        .await
+        .unwrap()
+        .unwrap()
+        .user_id
+        .unwrap();
+    e.stores
+        .workspace_members
+        .add(&WorkspaceMember {
+            workspace_id: workspace.clone(),
+            person_id: other.clone(),
+            role: WorkspaceRole::Responder,
+            author: Author::System,
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        call(&e, false, "GET", &list, Value::Null, &e.other_cookie)
+            .await
+            .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        call(&e, false, "PUT", &settings, body, &e.other_cookie)
+            .await
+            .0,
+        StatusCode::FORBIDDEN
+    );
+    e.stores
+        .workspace_members
+        .change(&WorkspaceMember {
+            workspace_id: workspace,
+            person_id: other,
+            role: WorkspaceRole::Reader,
+            author: Author::System,
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        call(&e, false, "GET", &list, Value::Null, &e.other_cookie)
+            .await
+            .0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        call(
+            &e,
+            false,
+            "PUT",
+            &settings,
+            json!({
+                "assignment_limit": null,
+                "assignment_timeout_minutes": 1440,
+            }),
+            &e.cookie
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+}
+
+#[tokio::test]
+async fn mail_assignment_links_check_visibility_and_person_answers_close_escalations() {
+    use pagis_mail::fake::MemoryWorkspaceMailHost;
+    let host = std::sync::Arc::new(MemoryWorkspaceMailHost::default());
+    let e = Embedder::with_workspace_mail(host.clone()).await;
+    let (workspace, owner, agent) = team(&e).await;
+    let connection = ConnectionId::generate();
+    e.stores
+        .connections
+        .create(&Connection {
+            id: connection.clone(),
+            workspace_id: e.routers.state.org_workspace_id.clone(),
+            provider: "embedder-mail".into(),
+            alias: "mail".into(),
+            display_name: "Mail".into(),
+            status: Connection::CONNECTED.into(),
+            authorized_capabilities: vec![],
+            config: json!({
+                "domain": "example.com",
+                "capabilities": {
+                    "idle": false,
+                    "outgoing_cap": true,
+                    "delete_mailbox": true,
+                    "reset_password": true,
+                },
+            }),
+            created_at: 0,
+        })
+        .await
+        .unwrap();
+    let prefix = format!("/api/v1/workspaces/{workspace}/workspace");
+    assert_eq!(
+        call(
+            &e,
+            false,
+            "POST",
+            &format!("{prefix}/mailbox"),
+            json!({
+                "connection_id": connection,
+                "local_part": "support",
+            }),
+            &e.cookie
+        )
+        .await
+        .0,
+        StatusCode::CREATED
+    );
+    let other = e
+        .stores
+        .workspaces
+        .get(&e.other_workspace)
+        .await
+        .unwrap()
+        .unwrap()
+        .user_id
+        .unwrap();
+    e.stores
+        .workspace_members
+        .add(&WorkspaceMember {
+            workspace_id: workspace.clone(),
+            person_id: other,
+            role: WorkspaceRole::Responder,
+            author: Author::System,
+        })
+        .await
+        .unwrap();
+    let chief = e.agent(&e.workspace, "Chief").await;
+    e.stores
+        .workspaces
+        .set_chief_of_staff(&e.workspace, Some(&chief.id))
+        .await
+        .unwrap();
+    let mail = host.store(&workspace).unwrap().deliver(
+        "sender@example.com",
+        "Request",
+        "Private mail text.",
+    );
+    let mut store = e
+        .routers
+        .state
+        .mailbox_desk
+        .open_workspace(&workspace)
+        .await
+        .unwrap();
+    let message = store.message(&mail).await.unwrap();
+    store.close().await.unwrap();
+    let rows = e
+        .routers
+        .state
+        .assignments
+        .assign(
+            &workspace,
+            &agent,
+            None,
+            message.message.summary.assessment_key(),
+            mail.as_str(),
+            &[owner],
+            MailAssignmentRole::Decide,
+            "Decide on the request.",
+        )
+        .await
+        .unwrap();
+    let row = &rows[0];
+    for level in [MailVisibility::Escalations, MailVisibility::AgentOnly] {
+        e.stores
+            .workspace_mailboxes
+            .set_visibility(&workspace, level)
+            .await
+            .unwrap();
+        assert_eq!(
+            call(
+                &e,
+                false,
+                "GET",
+                &format!("{prefix}/mail/messages/{mail}"),
+                Value::Null,
+                &e.cookie
+            )
+            .await
+            .0,
+            if level == MailVisibility::Escalations {
+                StatusCode::OK
+            } else {
+                StatusCode::NOT_FOUND
+            }
+        );
+        assert_eq!(
+            call(
+                &e,
+                false,
+                "GET",
+                &format!("{prefix}/mail/messages/{mail}"),
+                Value::Null,
+                &e.other_cookie
+            )
+            .await
+            .0,
+            StatusCode::NOT_FOUND
+        );
+    }
+    let path = format!("/api/v1/conversations/{}/messages", row.channel_id);
+    let (status, history) = call(&e, false, "GET", &path, Value::Null, &e.cookie).await;
+    assert_eq!(status, StatusCode::OK, "{history}");
+    assert!(!history.to_string().contains("Private mail text."));
+    assert!(history.to_string().contains("Decide on the request."));
+    e.routers
+        .state
+        .assignments
+        .update_by_chief(
+            &e.workspace,
+            &chief.id,
+            &row.id,
+            MailAssignmentState::Escalated,
+            "Please decide.",
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        e.routers
+            .state
+            .needs_you
+            .derive(&e.workspace, now_ms())
+            .await
+            .unwrap()
+            .items
+            .iter()
+            .filter(|i| i.kind() == "assignment")
+            .count(),
+        1
+    );
+    assert_eq!(
+        call(
+            &e,
+            false,
+            "POST",
+            &path,
+            json!({
+                "pending_id": "assignment-answer",
+                "text": "Approved.",
+            }),
+            &e.cookie
+        )
+        .await
+        .0,
+        StatusCode::CREATED
+    );
+    assert_eq!(
+        e.stores
+            .mail_assignments
+            .find(&row.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .state,
+        MailAssignmentState::Handled
+    );
+}

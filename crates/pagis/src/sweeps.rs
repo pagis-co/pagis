@@ -15,6 +15,8 @@ use tokio_util::sync::CancellationToken;
 
 /// The dependencies of the daemon's sweep loop.
 pub struct Sweeps {
+    pub assignments: Arc<pagis_core::MailAssignments>,
+    pub clock: Arc<dyn pagis_core::Clock>,
     pub workspaces: Arc<dyn WorkspaceStore>,
     pub bus: Arc<dyn EventBus>,
     pub mail: Arc<pagis_mail::MailCollector>,
@@ -41,6 +43,7 @@ type Jobs = FuturesUnordered<BoxFuture<'static, Key>>;
 impl Sweeps {
     /// Run one pass. A failed Workspace does not stop another Workspace.
     pub async fn pass(self: &Arc<Self>) -> Result<(), StoreError> {
+        self.assignments.sweep(self.clock.now_ms()).await?;
         let mut jobs = Jobs::new();
         for workspace in self.workspaces.list().await? {
             for job in [Job::Mail, Job::MailPoll, Job::Publish, Job::Reauth] {
@@ -138,7 +141,12 @@ impl Sweeps {
                             sweeps.enqueue((event.workspace_id, job), &mut jobs, &mut running);
                         }
                     }
-                    _ = mail.tick() => sweeps.enqueue_pass(&[Job::Mail], &mut jobs, &mut running).await,
+                    _ = mail.tick() => {
+                        if let Err(error) = sweeps.assignments.sweep(sweeps.clock.now_ms()).await {
+                            tracing::warn!(%error, "Mail Assignment sweep failed");
+                        }
+                        sweeps.enqueue_pass(&[Job::Mail], &mut jobs, &mut running).await;
+                    },
                     _ = mail_polls.tick() => sweeps.enqueue_pass(&[Job::MailPoll], &mut jobs, &mut running).await,
                     _ = collectors.tick() => sweeps.enqueue_pass(&[Job::Publish, Job::Reauth], &mut jobs, &mut running).await,
                 }

@@ -405,6 +405,7 @@ async fn snapshots_are_stable_frozen_and_sorted(pool: SqlitePool) {
         [
             "host_shell",
             "computer_shell",
+            "assignment_update",
             "colleagues_list",
             "message_colleagues",
             "send_message",
@@ -455,7 +456,7 @@ async fn snapshots_are_stable_frozen_and_sorted(pool: SqlitePool) {
         .await
         .unwrap();
 
-    assert_eq!(before.tools.len(), 32, "the first snapshot stays frozen");
+    assert_eq!(before.tools.len(), 33, "the first snapshot stays frozen");
     assert_eq!(after.tools.last().unwrap().name, "google__calendar_events");
 
     let third_channel = channel(&harness.workspace.id);

@@ -1,3 +1,4 @@
+import { ConversationAssignment } from '../mail/MailAssignments'
 import { useEffect, useRef, useState } from 'react'
 import type { ApiClient } from '../../api/client'
 import { randomId } from '../../ids'
@@ -62,6 +63,7 @@ export function WorkspaceConversation({
   return (
     <section className="people-page workspace-conversation">
       <h1>Conversation</h1>
+      <ConversationAssignment api={api} conversationId={conversationId} personId={person?.id} />
       {messages.isPending && <p>Loading messages…</p>}
       {targetMessageId && !found && !messages.isPending && !messages.hasNextPage && <p role="status">This message is unavailable.</p>}
       {messages.isError && <p role="alert">Cannot load messages.</p>}

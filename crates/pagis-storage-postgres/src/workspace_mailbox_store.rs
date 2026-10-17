@@ -90,6 +90,16 @@ impl WorkspaceMailboxRecordStore for PostgresWorkspaceMailboxStore {
         triage: &pagis_core::MailTriage,
     ) -> Result<(), StoreError> {
         triage.validate()?;
+        if triage.outcome == pagis_core::MailTriageOutcome::Assigned && triage.assignee.is_none() {
+            let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM mail_assignments WHERE workspace_id = $1 AND message_key = $2")
+                .bind(workspace.as_str()).bind(message).fetch_one(&self.pool).await.map_err(db_err)?;
+            if count == 0 {
+                return Err(StoreError::Conflict(
+                    "Assigned mail needs an Agent or Mail Assignments.".into(),
+                ));
+            }
+        }
+
         sqlx::query("INSERT INTO workspace_mail_triage (workspace_id, message_id, record) VALUES ($1, $2, $3) ON CONFLICT (workspace_id, message_id) DO UPDATE SET record = excluded.record")
             .bind(workspace.as_str()).bind(message).bind(serde_json::to_string(triage).map_err(|e| StoreError::Corrupt(e.to_string()))?).execute(&self.pool).await.map_err(db_err)?;
         Ok(())
@@ -104,6 +114,8 @@ impl WorkspaceMailboxRecordStore for PostgresWorkspaceMailboxStore {
         let mut transaction = self.pool.begin().await.map_err(db_err)?;
         sqlx::query("UPDATE workspace_mail_triage SET message_id = $3, record = jsonb_set(record::jsonb, '{message_id}', to_jsonb($4::text))::text WHERE workspace_id = $1 AND message_id = $2").bind(workspace.as_str()).bind(old_key).bind(new_key).bind(message_id).execute(&mut *transaction).await.map_err(db_err)?;
         sqlx::query("UPDATE workspace_mail_pending_triage SET message_key = $3, host_id = $4 WHERE workspace_id = $1 AND message_key = $2")
+            .bind(workspace.as_str()).bind(old_key).bind(new_key).bind(message_id).execute(&mut *transaction).await.map_err(db_err)?;
+        sqlx::query("UPDATE mail_assignments SET message_key = $3, record = jsonb_set(jsonb_set(record::jsonb, '{message_key}', to_jsonb($3::text)), '{message_id}', to_jsonb($4::text))::text WHERE workspace_id = $1 AND message_key = $2")
             .bind(workspace.as_str()).bind(old_key).bind(new_key).bind(message_id).execute(&mut *transaction).await.map_err(db_err)?;
         transaction.commit().await.map_err(db_err)?;
         Ok(())

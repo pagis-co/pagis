@@ -119,6 +119,11 @@ impl ActorHost {
             Arc::new(object_store::memory::InMemory::new());
         let runtime = Arc::new(CoreToolRuntime::new(ToolRuntimeDeps {
             workspace_members: self.stores.workspace_members.clone(),
+            assignments: Arc::new(pagis_core::MailAssignments::new(
+                self.stores.clone(),
+                self.bus.clone(),
+                clock.clone(),
+            )),
             users: self.stores.users.clone(),
             orgs: self.stores.orgs.clone(),
             files: self.stores.files.clone(),
@@ -171,6 +176,7 @@ impl ActorHost {
             Arc::new(MemorySecretStore::default()),
         ));
         AgentDeps {
+            mail_assignments: self.stores.mail_assignments.clone(),
             disclosure: self.stores.disclosure.clone(),
             person_activity: Arc::new(pagis_needs_you::PersonActivity::new()),
             run_journal: self.stores.run_journal.clone(),

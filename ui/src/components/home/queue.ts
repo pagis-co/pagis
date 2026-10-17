@@ -32,6 +32,7 @@ export function queueDetail(item: QueueItem, now: number = Date.now()): string |
       return failureKindText(item.failure_kind)
     case 'approval':
     case 'waiting':
+    case 'assignment':
     case 'mail':
       return null
   }

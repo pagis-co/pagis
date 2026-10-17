@@ -651,8 +651,14 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         stores.coding_sessions.clone(),
         Arc::clone(&grants) as _,
     ));
+    let assignments = Arc::new(pagis_core::MailAssignments::new(
+        stores.clone(),
+        bus.clone(),
+        options.clock.clone(),
+    ));
     let tool_runtime = Arc::new(CoreToolRuntime::new(ToolRuntimeDeps {
         workspace_members: stores.workspace_members.clone(),
+        assignments: assignments.clone(),
         users: stores.users.clone(),
         orgs: stores.orgs.clone(),
         files: stores.files.clone(),
@@ -971,6 +977,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
         users: stores.users.clone(),
         grants: stores.grants.clone(),
         workspaces: stores.workspaces.clone(),
+        assignments: assignments.clone(),
         workspace: mailbox_desk.clone(),
         mailboxes: Arc::clone(&mailbox_desk) as _,
         records: Arc::clone(&mailbox_store) as _,
@@ -1332,6 +1339,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     )));
     let person_activity = Arc::new(pagis_needs_you::PersonActivity::new());
     let agents = AgentSystem::start(AgentDeps {
+        mail_assignments: stores.mail_assignments.clone(),
         disclosure: stores.disclosure.clone(),
         person_activity: person_activity.clone(),
         run_journal: stores.run_journal.clone(),
@@ -1511,6 +1519,8 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     ));
     mail_triage.spawn(bus.clone(), options.cancel.clone()).await;
     Arc::new(crate::sweeps::Sweeps {
+        assignments: assignments.clone(),
+        clock: options.clock.clone(),
         workspaces: Arc::clone(&workspaces) as _,
         bus: Arc::clone(&bus),
         mail: mail_collector,
@@ -1559,6 +1569,7 @@ pub async fn app(booted: &Booted, mut options: AppOptions) -> anyhow::Result<Int
     };
 
     let state = AppState {
+        assignments: assignments.clone(),
         disclosure: stores.disclosure.clone(),
         governance: stores.governance.clone(),
         audit: stores.audit.clone(),

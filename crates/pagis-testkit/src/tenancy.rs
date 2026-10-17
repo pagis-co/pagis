@@ -950,6 +950,39 @@ async fn seed_a(
     mailboxes.create(&mailbox).await.expect("write A's mailbox");
     owned.insert("mailbox", mailbox.address.clone());
 
+    // A Mail Assignment belongs to a Shared Workspace and names A as its
+    // assignee.
+    let shared = Workspace {
+        kind: pagis_core::WorkspaceKind::Shared,
+        user_id: None,
+        ..fixture::workspace()
+    };
+    stores.workspaces.create(&shared).await.unwrap();
+    let assignment = pagis_core::MailAssignment {
+        id: pagis_core::MailAssignmentId::generate(),
+        workspace_id: shared.id.clone(),
+        message_key: "INBOX:1".into(),
+        message_id: "<a@example.com>".into(),
+        assignee: daemon.user_id.clone(),
+        private_workspace_id: workspace_id.clone(),
+        role: pagis_core::MailAssignmentRole::Decide,
+        state: pagis_core::MailAssignmentState::Assigned,
+        assigning_agent_id: agent_id.clone(),
+        assigning_run_id: None,
+        channel_id: pagis_core::ChannelId::generate(),
+        summary: "A's assignment".into(),
+        note: String::new(),
+        due_at: now + 3_600_000,
+        created_at: now,
+        changed_at: now,
+    };
+    stores
+        .mail_assignments
+        .create_batch(&shared.id, std::slice::from_ref(&assignment))
+        .await
+        .expect("write A's mail assignment");
+    owned.insert("assignment_id", assignment.id.to_string());
+
     // The Forget operation has no store method that writes one without
     // a memory preview, so the row goes in directly. It is A's row and
     // that is all the harness needs of it.

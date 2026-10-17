@@ -62,6 +62,7 @@ pub struct MailToolDeps {
     pub users: Arc<dyn pagis_core::UserStore>,
     pub grants: Arc<dyn pagis_core::GrantStore>,
     pub workspaces: Arc<dyn pagis_core::WorkspaceStore>,
+    pub assignments: Arc<pagis_core::MailAssignments>,
     pub workspace: Arc<crate::MailboxDesk>,
     /// The host opens mail without exposing its credentials.
     pub mailboxes: Arc<dyn Mailboxes>,

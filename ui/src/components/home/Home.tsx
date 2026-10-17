@@ -1,3 +1,4 @@
+import { AssignmentFeed } from '../mail/MailAssignments'
 import { useCurrentWorkspaceId } from '../../workspace'
 import { SharedRequest } from './SharedRequest'
 // `/`: Home, the Report of the Chief of Staff (ADR-0022).
@@ -184,6 +185,7 @@ export function Home({
    *  clears the failed-attempt count of the Workspace (ADR-0021). A
    *  missed call or a failure the reader acts on leaves the queue. */
   const openItem = (item: QueueItem) => {
+    if (item.kind === 'assignment') { window.location.assign(item.url); return }
     if (item.kind === 'mail') return onOpenMail(item.message_id)
     if (item.kind === 'approval') return
     if (item.kind === 'keypad') return clearKeypad.mutate()
@@ -302,6 +304,7 @@ export function Home({
           <h3>Work record</h3>
           <span className="home-section-note">Today and before</span>
         </div>
+        <AssignmentFeed api={api} />
         {completed.isError ? (
           <PageState icon={Clock3} title="Could not load the work record" onRetry={() => { void completed.refetch() }} />
         ) : completed.isPending ? (

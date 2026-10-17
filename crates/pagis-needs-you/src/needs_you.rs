@@ -106,12 +106,24 @@ pub struct NeedsYouMail {
     pub message_id: String,
 }
 
+/// A Mail Assignment that the Chief of Staff puts in its Person's queue.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct NeedsYouAssignment {
+    pub id: String,
+    pub line: String,
+    pub url: String,
+    pub at: i64,
+    pub assignment_id: String,
+    pub channel_id: String,
+}
+
 /// One item of the Needs-You Queue. The variants are in the order of
 /// the queue: a decision first, then a question, then the keypad delay,
 /// then a missed Call, then a failure.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum NeedsYouItem {
+    Assignment(NeedsYouAssignment),
     Approval(NeedsYouApproval),
     Waiting(NeedsYouWaiting),
     Keypad(NeedsYouKeypad),
@@ -138,6 +150,7 @@ impl NeedsYouItem {
             Self::Call(_) => 3,
             Self::Failed(_) => 4,
             Self::Mail(_) => 5,
+            Self::Assignment(_) => 1,
         }
     }
 
@@ -150,6 +163,7 @@ impl NeedsYouItem {
             Self::Call(item) => &item.id,
             Self::Failed(item) => &item.id,
             Self::Mail(item) => &item.id,
+            Self::Assignment(item) => &item.id,
         }
     }
 
@@ -162,6 +176,7 @@ impl NeedsYouItem {
             Self::Call(_) => "call",
             Self::Failed(_) => "failed",
             Self::Mail(_) => "mail",
+            Self::Assignment(_) => "assignment",
         }
     }
 
@@ -170,7 +185,7 @@ impl NeedsYouItem {
         match self {
             Self::Approval(item) => Some(&item.agent_id),
             Self::Waiting(item) => Some(&item.agent_id),
-            Self::Keypad(_) | Self::Mail(_) => None,
+            Self::Keypad(_) | Self::Mail(_) | Self::Assignment(_) => None,
             Self::Call(item) => Some(&item.agent_id),
             Self::Failed(item) => Some(&item.agent_id),
         }
@@ -185,6 +200,7 @@ impl NeedsYouItem {
             Self::Call(item) => &item.line,
             Self::Failed(item) => &item.line,
             Self::Mail(item) => &item.line,
+            Self::Assignment(item) => &item.line,
         }
     }
 
@@ -197,6 +213,7 @@ impl NeedsYouItem {
             Self::Call(item) => &item.url,
             Self::Failed(item) => &item.url,
             Self::Mail(item) => &item.url,
+            Self::Assignment(item) => &item.url,
         }
     }
 
@@ -208,6 +225,7 @@ impl NeedsYouItem {
             Self::Call(item) => item.at,
             Self::Failed(item) => item.at,
             Self::Mail(item) => item.at,
+            Self::Assignment(item) => item.at,
         }
     }
 }
@@ -218,6 +236,7 @@ const PAGE: u32 = 100;
 /// The reader of the Needs-You Queue. It holds the stores of every
 /// source and derives the queue of one Workspace on each call.
 pub struct NeedsYou {
+    assignments: Arc<dyn pagis_core::MailAssignmentStore>,
     mailboxes: Arc<dyn pagis_core::WorkspaceMailboxRecordStore>,
     triggers: Arc<dyn pagis_core::TriggerStore>,
     requests: Arc<dyn RequestStore>,
@@ -232,6 +251,7 @@ pub struct NeedsYou {
 impl NeedsYou {
     pub fn new(stores: &Stores) -> Self {
         Self {
+            assignments: stores.mail_assignments.clone(),
             mailboxes: stores.workspace_mailboxes.clone(),
             triggers: stores.triggers.clone(),
             requests: Arc::clone(&stores.requests),
@@ -255,6 +275,27 @@ impl NeedsYou {
             && workspace.kind == pagis_core::WorkspaceKind::Private
             && let Some(person) = workspace.user_id
         {
+            for assignment in self.assignments.for_person(&person, PAGE).await? {
+                if assignment.state != pagis_core::MailAssignmentState::Escalated
+                    || self
+                        .workspace_members
+                        .get(&assignment.workspace_id, &person)
+                        .await?
+                        .is_none()
+                {
+                    continue;
+                }
+                result
+                    .items
+                    .push(NeedsYouItem::Assignment(NeedsYouAssignment {
+                        id: format!("assignment:{}", assignment.id),
+                        line: assignment.note,
+                        url: format!("/conversations/{}", assignment.channel_id),
+                        at: assignment.changed_at,
+                        assignment_id: assignment.id.to_string(),
+                        channel_id: assignment.channel_id.to_string(),
+                    }));
+            }
             for shared in self.workspaces.list().await? {
                 if shared.kind != pagis_core::WorkspaceKind::Shared {
                     continue;
@@ -672,11 +713,12 @@ pub const NEEDS_YOU_REMOVED: &str = "needs_you.removed";
 /// every other event, and so it ignores its own `needs_you.*` events.
 /// A cancel or a recovery expires the pending Requests of a Run, and a
 /// `run.state_changed` follows.
-pub(crate) const QUEUE_EVENTS: [&str; 13] = [
+pub(crate) const QUEUE_EVENTS: [&str; 14] = [
     "workspace.member_added",
     "workspace.member_changed",
     "workspace.member_removed",
     "workspace_mail.triaged",
+    "assignment.changed",
     "request.created",
     "request.decided",
     "request.superseded",

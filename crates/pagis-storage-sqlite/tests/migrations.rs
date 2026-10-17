@@ -45,6 +45,8 @@ const TABLES: &[&str] = &[
     "knowledge_generations",
     "knowledge_invalidations",
     "mail_assessments",
+    "mail_assignment_settings",
+    "mail_assignments",
     "memory_brief_cursors",
     "memory_page_index",
     "memory_page_index_heads",
