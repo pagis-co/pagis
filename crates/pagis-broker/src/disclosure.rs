@@ -16,7 +16,7 @@ fn category(entry: &SnapshotTool) -> Option<DisclosureCategory> {
         } => None,
         ToolRoute::Calendar { .. }
         | ToolRoute::Core {
-            tool: CoreTool::CalendarRead,
+            tool: CoreTool::CalendarRead | CoreTool::CalendarListEvents,
         } => Some(DisclosureCategory::CalendarDetails),
         ToolRoute::Core {
             tool:
@@ -179,7 +179,7 @@ mod tests {
                         | CoreTool::MessageColleagues,
                 } => None,
                 ToolRoute::Core {
-                    tool: CoreTool::CalendarRead,
+                    tool: CoreTool::CalendarRead | CoreTool::CalendarListEvents,
                 } => Some(DisclosureCategory::CalendarDetails),
                 ToolRoute::Core {
                     tool:

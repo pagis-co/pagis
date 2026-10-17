@@ -2863,3 +2863,96 @@ async fn colleague_messages_wait_for_permission_and_check_the_live_grant(pool: S
     ));
     assert_eq!(h.executor.calls.lock().unwrap().len(), 1);
 }
+
+#[sqlx::test(migrations = "../pagis-storage-sqlite/migrations")]
+async fn the_calendar_range_read_requires_a_live_calendar_grant(pool: SqlitePool) {
+    let h = harness(pool).await;
+    let before = h
+        .broker
+        .prepare_run(&h.workspace.id, &h.agent.id, &h.run.id)
+        .await
+        .unwrap();
+    let names = |tools: &[pagis_broker::ToolDef]| {
+        tools
+            .iter()
+            .filter(|tool| tool.name.starts_with("calendar_"))
+            .map(|tool| tool.name.clone())
+            .collect::<Vec<_>>()
+    };
+    // Free/Busy and the one-Event read need no Grant.
+    assert_eq!(
+        names(&before.tools),
+        ["calendar_free_busy", "calendar_read"]
+    );
+    let grant = Grant {
+        id: GrantId::generate(),
+        workspace_id: h.workspace.id.clone(),
+        agent_id: h.agent.id.clone(),
+        resource_kind: Grant::CALENDAR_KIND.into(),
+        resource_id: Some(h.workspace.id.to_string()),
+        scope: serde_json::json!({}),
+        revision: 1,
+        created_by: pagis_core::Author::System,
+        created_at: now_ms(),
+        revoked_at: None,
+    };
+    let grants = SqliteGrantStore::new(h.pool.clone());
+    grants.create(&grant).await.unwrap();
+    let run = Run {
+        id: RunId::generate(),
+        ..h.run.clone()
+    };
+    SqliteRunStore::new(h.pool.clone())
+        .create(&run)
+        .await
+        .unwrap();
+    let snapshot = h
+        .broker
+        .prepare_run(&h.workspace.id, &h.agent.id, &run.id)
+        .await
+        .unwrap();
+    for name in [
+        "calendar_free_busy",
+        "calendar_read",
+        "calendar_list_events",
+    ] {
+        assert!(
+            snapshot.tools.iter().any(|tool| tool.name == name),
+            "{name}"
+        );
+    }
+    let arguments = r#"{"from":"2026-03-09T00:00:00Z","to":"2026-03-10T00:00:00Z"}"#;
+    let allowed = h
+        .broker
+        .invoke(
+            &h.workspace.id,
+            &run.id,
+            &snapshot.id,
+            pagis_broker::ToolCall::new("calendar_list_events", arguments),
+        )
+        .await
+        .unwrap();
+    assert!(matches!(allowed, pagis_broker::InvokeOutcome::Completed(_)));
+    assert_eq!(h.executor.calls.lock().unwrap().len(), 1);
+    grants
+        .revoke(&h.workspace.id, &grant.id, now_ms())
+        .await
+        .unwrap();
+    for (name, arguments) in [("calendar_list_events", arguments)] {
+        let result = h
+            .broker
+            .invoke(
+                &h.workspace.id,
+                &run.id,
+                &snapshot.id,
+                pagis_broker::ToolCall::new(name, arguments),
+            )
+            .await
+            .unwrap();
+        assert!(
+            matches!(result, pagis_broker::InvokeOutcome::Rejected(ref result) if result.code.as_deref() == Some("permission_revoked")),
+            "{name}: {result:?}"
+        );
+    }
+    assert_eq!(h.executor.calls.lock().unwrap().len(), 1);
+}

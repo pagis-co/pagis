@@ -184,3 +184,47 @@ it('keeps a received invitation read-only when an Agent is its author', async ()
   expect(await screen.findByRole('button', { name: 'Accept' })).toBeTruthy()
   expect(screen.queryByRole('button', { name: 'Save event' })).toBeNull()
 })
+
+for (const readOnly of [false, true]) {
+  it(`shows the Agent author in the ${readOnly ? 'view' : 'editor'}`, async () => {
+    const GET = vi.fn(async (path: string) => {
+      if (path === '/api/v1/agents') return { data: { items: [{ id: 'aria', name: 'Aria' }] } }
+      return { data: { mailbox: null } }
+    })
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <CurrentWorkspaceContext value="workspace-1">
+          <EventEditor
+            api={{ GET } as unknown as ApiClient}
+            date="2026-03-09"
+            event={{ ...event, created_by: { kind: 'agent', agent_id: 'aria' } }}
+            readOnly={readOnly}
+            onClose={() => {}}
+          />
+        </CurrentWorkspaceContext>
+      </QueryClientProvider>,
+    )
+    expect(await screen.findByText('Created by Aria')).toBeTruthy()
+  })
+}
+
+it('shows the Person author by name', async () => {
+  const GET = vi.fn(async (path: string) => {
+    if (path === '/api/v1/user') return { data: { id: 'person-1', name: 'Alex' } }
+    if (path === '/api/v1/colleagues') return { data: { items: [] } }
+    return { data: { mailbox: null } }
+  })
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <CurrentWorkspaceContext value="workspace-1">
+        <EventEditor
+          api={{ GET } as unknown as ApiClient}
+          date="2026-03-09"
+          event={{ ...event, created_by: { kind: 'person', person_id: 'person-1' } }}
+          onClose={() => {}}
+        />
+      </CurrentWorkspaceContext>
+    </QueryClientProvider>,
+  )
+  expect(await screen.findByText('Created by Alex')).toBeTruthy()
+})

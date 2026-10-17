@@ -2105,3 +2105,280 @@ async fn failed_chief_mail_run_has_one_system_needs_you_item() {
         1
     );
 }
+
+#[tokio::test]
+async fn chief_schedules_a_meeting_by_mail() {
+    use pagis_core::{Author, CalendarRange};
+
+    let app = MailboxApp::with_mailbox().await;
+    app.daemon
+        .stores()
+        .users
+        .set_email_and_password(
+            &app.daemon.user_id,
+            "person@example.com",
+            "hash",
+            pagis_core::now_ms(),
+        )
+        .await
+        .unwrap();
+    let (status, _) = app
+        .post(
+            "/api/v1/grants/calendar",
+            json!({
+                "agent_id": app.daemon.agent_id
+            }),
+        )
+        .await;
+    assert_eq!(status, 201);
+    let (status, _) = app
+        .post(
+            &format!("/api/v1/agents/{}/mailbox", app.daemon.agent_id),
+            json!({
+                "connection_id": app.connection_id,
+                "local_part": "pixie"
+            }),
+        )
+        .await;
+    assert_eq!(status, 201);
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let mailbox = app
+                .get(&format!("/api/v1/agents/{}/mailbox", app.daemon.agent_id))
+                .await;
+            if mailbox["mailbox"]["state"] == "active" {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+    app.rules(json!([{
+        "sender": "other.test",
+        "action": "agent"
+    }]))
+    .await;
+    let roster = app.get("/api/v1/agents").await;
+    let chief = roster["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|agent| agent["id"] == app.daemon.agent_id.as_str())
+        .unwrap();
+    let chief_name = chief["name"].as_str().unwrap();
+    let range = json!({
+        "from": "2026-10-20T00:00:00Z",
+        "to": "2026-10-21T00:00:00Z"
+    });
+    app.brain.push_for(
+        chief_name,
+        Script::tool_call_as("busy", &[], "calendar_free_busy", range.clone()),
+    );
+    app.brain.push_for(
+        chief_name,
+        Script::tool_call_as("events", &[], "calendar_list_events", range),
+    );
+    app.brain.push_for(chief_name, Script::tool_call_as("proposal", &[], "mail__send", json!({
+        "mailbox": "own",
+        "to": ["guest@other.test"],
+        "cc": ["person@example.com"],
+        "subject": "Meeting times",
+        "body": "Can you meet on October 20 at 09:00 or 14:00 UTC? Reply all to keep person@example.com informed."
+    })));
+    app.brain.push_for(
+        chief_name,
+        Script::reply(&["I sent two meeting times to the guest."]),
+    );
+    let approval = app.ask("meeting-times", "Arrange a meeting with guest@other.test. Propose two times on October 20. Copy my Workspace Mailbox.").await.expect("proposal Approval");
+    assert!(app.transport.sent().is_empty());
+    app.decide(approval["id"].as_str().unwrap(), "once").await;
+    app.wait_for_completed_runs(1).await;
+    let proposal = app.transport.received("guest@other.test").pop().unwrap();
+    assert_eq!(proposal.summary.from, "pixie@example.com");
+    assert_eq!(app.transport.sent()[0].cc, ["person@example.com"]);
+    let thread = proposal.summary.thread_id;
+    app.transport.deliver_answer(
+        &thread,
+        "guest@other.test",
+        "Re: Meeting times",
+        "14:00 UTC works for me.",
+    );
+    let reply = app
+        .transport
+        .summaries("INBOX")
+        .into_iter()
+        .find(|mail| mail.from == "guest@other.test")
+        .unwrap();
+    app.brain.push_for(
+        chief_name,
+        Script::tool_call_as(
+            "read-reply",
+            &[],
+            "workspace_mail_get_message",
+            json!({
+                "message_id": reply.id.to_string()
+            }),
+        ),
+    );
+    app.brain.push_for(
+        chief_name,
+        Script::tool_call_as(
+            "read-thread",
+            &[],
+            "workspace_mail_get_thread",
+            json!({
+                "thread_id": reply.thread_id
+            }),
+        ),
+    );
+    app.brain.push_for(
+        chief_name,
+        Script::tool_call_as(
+            "create-meeting",
+            &[],
+            "calendar_create_event",
+            json!({
+                "event": {
+                    "title": "Meeting with guest",
+                    "description": "The guest selected 14:00 UTC by mail.",
+                    "location": "Office",
+                    "start": "2026-10-20T14:00:00",
+                    "end": "2026-10-20T14:30:00",
+                    "timezone": "UTC",
+                    "all_day": false,
+                    "rrule": null,
+                    "exdates": [],
+                    "attendees": [{
+                        "email": "guest@other.test",
+                        "name": "Guest",
+                        "status": "needs-action"
+                    }],
+                    "reminders": [],
+                    "meeting_url": null
+                }
+            }),
+        ),
+    );
+    app.brain.push_for(
+        chief_name,
+        Script::tool_call_as(
+            "record-outcome",
+            &[],
+            "workspace_mail_triage",
+            json!({
+                "message_id": reply.id.to_string(),
+                "outcome": "handled",
+                "note": "The meeting is in the Calendar at 14:00 UTC. The invitation is sent."
+            }),
+        ),
+    );
+    app.brain.push_for(
+        chief_name,
+        Script::reply(&[
+            "Your meeting with the guest is on October 20 at 14:00 UTC. The invitation is sent.",
+        ]),
+    );
+    app.triage_poll().await;
+    let approval = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let page = app.get("/api/v1/requests?state=pending").await;
+            if let Some(card) = page["items"].as_array().and_then(|items| items.first()) {
+                break card.clone();
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("invitation Approval");
+    assert_eq!(
+        approval["payload"]["arguments"]["from"],
+        "person@example.com"
+    );
+    assert_eq!(
+        approval["payload"]["arguments"]["to"],
+        json!(["guest@other.test"])
+    );
+    app.decide(approval["id"].as_str().unwrap(), "once").await;
+    let handled = app.wait_triage(reply.id.as_str()).await;
+    assert_eq!(handled["triage"]["outcome"], "handled");
+    assert_eq!(handled["triage"]["author"]["kind"], "agent");
+    assert!(
+        handled["triage"]["note"]
+            .as_str()
+            .unwrap()
+            .contains("14:00 UTC")
+    );
+    let range = CalendarRange::parse("2026-10-20T00:00:00Z", "2026-10-21T00:00:00Z").unwrap();
+    let events = app
+        .daemon
+        .stores()
+        .calendar
+        .list(&app.daemon.workspace_id, range.from(), range.to())
+        .await
+        .unwrap();
+    assert_eq!(events.len(), 1);
+    assert_eq!(
+        events[0].event.created_by,
+        Author::Agent(app.daemon.agent_id.clone().into())
+    );
+    assert_eq!(events[0].event.data.start, "2026-10-20T14:00:00");
+    let received = app.transport.received("guest@other.test");
+    assert_eq!(received.len(), 2);
+    assert_eq!(
+        reply.in_reply_to.as_deref(),
+        Some(proposal.summary.message_id.as_str())
+    );
+    assert!(received[0].text.contains("09:00 or 14:00 UTC"));
+    assert_eq!(received[1].summary.from, "person@example.com");
+    let sent = app.transport.sent();
+    let request = String::from_utf8_lossy(&sent[1].attachments[0].data);
+    assert!(request.contains("METHOD:REQUEST"));
+    assert!(request.contains("ORGANIZER:mailto:person@example.com"));
+    assert!(request.contains("ATTENDEE;"));
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let messages = app
+                .get(&format!(
+                    "/api/v1/channels/{}/messages",
+                    app.daemon.dm_channel_id
+                ))
+                .await;
+            if messages
+                .to_string()
+                .contains("Your meeting with the guest is on October 20 at 14:00 UTC.")
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the Chief of Staff reports in its DM Channel");
+    let requests = app.brain.requests();
+    for (call, text) in [
+        ("busy", "[]"),
+        ("events", "[]"),
+        ("read-reply", "14:00 UTC works for me."),
+        ("read-thread", "14:00 UTC works for me."),
+    ] {
+        assert!(
+            requests
+                .iter()
+                .flat_map(|request| &request.messages)
+                .any(|message| {
+                    message.tool_call_id.as_deref() == Some(call) && message.text.contains(text)
+                }),
+            "{call} returns its result to the Chief of Staff"
+        );
+    }
+    let briefing = requests
+        .iter()
+        .find(|request| {
+            request
+                .system
+                .contains("from: guest@other.test | subject: Re: Meeting times")
+        })
+        .expect("the Mail Triage Wake-up has a Briefing");
+    assert!(briefing.system.contains("trust_tier: unknown"));
+}

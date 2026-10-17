@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import type { ApiClient } from '../../api/client'
 import { Button, Combobox, Input, Select, Textarea } from '../../primitives'
+import { EventAuthor } from './EventAuthor'
 import { InvitationActions } from './InvitationActions'
 import { FreeBusy } from './FreeBusy'
 import { errorMessage, useWorkspaceMailbox } from '../../queries'
@@ -137,6 +138,7 @@ export function EventEditor({ api, date, event, occurrenceStart, readOnly = fals
   if (event && (readOnly || (event.data.invitation && event.data.invitation.organizer.toLowerCase() !== mailbox.data?.mailbox?.address.toLowerCase()))) {
     return <section className="calendar-editor" aria-label="Invitation details">
       <h3>{event.data.title}</h3>
+      <EventAuthor api={api} author={event.created_by} />
       {workspaceName && <p>{workspaceName}</p>}
       <p>{event.data.start} – {event.data.end} ({event.data.timezone})</p>
       <p>{event.data.location}</p>
@@ -152,6 +154,7 @@ export function EventEditor({ api, date, event, occurrenceStart, readOnly = fals
       aria-label="Event editor"
       onSubmit={submit}
     >
+      {event && <EventAuthor api={api} author={event.created_by} />}
       {event?.data.invitation && <InvitationActions api={api} event={event} memberInvitation={memberInvitation} />}
       {event?.data.rrule && <p>
         Changes apply to the complete series.

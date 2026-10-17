@@ -240,6 +240,7 @@ pub enum CoreTool {
     FileRead,
     CalendarFreeBusy,
     CalendarRead,
+    CalendarListEvents,
     HostShell,
     /// One command in the agent's own Computer. It needs no
     /// grant: the container is the sandbox (ADR-0014).
@@ -1643,6 +1644,17 @@ impl Broker {
                             })
                             .map(GrantBinding::from)
                             .collect(),
+                        ToolRoute::Calendar { .. }
+                        | ToolRoute::Core {
+                            tool: CoreTool::CalendarListEvents,
+                        } => grants
+                            .iter()
+                            .filter(|grant| {
+                                grant.resource_kind == Grant::CALENDAR_KIND
+                                    && grant.resource_id.as_deref() == Some(workspace_id.as_str())
+                            })
+                            .map(GrantBinding::from)
+                            .collect(),
                         // A Software tool holds no grant: it runs in
                         // the agent's own Computer, which is the
                         // sandbox (ADR-0014).
@@ -1654,14 +1666,6 @@ impl Broker {
                         // Agent's own identity. One of the Person's
                         // accounts is a Connection, and it needs the
                         // capability that tool acts with (ADR-0019).
-                        ToolRoute::Calendar { .. } => grants
-                            .iter()
-                            .filter(|grant| {
-                                grant.resource_kind == Grant::CALENDAR_KIND
-                                    && grant.resource_id.as_deref() == Some(workspace_id.as_str())
-                            })
-                            .map(GrantBinding::from)
-                            .collect(),
                         ToolRoute::WorkspaceMailbox { .. } => grants
                             .iter()
                             .filter(|grant| {
@@ -1707,6 +1711,9 @@ impl Broker {
                             | ToolRoute::Plugin { .. }
                             | ToolRoute::WorkspaceMailbox { .. }
                             | ToolRoute::Calendar { .. }
+                            | ToolRoute::Core {
+                                tool: CoreTool::CalendarListEvents,
+                            }
                             | ToolRoute::Core {
                                 tool: CoreTool::PhoneCall
                             }
@@ -2791,7 +2798,13 @@ impl Broker {
                 },
             );
         }
-        if matches!(context.entry.manifest.route, ToolRoute::Calendar { .. }) {
+        if matches!(
+            context.entry.manifest.route,
+            ToolRoute::Calendar { .. }
+                | ToolRoute::Core {
+                    tool: CoreTool::CalendarListEvents,
+                }
+        ) {
             let live = self
                 .deps
                 .grants
@@ -4334,7 +4347,9 @@ fn validate_core_arguments(
     };
     let valid = match tool {
         CoreTool::FileRead => required_text("file_id"),
-        CoreTool::CalendarFreeBusy => required_text("from") && required_text("to"),
+        CoreTool::CalendarFreeBusy | CoreTool::CalendarListEvents => {
+            required_text("from") && required_text("to")
+        }
         CoreTool::CalendarRead => required_text("event_id"),
         CoreTool::HostShell | CoreTool::ComputerShell => required_text("command"),
         CoreTool::SendMessage => required_text("to") && required_text("text"),
@@ -5132,6 +5147,27 @@ fn core_manifest() -> CapabilityManifest {
                 "Read your Workspace's free and busy times. Returns intervals only, with no Event details.",
                 serde_json::json!({"type":"object", "properties":{"from":{"type":"string"},"to":{"type":"string"}},"required":["from","to"]}),
                 CoreTool::CalendarFreeBusy,
+                EffectClass::Free,
+                None,
+            ),
+            core(
+                "calendar_list_events",
+                "Read Events in your Workspace Calendar that overlap [from, to). Returns at most 1000 occurrences. A colleague request needs disclosure permission.",
+                serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "from": {
+                            "type": "string",
+                            "description": "RFC 3339 range start."
+                        },
+                        "to": {
+                            "type": "string",
+                            "description": "RFC 3339 exclusive range end."
+                        }
+                    },
+                    "required": ["from", "to"]
+                }),
+                CoreTool::CalendarListEvents,
                 EffectClass::Free,
                 None,
             ),

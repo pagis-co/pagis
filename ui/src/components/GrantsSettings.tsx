@@ -116,7 +116,7 @@ function GrantRulesRow({
         </Button>
       </div>
       {grant.is_default && <p className="settings-hint">Default for the Chief of Staff</p>}
-      {grant.resource_kind === 'calendar' ? <p className="settings-hint">Create and change Events and answer invitations.</p> : <>
+      {grant.resource_kind === 'calendar' ? <p className="settings-hint">Read Free/Busy and Events, create and change Events, and answer invitations.</p> : <>
       <div className="grant-rules">
         {grant.allow.length === 0 && grant.sessions.length === 0 && (
           <span className="grant-rules-empty">{ruleNames ? 'Every message needs an Approval.' : copy.empty}</span>

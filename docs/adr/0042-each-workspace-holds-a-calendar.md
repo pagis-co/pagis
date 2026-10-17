@@ -44,7 +44,9 @@ hour axis, an all-day row and timed Events placed by start and duration.
 Overlapping Events use separate columns. The week scrolls inside its own
 container at phone width. Month shows up to three Event chips in each day
 cell and opens the day from the remaining count. Its editor changes the
-complete Event or series, with recurrence presets and a custom RRULE,
+complete Event or series. The Event view and editor show “Created by”
+with the name of its Person or Agent author. The editor has recurrence
+presets and a custom RRULE,
 attendees and their participation status, reminders and an HTTPS meeting
 link. Delete this occurrence adds an EXDATE. Other changes to one occurrence
 are not built. The place works at phone width. The Mobile App shows this
@@ -154,7 +156,12 @@ does not open the Event, mail or memory that explains it.
 A Calendar Grant gives one active Agent access to the Calendar of its
 Workspace. Its resource id is the Workspace id. The Owner of a Private
 Workspace or a Manager of a Shared Workspace adds or revokes it in Grant
-settings. It has no Allow Rules. The tools are `calendar_create_event`,
+settings. It has no Allow Rules. Its read tool is `calendar_list_events`
+for occurrences that overlap a half-open range. The range read returns at
+most 1000 occurrences from the Agent's own Workspace Calendar. The
+Free/Busy tool `calendar_free_busy` and the Event read tool `calendar_read`
+need no Grant. The change tools are
+`calendar_create_event`,
 `calendar_update_event`, `calendar_delete_event` and `calendar_respond`.
 A response accepts, answers maybe or declines an invitation the Workspace
 receives. Each created or changed Event names the Agent as its author.
@@ -166,8 +173,18 @@ as a Workspace Mailbox send. The card shows the recipients and the Event
 summary. Recipient-domain Allow Rules on the Workspace Mailbox Grant
 approve a send in advance only when they cover every recipient. Revocation
 stops dispatch, including a change that waits for an Approval (ADR-0040).
-The Free/Busy tool returns intervals only. The Event read tool checks
-Disclosure Rules for a colleague Run.
+The Free/Busy tool returns intervals only. The Event and range read tools
+check Disclosure Rules for a colleague Run.
+
+The Chief of Staff schedules a meeting by mail for its Person. It reads
+Free/Busy and the Calendar range, then proposes times from its own Agent
+Mailbox with the Person in Cc. The outside person's reply reaches the
+Workspace Mailbox. Mail Triage wakes the Chief of Staff in its DM Channel.
+It reads the reply and thread under its Workspace Mailbox Grant and creates
+the Event at the selected time under its Calendar Grant. The invitation
+uses the Workspace Mailbox as ORGANIZER and needs its send Approval or
+Allow Rules. The Chief of Staff records a handled Mail Triage outcome with
+a note and reports the meeting in its DM Channel.
 
 An Event can hold a free HTTPS meeting link to a service the Person chooses.
 The store and API keep the link, and the Calendar place opens it.
