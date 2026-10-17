@@ -59,13 +59,7 @@ impl CoreToolRuntime {
                 .await
                 .map_err(unavailable)?
             {
-                colleagues.push((
-                    w.id,
-                    person
-                        .name
-                        .or(person.email)
-                        .unwrap_or_else(|| "Person".into()),
-                ));
+                colleagues.push((w.id, person.name.or(person.email).unwrap_or(w.name)));
             }
         }
         Ok((org.workspace_id, colleagues))
@@ -124,6 +118,12 @@ impl CoreToolRuntime {
             .as_str()
             .filter(|text| !text.trim().is_empty())
             .ok_or_else(|| ToolResult::error("invalid_request", "text is required"))?;
+        let mentions = recipients
+            .iter()
+            .map(|(_, name)| format!("@{name}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let text = format!("{mentions}\n\n{text}");
         let mut ids = recipients.into_iter().map(|(id, _)| id).collect::<Vec<_>>();
         ids.push(call.workspace_id.clone());
         ids.sort();
@@ -164,8 +164,8 @@ impl CoreToolRuntime {
             parent_message_id: None,
             for_person_only: false,
             status: MessageStatus::Complete,
-            blocks: vec![Block::markdown(text)],
-            text_content: text.into(),
+            blocks: vec![Block::markdown(&text)],
+            text_content: text,
             pending_id: call
                 .tool_call_id
                 .as_ref()

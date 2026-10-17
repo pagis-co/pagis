@@ -4881,6 +4881,7 @@ export interface components {
         };
         ConversationMessageRequest: {
             for_person_only?: boolean;
+            parent_message_id?: string | null;
             pending_id: string;
             text: string;
         };

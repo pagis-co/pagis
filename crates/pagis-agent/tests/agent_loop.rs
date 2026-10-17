@@ -195,6 +195,18 @@ impl MessageStore for RecordingMessages {
         self.inner.exposures(workspace_id, id).await
     }
 
+    async fn list_channel(
+        &self,
+        workspace_id: &pagis_core::WorkspaceId,
+        channel_id: &pagis_core::ChannelId,
+        before: Option<&pagis_core::MessageId>,
+        limit: u32,
+    ) -> Result<Vec<Message>, pagis_core::StoreError> {
+        self.inner
+            .list_channel(workspace_id, channel_id, before, limit)
+            .await
+    }
+
     async fn list_top_level(
         &self,
         workspace_id: &pagis_core::WorkspaceId,
@@ -9862,6 +9874,7 @@ async fn colleague_message_tool_checks_recipients_and_keeps_one_attributed_histo
     assert_eq!(message.author, Author::Agent(h.agent.id.clone()));
     assert_eq!(message.author_workspace_id.as_ref(), Some(&h.workspace.id));
     assert_eq!(message.run_id.as_ref(), Some(&run.id));
+    assert_eq!(message.text_content, "@Alice\n\nCan you attend?");
     for id in [h.workspace.id.as_str(), "unknown"] {
         let result = h
             .tool_runtime

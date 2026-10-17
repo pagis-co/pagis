@@ -75,7 +75,9 @@ Run and the live Grants for its Exposure Stamp.
 An Agent starts or continues a conversation with `message_colleagues`.
 `colleagues_list` supplies enabled colleagues and their Private Workspace ids.
 The tool uses the same conversation for the same set of Workspaces. It writes
-an Agent message with its author Workspace, Run and Exposure Stamp.
+an Agent message with its author Workspace, Run and Exposure Stamp. The tool
+adds an `@` mention for each selected recipient. The mentions are stored in
+the message text and its Markdown Block.
 
 The colleague Grant belongs to the sending Agent's Workspace. Its Allow Rules
 name recipient Workspace ids. A send needs an Approval unless every recipient
@@ -85,14 +87,36 @@ blocks a call from a snapshot that holds it.
 
 The Delegation origin crosses Workspaces with the hop count. A reply wakes
 the asking Agent, even while its Person is active. A Person's answer uses the
-last Agent request from the asking Workspace to keep that origin. A message
+parent reference to select the Agent request. An answer without a parent uses
+the last Agent request from the asking Workspace to keep that origin. A message
 from the asking Person ends that delegation. An Agent's final shared reply
 starts no new request. That Run reads the shared
 conversation and reports back in the Channel and Thread where it owes an
 answer. It sends no automatic reply to the colleague. Each Run checks its own
 Workspace's Spend Cap and records its Usage Records there.
 
-Not built: group answer rules.
+### Group messages address a Person explicitly
+
+In a conversation with more than two participant Workspaces, the daemon starts
+a Chief of Staff Run only when its Person is named or asked. Named means the
+message has `@` followed by the Person's name or Workspace name. The existing
+Channel mention rule ignores case, requires a name boundary and excludes an
+email address. A bare name does not address a Person. The composer offers the
+participants' names in this syntax.
+
+Asked means the message replies to a stored message from that Workspace's
+Person or Agent. The parent reference must name a message in the same
+conversation. The conversation timeline and model history include replies.
+The reference addresses the author of that message, not every author in its
+Thread. A reply from an Agent does not itself ask its recipients to answer.
+An Agent must name a Person to start another Chief of Staff Run. A recipient's
+Agent reply keeps the parent reference to the request. That reply addresses
+the asking Agent through the Delegation origin and returns to its own Channel
+or Thread.
+
+Client activity, Delegate everything, For the person only and the Delegation
+hop cap apply after this check. A conversation between two Workspaces needs
+no mention or reply reference.
 
 ### A Disclosure Rule decides what the Chief of Staff can reveal
 
@@ -146,4 +170,4 @@ client input. It stores no copy of this state (ADR-0042).
 - Each participant reads one conversation and one history.
 - Each reply shows its Person or Agent author.
 - Client activity and Notifications use one rule.
-- A group message starts no Run.
+- A group message starts a Run only for a Person who is named or asked.

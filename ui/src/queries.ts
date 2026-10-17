@@ -666,14 +666,14 @@ export function useSendConversationMessage(
   const queryClient = useQueryClient();
   const pending = usePendingSends();
   return useMutation({
-    mutationFn: ({ pendingId, text, forPersonOnly = false }: { pendingId: string; text: string; forPersonOnly?: boolean }) =>
+    mutationFn: ({ pendingId, text, forPersonOnly = false, parentMessageId }: { pendingId: string; text: string; forPersonOnly?: boolean; parentMessageId?: string }) =>
       unwrap(
         api.POST("/api/v1/conversations/{conversation_id}/messages", {
           params: { path: { conversation_id: conversationId } },
-          body: { text, pending_id: pendingId, for_person_only: forPersonOnly },
+          body: { text, pending_id: pendingId, for_person_only: forPersonOnly, parent_message_id: parentMessageId },
         }),
       ),
-    onMutate: ({ pendingId, text, forPersonOnly = false }) => {
+    onMutate: ({ pendingId, text, forPersonOnly = false, parentMessageId }) => {
       const existing = usePendingSends
         .getState()
         .byScope[conversationId]?.some((send) => send.pending_id === pendingId);
@@ -682,6 +682,7 @@ export function useSendConversationMessage(
       } else {
         pending.add(conversationId, {
           for_person_only: forPersonOnly,
+          parent_message_id: parentMessageId,
           pending_id: pendingId,
           text,
           created_at: Date.now(),

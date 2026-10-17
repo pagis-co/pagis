@@ -156,6 +156,49 @@ async fn model_embedder(model: &Arc<Model>) -> Embedder {
     e
 }
 
+async fn chief_of_staff(e: &Embedder, workspace: &WorkspaceId, name: &str) -> Agent {
+    let agent = e.agent(workspace, name).await;
+    let channel = Channel {
+        id: ChannelId::generate(),
+        workspace_id: workspace.clone(),
+        kind: ChannelKind::Dm,
+        title: None,
+        created_at: now_ms(),
+        updated_at: now_ms(),
+    };
+    e.stores.channels.create(&channel).await.unwrap();
+    let person = e
+        .stores
+        .workspaces
+        .get(workspace)
+        .await
+        .unwrap()
+        .unwrap()
+        .user_id;
+    for kind in [ParticipantKind::Person, ParticipantKind::Agent] {
+        e.stores
+            .participants
+            .create(&ChannelParticipant {
+                id: ParticipantId::generate(),
+                workspace_id: workspace.clone(),
+                channel_id: channel.id.clone(),
+                kind,
+                person_id: (kind == ParticipantKind::Person).then(|| person.clone().unwrap()),
+                agent_id: (kind == ParticipantKind::Agent).then(|| agent.id.clone()),
+                participant_workspace_id: None,
+                joined_at: now_ms(),
+            })
+            .await
+            .unwrap();
+    }
+    e.stores
+        .workspaces
+        .set_chief_of_staff(workspace, Some(&agent.id))
+        .await
+        .unwrap();
+    agent
+}
+
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
 #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
 async fn channels_messages_and_threads_stay_in_the_session_workspace() {
@@ -1589,6 +1632,929 @@ async fn absent_live_call_control_answers_as_a_call_that_is_not_live() {
         serde_json::from_str::<Value>(&frame).unwrap()["code"],
         "not_found"
     );
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+async fn workspace_conversation_replies_check_the_parent_and_page_the_complete_history() {
+    let e = Embedder::new().await;
+    let conversation = json_response(
+        &e,
+        "POST",
+        "/api/v1/conversations",
+        json!({"workspace_ids":[e.other_workspace]}),
+        &e.cookie,
+        StatusCode::OK,
+    )
+    .await;
+    let path = format!(
+        "/api/v1/conversations/{}/messages",
+        conversation["id"].as_str().unwrap()
+    );
+    let root = json_response(
+        &e,
+        "POST",
+        &path,
+        json!({
+            "pending_id":"root",
+            "text":"A question",
+        }),
+        &e.other_cookie,
+        StatusCode::CREATED,
+    )
+    .await;
+    let reply = json_response(
+        &e,
+        "POST",
+        &path,
+        json!({
+            "pending_id":"reply",
+            "text":"Please explain",
+            "parent_message_id":root["id"],
+        }),
+        &e.cookie,
+        StatusCode::CREATED,
+    )
+    .await;
+    assert_eq!(reply["parent_message_id"], root["id"]);
+    let page = read(&e, &format!("{path}?limit=1")).await;
+    assert_eq!(page["items"][0]["id"], reply["id"]);
+    let older = read(
+        &e,
+        &format!(
+            "{path}?limit=1&before={}",
+            page["next_cursor"].as_str().unwrap()
+        ),
+    )
+    .await;
+    assert_eq!(older["items"][0]["id"], root["id"]);
+    assert!(older["next_cursor"].is_null());
+    assert_eq!(
+        read(&e, "/api/v1/conversations").await["items"][0]["last_message"]["id"],
+        reply["id"]
+    );
+    let missing = request(
+        &e,
+        "POST",
+        &path,
+        json!({
+            "pending_id":"missing",
+            "text":"Question",
+            "parent_message_id":MessageId::generate(),
+        }),
+        &e.cookie,
+    )
+    .await;
+    assert_eq!(missing.0, StatusCode::UNPROCESSABLE_ENTITY);
+    let channel = Channel {
+        id: ChannelId::generate(),
+        workspace_id: e.workspace.clone(),
+        kind: ChannelKind::Dm,
+        title: None,
+        created_at: now_ms(),
+        updated_at: now_ms(),
+    };
+    e.routers.state.channels.create(&channel).await.unwrap();
+    let private = Message {
+        id: MessageId::generate(),
+        workspace_id: e.workspace.clone(),
+        channel_id: channel.id,
+        parent_message_id: None,
+        author: Author::System,
+        author_workspace_id: None,
+        for_person_only: false,
+        run_id: None,
+        status: MessageStatus::Complete,
+        blocks: vec![Block::markdown("Private")],
+        text_content: "Private".into(),
+        pending_id: None,
+        created_at: now_ms(),
+        completed_at: Some(now_ms()),
+    };
+    e.routers.state.messages.insert(&private).await.unwrap();
+    let wrong = request(
+        &e,
+        "POST",
+        &path,
+        json!({
+            "pending_id":"wrong",
+            "text":"Question",
+            "parent_message_id":private.id,
+        }),
+        &e.cookie,
+    )
+    .await;
+    assert_eq!(wrong.0, StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+async fn group_conversation_keeps_activity_delegation_and_person_only_rules() {
+    let model = Arc::new(Model::default());
+    let e = model_embedder(&model).await;
+    let recipient = e
+        .stores
+        .workspaces
+        .get(&e.other_workspace)
+        .await
+        .unwrap()
+        .unwrap();
+    let person = e
+        .stores
+        .users
+        .get(recipient.user_id.as_ref().unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    e.stores
+        .users
+        .set_name(&person.id, "Alex", now_ms())
+        .await
+        .unwrap();
+    let mut alias = e
+        .stores
+        .model_aliases
+        .list(&e.workspace)
+        .await
+        .unwrap()
+        .remove(0);
+    alias.id = ModelAliasId::generate();
+    alias.workspace_id = recipient.id.clone();
+    e.stores.model_aliases.create(&alias).await.unwrap();
+    for cookie in [&e.cookie, &e.other_cookie] {
+        let agent = json_response(
+            &e,
+            "POST",
+            "/api/v1/agents",
+            json!({
+                "name":"Helper",
+                "job":"Assistant",
+            }),
+            cookie,
+            StatusCode::CREATED,
+        )
+        .await;
+        json_response(
+            &e,
+            "PUT",
+            "/api/v1/workspace/chief-of-staff",
+            json!({"agent_id":agent["id"]}),
+            cookie,
+            StatusCode::OK,
+        )
+        .await;
+    }
+    let third_person = User::new(person.org_id.clone(), UserRole::Member, now_ms());
+    e.stores.users.create(&third_person).await.unwrap();
+    let third = Workspace {
+        id: WorkspaceId::generate(),
+        user_id: Some(third_person.id),
+        chief_of_staff_agent_id: None,
+        ..recipient.clone()
+    };
+    e.stores.workspaces.create(&third).await.unwrap();
+    let conversation = json_response(
+        &e,
+        "POST",
+        "/api/v1/conversations",
+        json!({"workspace_ids":[recipient.id,third.id]}),
+        &e.cookie,
+        StatusCode::OK,
+    )
+    .await;
+    let path = format!(
+        "/api/v1/conversations/{}/messages",
+        conversation["id"].as_str().unwrap()
+    );
+    e.routers
+        .state
+        .person_activity
+        .record(&person.id, e.routers.state.clock.now_ms());
+    json_response(
+        &e,
+        "POST",
+        &path,
+        json!({
+            "pending_id":"active",
+            "text":"@Alex, question",
+        }),
+        &e.cookie,
+        StatusCode::CREATED,
+    )
+    .await;
+    pagis_rt::sleep(Duration::from_millis(100)).await;
+    assert!(model.requests.lock().unwrap().is_empty());
+    e.stores
+        .workspaces
+        .set_delegate_everything(&recipient.id, true)
+        .await
+        .unwrap();
+    json_response(
+        &e,
+        "POST",
+        &path,
+        json!({
+            "pending_id":"unnamed",
+            "text":"Anyone?",
+        }),
+        &e.cookie,
+        StatusCode::CREATED,
+    )
+    .await;
+    pagis_rt::sleep(Duration::from_millis(100)).await;
+    assert!(model.requests.lock().unwrap().is_empty());
+    model.reply("Private context note.");
+    json_response(
+        &e,
+        "POST",
+        &path,
+        json!({
+            "pending_id":"private",
+            "text":"@Alex, review",
+            "for_person_only":true,
+        }),
+        &e.cookie,
+        StatusCode::CREATED,
+    )
+    .await;
+    pagis_rt::timeout(Duration::from_secs(5), async {
+        loop {
+            let runs = e.stores.runs.list_unfinished().await.unwrap();
+            if !model.requests.lock().unwrap().is_empty() && runs.is_empty() {
+                break;
+            }
+            pagis_rt::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(read(&e, &path).await["items"].as_array().unwrap().len(), 3);
+    model.reply("Shared answer.");
+    json_response(
+        &e,
+        "POST",
+        &path,
+        json!({
+            "pending_id":"shared",
+            "text":"@Alex, answer",
+        }),
+        &e.cookie,
+        StatusCode::CREATED,
+    )
+    .await;
+    pagis_rt::timeout(Duration::from_secs(5), async {
+        loop {
+            if read(&e, &path).await.to_string().contains("Shared answer.") {
+                break;
+            }
+            pagis_rt::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    pagis_rt::sleep(Duration::from_millis(100)).await;
+    assert_eq!(read(&e, &path).await["items"].as_array().unwrap().len(), 5);
+    assert!(
+        e.stores
+            .runs
+            .list(&e.workspace, None, None, &[], None, 100)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    let page = read(&e, &path).await;
+    let answer = page["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|message| message["text_content"] == "Shared answer.")
+        .unwrap();
+    model.reply("More detail.");
+    json_response(
+        &e,
+        "POST",
+        &path,
+        json!({
+            "pending_id": "explain",
+            "text": "Please explain.",
+            "parent_message_id": answer["id"],
+        }),
+        &e.cookie,
+        StatusCode::CREATED,
+    )
+    .await;
+    pagis_rt::timeout(Duration::from_secs(5), async {
+        loop {
+            if read(&e, &path).await.to_string().contains("More detail.") {
+                break;
+            }
+            pagis_rt::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert!(
+        model
+            .requests
+            .lock()
+            .unwrap()
+            .last()
+            .unwrap()
+            .messages
+            .iter()
+            .any(|message| message.text.contains("Please explain."))
+    );
+    pagis_rt::sleep(Duration::from_millis(100)).await;
+    assert!(
+        e.stores
+            .runs
+            .list(&e.workspace, None, None, &[], None, 100)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+async fn group_conversation_five_workspaces_start_only_the_named_chief_of_staff() {
+    let model = Arc::new(Model::default());
+    let e = model_embedder(&model).await;
+    let template = e
+        .stores
+        .workspaces
+        .get(&e.other_workspace)
+        .await
+        .unwrap()
+        .unwrap();
+    let owner = e
+        .stores
+        .users
+        .get(template.user_id.as_ref().unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    let alias = e
+        .stores
+        .model_aliases
+        .list(&e.workspace)
+        .await
+        .unwrap()
+        .remove(0);
+    chief_of_staff(&e, &e.workspace, "Sender helper").await;
+    let mut recipients = Vec::new();
+    for name in ["Alex", "Blair", "Casey", "Drew"] {
+        let person = User {
+            name: Some(name.into()),
+            ..User::new(owner.org_id.clone(), UserRole::Member, now_ms())
+        };
+        e.stores.users.create(&person).await.unwrap();
+        let workspace = Workspace {
+            id: WorkspaceId::generate(),
+            user_id: Some(person.id),
+            chief_of_staff_agent_id: None,
+            ..template.clone()
+        };
+        e.stores.workspaces.create(&workspace).await.unwrap();
+        let agent = chief_of_staff(&e, &workspace.id, &format!("{name} helper")).await;
+        e.stores
+            .workspaces
+            .set_chief_of_staff(&workspace.id, Some(&agent.id))
+            .await
+            .unwrap();
+        e.stores
+            .model_aliases
+            .create(&ModelAlias {
+                id: ModelAliasId::generate(),
+                workspace_id: workspace.id.clone(),
+                ..alias.clone()
+            })
+            .await
+            .unwrap();
+        recipients.push(workspace.id);
+    }
+    let conversation = json_response(
+        &e,
+        "POST",
+        "/api/v1/conversations",
+        json!({
+            "workspace_ids": recipients,
+        }),
+        &e.cookie,
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(conversation["participants"].as_array().unwrap().len(), 5);
+    let path = format!(
+        "/api/v1/conversations/{}/messages",
+        conversation["id"].as_str().unwrap()
+    );
+    json_response(
+        &e,
+        "POST",
+        &path,
+        json!({
+            "pending_id": "unnamed",
+            "text": "Does anyone know?",
+        }),
+        &e.cookie,
+        StatusCode::CREATED,
+    )
+    .await;
+    pagis_rt::sleep(Duration::from_millis(100)).await;
+    for workspace in &recipients {
+        assert!(
+            e.stores
+                .runs
+                .list(workspace, None, None, &[], None, 100)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
+    assert!(model.requests.lock().unwrap().is_empty());
+    model.reply("One answer.");
+    json_response(
+        &e,
+        "POST",
+        &path,
+        json!({
+            "pending_id": "named",
+            "text": "@Alex, can you help?",
+        }),
+        &e.cookie,
+        StatusCode::CREATED,
+    )
+    .await;
+    pagis_rt::timeout(Duration::from_secs(5), async {
+        loop {
+            if read(&e, &path).await.to_string().contains("One answer.") {
+                break;
+            }
+            pagis_rt::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    pagis_rt::sleep(Duration::from_millis(100)).await;
+    for (index, workspace) in recipients.iter().enumerate() {
+        let runs = e
+            .stores
+            .runs
+            .list(workspace, None, None, &[], None, 100)
+            .await
+            .unwrap();
+        assert_eq!(runs.len(), usize::from(index == 0));
+    }
+    assert!(
+        e.stores
+            .runs
+            .list(&e.workspace, None, None, &[], None, 100)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    let page = read(&e, &path).await;
+    assert_eq!(
+        page["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|m| m["author"]["kind"] == "agent")
+            .count(),
+        1
+    );
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+async fn group_colleague_request_addresses_recipients_and_a_person_reply_returns_home() {
+    let model = Arc::new(Model::default());
+    let e = model_embedder(&model).await;
+    let workspace = e
+        .stores
+        .workspaces
+        .get(&e.workspace)
+        .await
+        .unwrap()
+        .unwrap();
+    let owner = e
+        .stores
+        .users
+        .get(workspace.user_id.as_ref().unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    e.stores
+        .users
+        .set_name(
+            e.stores
+                .workspaces
+                .get(&e.other_workspace)
+                .await
+                .unwrap()
+                .unwrap()
+                .user_id
+                .as_ref()
+                .unwrap(),
+            "Alice",
+            now_ms(),
+        )
+        .await
+        .unwrap();
+    let carol = User {
+        name: Some("Carol".into()),
+        ..User::new(owner.org_id, UserRole::Member, now_ms())
+    };
+    e.stores.users.create(&carol).await.unwrap();
+    let third = Workspace {
+        id: WorkspaceId::generate(),
+        user_id: Some(carol.id),
+        chief_of_staff_agent_id: None,
+        ..workspace.clone()
+    };
+    e.stores.workspaces.create(&third).await.unwrap();
+    let agent = chief_of_staff(&e, &e.workspace, "Asking Agent").await;
+    e.stores
+        .workspaces
+        .set_chief_of_staff(&e.workspace, Some(&agent.id))
+        .await
+        .unwrap();
+    e.stores
+        .grants
+        .create(&Grant {
+            id: GrantId::generate(),
+            workspace_id: e.workspace.clone(),
+            agent_id: agent.id.clone(),
+            resource_kind: Grant::COLLEAGUES_KIND.into(),
+            resource_id: None,
+            scope: Grant::allow_scope(&[e.other_workspace.to_string(), third.id.to_string()]),
+            revision: 1,
+            created_by: Author::Person(workspace.user_id.clone().unwrap()),
+            created_at: now_ms(),
+            revoked_at: None,
+        })
+        .await
+        .unwrap();
+    let dm = e
+        .stores
+        .channels
+        .find_user_dm(&e.workspace, &agent.id)
+        .await
+        .unwrap()
+        .unwrap();
+    model.tool(
+        "message_colleagues",
+        json!({
+            "workspace_ids": [e.other_workspace, third.id],
+            "text": "Can you attend?",
+        }),
+    );
+    model.reply("I asked.");
+    post(&e, dm.id.as_str(), "ask", "Ask Alice and Carol.", None).await;
+    pagis_rt::timeout(Duration::from_secs(5), async {
+        loop {
+            if e.stores
+                .runs
+                .list(&e.workspace, None, None, &[], None, 100)
+                .await
+                .unwrap()
+                .iter()
+                .any(|run| run.state == RunState::Completed)
+            {
+                break;
+            }
+            pagis_rt::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let conversations = read(&e, "/api/v1/conversations").await;
+    let conversation = &conversations["items"][0];
+    assert_eq!(conversation["participants"].as_array().unwrap().len(), 3);
+    let path = format!(
+        "/api/v1/conversations/{}/messages",
+        conversation["id"].as_str().unwrap()
+    );
+    let page = read(&e, &path).await;
+    let message = &page["items"][0];
+    assert_eq!(message["text_content"], "@Alice @Carol\n\nCan you attend?");
+    e.routers.state.person_activity.record(
+        workspace.user_id.as_ref().unwrap(),
+        e.routers.state.clock.now_ms(),
+    );
+    json_response(
+        &e,
+        "POST",
+        &path,
+        json!({
+            "pending_id": "not-addressed",
+            "text": "An unrelated message.",
+        }),
+        &e.other_cookie,
+        StatusCode::CREATED,
+    )
+    .await;
+    pagis_rt::sleep(Duration::from_millis(100)).await;
+    assert_eq!(
+        e.stores
+            .runs
+            .list(&e.workspace, None, None, &[], None, 100)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    // A later request does not change the Agent named by the parent reference.
+    let second = chief_of_staff(&e, &e.workspace, "Second Agent").await;
+    let second_dm = e
+        .stores
+        .channels
+        .find_user_dm(&e.workspace, &second.id)
+        .await
+        .unwrap()
+        .unwrap();
+    let mut second_run = e
+        .stores
+        .runs
+        .list(&e.workspace, None, None, &[], None, 100)
+        .await
+        .unwrap()
+        .remove(0);
+    second_run.id = RunId::generate();
+    second_run.agent_id = second.id.clone();
+    second_run.channel_id = Some(second_dm.id);
+    e.stores.runs.create(&second_run).await.unwrap();
+    let source = e
+        .stores
+        .messages
+        .get(
+            &e.routers.state.org_workspace_id,
+            &MessageId::from(message["id"].as_str().unwrap().to_string()),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    e.stores
+        .messages
+        .insert_stamped(
+            &Message {
+                id: MessageId::generate(),
+                author: Author::Agent(second.id),
+                run_id: Some(second_run.id),
+                text_content: "Another request.".into(),
+                blocks: vec![Block::markdown("Another request.")],
+                pending_id: None,
+                ..source
+            },
+            &[],
+        )
+        .await
+        .unwrap();
+    model.reply("Alice can attend.");
+    json_response(
+        &e,
+        "POST",
+        &path,
+        json!({
+            "pending_id": "answer",
+            "text": "I can attend.",
+            "parent_message_id": message["id"],
+        }),
+        &e.other_cookie,
+        StatusCode::CREATED,
+    )
+    .await;
+    pagis_rt::timeout(Duration::from_secs(5), async {
+        loop {
+            let history = e
+                .stores
+                .messages
+                .list_channel(&e.workspace, &dm.id, None, 100)
+                .await
+                .unwrap();
+            if history
+                .iter()
+                .any(|message| message.text_content == "Alice can attend.")
+            {
+                break;
+            }
+            pagis_rt::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(read(&e, &path).await["items"].as_array().unwrap().len(), 4);
+    assert!(
+        model
+            .requests
+            .lock()
+            .unwrap()
+            .last()
+            .unwrap()
+            .messages
+            .iter()
+            .any(|message| message.text.contains("I can attend."))
+    );
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+async fn group_colleague_request_wakes_two_away_chiefs_and_the_active_asking_agent() {
+    #[derive(Default)]
+    struct PeopleModels(std::sync::Mutex<std::collections::HashMap<UserId, Arc<Model>>>);
+
+    #[async_trait::async_trait]
+    impl pagis_agent::Brain for PeopleModels {
+        async fn turn(
+            &self,
+            request: pagis_agent::TurnRequest,
+        ) -> Result<pagis_agent::TurnStream, pagis_agent::BrainError> {
+            let Some(pagis_agent::ModelCaller::Person(person)) = &request.caller else {
+                panic!("a conversation Run names its Person");
+            };
+            let model = self.0.lock().unwrap().get(person).unwrap().clone();
+            pagis_agent::Brain::turn(model.as_ref(), request).await
+        }
+    }
+
+    let models = Arc::new(PeopleModels::default());
+    let sender = Arc::new(Model::default());
+    let alice_model = Arc::new(Model::default());
+    let carol_model = Arc::new(Model::default());
+    let e = Embedder::with_model(models.clone(), sender.clone(), sender.clone()).await;
+    let workspace = e
+        .stores
+        .workspaces
+        .get(&e.workspace)
+        .await
+        .unwrap()
+        .unwrap();
+    let owner = e
+        .stores
+        .users
+        .get(workspace.user_id.as_ref().unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    let alice = e
+        .stores
+        .workspaces
+        .get(&e.other_workspace)
+        .await
+        .unwrap()
+        .unwrap();
+    e.stores
+        .users
+        .set_name(alice.user_id.as_ref().unwrap(), "Alice", now_ms())
+        .await
+        .unwrap();
+    let carol = User {
+        name: Some("Carol".into()),
+        ..User::new(owner.org_id, UserRole::Member, now_ms())
+    };
+    e.stores.users.create(&carol).await.unwrap();
+    let third = Workspace {
+        id: WorkspaceId::generate(),
+        user_id: Some(carol.id),
+        chief_of_staff_agent_id: None,
+        ..workspace.clone()
+    };
+    e.stores.workspaces.create(&third).await.unwrap();
+    let mut agents = Vec::new();
+    for (workspace, name, model) in [
+        (&workspace, "Asking Agent", &sender),
+        (&alice, "Alice helper", &alice_model),
+        (&third, "Carol helper", &carol_model),
+    ] {
+        models
+            .0
+            .lock()
+            .unwrap()
+            .insert(workspace.user_id.clone().unwrap(), model.clone());
+        agents.push(chief_of_staff(&e, &workspace.id, name).await);
+        e.stores
+            .model_aliases
+            .create(&ModelAlias {
+                id: ModelAliasId::generate(),
+                workspace_id: workspace.id.clone(),
+                alias: "default".into(),
+                candidates: vec!["anthropic/claude-sonnet-4-6".into()],
+                created_at: now_ms(),
+                updated_at: now_ms(),
+            })
+            .await
+            .unwrap();
+    }
+    let agent = &agents[0];
+    e.stores
+        .grants
+        .create(&Grant {
+            id: GrantId::generate(),
+            workspace_id: e.workspace.clone(),
+            agent_id: agent.id.clone(),
+            resource_kind: Grant::COLLEAGUES_KIND.into(),
+            resource_id: None,
+            scope: Grant::allow_scope(&[alice.id.to_string(), third.id.to_string()]),
+            revision: 1,
+            created_by: Author::Person(workspace.user_id.clone().unwrap()),
+            created_at: now_ms(),
+            revoked_at: None,
+        })
+        .await
+        .unwrap();
+    sender.tool(
+        "message_colleagues",
+        json!({
+            "workspace_ids": [alice.id, third.id],
+            "text": "Can you attend?",
+        }),
+    );
+    sender.reply("I asked.");
+    sender.reply("A colleague answered.");
+    sender.reply("Both colleagues answered.");
+    alice_model.reply("Alice can attend.");
+    carol_model.tool(
+        "calendar_free_busy",
+        json!({
+            "from": "2026-10-16T00:00:00Z",
+            "to": "2026-10-17T00:00:00Z",
+        }),
+    );
+    carol_model.reply("Carol is free.");
+    e.routers.state.person_activity.record(
+        workspace.user_id.as_ref().unwrap(),
+        e.routers.state.clock.now_ms(),
+    );
+    let dm = e
+        .stores
+        .channels
+        .find_user_dm(&e.workspace, &agent.id)
+        .await
+        .unwrap()
+        .unwrap();
+    post(
+        &e,
+        dm.id.as_str(),
+        "ask-group",
+        "Ask Alice and Carol.",
+        None,
+    )
+    .await;
+    pagis_rt::timeout(Duration::from_secs(5), async {
+        loop {
+            let messages = e
+                .stores
+                .messages
+                .list_channel(&e.workspace, &dm.id, None, 100)
+                .await
+                .unwrap();
+            if messages
+                .iter()
+                .any(|message| message.text_content == "Both colleagues answered.")
+            {
+                break;
+            }
+            pagis_rt::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    pagis_rt::sleep(Duration::from_millis(100)).await;
+    let conversations = read(&e, "/api/v1/conversations").await;
+    assert_eq!(conversations["items"].as_array().unwrap().len(), 1);
+    let conversation = &conversations["items"][0];
+    let path = format!(
+        "/api/v1/conversations/{}/messages",
+        conversation["id"].as_str().unwrap()
+    );
+    let page = read(&e, &path).await;
+    assert_eq!(page["items"].as_array().unwrap().len(), 3);
+    assert!(page.to_string().contains("Alice can attend."));
+    assert!(page.to_string().contains("Carol is free."));
+    let period = UsagePeriod {
+        from: 0,
+        to: i64::MAX,
+    };
+    for (workspace, runs, calls) in [(&workspace, 3, 4), (&alice, 1, 1), (&third, 1, 2)] {
+        assert_eq!(
+            e.stores
+                .runs
+                .list(&workspace.id, None, None, &[], None, 100)
+                .await
+                .unwrap()
+                .len(),
+            runs
+        );
+        let usage = e
+            .stores
+            .usage
+            .total_for_workspace(&workspace.id, period)
+            .await
+            .unwrap();
+        assert_eq!(usage.input_tokens, calls * 7);
+        assert_eq!(usage.output_tokens, calls * 11);
+    }
 }
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]

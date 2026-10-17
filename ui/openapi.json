@@ -17321,6 +17321,12 @@
           "for_person_only": {
             "type": "boolean"
           },
+          "parent_message_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "pending_id": {
             "type": "string"
           },

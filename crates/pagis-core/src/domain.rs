@@ -706,7 +706,7 @@ impl std::str::FromStr for AgentStatus {
 /// The channel's trigger contract: every user message in a DM
 /// triggers its agent; a group channel triggers only on an @-mention,
 /// plus the thread re-mention rule. A conversation between Workspaces
-/// starts no Run.
+/// uses Chief of Staff delivery, with named or asked Persons in a group.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ChannelKind {

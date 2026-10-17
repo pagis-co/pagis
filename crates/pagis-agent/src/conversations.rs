@@ -1,7 +1,7 @@
 //! Chief of Staff delivery for a conversation between Workspaces.
 use pagis_core::{
-    AgentStatus, ChannelId, MessageId, NewEvent, Run, RunId, RunState, StoreError, TriggerKind,
-    WorkspaceId,
+    AgentStatus, Author, ChannelId, Message, MessageId, NewEvent, Run, RunId, RunState, StoreError,
+    TriggerKind, UserId, WorkspaceId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -31,10 +31,29 @@ impl ConversationDelivery {
     }
 }
 
+/// A group message addresses a Person by @name or by a reply to their Workspace.
+fn is_addressed(
+    text: &str,
+    person_name: &str,
+    workspace_name: &str,
+    workspace_id: &WorkspaceId,
+    person_id: &UserId,
+    reply: Option<&Message>,
+) -> bool {
+    crate::mention::is_mentioned(text, person_name)
+        || crate::mention::is_mentioned(text, workspace_name)
+        || reply.is_some_and(|message| match &message.author {
+            Author::Person(id) => id == person_id,
+            Author::Agent(_) => message.author_workspace_id.as_ref() == Some(workspace_id),
+            Author::System => false,
+        })
+}
+
 impl AgentSystem {
-    /// A Person's answer has no Run. The last message from the asking
-    /// Workspace supplies its request. A Person's own message ends that
-    /// delegation, and an Agent's final shared reply is not a new request.
+    /// A Person's answer has no Run. Its parent reference selects the request.
+    /// An answer without a parent uses the last request from the asking Workspace.
+    /// A Person's own message ends that Delegation. An Agent's final shared reply
+    /// is not a new request.
     async fn last_agent_request(
         &self,
         answer: &pagis_core::Message,
@@ -46,16 +65,22 @@ impl AgentSystem {
             let page = self
                 .deps
                 .messages
-                .list_top_level(&answer.workspace_id, &answer.channel_id, Some(&before), 64)
+                .list_channel(&answer.workspace_id, &answer.channel_id, Some(&before), 64)
                 .await?;
             let Some(last) = page.last() else {
                 return Ok(None);
             };
-            before = last.message.id.clone();
-            for entry in page {
-                let message = entry.message;
+            before = last.id.clone();
+            for message in page {
                 if message.author.person_id() == Some(person) {
                     return Ok(None);
+                }
+                if answer
+                    .parent_message_id
+                    .as_ref()
+                    .is_some_and(|parent| parent != &message.id)
+                {
+                    continue;
                 }
                 if message.author_workspace_id.as_ref() != Some(workspace) {
                     continue;
@@ -119,11 +144,9 @@ impl AgentSystem {
             .participants
             .list_for_channel(&source, &message.channel_id)
             .await?;
-        // Group answer rules are separate. Delivery applies to two Workspaces.
-        if participants.len() != 2
-            || !participants
-                .iter()
-                .any(|p| p.participant_workspace_id.as_ref() == Some(&event.workspace_id))
+        if !participants
+            .iter()
+            .any(|p| p.participant_workspace_id.as_ref() == Some(&event.workspace_id))
         {
             return Ok(());
         }
@@ -140,9 +163,6 @@ impl AgentSystem {
             None
         };
         let (hop_count, origin) = chain_of(&self.deps, request.as_ref().unwrap_or(&message)).await;
-        if hop_count > self.deps.config.max_hops {
-            return Ok(());
-        }
         // A delegated answer wakes the Agent that asked, even while its Person is active.
         let returning_agent = if let Some(origin) = &origin {
             self.deps
@@ -153,6 +173,40 @@ impl AgentSystem {
         } else {
             None
         };
+        let Some(user) = self.deps.users.get(&person).await? else {
+            return Ok(());
+        };
+        if user.is_disabled() {
+            return Ok(());
+        }
+        let workspace_count = participants
+            .iter()
+            .filter_map(|p| p.participant_workspace_id.as_ref())
+            .collect::<std::collections::HashSet<_>>()
+            .len();
+        if workspace_count > 2 {
+            let reply = match &message.parent_message_id {
+                Some(id) => self.deps.messages.get(&source, id).await?,
+                None => None,
+            };
+            let reply = reply
+                .as_ref()
+                .filter(|m| m.channel_id == message.channel_id)
+                .filter(|_| message.author.person_id().is_some() || returning_agent.is_some());
+            if !is_addressed(
+                &message.text_content,
+                user.name.as_deref().or(user.email.as_deref()).unwrap_or(""),
+                &workspace.name,
+                &workspace.id,
+                &person,
+                reply,
+            ) {
+                return Ok(());
+            }
+        }
+        if hop_count > self.deps.config.max_hops {
+            return Ok(());
+        }
         if returning_agent.is_none()
             && !workspace.delegate_everything
             && self
@@ -160,15 +214,6 @@ impl AgentSystem {
                 .person_activity
                 .hold_until(&person, self.deps.clock.now_ms())
                 .is_some()
-        {
-            return Ok(());
-        }
-        if self
-            .deps
-            .users
-            .get(&person)
-            .await?
-            .is_none_or(|person| person.is_disabled())
         {
             return Ok(());
         }
@@ -220,12 +265,71 @@ impl AgentSystem {
             dismissed_at: None,
         };
         self.deps.runs.create(&run).await?;
-        self.deps.bus.publish(NewEvent {
-            workspace_id: run.workspace_id.clone(), event_type: "run.created".into(), agent_id: Some(run.agent_id.clone()),
-            run_id: Some(run.id.clone()), channel_id: run.channel_id.clone(),
-            payload: serde_json::json!({"trigger_kind":run.trigger_kind,"trigger_ref":run.trigger_ref}),
-        }).await?;
+        self.deps
+            .bus
+            .publish(NewEvent {
+                workspace_id: run.workspace_id.clone(),
+                event_type: "run.created".into(),
+                agent_id: Some(run.agent_id.clone()),
+                run_id: Some(run.id.clone()),
+                channel_id: run.channel_id.clone(),
+                payload: serde_json::json!({
+                    "trigger_kind": run.trigger_kind,
+                    "trigger_ref": run.trigger_ref,
+                }),
+            })
+            .await?;
         self.enqueue_proactive(run);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pagis_core::{Author, Message, UserId};
+
+    fn message(author: Author, author_workspace: Option<&str>) -> Message {
+        serde_json::from_value(serde_json::json!({
+            "id":"message",
+            "workspace_id":"org",
+            "channel_id":"conversation",
+            "author":author,
+            "author_workspace_id":author_workspace,
+            "status":"complete",
+            "blocks":[],
+            "text_content":"",
+            "created_at":0,
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn group_conversation_addressing_uses_mentions_or_the_reply_author() {
+        let workspace = WorkspaceId::from("recipient".to_string());
+        let person = UserId::from("person".to_string());
+        let person_message = message(Author::Person(person.clone()), None);
+        let agent_message = message(Author::Agent("agent".to_string().into()), Some("recipient"));
+        let other_message = message(Author::Person("other".to_string().into()), None);
+        let other_agent = message(Author::Agent("agent".to_string().into()), Some("other"));
+        for (text, reply, expected) in [
+            ("@Alex please", None, true),
+            ("@Research Office?", None, true),
+            ("@alex, status?", None, true),
+            ("Alex please", None, false),
+            ("user@Alex.example", None, false),
+            ("@Alexander", None, false),
+            ("Anyone?", None, false),
+            ("Please explain", Some(&person_message), true),
+            ("Please explain", Some(&agent_message), true),
+            ("Please explain", Some(&other_message), false),
+            ("Please explain", Some(&other_agent), false),
+        ] {
+            assert_eq!(
+                is_addressed(text, "Alex", "Research Office", &workspace, &person, reply),
+                expected,
+                "{text}"
+            );
+        }
     }
 }

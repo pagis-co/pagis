@@ -14,6 +14,7 @@ export type SendState = 'sent' | 'pending' | 'failed'
 
 /** One local optimistic send: `pending` until the daemon confirms. */
 export interface PendingSend {
+  parent_message_id?: string
   for_person_only?: boolean
   pending_id: string
   text: string
