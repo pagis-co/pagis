@@ -23,7 +23,7 @@ pub use needs_you::{
 };
 pub use notification_rule::{Action, HeldItem, NotificationRule};
 pub use notifications::{Notifications, QueuedItem, options, payload, test_options, test_payload};
-pub use person_activity::{HOLD, PersonActivity, hold_until};
+pub use person_activity::{HOLD, PersonActivity, PersonActivityReader, hold_until};
 pub use queue_changes::{QueueChanges, QueueReader};
 pub use sender::NotificationSender;
 pub use vapid::{VAPID_KEY_SECRET, vapid_key};

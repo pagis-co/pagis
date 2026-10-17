@@ -88,7 +88,7 @@ impl Default for AgentLoopConfig {
 pub struct AgentDeps {
     pub mail_assignments: Arc<dyn pagis_core::MailAssignmentStore>,
     pub disclosure: Arc<dyn pagis_core::DisclosureStore>,
-    pub person_activity: Arc<pagis_needs_you::PersonActivity>,
+    pub person_activity: Arc<dyn pagis_needs_you::PersonActivityReader>,
     pub run_journal: Arc<dyn pagis_core::RunJournal>,
     pub forget: Arc<dyn pagis_core::ForgetStore>,
     pub workspaces: Arc<dyn WorkspaceStore>,

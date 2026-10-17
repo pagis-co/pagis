@@ -4,7 +4,7 @@ use std::sync::Arc;
 use futures::StreamExt;
 use pagis_core::*;
 use pagis_mail::{MailboxDesk, MailboxError, WorkspaceMailStore};
-use pagis_needs_you::PersonActivity;
+use pagis_needs_you::PersonActivityReader;
 use pagis_trigger::{NewSubscription, Trigger};
 use tokio_util::sync::CancellationToken;
 
@@ -12,7 +12,7 @@ pub struct MailTriagePoll {
     stores: Stores,
     desk: Arc<MailboxDesk>,
     trigger: Arc<Trigger>,
-    activity: Arc<PersonActivity>,
+    activity: Arc<dyn PersonActivityReader>,
     clock: Arc<dyn Clock>,
     gates: std::sync::Mutex<
         std::collections::HashMap<WorkspaceId, Arc<tokio::sync::Mutex<Option<String>>>>,
@@ -24,7 +24,7 @@ impl MailTriagePoll {
         stores: Stores,
         desk: Arc<MailboxDesk>,
         trigger: Arc<Trigger>,
-        activity: Arc<PersonActivity>,
+        activity: Arc<dyn PersonActivityReader>,
         clock: Arc<dyn Clock>,
     ) -> Self {
         Self {
@@ -34,6 +34,20 @@ impl MailTriagePoll {
             activity,
             clock,
             gates: std::sync::Mutex::new(std::collections::HashMap::new()),
+        }
+    }
+
+    /// The Person used a client recently. A failed read counts as away.
+    async fn person_is_active(&self, person: Option<&UserId>) -> bool {
+        let Some(person) = person else {
+            return false;
+        };
+        match self.activity.hold_until(person, self.clock.now_ms()).await {
+            Ok(hold) => hold.is_some(),
+            Err(error) => {
+                tracing::warn!(%error, "the activity of a Person cannot be read");
+                false
+            }
         }
     }
 
@@ -133,11 +147,7 @@ impl MailTriagePoll {
                 } else if workspace.kind == WorkspaceKind::Private
                     && !workspace.delegate_everything
                     && rule.is_none()
-                    && workspace.user_id.as_ref().is_some_and(|person| {
-                        self.activity
-                            .hold_until(person, self.clock.now_ms())
-                            .is_some()
-                    })
+                    && self.person_is_active(workspace.user_id.as_ref()).await
                 {
                     Some("The Person was active.".into())
                 } else {

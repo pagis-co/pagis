@@ -16897,8 +16897,7 @@
         "required": [
           "person_id",
           "workspace_id",
-          "name",
-          "presence"
+          "name"
         ],
         "properties": {
           "name": {
@@ -16908,8 +16907,11 @@
             "type": "string"
           },
           "presence": {
-            "type": "string",
-            "description": "`in_a_meeting` during a busy Event in the Private Workspace Calendar;\notherwise `active` or `away`, from client input."
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`in_a_meeting` during a busy Event in the Private Workspace Calendar;\notherwise `active` or `away`, from client input. No presence when\nthe activity of the Person cannot be read."
           },
           "workspace_id": {
             "type": "string"

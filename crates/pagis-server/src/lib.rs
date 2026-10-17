@@ -111,7 +111,7 @@ use pagis_core::{
     ParticipantStore, ProviderKeys, RequestStore, RetentionPolicyStore, RunStore, SessionStore,
     SignInLinkStore, SoftwareStore, UserStore, WorkspaceStore,
 };
-use pagis_needs_you::{NeedsYou, Notifications, PersonActivity};
+use pagis_needs_you::{NeedsYou, Notifications, PersonActivity, PersonActivityReader};
 
 pub use administration::{AdministrationSection, AdministrationSections};
 pub use auth::resolve as resolve_session;
@@ -299,6 +299,9 @@ pub struct AppState {
     /// The last client activity of each Person (ADR-0030). A new item
     /// waits while it is recent.
     pub person_activity: Arc<PersonActivity>,
+    /// Reads the activity of each Person for presence. A host can read
+    /// it from where it keeps the rest of the Person's data.
+    pub person_activity_reader: Arc<dyn PersonActivityReader>,
     /// The signal of each Session that holds a live connection. A
     /// sign-out and an Administrator who ends every Session of a Person
     /// fire it, and so does the expiry of the Session, and every socket

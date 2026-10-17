@@ -50,6 +50,23 @@ fn is_addressed(
 }
 
 impl AgentSystem {
+    /// The Person used a client recently. A failed read counts as away,
+    /// so the message goes to the Chief of Staff.
+    async fn person_is_active(&self, person: &UserId) -> bool {
+        match self
+            .deps
+            .person_activity
+            .hold_until(person, self.deps.clock.now_ms())
+            .await
+        {
+            Ok(hold) => hold.is_some(),
+            Err(error) => {
+                tracing::warn!(%error, "the activity of a Person cannot be read");
+                false
+            }
+        }
+    }
+
     /// A Person's answer has no Run. Its parent reference selects the request.
     /// An answer without a parent uses the last request from the asking Workspace.
     /// A Person's own message ends that Delegation. An Agent's final shared reply
@@ -244,12 +261,10 @@ impl AgentSystem {
         if assignment.is_none()
             && returning_agent.is_none()
             && !workspace.delegate_everything
-            && person.as_ref().is_some_and(|person| {
-                self.deps
-                    .person_activity
-                    .hold_until(person, self.deps.clock.now_ms())
-                    .is_some()
-            })
+            && match &person {
+                Some(person) => self.person_is_active(person).await,
+                None => false,
+            }
         {
             return Ok(());
         }

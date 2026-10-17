@@ -2783,3 +2783,115 @@ async fn shared_calendar_member_attendee_reads_answers_and_blocks_time() {
         StatusCode::NOT_FOUND
     );
 }
+
+struct FailingActivity;
+
+#[async_trait::async_trait]
+impl pagis_needs_you::PersonActivityReader for FailingActivity {
+    async fn hold_until(
+        &self,
+        _: &UserId,
+        _: UnixMillis,
+    ) -> Result<Option<UnixMillis>, StoreError> {
+        Err(StoreError::Database("the activity cannot be read".into()))
+    }
+}
+
+async fn failing_activity_embedder(model: &Arc<Model>) -> Embedder {
+    let e = Embedder::with_activity_reader(
+        model.clone(),
+        model.clone(),
+        model.clone(),
+        Arc::new(FailingActivity),
+    )
+    .await;
+    for workspace in [&e.workspace, &e.other_workspace] {
+        e.stores
+            .model_aliases
+            .create(&ModelAlias {
+                id: ModelAliasId::generate(),
+                workspace_id: workspace.clone(),
+                alias: "default".into(),
+                candidates: vec!["anthropic/claude-sonnet-4-6".into()],
+                created_at: 0,
+                updated_at: 0,
+            })
+            .await
+            .unwrap();
+    }
+    e
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+async fn a_colleague_whose_activity_cannot_be_read_has_no_presence() {
+    let model = Arc::new(Model::default());
+    let e = failing_activity_embedder(&model).await;
+    let other = e
+        .stores
+        .workspaces
+        .get(&e.other_workspace)
+        .await
+        .unwrap()
+        .unwrap();
+    e.routers
+        .state
+        .person_activity
+        .record(other.user_id.as_ref().unwrap(), e.clock.now_ms());
+    let colleagues = read(&e, "/api/v1/colleagues").await;
+    assert_eq!(colleagues["items"].as_array().unwrap().len(), 1);
+    assert_eq!(colleagues["items"][0]["presence"], Value::Null);
+}
+
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+#[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+async fn a_message_to_a_person_whose_activity_cannot_be_read_goes_to_the_chief_of_staff() {
+    let model = Arc::new(Model::default());
+    let e = failing_activity_embedder(&model).await;
+    let recipient = e
+        .stores
+        .workspaces
+        .get(&e.other_workspace)
+        .await
+        .unwrap()
+        .unwrap();
+    let person = recipient.user_id.clone().unwrap();
+    chief_of_staff(&e, &recipient.id, "Helper").await;
+    e.routers
+        .state
+        .person_activity
+        .record(&person, e.clock.now_ms());
+    let conversation = json_response(
+        &e,
+        "POST",
+        "/api/v1/conversations",
+        json!({"workspace_ids":[recipient.id]}),
+        &e.cookie,
+        StatusCode::OK,
+    )
+    .await;
+    let path = format!(
+        "/api/v1/conversations/{}/messages",
+        conversation["id"].as_str().unwrap()
+    );
+    model.reply("The Chief of Staff answers.");
+    json_response(
+        &e,
+        "POST",
+        &path,
+        json!({
+            "pending_id":"question",
+            "text":"A question.",
+        }),
+        &e.cookie,
+        StatusCode::CREATED,
+    )
+    .await;
+    pagis_rt::timeout(Duration::from_secs(5), async {
+        while model.requests.lock().unwrap().is_empty() {
+            pagis_rt::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("the Chief of Staff gets the message");
+}

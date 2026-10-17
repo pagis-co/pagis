@@ -353,6 +353,13 @@ a Host (ADR-0015). A `ping` or a query does not count, because a hidden
 tab sends them too. The `last_used_at` of a Session cannot tell this,
 because the daemon moves it at most once an hour.
 
+Colleague presence, Chief of Staff delivery in a conversation and Mail
+Triage read the activity through an async reader. A host can keep the
+activity of each Person with the rest of that Person's data and supply its
+own reader. The daemon supplies the reader of its memory. A failed read
+counts as away: the conversation message goes to the Chief of Staff, and
+the colleague shows no presence.
+
 When 120 s pass with no activity, the daemon sends each held item that is
 still in the queue. The daemon derives the queue again before the send, so
 the Notification carries the item and the count of that time. An activity
